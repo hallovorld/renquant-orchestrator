@@ -472,8 +472,11 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
 # kinds are the allow-list and the default branch is a FINDING, per the repo's
 # standing rule that an enumerated allow-list leaves a fail-open default.
 
-def _lc_row(job):
-    return {"kind": "launchctl_exit_zero", "job": job}
+def _lc_row(job, scope=None):
+    d = {"kind": "launchctl_exit_zero", "job": job}
+    if scope is not None:
+        d["scope"] = scope
+    return d
 
 
 # launchctl list's 3-column shape: <pid> <status> <label>
@@ -483,8 +486,16 @@ FAKE_LAUNCHCTL = ("123\t0\tcom.t.ok\n"
 
 
 def test_launchctl_exit_zero_met_iff_the_status_is_zero():
-    met = A.evaluate_clears_check(_lc_row("com.t.ok"), FAKE_LAUNCHCTL)
-    assert met["condition"] == A.CONDITION_MET and met["finding"] is None
+    """Codex on PR #752: a MET verdict is scope-qualified. An omitted scope
+    defaults to "clause" — the WEAKER claim — so the authoritative CONDITION_MET
+    needs an explicit scope="full" declaration."""
+    clause = A.evaluate_clears_check(_lc_row("com.t.ok"), FAKE_LAUNCHCTL)
+    assert clause["condition"] == A.CONDITION_CLAUSE_MET
+    assert clause["finding"] is None
+    assert "NOT evaluated" in clause["detail"]  # says so out loud
+    full = A.evaluate_clears_check(_lc_row("com.t.ok", scope="full"),
+                                   FAKE_LAUNCHCTL)
+    assert full["condition"] == A.CONDITION_MET and full["finding"] is None
     unmet = A.evaluate_clears_check(_lc_row("com.t.bad"), FAKE_LAUNCHCTL)
     assert unmet["condition"] == A.CONDITION_UNMET
     assert "last exit 1" in unmet["detail"]
@@ -515,11 +526,34 @@ def test_launchctl_UNAVAILABLE_is_UNEVALUABLE_a_distinct_state_not_a_verdict():
 def test_path_exists_is_met_iff_the_path_exists(tmp_path):
     there = tmp_path / "artifact.json"
     there.write_text("{}")
-    met = A.evaluate_clears_check({"kind": "path_exists", "path": str(there)})
+    clause = A.evaluate_clears_check({"kind": "path_exists", "path": str(there)})
+    full = A.evaluate_clears_check({"kind": "path_exists", "path": str(there),
+                                    "scope": "full"})
     gone = A.evaluate_clears_check({"kind": "path_exists",
                                     "path": str(tmp_path / "nope")})
-    assert met["condition"] == A.CONDITION_MET
+    assert clause["condition"] == A.CONDITION_CLAUSE_MET  # default scope=clause
+    assert full["condition"] == A.CONDITION_MET
     assert gone["condition"] == A.CONDITION_UNMET
+
+
+def test_unmet_is_unmet_under_EITHER_scope():
+    """UNMET is deliberately not scope-qualified: one failed clause already
+    falsifies the whole conjunction, so that direction is sound as stated —
+    which is also why EXPIRED_CONDITION_UNMET keeps its problem grade from a
+    clause-scoped check."""
+    for scope in (None, "clause", "full"):
+        r = A.evaluate_clears_check(_lc_row("com.t.bad", scope=scope),
+                                    FAKE_LAUNCHCTL)
+        assert r["condition"] == A.CONDITION_UNMET, scope
+
+
+def test_an_unknown_scope_is_a_FINDING_never_a_silent_pass():
+    """The scope set is closed and fails closed exactly like the kind set."""
+    r = A.evaluate_clears_check(_lc_row("com.t.ok", scope="total"),
+                                FAKE_LAUNCHCTL)
+    assert r["condition"] == A.CONDITION_UNEVALUABLE
+    assert r["finding"] and "unknown clears_check scope" in r["finding"]
+    assert r["condition"] not in (A.CONDITION_MET, A.CONDITION_CLAUSE_MET)
 
 
 def test_manual_reports_MANUAL_and_is_never_a_missing_check_finding():
@@ -566,12 +600,15 @@ def test_no_clears_check_at_all_is_UNDECLARED_its_own_condition():
 
 # ------------------------------- the condition x expiry matrix, end to end ----
 def test_the_condition_x_expiry_matrix_on_synthetic_rows(tmp_path):
-    """Every cell #733 names, produced by one audit run with an injected
-    launchctl snapshot. Today = 2026-07-25: rows acked 07-01 are expired
-    (07-01 + 14d = 07-15), rows acked 07-20 are not (08-03)."""
+    """Every cell #733 names — plus the CLAUSE_MET pair codex asked for on
+    PR #752 — produced by one audit run with an injected launchctl snapshot.
+    Today = 2026-07-25: rows acked 07-01 are expired (07-01 + 14d = 07-15),
+    rows acked 07-20 are not (08-03)."""
     ledger = {
-        "met.live": _ack("2026-07-20", check=_lc_row("com.t.ok")),
-        "met.dead": _ack("2026-07-01", check=_lc_row("com.t.ok")),
+        "met.live": _ack("2026-07-20", check=_lc_row("com.t.ok", scope="full")),
+        "met.dead": _ack("2026-07-01", check=_lc_row("com.t.ok", scope="full")),
+        "clause.live": _ack("2026-07-20", check=_lc_row("com.t.ok")),
+        "clause.dead": _ack("2026-07-01", check=_lc_row("com.t.ok")),
         "unmet.live": _ack("2026-07-20", check=_lc_row("com.t.bad")),
         "unmet.dead": _ack("2026-07-01", check=_lc_row("com.t.bad")),
         "manual.dead": _ack("2026-07-01"),
@@ -584,6 +621,8 @@ def test_the_condition_x_expiry_matrix_on_synthetic_rows(tmp_path):
     assert states == {
         "met.live": A.STATE_MET_UNEXPIRED,
         "met.dead": A.STATE_EXPIRED_CONDITION_MET,
+        "clause.live": A.STATE_CLAUSE_MET,
+        "clause.dead": A.STATE_EXPIRED_CLAUSE_MET,
         "unmet.live": A.STATE_UNMET_UNEXPIRED,
         "unmet.dead": A.STATE_EXPIRED_CONDITION_UNMET,
         "manual.dead": A.STATE_MANUAL_EXPIRED,
@@ -595,18 +634,43 @@ def test_the_condition_x_expiry_matrix_on_synthetic_rows(tmp_path):
     unmet_findings = [f for f in R["findings"] if "condition UNMET" in f]
     assert len(unmet_findings) == 1 and "unmet.dead" in unmet_findings[0]
 
-    # The MET states are info-grade: visible as states, never findings. A met
-    # condition alarming would train readers to ignore the one alarm that
-    # matters. (Prefix match, because "met.live" is a substring of "unmet.live";
-    # restricted to condition findings, because the fixture's 07-01 rows also
-    # carry an honest stamp-lag finding that is not under test here.)
+    # The MET and CLAUSE_MET states are info-grade: visible as states, never
+    # findings. A met condition alarming would train readers to ignore the one
+    # alarm that matters. (Prefix match, because "met.live" is a substring of
+    # "unmet.live"; restricted to condition findings, because the fixture's
+    # 07-01 rows also carry an honest stamp-lag finding not under test here.)
     assert not [f for f in R["findings"]
-                if f.startswith(("met.live:", "met.dead:")) and "condition" in f]
+                if f.startswith(("met.live:", "met.dead:",
+                                 "clause.live:", "clause.dead:"))
+                and "condition" in f]
 
     # The undeclared row gets the mandatory-clause finding — the #733 upgrade of
     # the old narrative-only clears_when lint.
     mand = [f for f in R["findings"] if "no clears_check declared" in f]
     assert len(mand) == 1 and "undeclared.live" in mand[0]
+
+
+def test_a_met_clause_under_a_conjunction_NEVER_reports_CONDITION_MET(tmp_path):
+    """The regression codex asked for on PR #752, on a synthetic mirror of the
+    live 1-of-3 row (rq105-batch-scores-export: merged AND pinned AND one clean
+    session, checked by a single launchctl exit). The met clause must surface as
+    CLAUSE_MET — and must NEVER surface under the authoritative name, in either
+    expiry column: a misleading verdict under a stronger name was the finding."""
+    row = _ack("2026-07-20",
+               clears="repo-x#73 merged AND pinned AND one clean session",
+               check=_lc_row("com.t.ok"))          # scope omitted -> "clause"
+    root = _repo(tmp_path, [({"j": row}, "2026-07-20")])
+    for today, want in ((dt.date(2026, 7, 25), A.STATE_CLAUSE_MET),
+                        (dt.date(2026, 8, 20), A.STATE_EXPIRED_CLAUSE_MET)):
+        R = A.audit(today, str(root / A.LEDGER_REL), str(root),
+                    launchctl_text=FAKE_LAUNCHCTL)
+        r = R["rows"][0]
+        assert r["condition"] == A.CONDITION_CLAUSE_MET, r
+        assert r["condition"] != A.CONDITION_MET
+        assert r["state"] == want, r
+        assert r["state"] not in (A.STATE_MET_UNEXPIRED,
+                                  A.STATE_EXPIRED_CONDITION_MET), r
+        assert "NOT evaluated" in r["condition_detail"]
 
 
 def test_an_expired_row_with_UNEVALUABLE_condition_does_not_claim_unmet(tmp_path):
@@ -651,16 +715,26 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
     open-ended by design (WF-gate passes, the #75 redesign, the sentinel's
     self-referential exit 1).
 
+    The SCOPES are ledger content too — the reviewed judgment of whether each
+    row's exit-0 observation IS its whole clears_when ("full": VIX-trigger-runs-
+    clean, next-liveness-firing) or ONE clause of a wider condition ("clause":
+    the 1-of-3 batch-export row, the pin-sync-AND-PRECHECK shadow-ab row, the
+    two rq105 rows whose clears_when names upstream deploys). Pinned exactly,
+    with the codex #752 invariant: a clause-scoped row can NEVER reach the
+    authoritative CONDITION_MET, on any host, whatever launchctl says.
+
     The launchctl VERDICTS are read from THIS host's launchd, so they are NOT
     hard-pinned: on the run machine they were measured 2026-08-02 as
-    met={rq104-liveness, rq105-batch-scores-export},
-    unmet={conditional-retrain104 (exit 1), rq105-liveness (1),
-    rq105-shadow-serving (1), shadow-ab-daily (3)} [VERIFIED — launchctl list,
-    2026-08-02], but a linux CI runner has no launchctl (every launchctl row
-    reads UNEVALUABLE — the designed distinct state) and any job rerun moves a
-    verdict on a schedule nobody controls. A literal here would measure the
-    operator's disk. What IS pinned: the verdict vocabulary, that unavailability
-    is all-or-nothing within one run, and the state = condition x expiry parity
+    met={rq104-liveness (scope full)}, clause_met={rq105-batch-scores-export
+    (scope clause — its OTHER two clauses, pinned + clean session, are exactly
+    what #733 measured as unmet)}, unmet={conditional-retrain104 (exit 1),
+    rq105-liveness (1), rq105-shadow-serving (1), shadow-ab-daily (3)}
+    [VERIFIED — launchctl list, 2026-08-02], but a linux CI runner has no
+    launchctl (every launchctl row reads UNEVALUABLE — the designed distinct
+    state) and any job rerun moves a verdict on a schedule nobody controls. A
+    literal here would measure the operator's disk. What IS pinned: the verdict
+    vocabulary, the scope-to-verdict invariants, that unavailability is
+    all-or-nothing within one run, and the state = condition x expiry parity
     on every live row."""
     R = A.audit(dt.date(2026, 8, 2))
     kinds = {r["job"]: r["check_kind"] for r in R["rows"]}
@@ -677,13 +751,34 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
         "com.renquant.weekly-wf-promote": A.CHECK_MANUAL,
     }, kinds
 
+    scopes = {r["job"]: r["check_scope"] for r in R["rows"]}
+    assert scopes == {
+        "com.renquant.conditional-retrain104": A.SCOPE_FULL,
+        "com.renquant.monthly-meta-label-retrain": None,
+        "com.renquant.retrain-panel104": None,
+        "com.renquant.rq104-degradation-sentinel": None,
+        "com.renquant.rq104-liveness": A.SCOPE_FULL,
+        "com.renquant.rq105-batch-scores-export": A.SCOPE_CLAUSE,
+        "com.renquant.rq105-liveness": A.SCOPE_CLAUSE,
+        "com.renquant.rq105-shadow-serving": A.SCOPE_CLAUSE,
+        "com.renquant.shadow-ab-daily": A.SCOPE_CLAUSE,
+        "com.renquant.weekly-wf-promote": None,
+    }, scopes
+
     conds = {r["job"]: r["condition"] for r in R["rows"]}
     for job, kind in kinds.items():
         if kind == A.CHECK_MANUAL:
             assert conds[job] == A.CONDITION_MANUAL, job
+        elif scopes[job] == A.SCOPE_CLAUSE:
+            # the codex #752 invariant, host-independent: clause-scoped rows can
+            # reach clause_met at best, NEVER the authoritative met
+            assert conds[job] in (A.CONDITION_CLAUSE_MET, A.CONDITION_UNMET,
+                                  A.CONDITION_UNEVALUABLE), (job, conds[job])
+            assert conds[job] != A.CONDITION_MET, job
         else:
             assert conds[job] in (A.CONDITION_MET, A.CONDITION_UNMET,
                                   A.CONDITION_UNEVALUABLE), (job, conds[job])
+            assert conds[job] != A.CONDITION_CLAUSE_MET, job
 
     # One launchctl snapshot serves the whole run, so unavailability cannot be
     # per-row: either every launchctl verdict is UNEVALUABLE or none is.

@@ -60,10 +60,36 @@ EVIDENCE:
                  test_ack_names_the_exit_code, test_sentinel_liveness_receipt)
                  `[VERIFIED — pytest, 2026-08-02]`; full suite 5412 passed,
                  8 skipped `[VERIFIED — make test, 2026-08-02]`
-NEXT: at the next ledger review, remove the two condition-met rows
-(rq104-liveness, rq105-batch-scores-export) — the audit now names them —
-and disposition the four manual expired rows. Adding clears_check to every
-row is a schema migration like orch#641: all ten stamp lags read stale, the
-honest state (re-stamping would assert reviews that never happened); the
-updated pin tests document this. AC6 gate-design rule: N/A — ops telemetry,
-no capital-admission gate.
+FIX ROUND (codex CHANGES_REQUESTED on PR #752, 2026-08-02): correct, and
+fixed with a distinct observation state. A single machine check under a
+multi-clause `clears_when` (the live 1-of-3 batch-export row) returned
+condition=met, so the audit reported MET_*/EXPIRED_CONDITION_MET while the
+FULL condition was unmet/unevaluated — a misleading verdict under a more
+authoritative name. `clears_check` now carries `scope: "clause" | "full"`
+(default "clause", failing toward the WEAKER claim): a met clause-scoped
+check yields CLAUSE_MET / EXPIRED_CLAUSE_MET, info-grade states that say the
+full condition was NOT evaluated; CONDITION_MET / EXPIRED_CONDITION_MET are
+reserved for scope=full predicates. UNMET is unchanged under either scope —
+one failed clause already falsifies the conjunction — so
+EXPIRED_CONDITION_UNMET keeps its problem grade (conditional-retrain104
+still fires it). Unknown scope fails closed like an unknown kind. Ledger:
+scope=full on conditional-retrain104 + rq104-liveness (the exit IS the whole
+stated condition); scope=clause on rq105-batch-scores-export (1-of-3),
+shadow-ab-daily (pin-sync AND PRECHECK), rq105-liveness + rq105-shadow-
+serving (clears_when names upstream deploys beyond the exit). Live re-measure
+`[VERIFIED — audit run, 2026-08-02]`: rq105-batch-scores-export moved
+MET_UNEXPIRED -> CLAUSE_MET; all other rows unchanged. Regression added:
+a synthetic mirror of the 1-of-3 row asserts CLAUSE_MET in both expiry
+columns and asserts CONDITION_MET is NEVER reported; the live pin test adds
+the host-independent invariant that clause-scoped rows cannot reach
+CONDITION_MET. Targeted suites 171 passed `[VERIFIED — pytest, 2026-08-02]`;
+full suite 5415 passed, 8 skipped `[VERIFIED — make test, 2026-08-02]`.
+
+NEXT: at the next ledger review, remove the condition-met row
+(rq104-liveness) — the audit now names it — judge the CLAUSE_MET
+batch-export row against its remaining two clauses (#733's pinned/clean-
+session gap), and disposition the four manual expired rows. Adding
+clears_check to every row is a schema migration like orch#641: all ten stamp
+lags read stale, the honest state (re-stamping would assert reviews that
+never happened); the updated pin tests document this. AC6 gate-design rule:
+N/A — ops telemetry, no capital-admission gate.
