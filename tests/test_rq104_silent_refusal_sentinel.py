@@ -141,12 +141,15 @@ def test_main_exit_codes_and_dry_run(tmp_path, monkeypatch, capsys):
     assert len(sent) == 1 and "SILENT REFUSAL" in sent[0][0]
 
 
-def test_registry_watches_the_job_from_the_incident():
+def test_the_founding_lane_is_retired_and_the_registry_lives_on():
+    """2026-08-02: the founding job (weekly-retrain-patchtst) was booted out
+    under the operator's Grant B (decision orch#741; bootout verified). A
+    watch on a job that can never write another log is eternal noise or
+    eternal false-quiet — the lane is retired; the registry must NOT be
+    empty (the doctrine outlives its founding incident)."""
     names = {j.name for j in S.WATCHED}
-    assert "weekly-retrain-patchtst" in names, (
-        "the job whose months-long silent refusal motivated this sentinel "
-        "must be in the registry"
-    )
+    assert "weekly-retrain-patchtst" not in names
+    assert len(names) >= 3, "the registry must keep covering the living jobs"
 
 
 @pytest.mark.parametrize("text,expected", [

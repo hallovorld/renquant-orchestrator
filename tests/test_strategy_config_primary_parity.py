@@ -314,7 +314,14 @@ def test_the_REAL_surfaces_still_read_and_still_disagree():
         pytest.skip("live surfaces not present on this machine")
     rep = P.compare([P.read_surface(a), P.read_surface(b)])
     assert rep["n_read"] == 2 and rep["n_broken"] == 0
-    assert rep["primary_and_shadow_are_mirrored"] is True
+    # 2026-08-02 re-measured: the sibling checkout now sits AT the lock pin
+    # (granted sync) and carries the momentum shadow lane, while the umbrella
+    # WORKING COPY remains the known-stale hf_patchtst declaration — the
+    # surfaces are NOT mirrored, and that is the real, explained state (the
+    # working copy's refresh is its own tracked item). What must still hold:
+    # both surfaces READ cleanly, so the disagreement is visible, not hidden
+    # behind a validation error.
+    assert rep["primary_and_shadow_are_mirrored"] is False
 
 
 def test_a_COMMON_BASE_with_different_hit_sets_is_NOT_a_failure(tmp_path):
@@ -377,5 +384,13 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
         pytest.skip("live surface not present on this machine")
     pa = P.audit_paths(P.read_surface(cfg),
                        [u, os.path.join(u, "backtesting", "renquant_104")])
-    assert pa["no_common_base"] is True
-    assert pa["single_base_that_resolves_everything"] == []
+    # 2026-08-02: the ORIGINAL finding (no single resolving base) was
+    # GENUINELY FIXED, not dissolved — with the momentum ledger published
+    # (Grant C) every declared artifact_path resolves under the strategy dir,
+    # measured live: primary + both shadows -> backtesting/renquant_104.
+    # The check now pins the HEALTHY state so a future path that escapes the
+    # single base flips this red.
+    assert pa["n_unresolvable"] == 0
+    assert pa["no_common_base"] is False
+    assert pa["single_base_that_resolves_everything"] == [
+        os.path.join(u, "backtesting", "renquant_104")]
