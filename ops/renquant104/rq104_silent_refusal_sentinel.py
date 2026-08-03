@@ -93,12 +93,12 @@ class WatchedJob:
 #: Registry. A job belongs here when "it ran successfully" and "it did its
 #: job" are different statements.
 WATCHED: tuple[WatchedJob, ...] = (
-    WatchedJob(
-        name="weekly-retrain-patchtst",
-        log_dir=os.path.join(RQ, "logs/weekly_retrain_patchtst"),
-        refusal_re=r"promote:\s*refused",
-        action_re=r"promote:\s*(promoted|advanced|applied)",
-    ),
+    # FOUNDING LANE RETIRED 2026-08-02: weekly-retrain-patchtst (the 2026-07-28
+    # incident this module was built for) was booted out under the operator's
+    # Grant B (decision orch#741; manifest removal orch#755; bootout executed
+    # 22:48Z, verified unloaded). A watch on a job that can never write another
+    # log is either eternal noise or eternal false-quiet — the lane goes, the
+    # doctrine (and this module) stays.
     # SECOND LANE, added 2026-07-30. Same shape as the first: the job's entire
     # purpose is to produce an artifact, it can decline, and declining is a normal
     # exit. Both patterns were read off the REAL dated logs before being written

@@ -36,3 +36,15 @@ EVIDENCE:
 NEXT: the silent-refusal sentinel's patchtst log-reading lane retirement —
 the one remaining #755-named follow-up — rides its own small PR (the lane is
 manifest-independent and harmless meanwhile).
+
+Round 2 (same batch, follow-through): the silent-refusal sentinel's founding
+patchtst lane RETIRED from `WATCHED` (a watch on a job that can never write
+another log is eternal noise or eternal false-quiet; historical note kept in
+the registry). Five disk-measuring tests updated to tonight's granted machine
+reality, each with a dated comment: the founding-lane assertion inverted; the
+ac5 lane-registry trio re-anchored on surviving lanes; and the two
+strategy-config parity probes re-encoded from live measurement — notably the
+"no common base" finding is GENUINELY FIXED (with the momentum ledger
+published, primary + both shadows all resolve under
+backtesting/renquant_104; the test now pins the healthy state so any future
+escape flips it red). Full suite 5476 passed / 0 failed.
