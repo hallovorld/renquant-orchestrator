@@ -249,7 +249,12 @@ def test_the_live_ledger_is_measured_not_asserted():
     # surface; weekly-wf-promote likewise; meta-label's bare "task #75" became
     # renquant-orchestrator#771), and rq104-liveness was RETIRED — its state was
     # EXPIRED_CONDITION_MET: the next scheduled firing it waited on passed.
-    assert R["n_acks"] == 7  # 2026-08-04: 105 pair cleared (measured exit 4)
+    # 5 after the 2026-08-04 RFC#210 promotion CLEARED retrain-panel104 +
+    # weekly-wf-promote: both rows' clears_when named "an RFC#210 freshness-
+    # fallback promotion lands" and the 11:31 PT manual promote stamped
+    # promotion_basis=freshness_fallback_rfc210 into the ACTIVE artifact —
+    # the named event, measured, not an expiry.
+    assert R["n_acks"] == 5
     # SIX of ten. `com.renquant.rq105-batch-scores-export` was re-stamped
     # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
     # longer the failure"), so it is live until 2026-08-14; shadow-ab-daily is live
@@ -266,7 +271,7 @@ def test_the_live_ledger_is_measured_not_asserted():
     # capping them all at 08-17 — expiries beyond the backstop are dead letters).
     assert R["n_expired"] == 0
     live = [r["job"] for r in R["rows"] if not r.get("expired")]
-    assert len(live) == 7, live  # 2026-08-04: 105 pair cleared
+    assert len(live) == 5, live  # 2026-08-04: 105 pair + RFC#210 promotion pair cleared
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
 
@@ -309,11 +314,12 @@ def test_the_live_ledger_is_measured_not_asserted():
     # (acked_at re-stamped the day each row was actually re-reviewed with a new
     # diagnosis — a real re-review, unlike the #641/#733 field migrations) plus
     # the 2026-08-02 conditional-retrain104 re-stamp.
+    # retrain-panel104 + weekly-wf-promote left the ledger 2026-08-04 (their
+    # clears_when event — an RFC#210 fallback promotion — happened and was
+    # measured in the ACTIVE artifact's promotion_basis stamp).
     assert fresh == {"com.renquant.conditional-retrain104": 0,
                      "com.renquant.monthly-meta-label-retrain": 0,
-                     "com.renquant.retrain-panel104": 0,
-                     "com.renquant.rq104-degradation-sentinel": 0,
-                     "com.renquant.weekly-wf-promote": 0}, fresh
+                     "com.renquant.rq104-degradation-sentinel": 0}, fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
 
 
@@ -456,7 +462,7 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
     # 10 after the #622 AC4 prune; shadow-ab-daily's re-stamp is bucket ['ref']
     # (binds to orch#747 item 5) — one more checkable row than the survey counted.
-    assert len(by) == 7  # 2026-08-04: 105 pair cleared
+    assert len(by) == 5  # 2026-08-04: 105 pair + RFC#210 promotion pair cleared
     assert by["com.renquant.shadow-ab-daily"] == [A.BUCKET_REF]
     narrative = {j for j, b in by.items()
                  if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
@@ -766,22 +772,18 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
     assert kinds == {
         "com.renquant.conditional-retrain104": A.CHECK_LAUNCHCTL,
         "com.renquant.monthly-meta-label-retrain": A.CHECK_MANUAL,
-        "com.renquant.retrain-panel104": A.CHECK_MANUAL,
         "com.renquant.rq104-degradation-sentinel": A.CHECK_MANUAL,
         "com.renquant.rq105-batch-scores-export": A.CHECK_LAUNCHCTL,
         "com.renquant.shadow-ab-daily": A.CHECK_LAUNCHCTL,
-        "com.renquant.weekly-wf-promote": A.CHECK_MANUAL,
     }, kinds
 
     scopes = {r["job"]: r["check_scope"] for r in R["rows"]}
     assert scopes == {
         "com.renquant.conditional-retrain104": A.SCOPE_FULL,
         "com.renquant.monthly-meta-label-retrain": None,
-        "com.renquant.retrain-panel104": None,
         "com.renquant.rq104-degradation-sentinel": None,
         "com.renquant.rq105-batch-scores-export": A.SCOPE_CLAUSE,
         "com.renquant.shadow-ab-daily": A.SCOPE_CLAUSE,
-        "com.renquant.weekly-wf-promote": None,
     }, scopes
 
     conds = {r["job"]: r["condition"] for r in R["rows"]}

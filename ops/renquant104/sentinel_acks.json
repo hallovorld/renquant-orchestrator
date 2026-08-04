@@ -1,94 +1,68 @@
 {
- "com.renquant.conditional-retrain104": {
-  "acked_at": "2026-08-02",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "job": "com.renquant.conditional-retrain104",
-   "kind": "launchctl_exit_zero",
-   "scope": "full"
+  "com.renquant.conditional-retrain104": {
+    "acked_at": "2026-08-02",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "job": "com.renquant.conditional-retrain104",
+      "kind": "launchctl_exit_zero",
+      "scope": "full"
+    },
+    "clears_when": "next VIX-anomaly trigger runs the gated chain clean",
+    "reason": "RE-DIAGNOSED 2026-08-02 from the job's own daily logs (the prior IAC/RenQuant#495 reason described a May-era failure and is OBSOLETE): the job runs daily and logs cleanly; on 2026-07-31 a real VIX anomaly (-7.26% vs the 5% threshold) fired the gated weekly-promote chain and the chain FAILED within 5 seconds - the SAME chronic never-completed WF-promote root the weekly-wf-promote row acks (open-ended, gate-is-correct). So the clearing condition WAS tested on 07-31 and failed honestly; this re-stamp records that measurement. Clears exactly when the shared root clears."
   },
-  "clears_when": "next VIX-anomaly trigger runs the gated chain clean",
-  "reason": "RE-DIAGNOSED 2026-08-02 from the job's own daily logs (the prior IAC/RenQuant#495 reason described a May-era failure and is OBSOLETE): the job runs daily and logs cleanly; on 2026-07-31 a real VIX anomaly (-7.26% vs the 5% threshold) fired the gated weekly-promote chain and the chain FAILED within 5 seconds - the SAME chronic never-completed WF-promote root the weekly-wf-promote row acks (open-ended, gate-is-correct). So the clearing condition WAS tested on 07-31 and failed honestly; this re-stamp records that measurement. Clears exactly when the shared root clears."
- },
- "com.renquant.monthly-meta-label-retrain": {
-  "acked_at": "2026-08-03",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "kind": "manual",
-   "why": "clears on the renquant-orchestrator#771 job redesign (sim with as-of model vintages, or a redefined window) - a design deliverable with no observable exit code or artifact to bind to yet; the leakage guard's refusal (exit 1) is CORRECT until then, so launchctl exit 0 would mean the guard stopped guarding, not that the ack cleared. (The prior citation was a bare 'task #75', unresolvable outside the session that wrote it - ack-audit finding, fixed 2026-08-03.)"
+  "com.renquant.monthly-meta-label-retrain": {
+    "acked_at": "2026-08-03",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "kind": "manual",
+      "why": "clears on the renquant-orchestrator#771 job redesign (sim with as-of model vintages, or a redefined window) - a design deliverable with no observable exit code or artifact to bind to yet; the leakage guard's refusal (exit 1) is CORRECT until then, so launchctl exit 0 would mean the guard stopped guarding, not that the ack cleared. (The prior citation was a bare 'task #75', unresolvable outside the session that wrote it - ack-audit finding, fixed 2026-08-03.)"
+    },
+    "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) - renquant-orchestrator#771",
+    "expires_at": "2026-08-16",
+    "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim — its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
   },
-  "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) - renquant-orchestrator#771",
-  "expires_at": "2026-08-16",
-  "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim — its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
- },
- "com.renquant.retrain-panel104": {
-  "acked_at": "2026-08-03",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "kind": "manual",
-   "why": "wrapper delegates to weekly_wf_promote, so this row clears only when a staged model passes the WF gate - an open-ended research outcome with no machine predicate to date; the gate rejecting every candidate is its documented correct behavior (wf-promote-chronic-reject), so a nonzero exit is not evidence the condition failed"
+  "com.renquant.rq104-degradation-sentinel": {
+    "acked_at": "2026-08-03",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "kind": "manual",
+      "why": "self-referential - this job's exit 1 IS the alarm-delivered signal by design, so launchctl exit 0 says 'the last firing found zero alarms', a statement about the fleet's state that day, not that this ack's subject cleared; liveness is attested by com.renquant.run-surface-drift reading the receipt, because a process cannot attest to its own liveness"
+    },
+    "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
+    "expires_at": "2026-08-17",
+    "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift — a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
   },
-  "clears_when": "a staged model passes the WF gate, OR an RFC#210 freshness-fallback promotion lands (renquant-backtesting#101) - same event as weekly-wf-promote",
-  "expires_at": "2026-08-12",
-  "reason": "RE-AFFIRMED 2026-08-03 with the full diagnosis (read-only agent, evidence on orch#768). TWO ERAS inside the alarm window: era A (06-28, 07-05, RESOLVED) = config-parity fail-closed pre-sim (hf_patchtst scorer kind vs xgb candidate; ended by the 07-06 manual restore, structurally closed by strategy-104#75 in pin 001ab612). Era B (07-12->08-02, ACTIVE) = genuine weekly gate-v2 REJECT: benchmark lag DeltaSharpe -0.39..-0.55 (HIGH_CALM/LOW_SPIKED) plus the enforced placebo ceiling ~+0.023..0.030 sitting UNDER the ~+0.04 embargo-leakage floor (structurally unpassable while real IC < ~0.08). Wrapper is a pure delegator; its Sunday exit-1 mirrors the gate. Decision surface: renquant-backtesting#101 (gate-v3 genuine_ic criterion + RFC#210 best-recent fallback, PREREG-DRAFT posted 2026-08-03). A stamped freshness-fallback promotion (promotion_basis=freshness_fallback_rfc210) ALSO clears this row - it is an action, not a refusal. Expiry deliberately 2026-08-12: the first weekday after the 08-09 Sunday run, so the reminder lands while that run's outcome (and the #101 decision state) is fresh; the 14-day acked_at backstop would cap any later date at 08-17 anyway (measured)."
- },
- "com.renquant.rq104-degradation-sentinel": {
-  "acked_at": "2026-08-03",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "kind": "manual",
-   "why": "self-referential - this job's exit 1 IS the alarm-delivered signal by design, so launchctl exit 0 says 'the last firing found zero alarms', a statement about the fleet's state that day, not that this ack's subject cleared; liveness is attested by com.renquant.run-surface-drift reading the receipt, because a process cannot attest to its own liveness"
+  "com.renquant.rq105-batch-scores-export": {
+    "acked_at": "2026-07-31",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "job": "com.renquant.rq105-batch-scores-export",
+      "kind": "launchctl_exit_zero",
+      "scope": "clause"
+    },
+    "clears_when": "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged AND pinned AND one session afterwards produces a contract-clean full-buy-funnel run, at which point the export has an eligible source vector. If #73 lands and the export STILL refuses, this ack is WRONG and must be removed, not renewed.",
+    "expires_at": "2026-08-14",
+    "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log."
   },
-  "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
-  "expires_at": "2026-08-17",
-  "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift — a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
- },
- "com.renquant.rq105-batch-scores-export": {
-  "acked_at": "2026-07-31",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "job": "com.renquant.rq105-batch-scores-export",
-   "kind": "launchctl_exit_zero",
-   "scope": "clause"
-  },
-  "clears_when": "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged AND pinned AND one session afterwards produces a contract-clean full-buy-funnel run, at which point the export has an eligible source vector. If #73 lands and the export STILL refuses, this ack is WRONG and must be removed, not renewed.",
-  "expires_at": "2026-08-14",
-  "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log."
- },
- "com.renquant.shadow-ab-daily": {
-  "acked_at": "2026-08-01",
-  "acked_exit_codes": [
-   3
-  ],
-  "clears_check": {
-   "job": "com.renquant.shadow-ab-daily",
-   "kind": "launchctl_exit_zero",
-   "scope": "clause"
-  },
-  "clears_when": "run-checkout pins synced to the run manifest (orch#747 item 5) and the 14:35 two-arm run passes PRECHECK",
-  "reason": "DIAGNOSED 2026-08-01 from the session log: exit 3 is the job's OWN fail-closed PRECHECK - run-manifest identity verification refuses because the run checkouts drifted from the manifest pins (5 repos HEAD != manifest commit; renquant-model tree DIRTY 'M README.md'). The guard from b48d3ed1 is working as designed; the remedy is the operator-gated pin sync, not a code fix. Supersedes the expired 07-17 epoch-3/4 ack."
- },
- "com.renquant.weekly-wf-promote": {
-  "acked_at": "2026-08-03",
-  "acked_exit_codes": [
-   1
-  ],
-  "clears_check": {
-   "kind": "manual",
-   "why": "clears only when a staged model passes the WF gate - an open-ended research outcome no machine predicate can date; the gate is correct and its chronic rejection is the known state, so the job's Sunday exit code carries no information about whether the condition was reached"
-  },
-  "clears_when": "weekly_wf_promote PASSES, or an RFC#210 freshness-fallback promotion lands (renquant-backtesting#101)",
-  "expires_at": "2026-08-13",
-  "reason": "RE-AFFIRMED 2026-08-03: same chronic gate-v2 REJECT as retrain-panel104 era B (see that row for the per-date table pointer). No PASS in the entire 54-log window. The 08-02 pin advances did NOT move the backtesting pin (8f6700ab, ~Jul 6), so 2026-08-09 fails identically unless renquant-backtesting#101 (gate-v3 + RFC#210 fallback) is frozen and landed first. Original reason retained in git history. Expiry 2026-08-13, staggered one day after the retrain-panel104 row (same root, avoid a same-day burst)."
- }
+  "com.renquant.shadow-ab-daily": {
+    "acked_at": "2026-08-01",
+    "acked_exit_codes": [
+      3
+    ],
+    "clears_check": {
+      "job": "com.renquant.shadow-ab-daily",
+      "kind": "launchctl_exit_zero",
+      "scope": "clause"
+    },
+    "clears_when": "run-checkout pins synced to the run manifest (orch#747 item 5) and the 14:35 two-arm run passes PRECHECK",
+    "reason": "DIAGNOSED 2026-08-01 from the session log: exit 3 is the job's OWN fail-closed PRECHECK - run-manifest identity verification refuses because the run checkouts drifted from the manifest pins (5 repos HEAD != manifest commit; renquant-model tree DIRTY 'M README.md'). The guard from b48d3ed1 is working as designed; the remedy is the operator-gated pin sync, not a code fix. Supersedes the expired 07-17 epoch-3/4 ack."
+  }
 }

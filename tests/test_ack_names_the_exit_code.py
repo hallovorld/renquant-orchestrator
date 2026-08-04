@@ -156,7 +156,7 @@ def test_every_committed_ack_records_the_code_it_acknowledges():
     missing = [k for k, v in acks.items()
                if isinstance(v, dict) and "acked_exit_codes" not in v]
     assert missing == [], missing
-    assert len(acks) >= 7, acks           # anti-vacuity: an empty ledger passes trivially (7 after the 2026-08-04 105 pair cleared: shadow-serving exit 1->4 measured, clears_when satisfied)
+    assert len(acks) >= 5, acks           # anti-vacuity: an empty ledger passes trivially (5 after 2026-08-04: 105 pair cleared on measured exit 4, then retrain-panel104 + weekly-wf-promote cleared by the RFC#210 fallback promotion their clears_when named — promotion_basis stamp measured in ACTIVE)
 
 
 def test_no_committed_ack_claims_a_zero_exit():
