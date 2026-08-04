@@ -13,7 +13,7 @@
     "reason": "RE-DIAGNOSED 2026-08-02 from the job's own daily logs (the prior IAC/RenQuant#495 reason described a May-era failure and is OBSOLETE): the job runs daily and logs cleanly; on 2026-07-31 a real VIX anomaly (-7.26% vs the 5% threshold) fired the gated weekly-promote chain and the chain FAILED within 5 seconds - the SAME chronic never-completed WF-promote root the weekly-wf-promote row acks (open-ended, gate-is-correct). So the clearing condition WAS tested on 07-31 and failed honestly; this re-stamp records that measurement. Clears exactly when the shared root clears."
   },
   "com.renquant.monthly-meta-label-retrain": {
-    "acked_at": "2026-08-04",
+    "acked_at": "2026-08-03",
     "acked_exit_codes": [
       1
     ],
@@ -26,7 +26,7 @@
     "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim \u2014 its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
   },
   "com.renquant.retrain-panel104": {
-    "acked_at": "2026-08-04",
+    "acked_at": "2026-08-03",
     "acked_exit_codes": [
       1
     ],
@@ -39,7 +39,7 @@
     "reason": "RE-AFFIRMED 2026-08-03 with the full diagnosis (read-only agent, evidence on orch#768). TWO ERAS inside the alarm window: era A (06-28, 07-05, RESOLVED) = config-parity fail-closed pre-sim (hf_patchtst scorer kind vs xgb candidate; ended by the 07-06 manual restore, structurally closed by strategy-104#75 in pin 001ab612). Era B (07-12->08-02, ACTIVE) = genuine weekly gate-v2 REJECT: benchmark lag DeltaSharpe -0.39..-0.55 (HIGH_CALM/LOW_SPIKED) plus the enforced placebo ceiling ~+0.023..0.030 sitting UNDER the ~+0.04 embargo-leakage floor (structurally unpassable while real IC < ~0.08). Wrapper is a pure delegator; its Sunday exit-1 mirrors the gate. Decision surface: renquant-backtesting#101 (gate-v3 genuine_ic criterion + RFC#210 best-recent fallback, PREREG-DRAFT posted 2026-08-03). A stamped freshness-fallback promotion (promotion_basis=freshness_fallback_rfc210) ALSO clears this row - it is an action, not a refusal. Expiry deliberately 2026-08-12: the first weekday after the 08-09 Sunday run, so the reminder lands while that run's outcome (and the #101 decision state) is fresh; the 14-day acked_at backstop would cap any later date at 08-17 anyway (measured)."
   },
   "com.renquant.rq104-degradation-sentinel": {
-    "acked_at": "2026-08-04",
+    "acked_at": "2026-08-03",
     "acked_exit_codes": [
       1
     ],
@@ -107,7 +107,7 @@
     "reason": "DIAGNOSED 2026-08-01 from the session log: exit 3 is the job's OWN fail-closed PRECHECK - run-manifest identity verification refuses because the run checkouts drifted from the manifest pins (5 repos HEAD != manifest commit; renquant-model tree DIRTY 'M README.md'). The guard from b48d3ed1 is working as designed; the remedy is the operator-gated pin sync, not a code fix. Supersedes the expired 07-17 epoch-3/4 ack."
   },
   "com.renquant.weekly-wf-promote": {
-    "acked_at": "2026-08-04",
+    "acked_at": "2026-08-03",
     "acked_exit_codes": [
       1
     ],
