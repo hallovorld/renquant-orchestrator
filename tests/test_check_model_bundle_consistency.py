@@ -153,3 +153,95 @@ def test_license_never_rescues_missing_numerics(tmp_path):
                promotion_basis="freshness_fallback_rfc210",
                trained_date=_iso_days_ago(2))
     assert _verdict(res, "wf_gate_metadata") is False
+
+
+# --- codex round-1 on the runtime-authoritative fallback: exercise BOTH branches
+
+import sys as _sys
+from contextlib import contextmanager
+
+
+@contextmanager
+def _pipeline_modules_isolated():
+    """The real renquant_pipeline may already be imported (Makefile PYTHONPATH
+    carries the sibling checkout); purge and restore so the stub tree is what
+    _runtime_scorer_fp actually imports."""
+    saved = {k: v for k, v in _sys.modules.items() if k.startswith("renquant_pipeline")}
+    for k in saved:
+        del _sys.modules[k]
+    try:
+        yield
+    finally:
+        for k in [k for k in _sys.modules if k.startswith("renquant_pipeline")]:
+            del _sys.modules[k]
+        _sys.modules.update(saved)
+
+
+def _write_stub_runtime(repo: Path) -> None:
+    """A pinned-pipeline stand-in whose PanelScorer.load reports whatever
+    fingerprint the artifact carries under 'stub_runtime_fp' — the test
+    controls the runtime's answer through the artifact file itself."""
+    pkg = (repo / ".subrepo_runtime" / "repos" / "renquant-pipeline" / "src"
+           / "renquant_pipeline" / "kernel" / "panel_pipeline")
+    pkg.mkdir(parents=True, exist_ok=True)
+    root = pkg.parent.parent
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "kernel" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "panel_scorer.py").write_text(
+        "import json\n"
+        "class _Loaded:\n"
+        "    def __init__(self, meta): self.metadata = meta\n"
+        "class PanelScorer:\n"
+        "    @staticmethod\n"
+        "    def load(path):\n"
+        "        payload = json.load(open(path))\n"
+        "        return _Loaded({'model_content_fingerprint': payload.get('stub_runtime_fp')})\n",
+        encoding="utf-8")
+
+
+def _run_with_repo(tmp_path: Path, *, stub_runtime_fp=None, build_runtime=True) -> dict:
+    cfg_path = _write_bundle(tmp_path, cal_fp="sha256:RUNTIME-LEGACY")
+    sd = tmp_path / "backtesting" / "renquant_104"
+    if stub_runtime_fp is not None:
+        art = sd / "artifacts" / "prod" / "panel-ltr.alpha158_fund.json"
+        payload = json.loads(art.read_text())
+        payload["stub_runtime_fp"] = stub_runtime_fp
+        art.write_text(json.dumps(payload))
+    if build_runtime:
+        _write_stub_runtime(tmp_path)
+    with _pipeline_modules_isolated():
+        return bundlecheck.check_bundle(
+            cfg_path, sd,
+            fingerprint_config=lambda c: LIVE_FP,
+            model_content_sha256=lambda a: "sha256:COMMON-V1",  # never equals the stamp
+            repo=tmp_path,
+        )
+
+
+def test_common_mismatch_with_matching_runtime_fp_passes(tmp_path):
+    res = _run_with_repo(tmp_path, stub_runtime_fp="sha256:RUNTIME-LEGACY")
+    assert _verdict(res, "calibrator_scorer_match") is True
+    detail = next(c["detail"] for c in res["checks"]
+                  if c["contract"] == "calibrator_scorer_match")
+    assert "runtime is" in detail and "authoritative" in detail
+
+
+def test_common_mismatch_with_mismatching_runtime_fp_fails(tmp_path):
+    res = _run_with_repo(tmp_path, stub_runtime_fp="sha256:SOMETHING-ELSE")
+    assert _verdict(res, "calibrator_scorer_match") is False
+
+
+def test_common_mismatch_with_no_runtime_tree_fails(tmp_path):
+    res = _run_with_repo(tmp_path, build_runtime=False)
+    assert _verdict(res, "calibrator_scorer_match") is False
+
+
+def test_common_mismatch_with_no_repo_arg_fails(tmp_path):
+    cfg_path = _write_bundle(tmp_path, cal_fp="sha256:RUNTIME-LEGACY")
+    sd = tmp_path / "backtesting" / "renquant_104"
+    res = bundlecheck.check_bundle(
+        cfg_path, sd,
+        fingerprint_config=lambda c: LIVE_FP,
+        model_content_sha256=lambda a: "sha256:COMMON-V1")
+    assert _verdict(res, "calibrator_scorer_match") is False
