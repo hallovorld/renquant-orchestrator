@@ -55,38 +55,77 @@ from typing import Any
 
 PINS = Path(__file__).resolve().parent / "import_resolution_pins.json"
 
-#: The daily run resolves these packages from the SIBLING checkouts
-#: (scripts/daily_104.sh builds PYTHONPATH via renquant_subrepo_pythonpath).
-#: This checker must reproduce that resolution or it measures the invoking
-#: shell's environment instead of the deployment: on the aggregator's first
-#: scheduled run (2026-08-03) three symbols reported "unresolvable
-#: (ModuleNotFoundError)" purely because ops_audit.py exports no PYTHONPATH —
-#: while the same imports succeed under the daily's path set (verified). The
-#: list mirrors the daily's repo set; a repo added there must be added here
-#: (a missing repo keeps its symbols loudly unresolvable, never silently
-#: resolved from somewhere else).
-_SIBLING_REPOS: tuple[str, ...] = (
+#: The daily's import resolution, reproduced [codex on orch#773: the first
+#: version derived the SIBLING checkouts unconditionally, which is only the
+#: daily's FALLBACK — daily_104.sh first sources the umbrella's
+#: `.subrepo_assembly/current.env`, whose RENQUANT_SUBREPO_ROOT points at the
+#: PINNED runtime (`.subrepo_runtime/repos`); measuring siblings while the
+#: runtime is materialized can report imports healthy from a newer checkout
+#: while the daily still fails]. Chain, mirroring scripts/subrepo_env.sh
+#: `renquant_subrepo_root`: RENQUANT_SUBREPO_ROOT env (as current.env would
+#: export) → sibling fallback. Why this checker exists at all: on the
+#: aggregator's first scheduled run (2026-08-03) three symbols reported
+#: "unresolvable (ModuleNotFoundError)" purely because ops_audit.py exports
+#: no PYTHONPATH.
+_UMBRELLA = Path("/Users/renhao/git/github/RenQuant")
+_DAILY_REPOS: tuple[str, ...] = (
     "renquant-common", "renquant-base-data", "renquant-artifacts",
     "renquant-model", "renquant-pipeline", "renquant-execution",
     "renquant-strategy-104", "renquant-backtesting",
 )
 
 
+def _runtime_root_from_current_env(umbrella: Path) -> Path | None:
+    """RENQUANT_SUBREPO_ROOT, resolved the way the daily resolves it.
+
+    Precedence mirrors `renquant_subrepo_root`: an already-exported
+    RENQUANT_SUBREPO_ROOT wins (that is what sourcing current.env does);
+    otherwise parse the umbrella's committed-on-machine
+    `.subrepo_assembly/current.env` for the same export. Returns None when
+    neither yields an existing directory — the sibling fallback then applies,
+    exactly as in the shell helper.
+    """
+    exported = os.environ.get("RENQUANT_SUBREPO_ROOT")
+    if exported:
+        root = Path(exported)
+        if not root.is_absolute():
+            root = umbrella / root
+        return root if root.is_dir() else None
+    env_file = umbrella / ".subrepo_assembly" / "current.env"
+    if not env_file.is_file():
+        return None
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("export RENQUANT_SUBREPO_ROOT="):
+            root = Path(line.split("=", 1)[1].strip().strip('"'))
+            return root if root.is_dir() else None
+    return None
+
+
 def _ensure_daily_resolution() -> None:
-    """Append each sibling checkout's src/ (or root) exactly once.
+    """Append the daily's package roots exactly once, runtime-first.
 
     APPEND, not prepend: anything the caller already exported keeps
     precedence, so running under the daily's own PYTHONPATH measures THAT
     resolution unchanged, and running bare (launchd / ops-audit) measures the
-    same sibling set the daily would build — never a third thing.
+    resolution the daily would build — the PINNED runtime when materialized,
+    the siblings only as the same fallback the shell helper uses. Never a
+    third thing.
     """
+    runtime = _runtime_root_from_current_env(_UMBRELLA)
     github = Path(__file__).resolve().parent.parent.parent
-    for repo in _SIBLING_REPOS:
-        for candidate in (github / repo / "src", github / repo):
-            if candidate.is_dir():
-                p = str(candidate)
-                if p not in sys.path:
-                    sys.path.append(p)
+    for repo in _DAILY_REPOS:
+        roots = ([runtime / repo] if runtime is not None else []) + [github / repo]
+        for base in roots:
+            found = False
+            for candidate in (base / "src", base):
+                if candidate.is_dir():
+                    p = str(candidate)
+                    if p not in sys.path:
+                        sys.path.append(p)
+                    found = True
+                    break
+            if found:
                 break
 
 

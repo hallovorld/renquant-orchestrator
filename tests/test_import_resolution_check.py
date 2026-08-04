@@ -275,3 +275,49 @@ def test_caller_pythonpath_keeps_precedence_over_the_sibling_append():
         assert _sys.path[0] == marker  # caller's entry still first
     finally:
         _sys.path[:] = sys_path_before
+
+
+def test_materialized_runtime_root_wins_over_a_conflicting_sibling(tmp_path, monkeypatch):
+    """[codex on orch#773] The daily sources current.env FIRST; siblings are
+    only its fallback. With a runtime root materialized, the checker must
+    resolve each repo from the RUNTIME and must NOT also append the sibling —
+    otherwise it can report imports healthy from a newer sibling while the
+    daily (pinned runtime) still fails."""
+    import sys as _sys
+    import import_resolution_check as C
+
+    runtime = tmp_path / "runtime-repos"
+    (runtime / "renquant-backtesting" / "src").mkdir(parents=True)
+    monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(runtime))
+    before = list(_sys.path)
+    try:
+        C._ensure_daily_resolution()
+        added = [p for p in _sys.path if p not in before]
+        runtime_hits = [p for p in added if str(runtime) in p]
+        sibling_hits = [p for p in added
+                        if "renquant-backtesting" in p and str(runtime) not in p]
+        assert runtime_hits, added
+        assert sibling_hits == [], (
+            "sibling appended alongside a materialized runtime — the checker "
+            "would measure a resolution the daily does not use")
+    finally:
+        _sys.path[:] = before
+
+
+def test_current_env_parsing_mirrors_the_shell_export(tmp_path, monkeypatch):
+    import import_resolution_check as C
+    umbrella = tmp_path / "RenQuant"
+    (umbrella / ".subrepo_assembly").mkdir(parents=True)
+    runtime = tmp_path / "rt"
+    runtime.mkdir()
+    (umbrella / ".subrepo_assembly" / "current.env").write_text(
+        "# comment\nexport RENQUANT_ASSEMBLY_DIR=/x\n"
+        f"export RENQUANT_SUBREPO_ROOT={runtime}\n", encoding="utf-8")
+    monkeypatch.delenv("RENQUANT_SUBREPO_ROOT", raising=False)
+    assert C._runtime_root_from_current_env(umbrella) == runtime
+
+
+def test_missing_current_env_falls_back_to_none_not_a_guess(tmp_path, monkeypatch):
+    import import_resolution_check as C
+    monkeypatch.delenv("RENQUANT_SUBREPO_ROOT", raising=False)
+    assert C._runtime_root_from_current_env(tmp_path / "nope") is None
