@@ -38,15 +38,20 @@ tail dated artifact → sha both directions → parity → golden reproduction).
 ## FROZEN S1 acceptance (AC1 of GOAL-8)
 
 Window: 20 scheduled daily-full sessions, starting with the FIRST
-SCHEDULED SESSION AFTER THE PROFILE IS DEPLOYED — the externally
-timestamped deployment boundary (the merge timestamp of the pin batch
-that puts the profile + lane wiring on the deployed surface; the profile
-PR must record it verbatim so the window is reproducible). EVERY
-scheduled session from that boundary counts, including sessions where
-the lane never produced a record or the scorer failed to load — a start
-defined by "first scored run" would let initial deployment/load failures
-delay the clock and exclude exactly the availability failures S1 exists
-to measure `[codex on orch#777]`. Green session =
+SCHEDULED SESSION AFTER THE DEPLOYMENT BOUNDARY. The boundary is the
+FIRST COMPLETED RUNTIME SYNC that verifies the profile/lane commits are
+ACTIVE on the run surface (the s104 runtime checkout at the profile
+commit + the rail present in the live tree), with its timestamp AND the
+verified commit shas recorded in the deployment record (grants trail +
+the profile PR's progress doc) so the window is reproducible. Neither
+alternative survives review: a merge timestamp counts pre-deployment
+sessions as failures in an architecture where merge does not deploy and
+the documented sync can lag `[codex on orch#777 round 2]`; a
+first-scored-run start censors deployment/load failures — exactly the
+availability failures S1 exists to measure `[codex round 1]`. From the
+boundary, EVERY scheduled session counts, including sessions where the
+lane never produced a record or the scorer failed to load. Green
+session =
 - the lane's identity-stamped shadow record exists for the session, AND
 - the blend scorer LOADED (no `panel_scorer_load_failed`, no unresolved
   artifact), AND

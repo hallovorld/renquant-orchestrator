@@ -23,6 +23,9 @@ EVIDENCE:  fingerprint + ledger facts measured read-only from the live
 NEXT:      after pipeline#261 merges + pins: s104 blend-momentum profile
            PR (delta-6 pattern + both pins + lane wiring + sentinel watch)
            reviewed against this prereg; the 20-session clock starts at
-           the first scheduled session after the deployment boundary
-           (the pin-batch merge timestamp, recorded verbatim in the
-           profile PR), counting load-failed and record-less sessions.
+           the first scheduled session after the deployment boundary =
+           the first completed runtime sync verifying the profile/lane
+           commits active (timestamp + shas recorded in the grants trail
+           and the profile PR's progress doc), counting load-failed and
+           record-less sessions. Merge alone is not the boundary — merge
+           does not deploy here.
