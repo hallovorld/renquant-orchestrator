@@ -258,6 +258,24 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
                     "momentum pipeline's TRADE slice, whose entire value is "
                     "the evidence trail this sentinel guards",
         ),
+        # 2026-08-04 (strategy-104#84): the FAST momentum patrol lane. Watched
+        # from its config-declaration day like the v0 lane before it — the
+        # pre-activation gate in `_patrol_lane` keeps the not-yet-published
+        # window quiet (the lane's ledger appears only after the weekly job's
+        # first fast firing, model#199 item 2 / orch#775), and the
+        # unwatched-lane test is what forced this entry the day the config
+        # declared the lane.
+        WatchedLane(
+            name=os.environ.get("RQ104_MOMENTUM_FAST_LANE_NAME",
+                                "momentum_fast_v1_shadow"),
+            runs_db=None,
+            mlruns_dir=MLRUNS_DIR,
+            purpose="the GOAL-8 FAST momentum patrol lane (63/5 clock, "
+                    "renquant-model#199; config strategy-104#84): shadow-only "
+                    "daily top-3 for the operator — its evidence trail is the "
+                    "lane's entire value, so it is watched from declaration "
+                    "day, not first-publish day",
+        ),
     )
 
 
