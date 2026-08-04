@@ -30,9 +30,12 @@ pass).
 
 ## Verification
 
-- `tests/test_check_model_bundle_consistency.py` + CI-gate suite: **19 passed**
-  (5 new license cases: served/aged-out/wrong-basis/future-date/never-rescues-
-  numerics; fixture gained promotion_basis/trained_date knobs).
+- `tests/test_check_model_bundle_consistency.py` + CI-gate suite: **23 passed**
+  (5 license cases: served/aged-out/wrong-basis/future-date/never-rescues-
+  numerics; fixture gained promotion_basis/trained_date knobs; 4 runtime-
+  fallback branch cases through a stub pinned-runtime tree with sys.modules
+  isolation: runtime-match passes with the authoritative detail, runtime-
+  mismatch / absent tree / omitted repo all stay failed).
 - Real bundle, this machine, post-fix: **`deploy_ready: true`**, all 5
   contracts green; details carry `rfc210=served(age=2d)` and the named schema
   divergence.
