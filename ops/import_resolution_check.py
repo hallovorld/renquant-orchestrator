@@ -103,29 +103,27 @@ def _runtime_root_from_current_env(umbrella: Path) -> Path | None:
 
 
 def _ensure_daily_resolution() -> None:
-    """Append the daily's package roots exactly once, runtime-first.
+    """Append the daily's package roots exactly once, root chosen ONCE.
 
-    APPEND, not prepend: anything the caller already exported keeps
-    precedence, so running under the daily's own PYTHONPATH measures THAT
-    resolution unchanged, and running bare (launchd / ops-audit) measures the
-    resolution the daily would build — the PINNED runtime when materialized,
-    the siblings only as the same fallback the shell helper uses. Never a
-    third thing.
+    The root choice is made a single time (runtime when materialized, else
+    the siblings) — exactly like `renquant_subrepo_root` followed by
+    `renquant_subrepo_pythonpath`, which emits only the chosen root's repo
+    paths [codex on orch#773 round 2: a per-repo runtime→sibling fallback
+    would MASK a missing or incomplete pinned checkout with a sibling
+    import; a repo absent from the chosen root must stay loudly
+    unresolvable]. APPEND, not prepend: anything the caller already exported
+    keeps precedence.
     """
     runtime = _runtime_root_from_current_env(_UMBRELLA)
-    github = Path(__file__).resolve().parent.parent.parent
+    root = runtime if runtime is not None else (
+        Path(__file__).resolve().parent.parent.parent)
     for repo in _DAILY_REPOS:
-        roots = ([runtime / repo] if runtime is not None else []) + [github / repo]
-        for base in roots:
-            found = False
-            for candidate in (base / "src", base):
-                if candidate.is_dir():
-                    p = str(candidate)
-                    if p not in sys.path:
-                        sys.path.append(p)
-                    found = True
-                    break
-            if found:
+        base = root / repo
+        for candidate in (base / "src", base):
+            if candidate.is_dir():
+                p = str(candidate)
+                if p not in sys.path:
+                    sys.path.append(p)
                 break
 
 

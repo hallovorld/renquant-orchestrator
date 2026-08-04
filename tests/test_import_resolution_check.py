@@ -321,3 +321,27 @@ def test_missing_current_env_falls_back_to_none_not_a_guess(tmp_path, monkeypatc
     import import_resolution_check as C
     monkeypatch.delenv("RENQUANT_SUBREPO_ROOT", raising=False)
     assert C._runtime_root_from_current_env(tmp_path / "nope") is None
+
+
+def test_runtime_missing_one_repo_does_NOT_fall_back_to_its_sibling(tmp_path, monkeypatch):
+    """[codex on orch#773 round 2] The shell helper picks the root ONCE and
+    emits only that root's repo paths; a repo missing from a materialized
+    runtime must stay loudly unresolvable, never masked by a sibling import."""
+    import sys as _sys
+    import import_resolution_check as C
+
+    runtime = tmp_path / "runtime-repos"
+    (runtime / "renquant-common" / "src").mkdir(parents=True)
+    # renquant-backtesting deliberately ABSENT from the runtime; the real
+    # sibling exists on this machine.
+    monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(runtime))
+    before = list(_sys.path)
+    try:
+        C._ensure_daily_resolution()
+        added = [p for p in _sys.path if p not in before]
+        assert any(str(runtime) in p for p in added), added
+        assert not any("renquant-backtesting" in p for p in added), (
+            "a sibling was substituted for a repo missing from the "
+            "materialized runtime — the exact masking the review names")
+    finally:
+        _sys.path[:] = before
