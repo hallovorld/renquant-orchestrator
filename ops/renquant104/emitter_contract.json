@@ -9,9 +9,9 @@
   "local test detects drift between this contract and the live wrapper; the local",
   "source pin is an ADDITIONAL check, not the proof."
  ],
- "captured": "2026-08-04",
+ "captured": "2026-08-04 | weekly_wf_promote re-captured 2026-08-04 after RQ#568 (state-aware reject notify; +24 lines below :426)",
  "wrappers": {
-  "scripts/weekly_wf_promote.sh": "3b1655ecf7ca7096",
+  "scripts/weekly_wf_promote.sh": "e314a67e76dade67",
   "scripts/conditional_retrain_104.sh": "ddaf80955602752e",
   "scripts/retrain_panel.sh": "d97d9686fe434641"
  },
@@ -20,14 +20,14 @@
    "job": "weekly-wf-promote",
    "kind": "action",
    "template": "=== weekly_wf_promote PASSED at $(date) — $GATE_SUMMARY ===",
-   "source": "scripts/weekly_wf_promote.sh:600",
+   "source": "scripts/weekly_wf_promote.sh:624",
    "observed_in_logs": false
   },
   {
    "job": "weekly-wf-promote",
    "kind": "action",
    "template": "=== weekly_wf_promote FALLBACK-PROMOTED (rfc210) at $(date) — $GATE_SUMMARY ===",
-   "source": "scripts/weekly_wf_promote.sh:596",
+   "source": "scripts/weekly_wf_promote.sh:620",
    "observed_in_logs": false,
    "_comment": "RFC#210 freshness-fallback action (RenQuant#559 Step 4b): the served artifact CHANGED, so the sentinel counts it as ACTION — a fallback promotion clearing the streak is the #101 design, not a relaxation."
   },
@@ -51,7 +51,7 @@
    "job": "weekly-wf-promote",
    "kind": "failure",
    "template": "Promote FAILED — production may still be on prior model or .previous rollback target.",
-   "source": "scripts/weekly_wf_promote.sh:541",
+   "source": "scripts/weekly_wf_promote.sh:565",
    "observed_in_logs": false
   },
   {
