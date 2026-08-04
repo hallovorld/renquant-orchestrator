@@ -23,7 +23,8 @@ WATCHLIST = ["AAPL", "MSFT", "NVDA"]
 
 
 def _write_bundle(tmp_path: Path, *, art_fp=LIVE_FP, art_wl=WATCHLIST,
-                  cal_fp=SCORER_FP, wf_passed=True, wf_complete=True) -> Path:
+                  cal_fp=SCORER_FP, wf_passed=True, wf_complete=True,
+                  promotion_basis=None, trained_date=None) -> Path:
     sd = tmp_path / "backtesting" / "renquant_104"
     (sd / "artifacts" / "prod").mkdir(parents=True, exist_ok=True)
     wf = {}
@@ -35,6 +36,10 @@ def _write_bundle(tmp_path: Path, *, art_fp=LIVE_FP, art_wl=WATCHLIST,
     art = {"kind": "panel_ltr_xgboost", "config_fingerprint": art_fp,
            "config_fingerprint_fields": {"watchlist": art_wl},
            "metadata": ({"wf_gate_metadata": wf} if wf else {})}
+    if promotion_basis is not None:
+        art["metadata"]["promotion_basis"] = promotion_basis
+    if trained_date is not None:
+        art["trained_date"] = trained_date
     (sd / "artifacts" / "prod" / "panel-ltr.alpha158_fund.json").write_text(json.dumps(art))
     cal = {"metadata": {"scorer_model_content_fingerprint": cal_fp}}
     (sd / "artifacts" / "prod" / "panel-rank-calibration.json").write_text(json.dumps(cal))
@@ -102,4 +107,49 @@ def test_wf_metadata_passed_false_fails(tmp_path):
 def test_wf_metadata_missing_numerics_fails(tmp_path):
     res = _run(tmp_path, wf_complete=False)
     assert res["deploy_ready"] is False
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+# --- RFC#210 license mirror (2026-08-04: third passed-consumer found same day) --
+
+import datetime as _dt
+
+
+def _iso_days_ago(n):
+    return (_dt.date.today() - _dt.timedelta(days=n)).isoformat()
+
+
+def test_governance_served_artifact_is_deploy_ready(tmp_path):
+    res = _run(tmp_path, wf_passed=False,
+               promotion_basis="freshness_fallback_rfc210",
+               trained_date=_iso_days_ago(2))
+    assert _verdict(res, "wf_gate_metadata") is True
+    assert res["deploy_ready"] is True
+
+
+def test_governance_license_aged_out_fails(tmp_path):
+    res = _run(tmp_path, wf_passed=False,
+               promotion_basis="freshness_fallback_rfc210",
+               trained_date=_iso_days_ago(44))
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+def test_wrong_basis_string_fails(tmp_path):
+    res = _run(tmp_path, wf_passed=False,
+               promotion_basis="manual_promote",
+               trained_date=_iso_days_ago(2))
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+def test_future_trained_date_fails(tmp_path):
+    res = _run(tmp_path, wf_passed=False,
+               promotion_basis="freshness_fallback_rfc210",
+               trained_date=_iso_days_ago(-3))
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+def test_license_never_rescues_missing_numerics(tmp_path):
+    res = _run(tmp_path, wf_passed=False, wf_complete=False,
+               promotion_basis="freshness_fallback_rfc210",
+               trained_date=_iso_days_ago(2))
     assert _verdict(res, "wf_gate_metadata") is False
