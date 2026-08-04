@@ -17,5 +17,11 @@ WHAT:      ops/renquant104/emitter_contract.json — weekly wrapper sha
 EVIDENCE:  capture tool output against the merged live wrapper (session
            log); silent-refusal sentinel + contract fixture suites 57
            passed against the re-captured contract.
+ALSO IN THIS PR (codex review): the bundle-producer-key audit's pinned
+           expectation is REVISITED as its own docstring demanded — with
+           common#42 merged the finding set is empty, so the pin flips to
+           unread == [] and main exits 0 (a future dropped key flips it
+           red again, the tool's standing job); the narrative test keeps
+           the not-lost clause via the summary line.
 NEXT:      merge -> orch-run checkout sync so Step 4b's consumer check
            and the local drift test both see the refreshed contract.

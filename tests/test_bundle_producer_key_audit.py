@@ -88,18 +88,23 @@ def test_BOTH_declared_producers_are_readable_today():
     assert all(not r["unknowable"] for r in rep["producers"]), rep
 
 
-def test_the_live_finding_metadata_and_smalln_ledger_are_UNREAD():
-    """Pins the measurement this tool was written to produce. If the schema later
-    declares these, this test fails and the R4 decision gets revisited deliberately."""
+def test_the_traveling_keys_are_now_DECLARED_and_read():
+    """The deliberate revisit the previous pin demanded: common#42 (merged
+    2026-08-04, 20d4570a) typed metadata + smalln_ledger into LiveRunBundle,
+    so the audit's finding set is EMPTY and stays pinned that way — a future
+    producer key that the schema drops again flips this red, which is the
+    tool's standing job. extra="ignore" itself is unchanged (still True):
+    the defense is per-key declaration, not a config flip."""
     rep = A.audit()
     assert rep["schema_drops_unknown_keys"] is True
-    assert rep["unread_keys_across_producers"] == ["metadata", "smalln_ledger"], rep
+    assert rep["unread_keys_across_producers"] == [], rep
 
 
-def test_main_EXITS_NONZERO_while_unread_keys_exist(capsys):
+def test_main_EXITS_ZERO_with_no_unread_keys(capsys):
     """The exit code is what a scheduled job reads, so it is driven directly."""
-    assert A.main([]) == 1
-    assert "UNREAD KEYS" in capsys.readouterr().out
+    assert A.main([]) == 0
+    out = capsys.readouterr().out
+    assert "unread_keys=0" in out
 
 
 def test_the_report_states_that_unread_is_NOT_lost(capsys):
