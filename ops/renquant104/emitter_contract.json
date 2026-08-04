@@ -11,7 +11,7 @@
   ],
   "captured": "2026-08-04",
   "wrappers": {
-    "scripts/weekly_wf_promote.sh": "e4bb41eb53dd7fef",
+    "scripts/weekly_wf_promote.sh": "f779f932fe352864",
     "scripts/conditional_retrain_104.sh": "ddaf80955602752e",
     "scripts/retrain_panel.sh": "d97d9686fe434641"
   },
@@ -20,14 +20,14 @@
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote PASSED at $(date) — $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:412",
+      "source": "scripts/weekly_wf_promote.sh:567",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote FALLBACK-PROMOTED (rfc210) at $(date) — $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:511",
+      "source": "scripts/weekly_wf_promote.sh:563",
       "observed_in_logs": false,
       "_comment": "RFC#210 freshness-fallback action (RenQuant#559 Step 4b): the served artifact CHANGED, so the sentinel counts it as ACTION — a fallback promotion clearing the streak is the #101 design, not a relaxation."
     },
@@ -35,14 +35,14 @@
       "job": "weekly-wf-promote",
       "kind": "refusal",
       "template": "WF gate REJECTED staged model — production unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:295",
+      "source": "scripts/weekly_wf_promote.sh:333",
       "observed_in_logs": "logs/weekly_wf_promote/2026-08-01.log"
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Promote FAILED — production may still be on prior model or .previous rollback target.",
-      "source": "scripts/weekly_wf_promote.sh:373",
+      "source": "scripts/weekly_wf_promote.sh:508",
       "observed_in_logs": false
     },
     {
