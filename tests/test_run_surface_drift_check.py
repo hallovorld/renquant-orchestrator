@@ -149,19 +149,16 @@ class TestManifestGeneration:
     #: surface, the plist on disk is the live one; declaring first gives the
     #: install something to be checked against). Each entry must be named here,
     #: so the set cannot grow silently into manifest rot.
-    PENDING_INSTALL = {
-        # aggregator for the six ops detectors — orch#650
-        "com.renquant.ops-audit",
-        # model-freshness monitor — declared before this session
-        "com.renquant.rq104-model-freshness",
-        # AC5 silent-refusal sentinel — arrived from main during this merge, not
-        # from this branch. main's own test says installing the plist is a separate
-        # machine landing and that until then "the drift scan reports the job
-        # missing from disk, and that alarm is the intended, tracked reminder".
-        # Named here rather than silently absorbed: the set growing is exactly what
-        # this list exists to make visible.
-        "com.renquant.rq104-silent-refusal",
-    }
+    #: 2026-08-03 22:58Z: ALL THREE declared-pending jobs were installed under
+    #: the operator's 104/105 perfection directive (ops-audit,
+    #: rq104-model-freshness, rq104-silent-refusal — bootstrap verified, first
+    #: hand-runs logged real findings). The silent-refusal install surfaced a
+    #: superseded twin plist (ops/renquant104/…-sentinel.plist, 07-29: python
+    #: direct invocation, weekly Sun 08:11, `-sentinel` label) disagreeing with
+    #: the 07-31 REVIEWED deploy/ copy (wrapper, daily 16:00); the reviewed
+    #: surface won and the twin was deleted. Empty until a future reviewed job
+    #: declares a pending state by name.
+    PENDING_INSTALL: set[str] = set()
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
     #: the operator machine, pending the uninstall item of a tracked grant.

@@ -94,7 +94,7 @@
     },
     "com.renquant.ops-audit": {
       "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). Prefix unique to this job.",
-      "_pending_install_comment": "REVIEWED SURFACE FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until installed the liveness scan reports UNJUDGEABLE_NO_PLIST for this label \u2014 that reading is CORRECT and is the designed reminder; do not silence it by deleting this entry. Bootstrap must first verify the RUN checkout carries this wrapper.",
+      "_installed_comment": "INSTALLED 2026-08-03 under the operator's 104/105 perfection directive (bootstrap verified; first hand-run produced a 10-finding report). The pending-install relaxation left tests/test_run_surface_drift_check.py in the same arc.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/ops_audit/ops_audit_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
@@ -177,8 +177,7 @@
     },
     "com.renquant.rq104-model-freshness": {
       "_evidence_glob_comment": "the wrapper writes one dated file per firing under logs/rq104/. Scored on that glob, NOT on StandardOutPath, because #627 measured StandardOutPath to be a stale proxy for every wrapper that redirects. Filename prefix is unique to this job, so the glob cannot pick up a sibling's evidence.",
-      "_install_precondition_comment": "BOOTSTRAP PRECONDITION, codex CR on #638. program_args target the RUN checkout (renquant-orchestrator-run), which was measured 110 commits behind origin/main on 2026-07-30 and does NOT contain this wrapper. Installing before that checkout carries the reviewed wrapper commit yields a job that fires daily and fails at exec. Verify `test -x <run-checkout>/ops/renquant104/run_model_freshness_monitor.sh` AND that the checkout contains the merge commit for this PR, BEFORE launchctl bootstrap.",
-      "_pending_install_comment": "REVIEWED SURFACE LANDS FIRST, PLIST INSTALL IS A SEPARATE AUTHORISED STEP. Until the plist is installed the liveness scan will report this label UNJUDGEABLE_NO_PLIST. That reading is CORRECT and is the designed reminder that a reviewed job is not yet running -- do not silence it by removing this entry.",
+      "_installed_comment": "INSTALLED 2026-08-03 under the operator's 104/105 perfection directive. The #638 precondition was verified first (run checkout carries the executable wrapper); bootstrap verified; first hand-run reported a real freshness BREACH (rc=3). The pending-install relaxation left tests/test_run_surface_drift_check.py in the same arc.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/model_freshness_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
