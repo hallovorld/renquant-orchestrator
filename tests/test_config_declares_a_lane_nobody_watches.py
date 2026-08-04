@@ -211,3 +211,42 @@ def test_an_UNRESOLVABLE_default_stays_QUIET_rather_than_alarming(tmp_path, monk
     monkeypatch.setattr(S, "_patrol_lane", lambda lane, days, today, out, **kw: 0)
     rc = S.main(["--as-of", "2026-07-31", "--config", ""])
     assert rc == 0
+
+
+def test_watched_lanes_is_UNCHANGED_by_what_the_config_declares(tmp_path, monkeypatch):
+    """The same decision as the test above, asserted as a PROPERTY rather than as the
+    spelling of whoever violates it next.
+
+    The AST guard enumerates the rejected design's shapes — a call named
+    `config_declared_lanes`, the literal `shadow_models` inside `watched_lanes`'s own
+    body. Measured 2026-08-02 on `goal1/sentinel-lanes-from-config` (closed): a branch
+    that DID derive the watch list from `ranking.panel_scoring.shadow_models` passed it,
+    because the helper was named `lane_names_from_config` and the literal lived one
+    function away. One rename and one extraction and the guard inspects the wrong object
+    — the `enumerated-allow-list` shape, listing bad forms instead of asserting the
+    invariant.
+
+    Membership is DECLARED. Point the module at configs declaring wildly different lane
+    sets, including none at all, and the patrol must not move. A derivation cannot
+    survive this no matter what it is called.
+    """
+    base = [l.name for l in S.watched_lanes()]
+    assert base, "the sentinel patrols nothing — this test would be vacuous"
+
+    for lanes in ([], ["something_else_entirely"], ["a", "b", "c"],
+                  [l + "_decorated_suffix" for l in base]):
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({"ranking": {"panel_scoring": {
+            "shadow_models": [{"name": n} for n in lanes]}}}), encoding="utf-8")
+        monkeypatch.setenv("RQ104_STRATEGY_CONFIG", str(cfg))
+        assert [l.name for l in S.watched_lanes()] == base, (
+            f"the watch list followed the config ({lanes!r}) — membership is declared, "
+            "never derived; a lane REMOVED from the config would leave the patrol with "
+            "it and orch#689 would stop firing")
+
+    # ...and an unreadable config must not move it either: "could not read" is not a
+    # membership statement.
+    bad = tmp_path / "broken.json"
+    bad.write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv("RQ104_STRATEGY_CONFIG", str(bad))
+    assert [l.name for l in S.watched_lanes()] == base
