@@ -175,20 +175,12 @@ class TestManifestGeneration:
     #: orch#741) — the entry left this set in the same change, exactly as the
     #: exact-equality test below was designed to force. Empty until a future
     #: retirement declares a pending state by name.
-    #: 2026-08-04: the legacy 103 trio — dead-but-declared since ~April
-    #: (launchctl NOT-LOADED, logs mtime Apr 28, ack ledger #540 dispositioned
-    #: the legacy tournament freeze; decision record orch#769 item 7 + the PR
-    #: removing them from ops/launchd_manifest.json). Removal path: the jobs
-    #: are ALREADY unloaded, so no bootout — `rm ~/Library/LaunchAgents/
-    #: com.renquant.{daily103,open103,preclose103}.plist` under a logged
-    #: grant; the scheduled drift scan alarms until then BY DESIGN, and the
-    #: exact-equality test forces these entries out in the same change as
-    #: the rm.
-    PENDING_UNINSTALL: set[str] = {
-        "com.renquant.daily103",
-        "com.renquant.open103",
-        "com.renquant.preclose103",
-    }
+    #: 2026-08-04 07:56 PDT: the 103 trio's plists were REMOVED from the
+    #: machine (grants-trail logged; decision #779, manifest already 40 jobs)
+    #: and these entries left the set in the same change, exactly as the
+    #: exact-equality test forces. Empty until a future retirement declares
+    #: a pending state by name.
+    PENDING_UNINSTALL: set[str] = set()
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
