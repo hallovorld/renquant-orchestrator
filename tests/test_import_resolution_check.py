@@ -234,3 +234,44 @@ def test_drift_scan_check_is_LOUD_on_a_missing_pin_file(monkeypatch, tmp_path):
         sys.path.pop(0)
     assert len(loud) == 1 and "pin file missing" in loud[0]
     assert info == []
+
+
+def test_bare_invocation_resolves_like_the_daily_not_like_the_shell():
+    """The ops-audit aggregator invokes this checker with NO PYTHONPATH; on its
+    first scheduled run (2026-08-03) three symbols read "unresolvable
+    (ModuleNotFoundError)" purely for that reason while the daily's own path
+    set resolved them fine — the checker measured the invoking shell, not the
+    deployment. A bare subprocess must now succeed on the operator machine
+    (skips loudly where the sibling checkouts are absent — CI)."""
+    import os
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+
+    github = _P(__file__).resolve().parent.parent.parent
+    if not (github / "renquant-backtesting" / "src").is_dir():
+        import pytest
+        pytest.skip("sibling checkouts absent — daily-resolution not reproducible here")
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    r = subprocess.run(
+        [_sys.executable, str(_P(__file__).resolve().parent.parent
+                              / "ops" / "import_resolution_check.py")],
+        capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "unresolvable" not in r.stdout
+
+
+def test_caller_pythonpath_keeps_precedence_over_the_sibling_append():
+    """APPEND, not prepend: a caller-exported resolution must win, so the
+    checker never reports a third resolution that neither the shell nor the
+    daily would use."""
+    import sys as _sys
+    sys_path_before = list(_sys.path)
+    try:
+        import import_resolution_check as C
+        marker = "/nonexistent-caller-export"
+        _sys.path.insert(0, marker)
+        C._ensure_daily_resolution()
+        assert _sys.path[0] == marker  # caller's entry still first
+    finally:
+        _sys.path[:] = sys_path_before

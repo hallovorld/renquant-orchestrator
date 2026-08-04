@@ -55,6 +55,41 @@ from typing import Any
 
 PINS = Path(__file__).resolve().parent / "import_resolution_pins.json"
 
+#: The daily run resolves these packages from the SIBLING checkouts
+#: (scripts/daily_104.sh builds PYTHONPATH via renquant_subrepo_pythonpath).
+#: This checker must reproduce that resolution or it measures the invoking
+#: shell's environment instead of the deployment: on the aggregator's first
+#: scheduled run (2026-08-03) three symbols reported "unresolvable
+#: (ModuleNotFoundError)" purely because ops_audit.py exports no PYTHONPATH —
+#: while the same imports succeed under the daily's path set (verified). The
+#: list mirrors the daily's repo set; a repo added there must be added here
+#: (a missing repo keeps its symbols loudly unresolvable, never silently
+#: resolved from somewhere else).
+_SIBLING_REPOS: tuple[str, ...] = (
+    "renquant-common", "renquant-base-data", "renquant-artifacts",
+    "renquant-model", "renquant-pipeline", "renquant-execution",
+    "renquant-strategy-104", "renquant-backtesting",
+)
+
+
+def _ensure_daily_resolution() -> None:
+    """Append each sibling checkout's src/ (or root) exactly once.
+
+    APPEND, not prepend: anything the caller already exported keeps
+    precedence, so running under the daily's own PYTHONPATH measures THAT
+    resolution unchanged, and running bare (launchd / ops-audit) measures the
+    same sibling set the daily would build — never a third thing.
+    """
+    github = Path(__file__).resolve().parent.parent.parent
+    for repo in _SIBLING_REPOS:
+        for candidate in (github / repo / "src", github / repo):
+            if candidate.is_dir():
+                p = str(candidate)
+                if p not in sys.path:
+                    sys.path.append(p)
+                break
+
+
 #: The symbols to pin, as (module, attribute). Kept as data next to the resolver so
 #: adding one is a one-line reviewed change. Each entry is a name THIS repo imports.
 PINNED_SYMBOLS: tuple[tuple[str, str], ...] = (
@@ -175,6 +210,7 @@ def verify(pins: dict[str, Any]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_daily_resolution()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--emit", action="store_true",
                     help="print fresh pins for review (never writes)")
