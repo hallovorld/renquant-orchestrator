@@ -12,13 +12,13 @@ and S4 (capital sleeve, operator quota sign-off).
 | arm | source of record |
 |---|---|
 | PROD (reversal/panel, the served model) | prod runs.db (`candidate_scores`) |
-| MOMENTUM-alone (slow v0, weekly ledger) | the in-process momentum shadow lane's identity-stamped records |
+| MOMENTUM-alone (slow v0, weekly ledger) | the chain-verified WEEKLY dated artifact serving that session (top-3 = its scores restricted to that session's prod-scored universe) — see AMENDMENT 1 |
 | S1 BLEND (z(prod)+z(momentum)) | the S1 e2e lane's runs db (`runs.alpaca_shadow_blend_mom.db`, `candidate_scores`) |
 
 ## FROZEN primary metric (score-level — the only layer all three arms share)
 
-Measured 2026-08-04: prod records trade+score level; momentum-alone
-records SCORE level only (no e2e lane); the blend lane records
+Measured 2026-08-04: prod records trade+score level; momentum-alone has
+NO per-ticker score sink (AMENDMENT 1 below); the blend lane records
 trade+score. Therefore the PRIMARY comparison is fixed at score level:
 
 - Per session and arm: the arm's TOP-3 names by that arm's own score
@@ -88,3 +88,25 @@ pair have baskets.
 No capital, no promotion, no MoE weights (S3 has its own prereg with
 placebo arms per AC3), no per-name attribution claims, no retroactive
 window selection. The 20 sessions are whatever the calendar delivers.
+
+## AMENDMENT 1 — 2026-08-04 (pre-clock; legal under the freeze clause)
+
+Measured AFTER the original freeze but BEFORE the S1 clock started
+(amendments void S2 only once the clock runs): the in-process momentum
+lane's identity-stamped records are HEALTH records
+(`shadow_scorer_health.jsonl`: loaded/coverage/staleness) and carry NO
+per-ticker scores; no rail consumes the momentum profile config; no
+momentum runs db exists. The original momentum-arm source was therefore
+unmeasurable as written.
+
+FROZEN replacement, zero new serving surface: the momentum arm's
+per-session scores are read from the CHAIN-VERIFIED weekly dated
+artifact serving that session (the artifact the ledger tail vouches for
+on that date — momentum scores are weekly-frozen by construction, so
+the artifact IS the durable score record). Per session: top-3 by the
+artifact's scores restricted to names present in that session's
+prod-scored universe (`candidate_scores` for that session's run — the
+shared universe surface), ties lexicographic. A session whose serving
+artifact cannot be chain-verified from the ledger contributes NO
+momentum basket and counts against the momentum arm's coverage exactly
+like a missing record. Everything else in this document is unchanged.
