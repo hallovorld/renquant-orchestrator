@@ -390,7 +390,36 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
     # measured live: primary + both shadows -> backtesting/renquant_104.
     # The check now pins the HEALTHY state so a future path that escapes the
     # single base flips this red.
-    assert pa["n_unresolvable"] == 0
+    #
+    # BOUNDED pending exception (2026-08-04, strategy-104#84): the FAST
+    # momentum lane's ledger (artifacts/momentum_fast/...) is published only
+    # by the weekly job's first fast firing (orch#775 wrapper + the model
+    # CLI pin), so until then EXACTLY that one path is legitimately
+    # unresolvable — mirroring s104's PENDING_FIRST_ARTIFACT discipline: the
+    # named set below shrinks back to empty in the SAME change that records
+    # the first publish, so the relaxation cannot outlive the state it
+    # names. Any OTHER unresolvable path still flips this red.
+    PENDING_FIRST_PUBLISH_PATHS = {
+        "artifacts/momentum_fast/momentum_artifact_ledger.jsonl",
+    }
+    unresolved = {e["artifact_path"] for e in pa["entries"]
+                  if e["status"] == "unresolvable"}
+    strategy_base = os.path.join(u, "backtesting", "renquant_104")
+    pending_now = {p for p in PENDING_FIRST_PUBLISH_PATHS
+                   if not os.path.exists(os.path.join(strategy_base, p))}
+    # EXACT equality, not subset [codex on #776]: while the fast ledger is
+    # absent the declared entry MUST be present-and-unresolved — a subset
+    # check passes vacuously when the config entry is accidentally deleted
+    # (unresolved goes empty), silently disconnecting the declared lane
+    # while its watcher stays armed. After the file appears, both sides are
+    # empty and the strict semantics resume.
+    assert unresolved == pending_now, (
+        f"unresolved != expected pending set: "
+        f"extra={sorted(unresolved - pending_now)} "
+        f"missing-declared={sorted(pending_now - unresolved)}")
+    assert pa["n_unresolvable"] == len(pending_now)
     assert pa["no_common_base"] is False
-    assert pa["single_base_that_resolves_everything"] == [
-        os.path.join(u, "backtesting", "renquant_104")]
+    # single_base_* is computed over RESOLVED entries (measured from the
+    # constructor): a pending-unresolvable path does not disqualify the base
+    # that resolves everything actually published.
+    assert pa["single_base_that_resolves_everything"] == [strategy_base]

@@ -730,7 +730,12 @@ class TestMultiLane:
         # lane (strategy-104#77, config kind 'momentum_residual') is ADDED in
         # the same change.
         names = {l.name for l in sentinel.watched_lanes()}
-        assert names == {"topdecile_clf_blend_leg", "momentum_residual_v0_shadow"}
+        # 2026-08-04 (strategy-104#84): the FAST momentum patrol lane joins —
+        # watched from declaration day; the pre-activation gate keeps its
+        # not-yet-published window quiet.
+        assert names == {"topdecile_clf_blend_leg",
+                         "momentum_residual_v0_shadow",
+                         "momentum_fast_v1_shadow"}
         assert sentinel.SHADOW_NAME not in names
 
     def test_no_registry_lane_uses_the_retired_shadow_experiment_db(self):
