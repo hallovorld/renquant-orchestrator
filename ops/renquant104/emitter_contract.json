@@ -51,7 +51,7 @@
    "job": "weekly-wf-promote",
    "kind": "failure",
    "template": "Promote FAILED — production may still be on prior model or .previous rollback target.",
-   "source": "scripts/weekly_wf_promote.sh:508",
+   "source": "scripts/weekly_wf_promote.sh:541",
    "observed_in_logs": false
   },
   {

@@ -4,7 +4,11 @@ STATUS:    the declared paired follow-up of RQ#566, captured from MERGED
            live bytes (the #774 lesson: never from branch bytes)
 WHAT:      ops/renquant104/emitter_contract.json — weekly wrapper sha
            3b1655ecf7ca7096 (RQ#566 merged 71ba96f3b, live-pulled before
-           capture); line moves: PASSED->600, Promote FAILED->445,
+           capture); line moves: PASSED->600, Promote FAILED->541 (the
+           gate-passed path's echo = the contract's template; :445 is
+           the DIFFERENT fallback-path wording and :276 the mode's,
+           neither contracted — round-2 correction after citing the
+           wrong needle's line),
            REJECTED->426 (the "production unchanged" refusal; the :388
            "consulting the fallback" transition line is INFO, not a
            contract line). FALLBACK-PROMOTED becomes DUAL-SOURCE: the

@@ -326,7 +326,16 @@ def test_local_wrapper_still_emits_the_contracted_lines():
         script = root / row["source"].rsplit(":", 1)[0]
         if not script.exists():
             pytest.skip(f"{script} absent — cannot verify drift here")
-        assert row["template"] in script.read_text(errors="ignore"), (
+        text = script.read_text(errors="ignore")
+        assert row["template"] in text, (
             f"{row['source']} no longer emits the contracted line verbatim — the "
             f"wrapper wording drifted; re-capture the contract AND re-verify the "
             f"patterns before trusting this lane's classifications")
+        # [codex on orch#785] SOURCE-LOCATION assertion: the template must sit
+        # at the RECORDED line, not merely somewhere in the file — a stale
+        # line citation survives the presence check and rots silently.
+        line_no = int(row["source"].rsplit(":", 1)[1])
+        lines = text.splitlines()
+        assert line_no <= len(lines) and row["template"].split("$")[0].strip('"= ') in lines[line_no - 1], (
+            f"{row['source']}: the contracted template is not at the recorded "
+            f"line (found elsewhere or moved) — re-capture line numbers")
