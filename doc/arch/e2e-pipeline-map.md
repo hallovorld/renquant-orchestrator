@@ -1,5 +1,8 @@
 # The complete E2E execution pipeline — every link, its automation, and its trust mechanism
 
+AS-OF: **2026-08-04T18:25Z (11:25 PT)** — every mutable status cell below
+is verified at this timestamp; refresh the timestamp with any update.
+
 Operator directive 2026-08-04 ("我要的是e2e的完整执行流水线…完整的！可信任的！").
 This document is the single map of the full chain — data → training →
 artifact governance → serving → execution → evaluation → promotion — with,
@@ -52,8 +55,8 @@ papered over.
 
 | stage | status 2026-08-04 | trust mechanism |
 |---|---|---|
-| S1: blend lane operational window | prereg FROZEN (orch#777); lane pieces all merged; profile + pin batch in final review (s104#86 + RenQuant#565) | 20 scheduled sessions from the VERIFIED-runtime-sync boundary; every session counts; green defined mechanically |
-| S2: three-lane returns comparison | prereg FROZEN (orch#781 + amendment #782); readout implemented PRE-WINDOW, fixtures-only (orch#783 + pipeline#262 in review) | score-level primary (the only shared layer), ≥19/20 matched-pair coverage on BOTH pairs, two-phase extension rule, seeded placebo, per-session serving-identity triplets, no significance theater at n=20 |
+| S1: blend lane operational window | prereg FROZEN (orch#777); **LANE LIVE** — s104#86 merged (d84604d7), RenQuant#565 merged (a7cd21d49), deployment boundary RECORDED 2026-08-04T18:19:44Z (grants trail + s104#86 comment); **today's 14:00 PT run is session 1 of 20** | 20 scheduled sessions from the verified boundary; every session counts; green defined mechanically |
+| S2: three-lane returns comparison | prereg FROZEN (orch#781 + amendment #782); readout MERGED pre-window (orch#783 c6ebddc5; provider loader pipeline#262 f25574fc merged + DEPLOYED in the #565 sync) | score-level primary (the only shared layer), ≥19/20 matched-pair coverage on BOTH pairs, two-phase extension rule, seeded placebo, per-session serving-identity triplets, no significance theater at n=20 |
 | S3: MoE (regime-conditional weights) | machinery exists; weight map MUST be preregistered with placebo arms (AC3) | gated by S2 verdict |
 | S4: capital sleeve | gated by S2 + operator quota sign-off | sleeve-level risk rules + own rollback + containment record |
 
@@ -68,14 +71,17 @@ papered over.
   and both booster measurements are archived with unreproduced-historical
   labels rather than deleted or over-claimed).
 
-## Honest gaps as of 2026-08-04 ~11:00 PT
+## Honest gaps as of 2026-08-04T18:25Z (11:25 PT)
 
-1. Prod's FIRST real freshness-fallback promotion runs TODAY 13:02 PT
-   (post-close; two mid-session attempts were correctly refused by the
-   PIT guard). Until it lands, prod still serves the 06-21 model.
-2. The S1 lane is NOT yet live — s104#86 + RenQuant#565 are in final
-   review; activation = their landing + the verified sync boundary.
-3. The S2 readout depends on pipeline#262 + orch#783 (in review).
-4. Fast momentum's first artifact is Saturday 2026-08-08.
-5. Momentum-alone has NO trade-level record by design (score-level only);
+1. Prod's FIRST real freshness-fallback promotion is SCHEDULED for
+   13:02 PT TODAY (**future at this as-of**; PT, not UTC — the two
+   mid-session attempts this morning were correctly refused by the PIT
+   guard, grants trail 08:12/09:22 PT). Until it lands, prod serves the
+   06-21 model.
+2. The S1 lane went LIVE at the 18:19:44Z boundary; its first session
+   (today 14:00 PT) has NOT yet run — the window is 0/20.
+3. Fast momentum's first artifact is Saturday 2026-08-08.
+4. Momentum-alone has NO trade-level record by design (score-level only);
    S2's primary metric is frozen at score level accordingly.
+5. Stage-2 lineage wiring (bt#104) is in review — stamps begin at its
+   merge + next gate run.
