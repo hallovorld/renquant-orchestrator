@@ -22,5 +22,7 @@ EVIDENCE:  fingerprint + ledger facts measured read-only from the live
            surfaces touched; doc-only change.
 NEXT:      after pipeline#261 merges + pins: s104 blend-momentum profile
            PR (delta-6 pattern + both pins + lane wiring + sentinel watch)
-           reviewed against this prereg; first scored run starts the
-           20-session clock.
+           reviewed against this prereg; the 20-session clock starts at
+           the first scheduled session after the deployment boundary
+           (the pin-batch merge timestamp, recorded verbatim in the
+           profile PR), counting load-failed and record-less sessions.

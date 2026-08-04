@@ -37,8 +37,16 @@ tail dated artifact → sha both directions → parity → golden reproduction).
 
 ## FROZEN S1 acceptance (AC1 of GOAL-8)
 
-Window: the lane's first 20 scheduled daily-full sessions, starting with
-its first scored run. Green session =
+Window: 20 scheduled daily-full sessions, starting with the FIRST
+SCHEDULED SESSION AFTER THE PROFILE IS DEPLOYED — the externally
+timestamped deployment boundary (the merge timestamp of the pin batch
+that puts the profile + lane wiring on the deployed surface; the profile
+PR must record it verbatim so the window is reproducible). EVERY
+scheduled session from that boundary counts, including sessions where
+the lane never produced a record or the scorer failed to load — a start
+defined by "first scored run" would let initial deployment/load failures
+delay the clock and exclude exactly the availability failures S1 exists
+to measure `[codex on orch#777]`. Green session =
 - the lane's identity-stamped shadow record exists for the session, AND
 - the blend scorer LOADED (no `panel_scorer_load_failed`, no unresolved
   artifact), AND
