@@ -399,3 +399,93 @@ def test_a_config_declaring_no_shadow_models_is_a_FINDING(tmp_path):
     cfg.write_text(json.dumps({"ranking": {"panel_scoring": {"shadow_models": []}}}))
     rc = P.main(["--runner-config", str(cfg)])
     assert rc == 1
+
+
+# --- check 4, momentum-ledger branch (2026-08-03) ---------------------------
+#
+# The momentum lane declares its LEDGER (`momentum_artifact_ledger.jsonl`) as
+# artifact_path; the serving loader follows the verified tail row to the dated
+# artifact beside it. The permanent SKIP this branch replaces made the detector
+# exit 3 on a HEALTHY lane, which turned the whole ops-audit line UNUSABLE
+# (measured on the aggregator's first scheduled run, 2026-08-03).
+
+import json as _mljson
+
+
+def _momentum_ledger(tmp_path, *, cutoff="2026-08-02", pinned="a" * 64,
+                     carried=None, kind_row="momentum_residual_v0",
+                     kind_art="momentum_residual_v0", write_dated=True,
+                     rows=None):
+    d = tmp_path / "momentum"
+    d.mkdir(exist_ok=True)
+    ledger = d / "momentum_artifact_ledger.jsonl"
+    if rows is None:
+        rows = [{"cutoff_date": cutoff, "artifact_content_sha256": pinned,
+                 "kind": kind_row}]
+    ledger.write_text("\n".join(_mljson.dumps(r) for r in rows) + "\n",
+                      encoding="utf-8")
+    if write_dated:
+        dated_dir = d / cutoff
+        dated_dir.mkdir(exist_ok=True)
+        (dated_dir / P.MOMENTUM_ARTIFACT_BASENAME).write_text(_mljson.dumps({
+            "kind": kind_art,
+            "content_sha256": pinned if carried is None else carried,
+            "scores": {"AAPL": 0.1},
+        }), encoding="utf-8")
+    return str(ledger)
+
+
+def test_momentum_ledger_HEALTHY_lane_passes_not_skips(tmp_path):
+    r = P.check_loadable(_momentum_ledger(tmp_path))
+    assert r["ok"] is True, r
+    assert "byte-level chain verification" in r["note"]
+
+
+def test_momentum_ledger_with_MISSING_dated_artifact_FAILS(tmp_path):
+    r = P.check_loadable(_momentum_ledger(tmp_path, write_dated=False))
+    assert r["ok"] is False and "unreadable" in r["why"]
+
+
+def test_momentum_ledger_IDENTITY_mismatch_FAILS(tmp_path):
+    # a swapped or stale dated file: ledger pins one digest, file carries another
+    r = P.check_loadable(_momentum_ledger(tmp_path, carried="b" * 64))
+    assert r["ok"] is False and "identity mismatch" in r["why"]
+
+
+def test_momentum_ledger_KIND_mismatch_FAILS(tmp_path):
+    r = P.check_loadable(_momentum_ledger(tmp_path, kind_art="something_else"))
+    assert r["ok"] is False and "kind mismatch" in r["why"]
+
+
+def test_momentum_ledger_EMPTY_FAILS_rather_than_skipping(tmp_path):
+    d = tmp_path / "momentum"
+    d.mkdir()
+    ledger = d / "momentum_artifact_ledger.jsonl"
+    ledger.write_text("", encoding="utf-8")
+    r = P.check_loadable(str(ledger))
+    assert r["ok"] is False and "no rows" in r["why"]
+
+
+def test_momentum_ledger_TAIL_row_wins_over_earlier_rows(tmp_path):
+    # two rows; only the tail's cutoff has a dated artifact — must resolve tail
+    rows = [
+        {"cutoff_date": "2026-07-26", "artifact_content_sha256": "c" * 64,
+         "kind": "momentum_residual_v0"},
+        {"cutoff_date": "2026-08-02", "artifact_content_sha256": "a" * 64,
+         "kind": "momentum_residual_v0"},
+    ]
+    r = P.check_loadable(_momentum_ledger(tmp_path, rows=rows))
+    assert r["ok"] is True and "2026-08-02" in r["note"]
+
+
+def test_momentum_basename_matches_the_serving_convention():
+    """The literal must equal the pipeline scorer's dated-artifact basename —
+    a renamed convention must break HERE, not silently resolve nothing. Reads
+    the sibling pipeline checkout when present; skips LOUDLY elsewhere (CI)."""
+    from pathlib import Path as _P
+    src = _P("/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline/"
+             "kernel/panel_pipeline/momentum_residual_scorer.py")
+    if not src.exists():
+        import pytest as _pytest
+        _pytest.skip("pipeline checkout absent — convention pin not verifiable here")
+    assert f'"{P.MOMENTUM_ARTIFACT_BASENAME}"' in src.read_text(errors="ignore")

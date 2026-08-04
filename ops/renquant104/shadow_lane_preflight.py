@@ -189,6 +189,14 @@ def check_loadable(resolved: str | None, upstream_ok: bool | None = False) -> di
                 "why": ("no artifact was resolved upstream, so loadability is "
                         "UNESTABLISHED — SKIPPED, not failed; the upstream check "
                         f"reports the reason (artifact_resolves ok={upstream_ok})")}
+    if resolved.endswith(".jsonl"):
+        # The momentum lane declares its LEDGER as the artifact_path (machine-produced
+        # `momentum_artifact_ledger.jsonl`); the serving loader follows the verified
+        # tail row to the dated artifact beside it. Before 2026-08-03 this branch
+        # SKIPPED ("only loads JSON boosters"), which made the detector exit 3 and
+        # the whole ops-audit line UNUSABLE on a HEALTHY lane — a permanent skip on
+        # a living lane is a blind spot, not caution.
+        return _check_momentum_ledger_loadable(resolved)
     if not resolved.endswith(".json"):
         # A .pt or other non-JSON artifact is out of this checker's scope; saying so is
         # better than reporting a pass it did not establish.
@@ -228,6 +236,80 @@ def check_loadable(resolved: str | None, upstream_ok: bool | None = False) -> di
                        f"{type(exc).__name__}: {str(exc)[:160]}"}
     return {"check": "artifact_loads", "ok": True,
             "note": "loaded by xgboost.Booster.load_model, not merely present"}
+
+
+#: Dated-artifact basename beside the momentum ledger. MUST equal the serving
+#: convention (pipeline momentum_residual_scorer / model tools ARTIFACT_BASENAME);
+#: a test pins the literal so a renamed convention breaks there, not silently here.
+MOMENTUM_ARTIFACT_BASENAME = "momentum_residual_v0.json"
+
+
+def _check_momentum_ledger_loadable(ledger_path: str) -> dict:
+    """Mechanical loadability for the momentum lane's ledger-declared artifact.
+
+    What this DOES establish: the ledger's tail row parses, the dated artifact
+    it points at (`<ledger dir>/<cutoff_date>/momentum_residual_v0.json`)
+    exists and parses as JSON, its `kind` matches the row's, and the row's
+    `artifact_content_sha256` pin EQUALS the artifact's self-carried
+    `content_sha256`.
+
+    What this deliberately does NOT do: recompute any digest. The canonical
+    byte-level chain verification (per-row chain, body recompute, pin-over-
+    bytes) belongs to the serving loader in renquant-pipeline; a hand-copied
+    recompute here would be a fourth fingerprint implementation — the exact
+    triple-impl class behind the recurring calibrator mismatch incidents.
+    String-comparing the two DECLARED identities catches the swapped-file and
+    stale-ledger shapes without re-implementing the recipe.
+    """
+    try:
+        with open(ledger_path, "rb") as fh:
+            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+    except OSError as exc:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"ledger unreadable: {type(exc).__name__}: {exc}"}
+    if not lines:
+        return {"check": "artifact_loads", "ok": False,
+                "why": "ledger has no rows — nothing has ever been produced, so "
+                       "there is no artifact to serve"}
+    try:
+        row = json.loads(lines[-1])
+    except ValueError as exc:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"ledger tail row is not JSON: {exc}"}
+    cutoff = row.get("cutoff_date")
+    pinned = row.get("artifact_content_sha256")
+    if not cutoff or not pinned:
+        return {"check": "artifact_loads", "ok": False,
+                "why": "ledger tail row lacks cutoff_date/artifact_content_sha256 — "
+                       "the serving loader cannot resolve an artifact from it"}
+    dated = os.path.join(os.path.dirname(ledger_path), str(cutoff),
+                         MOMENTUM_ARTIFACT_BASENAME)
+    try:
+        with open(dated, "rb") as fh:
+            artifact = json.loads(fh.read())
+    except OSError as exc:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"dated artifact the tail row points at is unreadable "
+                       f"({dated}): {type(exc).__name__}: {exc}"}
+    except ValueError as exc:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"dated artifact is not JSON ({dated}): {exc}"}
+    row_kind = row.get("kind")
+    art_kind = artifact.get("kind") if isinstance(artifact, dict) else None
+    if row_kind != art_kind:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"kind mismatch: ledger row says {row_kind!r}, artifact "
+                       f"says {art_kind!r}"}
+    carried = artifact.get("content_sha256") if isinstance(artifact, dict) else None
+    if str(carried) != str(pinned):
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"identity mismatch: ledger pins {str(pinned)[:16]}…, artifact "
+                       f"self-carries {str(carried)[:16]}… — a swapped or stale "
+                       f"dated file"}
+    return {"check": "artifact_loads", "ok": True,
+            "note": f"ledger tail ({cutoff}) resolves to {MOMENTUM_ARTIFACT_BASENAME}; "
+                    f"kind + declared identity agree (byte-level chain verification "
+                    f"is the serving loader's job, deliberately not duplicated here)"}
 
 
 def preflight(lane: str, runner_config: str, bases: list[str],
