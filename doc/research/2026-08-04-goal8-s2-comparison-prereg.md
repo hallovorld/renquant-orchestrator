@@ -42,15 +42,24 @@ blend − momentum, momentum − prod) over sessions where BOTH arms of a
 pair have baskets.
 
 - **PROMOTE-interest verdict** (feeds S3/S4 consideration, licenses
-  nothing by itself): blend's session-matched mean difference vs PROD is
-  positive AND blend's missing count ≤ 1 (reliability is S1's job; S2
-  only refuses to reward an absent arm).
+  nothing by itself) requires ALL of:
+  (a) blend's session-matched mean difference vs PROD is positive;
+  (b) blend's missing count ≤ 1;
+  (c) MINIMUM MATCHED-PAIR COVERAGE — both the blend-vs-PROD and the
+      blend-vs-momentum pairs have ≥19 matched sessions out of 20. A
+      positive mean over an arbitrarily small matched set is not a
+      comparison at the declared sample size `[codex on orch#781]`: if
+      EITHER pair's coverage misses the threshold, the outcome is the
+      EXTENSION (if unused) or the explicit verdict
+      "INSUFFICIENT RECORD — no promotion interest", never promotion.
 - **STOP verdict**: blend's session-matched mean difference vs BOTH
   single arms is negative → the ladder pauses at S2 and the result is
   published as a negative finding.
 - Anything else → EXTEND once by 20 more sessions (one extension max,
   declared here; a second inconclusive window closes the ladder rung as
-  "no detectable blend advantage at this sample size").
+  "no detectable blend advantage at this sample size"). The coverage
+  threshold applies unchanged in the extension window; a second coverage
+  miss closes the rung as INSUFFICIENT RECORD.
 - NO significance theater at n=20: means and signs are reported with
   per-session tables; no t-statistics are quoted on single-digit
   effective samples (borrowed-critical-values lesson). The verdict rule
