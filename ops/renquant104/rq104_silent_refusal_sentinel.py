@@ -145,7 +145,12 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=r"WF gate REJECTED staged model",
         # action read off the emitter, scripts/weekly_wf_promote.sh:412 — no PASS has
         # ever appeared in the 54-log window.
-        action_re=r"weekly_wf_promote PASSED",
+        # FALLBACK-PROMOTED added 2026-08-04 (RenQuant#559 Step 4b): an
+        # RFC#210 freshness-fallback promotion IS an action — the served
+        # artifact changed; counting it as a refusal would keep alarming
+        # over a lane that just acted (the #101 design says the streak
+        # clears honestly on fallback).
+        action_re=r"weekly_wf_promote PASSED|weekly_wf_promote FALLBACK-PROMOTED",
         failure_re=(r"Promote FAILED|Smoke test FAILED|Snapshot freshness backstop "
                     r"FAILED"),
     ),
