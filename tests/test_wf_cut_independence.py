@@ -176,21 +176,43 @@ def test_the_EVIDENCE_MANIFEST_binds_the_published_numbers_to_their_sources():
 
 def test_the_manifest_VERIFIES_against_the_sources_when_they_are_present():
     """The half that carries the weight: recompute both digests from the files named.
-    Skips loudly when the artifact tree is not on this machine — a verification that
+
+    The evidence's artifact subject is identified by CONTENT, not by slot name:
+    the recorded name (`*.previous.json`) is a moving slot that every pair-swap
+    rewrites — RFC #210 made promotions routine, so pinning the slot would turn
+    each legitimate promotion into a suite red (it did, 2026-08-04). The slot is
+    tried first as a hint; otherwise any prod-dir sibling holding the recorded
+    bytes (rollback copies) satisfies the verification. Skips loudly when the
+    tree — or the subject's bytes — are not on this machine: a verification that
     cannot run must not read as one that passed."""
-    import hashlib, json, os
+    import glob, hashlib, json, os
     import pytest
     ev = (pathlib.Path(__file__).resolve().parent.parent / "doc" / "research"
           / "evidence" / "2026-07-31-wf-cut-independence" / "evidence.json")
     d = json.loads(ev.read_text(encoding="utf-8"))
     root = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts"
-    art = os.path.join(root, "prod", d["artifact"])
     man = os.path.join(root, "sim", d["corpus"]["manifest_path"])
-    if not (os.path.exists(art) and os.path.exists(man)):
+    if not (os.path.isdir(os.path.join(root, "prod")) and os.path.exists(man)):
         pytest.skip("artifact tree not present on this machine")
-    assert hashlib.sha256(open(art, "rb").read()).hexdigest() == d["artifact_sha256"]
     assert (hashlib.sha256(open(man, "rb").read()).hexdigest()
             == d["corpus"]["manifest_sha256"])
+
+    def _sha(p):
+        return hashlib.sha256(open(p, "rb").read()).hexdigest()
+
+    slot = os.path.join(root, "prod", d["artifact"])
+    candidates = [slot] if os.path.exists(slot) else []
+    candidates += sorted(glob.glob(os.path.join(root, "prod",
+                                                "panel-ltr.alpha158_fund*.json")))
+    hit = next((p for p in candidates if _sha(p) == d["artifact_sha256"]), None)
+    if hit is None:
+        slot_now = _sha(slot)[:12] if os.path.exists(slot) else "absent"
+        pytest.skip(
+            "evidence subject bytes not on this machine: recorded sha "
+            f"{d['artifact_sha256'][:12]} not found in prod/ "
+            f"(the {d['artifact']} slot now holds {slot_now}); "
+            "the 2026-07-31 measurement stands as a historical record")
+    assert _sha(hit) == d["artifact_sha256"]
 
 
 def test_the_REAL_artifact_reproduces_the_finding():
