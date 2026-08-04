@@ -489,3 +489,50 @@ def test_momentum_basename_matches_the_serving_convention():
         import pytest as _pytest
         _pytest.skip("pipeline checkout absent — convention pin not verifiable here")
     assert f'"{P.MOMENTUM_ARTIFACT_BASENAME}"' in src.read_text(errors="ignore")
+
+
+def test_momentum_ledger_row_missing_KIND_fails_not_passes(tmp_path):
+    """[codex on orch#770] row kind=None vs artifact kind=None compared EQUAL
+    and passed — a green signal over data the serving loader rejects."""
+    rows = [{"cutoff_date": "2026-08-02", "artifact_content_sha256": "a" * 64}]
+    d = tmp_path / "momentum"
+    d.mkdir()
+    ledger = d / "momentum_artifact_ledger.jsonl"
+    ledger.write_text(_mljson.dumps(rows[0]) + "\n", encoding="utf-8")
+    dated = d / "2026-08-02"
+    dated.mkdir()
+    (dated / P.MOMENTUM_ARTIFACT_BASENAME).write_text(
+        _mljson.dumps({"content_sha256": "a" * 64, "scores": {}}),
+        encoding="utf-8")  # artifact ALSO lacks kind — must fail, not match
+    r = P.check_loadable(str(ledger))
+    assert r["ok"] is False and "kind" in r["why"]
+
+
+def test_momentum_artifact_missing_KIND_fails(tmp_path):
+    r = P.check_loadable(_momentum_ledger(tmp_path, kind_art=None))
+    assert r["ok"] is False and "kind" in r["why"]
+
+
+def test_momentum_TYPE_mismatched_sha_fails_not_coerces(tmp_path):
+    """[codex on orch#770] str() coercion equated row pin "123" with artifact
+    field 123. Native equality over proven non-empty strings only."""
+    d = tmp_path / "momentum"
+    d.mkdir()
+    ledger = d / "momentum_artifact_ledger.jsonl"
+    ledger.write_text(_mljson.dumps(
+        {"cutoff_date": "2026-08-02", "artifact_content_sha256": "123",
+         "kind": "momentum_residual_v0"}) + "\n", encoding="utf-8")
+    dated = d / "2026-08-02"
+    dated.mkdir()
+    (dated / P.MOMENTUM_ARTIFACT_BASENAME).write_text(
+        _mljson.dumps({"kind": "momentum_residual_v0", "content_sha256": 123,
+                       "scores": {}}), encoding="utf-8")
+    r = P.check_loadable(str(ledger))
+    assert r["ok"] is False and "content_sha256" in r["why"]
+
+
+def test_momentum_row_NON_STRING_pin_fails(tmp_path):
+    rows = [{"cutoff_date": "2026-08-02", "artifact_content_sha256": 123,
+             "kind": "momentum_residual_v0"}]
+    r = P.check_loadable(_momentum_ledger(tmp_path, rows=rows))
+    assert r["ok"] is False and "non-empty string" in r["why"]

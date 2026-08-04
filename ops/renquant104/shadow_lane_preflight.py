@@ -278,10 +278,20 @@ def _check_momentum_ledger_loadable(ledger_path: str) -> dict:
                 "why": f"ledger tail row is not JSON: {exc}"}
     cutoff = row.get("cutoff_date")
     pinned = row.get("artifact_content_sha256")
-    if not cutoff or not pinned:
+    row_kind = row.get("kind")
+    # NON-EMPTY STRINGS required, not merely present [codex on orch#770]: a
+    # row with kind=None comparing equal to an artifact with kind=None, or a
+    # str() coercion equating pin "123" with field 123, would restore a green
+    # ops-audit signal over exactly the malformed data the serving loader
+    # rejects. The pipeline requires these fields and compares native values;
+    # so does this preflight.
+    if not (isinstance(cutoff, str) and cutoff
+            and isinstance(pinned, str) and pinned
+            and isinstance(row_kind, str) and row_kind):
         return {"check": "artifact_loads", "ok": False,
-                "why": "ledger tail row lacks cutoff_date/artifact_content_sha256 — "
-                       "the serving loader cannot resolve an artifact from it"}
+                "why": "ledger tail row lacks non-empty string "
+                       "cutoff_date/artifact_content_sha256/kind — the serving "
+                       "loader requires all three; nothing resolvable to serve"}
     dated = os.path.join(os.path.dirname(ledger_path), str(cutoff),
                          MOMENTUM_ARTIFACT_BASENAME)
     try:
@@ -294,17 +304,26 @@ def _check_momentum_ledger_loadable(ledger_path: str) -> dict:
     except ValueError as exc:
         return {"check": "artifact_loads", "ok": False,
                 "why": f"dated artifact is not JSON ({dated}): {exc}"}
-    row_kind = row.get("kind")
     art_kind = artifact.get("kind") if isinstance(artifact, dict) else None
+    if not (isinstance(art_kind, str) and art_kind):
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"dated artifact lacks a non-empty string kind "
+                       f"(got {art_kind!r}) — the serving loader requires it"}
     if row_kind != art_kind:
         return {"check": "artifact_loads", "ok": False,
                 "why": f"kind mismatch: ledger row says {row_kind!r}, artifact "
                        f"says {art_kind!r}"}
     carried = artifact.get("content_sha256") if isinstance(artifact, dict) else None
-    if str(carried) != str(pinned):
+    if not (isinstance(carried, str) and carried):
         return {"check": "artifact_loads", "ok": False,
-                "why": f"identity mismatch: ledger pins {str(pinned)[:16]}…, artifact "
-                       f"self-carries {str(carried)[:16]}… — a swapped or stale "
+                "why": f"dated artifact lacks a non-empty string content_sha256 "
+                       f"(got {type(carried).__name__}) — the serving loader "
+                       f"requires it"}
+    # NATIVE equality — both proven non-empty str above; no coercion.
+    if carried != pinned:
+        return {"check": "artifact_loads", "ok": False,
+                "why": f"identity mismatch: ledger pins {pinned[:16]}…, artifact "
+                       f"self-carries {carried[:16]}… — a swapped or stale "
                        f"dated file"}
     return {"check": "artifact_loads", "ok": True,
             "note": f"ledger tail ({cutoff}) resolves to {MOMENTUM_ARTIFACT_BASENAME}; "
