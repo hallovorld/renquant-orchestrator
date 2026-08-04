@@ -243,7 +243,13 @@ def test_the_live_ledger_is_measured_not_asserted():
     # jobs now exit 0 (daily104, weekly-retrain-patchtst — measured via launchctl),
     # and re-stamped shadow-ab-daily with its DIAGNOSED failure (fail-closed
     # PRECHECK on run-checkout pin drift; clears at the #747 item-5 pin sync).
-    assert R["n_acks"] == 10
+    # 9 after the 2026-08-03 GOAL-1 refresh (goal1/ack-ledger-refresh): the
+    # 07-31-expired cohort was RE-AFFIRMED with fresh diagnoses (retrain-panel104
+    # carries the two-era table pointer + the renquant-backtesting#101 decision
+    # surface; weekly-wf-promote likewise; meta-label's bare "task #75" became
+    # renquant-orchestrator#771), and rq104-liveness was RETIRED — its state was
+    # EXPIRED_CONDITION_MET: the next scheduled firing it waited on passed.
+    assert R["n_acks"] == 9
     # SIX of ten. `com.renquant.rq105-batch-scores-export` was re-stamped
     # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
     # longer the failure"), so it is live until 2026-08-14; shadow-ab-daily is live
@@ -254,13 +260,13 @@ def test_the_live_ledger_is_measured_not_asserted():
     # run TESTED the clearing condition (chain FAILED in 5s — same root as the
     # weekly-wf-promote row), and the re-stamp records that measurement, making the
     # row live again instead of an expired row with an obsolete May-era reason.
-    assert R["n_expired"] == 5
+    # 0 at this as-of after the refresh: every row's clock now starts 2026-08-01..03
+    # and every explicit expiry sits inside the 14-day backstop (the first attempt
+    # staggered 08-18..20 and the MEASUREMENT showed the acked_at+14 backstop
+    # capping them all at 08-17 — expiries beyond the backstop are dead letters).
+    assert R["n_expired"] == 0
     live = [r["job"] for r in R["rows"] if not r.get("expired")]
-    assert live == ["com.renquant.conditional-retrain104",
-                    "com.renquant.rq105-batch-scores-export",
-                    "com.renquant.rq105-liveness",
-                    "com.renquant.rq105-shadow-serving",
-                    "com.renquant.shadow-ab-daily"], live
+    assert len(live) == 9, live
     assert R["ack_max_age_days"] == 14
     lags = {r["job"]: r["stamp_lag_days"] for r in R["rows"]}
 
@@ -299,9 +305,15 @@ def test_the_live_ledger_is_measured_not_asserted():
     for job, lag in stale.items():
         assert any(job in f and "expiry clock" in f for f in R["findings"]), (job, lag)
 
-    # the #733 migration touched every row's value (all stale); the ONE fresh row
-    # is the 2026-08-02 conditional-retrain104 re-stamp, dated the day it was made.
-    assert fresh == {"com.renquant.conditional-retrain104": 0}, fresh
+    # After the 2026-08-03 GOAL-1 refresh the FRESH set is the re-affirmed cohort
+    # (acked_at re-stamped the day each row was actually re-reviewed with a new
+    # diagnosis — a real re-review, unlike the #641/#733 field migrations) plus
+    # the 2026-08-02 conditional-retrain104 re-stamp.
+    assert fresh == {"com.renquant.conditional-retrain104": 0,
+                     "com.renquant.monthly-meta-label-retrain": 0,
+                     "com.renquant.retrain-panel104": 0,
+                     "com.renquant.rq104-degradation-sentinel": 0,
+                     "com.renquant.weekly-wf-promote": 0}, fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
 
 
@@ -375,7 +387,11 @@ def test_the_live_ledger_today_and_when_it_will_fire():
 
     assert n(dt.date(2026, 8, 1)) == 0
     assert n(dt.date(2026, 8, 4)) == 0
-    assert n(dt.date(2026, 8, 15)) == 5   # conditional-retrain104 re-stamped 08-02
+    # 0 after the 2026-08-03 refresh (was 5): every row re-stamped 08-01..03 and
+    # every explicit expiry fires AT or BEFORE the age backstop would — the expiry
+    # findings (measured ramp: 1 @08-12, 2 @08-13, 6 @08-15, 9 @08-17) arrive
+    # before any age finding can, which is the staggered-reminder design.
+    assert n(dt.date(2026, 8, 15)) == 0
 
 
 # ---------------------------------------------------------------- clears_when ----
@@ -440,25 +456,27 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
     # 10 after the #622 AC4 prune; shadow-ab-daily's re-stamp is bucket ['ref']
     # (binds to orch#747 item 5) — one more checkable row than the survey counted.
-    assert len(by) == 10
+    assert len(by) == 9
     assert by["com.renquant.shadow-ab-daily"] == [A.BUCKET_REF]
     narrative = {j for j, b in by.items()
                  if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
                             for x in b)}
+    # 2 after the 2026-08-03 refresh (was 6): retrain-panel104 + weekly-wf-promote
+    # now bind to renquant-backtesting#101, meta-label to renquant-orchestrator#771
+    # (all bucket ref), and rq104-liveness was retired. The two remaining narrative
+    # rows are the genuinely unbindable ones: an anomaly-gated chain and a
+    # self-referential detection job.
     assert narrative == {
         "com.renquant.conditional-retrain104",
-        "com.renquant.monthly-meta-label-retrain",
-        "com.renquant.retrain-panel104",
         "com.renquant.rq104-degradation-sentinel",
-        "com.renquant.rq104-liveness",
-        "com.renquant.weekly-wf-promote",
     }, narrative
     # rq105-batch-scores-export legitimately contains BOTH a qualified ref and a later
     # bare "#73" — the bucket records it, the finding's REF-guard keeps it quiet. The
     # unresolvable-as-written set is bare WITHOUT any qualified ref:
+    # [] after the refresh: the meta-label row's bare "task #75" became the
+    # qualified renquant-orchestrator#771 (the ack-audit finding that forced it).
     assert [j for j, b in by.items()
-            if A.BUCKET_BARE_REF in b and A.BUCKET_REF not in b] == \
-        ["com.renquant.monthly-meta-label-retrain"]
+            if A.BUCKET_BARE_REF in b and A.BUCKET_REF not in b] == []
     # PIN MOVED 6 -> 0 by orch#733, and the finding itself was RETIRED: the prose lint
     # ("no machine-bindable fragment") is upgraded into the mandatory `clears_check`
     # clause, and all ten live rows now declare one (six launchctl_exit_zero, four
@@ -467,7 +485,7 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     # no bindable fragment; what changed is that a structured predicate now governs.
     assert sum(1 for f in R["findings"] if "no machine-bindable fragment" in f) == 0
     assert sum(1 for f in R["findings"] if "no clears_check declared" in f) == 0
-    assert sum(1 for f in R["findings"] if "bare #NN" in f) == 1
+    assert sum(1 for f in R["findings"] if "bare #NN" in f) == 0
 
 
 # ------------------------------------------------------- clears_check (orch#733) ----
@@ -750,7 +768,6 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
         "com.renquant.monthly-meta-label-retrain": A.CHECK_MANUAL,
         "com.renquant.retrain-panel104": A.CHECK_MANUAL,
         "com.renquant.rq104-degradation-sentinel": A.CHECK_MANUAL,
-        "com.renquant.rq104-liveness": A.CHECK_LAUNCHCTL,
         "com.renquant.rq105-batch-scores-export": A.CHECK_LAUNCHCTL,
         "com.renquant.rq105-liveness": A.CHECK_LAUNCHCTL,
         "com.renquant.rq105-shadow-serving": A.CHECK_LAUNCHCTL,
@@ -764,7 +781,6 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
         "com.renquant.monthly-meta-label-retrain": None,
         "com.renquant.retrain-panel104": None,
         "com.renquant.rq104-degradation-sentinel": None,
-        "com.renquant.rq104-liveness": A.SCOPE_FULL,
         "com.renquant.rq105-batch-scores-export": A.SCOPE_CLAUSE,
         "com.renquant.rq105-liveness": A.SCOPE_CLAUSE,
         "com.renquant.rq105-shadow-serving": A.SCOPE_CLAUSE,
