@@ -170,25 +170,37 @@ def _invocations(path: Path) -> list[str]:
     return out
 
 
-def test_exactly_one_python_command_runs_and_it_is_the_train_cli():
+def test_exactly_two_python_commands_run_and_both_are_the_train_cli():
     """Allowlist, not a banned-substring list: this wrapper runs the TRAIN CLI
-    and nothing else. A second invocation slipping in (a promote, a config
-    write) fails here by count before anyone reads what it does."""
+    twice — the v0 lane, then the v1_fast shadow lane (model#199 item 2) —
+    and nothing else. A third invocation slipping in (a promote, a config
+    write) fails here by count before anyone reads what it does. The v0
+    invocation is pinned FLAG-FREE: byte-identical to the pre-#199 reviewed
+    command, so the prod-bound lane's meaning cannot change under an old OR
+    new pinned CLI."""
     runs = [l for l in _invocations(WRAPPER)
             if l.startswith(('"$PYTHON"', "$PYTHON"))]
-    assert len(runs) == 1, runs
-    assert '"$TRAIN_CLI"' in runs[0]
-    assert "--asof" in runs[0] and "--out-root" in runs[0]
+    assert len(runs) == 2, runs
+    v0, fast = runs
+    assert '"$TRAIN_CLI"' in v0
+    assert "--asof" in v0 and '--out-root "$OUT_ROOT"' in v0
+    assert "--params-version" not in v0, "the v0 lane must stay flag-free"
+    assert '"$TRAIN_CLI"' in fast
+    assert "--params-version v1_fast" in fast
+    assert '--out-root "$OUT_ROOT_FAST"' in fast
 
 
 def test_the_out_root_follows_the_197_serving_convention():
     """model#197: the JOB publishes to artifacts/momentum/<cutoff>/ under the
     strategy serving root (the root s104 artifact_path entries resolve under).
     The CLI appends <asof>/momentum_residual_v0.json itself, so the wrapper's
-    out-root is exactly <serving root>/artifacts/momentum."""
+    out-root is exactly <serving root>/artifacts/momentum — and the fast lane
+    (model#199 item 2) publishes its OWN ledger + dated dirs under the sibling
+    artifacts/momentum_fast, the path the s104 fast shadow entry pins."""
     body = WRAPPER.read_text()
     assert 'SERVING_ROOT="$RQ_ROOT/backtesting/renquant_104"' in body
     assert 'OUT_ROOT="$SERVING_ROOT/artifacts/momentum"' in body
+    assert 'OUT_ROOT_FAST="$SERVING_ROOT/artifacts/momentum_fast"' in body
 
 
 # ------------------------------------------------------ behavior (fake root) --
@@ -196,7 +208,12 @@ def test_the_out_root_follows_the_197_serving_convention():
 # LOG (exec-first — the inverse of the model-freshness ordering, on purpose),
 # exit codes pass through, and argv is exactly the reviewed invocation.
 
-def _fake_root(tmp_path, *, cli=True, python_body="exit 0") -> Path:
+def _fake_root(tmp_path, *, cli=True, python_body="exit 0",
+               python_body_second=None) -> Path:
+    """Stub umbrella. The stub interpreter APPENDS argv (the wrapper now runs
+    the TRAIN CLI twice — v0 then v1_fast, model#199 item 2) and can exit
+    differently per call (`python_body_second`) so the lane-independence
+    contract is testable; it defaults to `python_body` for both calls."""
     root = tmp_path / "umbrella"
     (root / ".venv" / "bin").mkdir(parents=True)
     model = root / ".subrepo_runtime" / "repos" / "renquant-model"
@@ -205,10 +222,16 @@ def _fake_root(tmp_path, *, cli=True, python_body="exit 0") -> Path:
         (model / "tools").mkdir(parents=True)
         (model / "tools" / "momentum_train_run.py").write_text("# stub\n")
     py = root / ".venv" / "bin" / "python"
+    second = python_body if python_body_second is None else python_body_second
     py.write_text("#!/bin/sh\n"
-                  f'printf \'%s\\n\' "$@" > "{root}/argv.txt"\n'
+                  f'printf \'%s\\n\' "$@" >> "{root}/argv.txt"\n'
                   'echo "CLI ran"\n'
-                  + python_body + "\n")
+                  f'if [ -f "{root}/first_call_done" ]; then\n'
+                  f"  {second}\n"
+                  "else\n"
+                  f'  : > "{root}/first_call_done"\n'
+                  f"  {python_body}\n"
+                  "fi\n")
     py.chmod(py.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return root
 
@@ -267,14 +290,23 @@ def test_success_passes_rc_through_and_argv_is_the_reviewed_invocation(tmp_path)
     assert r.returncode == 0, (r.returncode, r.stderr)
     argv = (root / "argv.txt").read_text().splitlines()
     today = _dt.date.today().isoformat()
+    cli = str(root / ".subrepo_runtime/repos/renquant-model/tools/momentum_train_run.py")
     assert argv == [
-        str(root / ".subrepo_runtime/repos/renquant-model/tools/momentum_train_run.py"),
+        # LANE 1 — v0, flag-free: byte-identical to the pre-#199 invocation.
+        cli,
         "--asof", today,
         "--out-root", str(root / "backtesting/renquant_104/artifacts/momentum"),
+        # LANE 2 — v1_fast into its OWN out-root (model#199 item 2).
+        cli,
+        "--asof", today,
+        "--params-version", "v1_fast",
+        "--out-root", str(root / "backtesting/renquant_104/artifacts/momentum_fast"),
     ], argv
     body = _log(root).read_text()
     assert "CLI ran" in body
     assert "train CLI exit=0" in body
+    assert "fast train CLI exit=0" in body
+    assert "end rc=0 fast_rc=0" in body
     assert f"momentum_train_{today}.log" == _log(root).name
 
 
@@ -282,20 +314,52 @@ def test_success_passes_rc_through_and_argv_is_the_reviewed_invocation(tmp_path)
 def test_cli_refusal_codes_pass_through_unswallowed(tmp_path, code):
     """The CLI's exit code IS the payload (3 surfaces missing / 4 artifact
     exists / 5 ledger refused). A wrapper that flattens it to 0 would make
-    launchd record every refusal as success."""
+    launchd record every refusal as success. The stub exits `code` on BOTH
+    calls; the wrapper's exit is the V0 lane's code by contract."""
     root = _fake_root(tmp_path, python_body=f"exit {code}")
     r = _run(root)
     assert r.returncode == code, (r.returncode, r.stderr)
-    assert f"train CLI exit={code}" in _log(root).read_text()
+    body = _log(root).read_text()
+    assert f"train CLI exit={code}" in body
+    assert f"fast train CLI exit={code}" in body
+    assert f"end rc={code} fast_rc={code}" in body
+
+
+def test_a_fast_lane_failure_is_logged_but_NEVER_propagated(tmp_path):
+    """THE model#199-item-2 contract: v0 is bound for the prod MoE, the fast
+    lane is a shadow patrol — a fast failure must not block the slow
+    artifact. v0 exits 0, fast exits 9: launchd must record 0, and the dated
+    log must carry the fast verdict so the failure stays legible."""
+    root = _fake_root(tmp_path, python_body="exit 0", python_body_second="exit 9")
+    r = _run(root)
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    body = _log(root).read_text()
+    assert "train CLI exit=0" in body
+    assert "fast train CLI exit=9" in body
+    assert "end rc=0 fast_rc=9" in body
+
+
+def test_a_v0_failure_does_not_stop_the_fast_lane_and_still_owns_the_rc(tmp_path):
+    """Independent lanes, both directions: v0 exits 3 (surfaces missing),
+    fast exits 0 — the wrapper must still run the fast step (argv shows both
+    invocations) and must still exit with the V0 code."""
+    root = _fake_root(tmp_path, python_body="exit 3", python_body_second="exit 0")
+    r = _run(root)
+    assert r.returncode == 3, (r.returncode, r.stderr)
+    argv = (root / "argv.txt").read_text().splitlines()
+    assert argv.count("--asof") == 2, "the fast lane did not run after a v0 failure"
+    assert "--params-version" in argv
+    assert "end rc=3 fast_rc=0" in _log(root).read_text()
 
 
 def test_the_wrapper_writes_nothing_outside_the_log_dir(tmp_path):
     """The WRAPPER's own writes are the dated log only — artifacts are the
-    CLI's to write (here a stub that writes argv.txt). Snapshot the tree,
-    run, diff."""
+    CLI's to write (here a stub that writes argv.txt + its call-count
+    marker). Snapshot the tree, run, diff."""
     root = _fake_root(tmp_path, python_body="exit 0")
     before = {str(p.relative_to(root)) for p in root.rglob("*")}
     _run(root)
     after = {str(p.relative_to(root)) for p in root.rglob("*")}
     new = {p for p in after - before if not p.startswith("logs")}
-    assert new == {"argv.txt"}, new      # the stub CLI's record, nothing else
+    # the stub CLI's own records, nothing else — nothing from the wrapper.
+    assert new == {"argv.txt", "first_call_done"}, new
