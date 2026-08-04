@@ -55,6 +55,78 @@ from typing import Any
 
 PINS = Path(__file__).resolve().parent / "import_resolution_pins.json"
 
+#: The daily's import resolution, reproduced [codex on orch#773: the first
+#: version derived the SIBLING checkouts unconditionally, which is only the
+#: daily's FALLBACK — daily_104.sh first sources the umbrella's
+#: `.subrepo_assembly/current.env`, whose RENQUANT_SUBREPO_ROOT points at the
+#: PINNED runtime (`.subrepo_runtime/repos`); measuring siblings while the
+#: runtime is materialized can report imports healthy from a newer checkout
+#: while the daily still fails]. Chain, mirroring scripts/subrepo_env.sh
+#: `renquant_subrepo_root`: RENQUANT_SUBREPO_ROOT env (as current.env would
+#: export) → sibling fallback. Why this checker exists at all: on the
+#: aggregator's first scheduled run (2026-08-03) three symbols reported
+#: "unresolvable (ModuleNotFoundError)" purely because ops_audit.py exports
+#: no PYTHONPATH.
+_UMBRELLA = Path("/Users/renhao/git/github/RenQuant")
+_DAILY_REPOS: tuple[str, ...] = (
+    "renquant-common", "renquant-base-data", "renquant-artifacts",
+    "renquant-model", "renquant-pipeline", "renquant-execution",
+    "renquant-strategy-104", "renquant-backtesting",
+)
+
+
+def _runtime_root_from_current_env(umbrella: Path) -> Path | None:
+    """RENQUANT_SUBREPO_ROOT, resolved the way the daily resolves it.
+
+    Precedence mirrors `renquant_subrepo_root`: an already-exported
+    RENQUANT_SUBREPO_ROOT wins (that is what sourcing current.env does);
+    otherwise parse the umbrella's committed-on-machine
+    `.subrepo_assembly/current.env` for the same export. Returns None when
+    neither yields an existing directory — the sibling fallback then applies,
+    exactly as in the shell helper.
+    """
+    exported = os.environ.get("RENQUANT_SUBREPO_ROOT")
+    if exported:
+        root = Path(exported)
+        if not root.is_absolute():
+            root = umbrella / root
+        return root if root.is_dir() else None
+    env_file = umbrella / ".subrepo_assembly" / "current.env"
+    if not env_file.is_file():
+        return None
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith("export RENQUANT_SUBREPO_ROOT="):
+            root = Path(line.split("=", 1)[1].strip().strip('"'))
+            return root if root.is_dir() else None
+    return None
+
+
+def _ensure_daily_resolution() -> None:
+    """Append the daily's package roots exactly once, root chosen ONCE.
+
+    The root choice is made a single time (runtime when materialized, else
+    the siblings) — exactly like `renquant_subrepo_root` followed by
+    `renquant_subrepo_pythonpath`, which emits only the chosen root's repo
+    paths [codex on orch#773 round 2: a per-repo runtime→sibling fallback
+    would MASK a missing or incomplete pinned checkout with a sibling
+    import; a repo absent from the chosen root must stay loudly
+    unresolvable]. APPEND, not prepend: anything the caller already exported
+    keeps precedence.
+    """
+    runtime = _runtime_root_from_current_env(_UMBRELLA)
+    root = runtime if runtime is not None else (
+        Path(__file__).resolve().parent.parent.parent)
+    for repo in _DAILY_REPOS:
+        base = root / repo
+        for candidate in (base / "src", base):
+            if candidate.is_dir():
+                p = str(candidate)
+                if p not in sys.path:
+                    sys.path.append(p)
+                break
+
+
 #: The symbols to pin, as (module, attribute). Kept as data next to the resolver so
 #: adding one is a one-line reviewed change. Each entry is a name THIS repo imports.
 PINNED_SYMBOLS: tuple[tuple[str, str], ...] = (
@@ -175,6 +247,7 @@ def verify(pins: dict[str, Any]) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_daily_resolution()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--emit", action="store_true",
                     help="print fresh pins for review (never writes)")
