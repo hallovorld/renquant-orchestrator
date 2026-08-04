@@ -41,12 +41,6 @@
       ],
       "program_args_sha256": "f2a46194c971f1747508ec337100b01a77165a832cc2adc0a3b90b7466611697"
     },
-    "com.renquant.daily103": {
-      "program_args": [
-        "/Users/renhao/git/github/RenQuant/scripts/daily_103.sh"
-      ],
-      "program_args_sha256": "f5360dce2bb5898626277c2be607bece2ca8c72229a4a882c4c3fb9a345ab45a"
-    },
     "com.renquant.daily104": {
       "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/daily_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
@@ -85,13 +79,6 @@
       ],
       "program_args_sha256": "22a783fb2edc93c53dea9927bf0b712de107a4270c1f7296bf2785e9347a67b1"
     },
-    "com.renquant.open103": {
-      "program_args": [
-        "/Users/renhao/git/github/RenQuant/scripts/live_only_103.sh",
-        "--sell-only"
-      ],
-      "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
-    },
     "com.renquant.ops-audit": {
       "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). Prefix unique to this job.",
       "_installed_comment": "INSTALLED 2026-08-03 under the operator's 104/105 perfection directive (bootstrap verified; first hand-run produced a 10-finding report). The pending-install relaxation left tests/test_run_surface_drift_check.py in the same arc.",
@@ -122,13 +109,6 @@
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/pit/pit_liveness_check.py"
       ],
       "program_args_sha256": "e448904ba55c73959d42de59a31e7530dcb027e778cc5ae685754018a21ddaa3"
-    },
-    "com.renquant.preclose103": {
-      "program_args": [
-        "/Users/renhao/git/github/RenQuant/scripts/live_only_103.sh",
-        "--sell-only"
-      ],
-      "program_args_sha256": "c45724b19681514b51e33fe709e112afb1440ceec5fc680c83942d3af68eab94"
     },
     "com.renquant.preopen-cancel-gate": {
       "program_args": [
