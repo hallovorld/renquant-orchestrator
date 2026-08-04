@@ -67,7 +67,8 @@ def test_crashed_runs_count_toward_the_streak(tmp_path):
     msg = S.check(job, as_of=AS_OF)
     assert msg is not None
     assert "4 consecutive" in msg and "2 of them CRASHED" in msg
-    assert "2026-07-11:failed" in msg
+    assert "2026-07-11:crashed" in msg
+    assert "reported FAIL" not in msg  # crashes are crashes, not gate verdicts
 
 
 def test_undecided_gap_does_not_masquerade_as_consecutive(tmp_path):
@@ -80,7 +81,7 @@ def test_undecided_gap_does_not_masquerade_as_consecutive(tmp_path):
     assert msg is not None
     assert "3 consecutive" not in msg
     assert "unclassifiable" in msg and "2026-07-25" in msg
-    assert "2026-07-18:refused" in msg and "2026-07-11:failed" in msg
+    assert "2026-07-18:refused" in msg and "2026-07-11:crashed" in msg
 
 
 def test_undecided_gap_between_two_older_runs_is_still_reported(tmp_path):
@@ -99,12 +100,12 @@ def test_crash_marker_outranks_a_refusal_in_the_same_run(tmp_path):
     # measured: the 07-03 run hit CorpusRefreshError, printed
     # "promote: refused", and exited rc=0. It did not choose to decline.
     job = _job(tmp_path, {})
-    assert S.classify_run(CRASHED + REFUSED, job) == "failed"
+    assert S.classify_run(CRASHED + REFUSED, job) == "crashed"
 
 
 def test_corpus_refresh_error_is_recognised_without_a_traceback(tmp_path):
     job = _job(tmp_path, {})
-    assert S.classify_run("CorpusRefreshError: sidecar rejected\n", job) == "failed"
+    assert S.classify_run("CorpusRefreshError: sidecar rejected\n", job) == "crashed"
 
 
 def test_appended_stdout_log_is_ignored(tmp_path):
@@ -141,18 +142,21 @@ def test_main_exit_codes_and_dry_run(tmp_path, monkeypatch, capsys):
     assert len(sent) == 1 and "SILENT REFUSAL" in sent[0][0]
 
 
-def test_registry_watches_the_job_from_the_incident():
+def test_the_founding_lane_is_retired_and_the_registry_lives_on():
+    """2026-08-02: the founding job (weekly-retrain-patchtst) was booted out
+    under the operator's Grant B (decision orch#741; bootout verified). A
+    watch on a job that can never write another log is eternal noise or
+    eternal false-quiet — the lane is retired; the registry must NOT be
+    empty (the doctrine outlives its founding incident)."""
     names = {j.name for j in S.WATCHED}
-    assert "weekly-retrain-patchtst" in names, (
-        "the job whose months-long silent refusal motivated this sentinel "
-        "must be in the registry"
-    )
+    assert "weekly-retrain-patchtst" not in names
+    assert len(names) >= 3, "the registry must keep covering the living jobs"
 
 
 @pytest.mark.parametrize("text,expected", [
     (REFUSED, "refused"),
     (ACTED, "acted"),
-    (CRASHED, "failed"),
+    (CRASHED, "crashed"),
     ("", "undecided"),
 ])
 def test_classify_run(text, expected, tmp_path):
@@ -204,6 +208,28 @@ def test_retrain_panel_patterns_classify_the_real_lines():
     assert re.search(j.action_re,
                      "=== retrain_panel delegated weekly_wf_promote PASS at Sun ===")
     assert not re.search(j.failure_re, "weekly_wf_promote already ran today")
+
+
+def test_a_delegated_fail_is_never_glossed_as_crashed(tmp_path):
+    """The first scheduled finding's defect (2026-08-03 diagnosis): the alarm
+    said "11 of them CRASHED" about retrain-panel104 when 9 of the 11 were the
+    wrapper's honest `delegated weekly_wf_promote FAIL` echo — the WF gate's
+    own verdict, not a crash. Zero of the 6 quoted Sunday failures was a
+    crash. The alarm must attribute each class as what it saw."""
+    d = tmp_path / "joblogs"
+    d.mkdir()
+    fail = "=== retrain_panel delegated weekly_wf_promote FAIL at Sun ===\n"
+    for day in ("2026-07-11", "2026-07-18"):
+        (d / f"{day}.log").write_text(fail, encoding="utf-8")
+    (d / "2026-07-25.log").write_text(CRASHED, encoding="utf-8")
+    j = _watched("retrain-panel104")
+    job = S.WatchedJob(name=j.name, log_dir=str(d), refusal_re=j.refusal_re,
+                       action_re=j.action_re, failure_re=j.failure_re)
+    msg = S.check(job, as_of=AS_OF)
+    assert msg is not None
+    assert "2 of them reported FAIL" in msg and "not a crash" in msg
+    assert "1 of them CRASHED" in msg
+    assert "2026-07-11:failed" in msg and "2026-07-25:crashed" in msg
 
 
 def test_a_none_refusal_job_never_classifies_a_run_as_refused():

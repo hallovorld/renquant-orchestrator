@@ -156,7 +156,7 @@ def test_every_committed_ack_records_the_code_it_acknowledges():
     missing = [k for k, v in acks.items()
                if isinstance(v, dict) and "acked_exit_codes" not in v]
     assert missing == [], missing
-    assert len(acks) >= 10, acks          # anti-vacuity: an empty ledger passes trivially
+    assert len(acks) >= 9, acks           # anti-vacuity: an empty ledger passes trivially (9 after the 2026-08-03 rq104-liveness retirement)
 
 
 def test_no_committed_ack_claims_a_zero_exit():

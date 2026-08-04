@@ -36,8 +36,10 @@ def _lane(name: str) -> srs.WatchedJob:
 
 
 def test_the_sentinel_watches_more_than_one_lane():
+    # 2026-08-02: the founding patchtst lane retired with its job (Grant B,
+    # orch#741/#755) — coverage continues on the living lanes.
     assert len(srs.WATCHED) >= 2
-    assert {"weekly-retrain-patchtst", "rq105-batch-scores-export"} <= {
+    assert {"rq105-batch-scores-export", "weekly-wf-promote"} <= {
         j.name for j in srs.WATCHED}
 
 
@@ -58,12 +60,13 @@ def test_the_two_regexes_do_not_match_each_other():
     assert not re.search(lane.action_re, REFUSAL_LINE)
 
 
-def test_the_first_lanes_patterns_are_unchanged():
-    """Anti-regression: adding a lane must not perturb the one that already works."""
-    first = _lane("weekly-retrain-patchtst")
-    assert first.refusal_re == r"promote:\s*refused"
-    assert re.search(first.refusal_re, "promote: refused — NOT FRESH (expected)")
-    assert re.search(first.action_re, "promote: promoted seed_44")
+def test_the_oldest_surviving_lanes_patterns_are_unchanged():
+    """Anti-regression: registry churn (adding lanes; retiring the founding
+    patchtst lane 2026-08-02) must not perturb the one that already works."""
+    first = _lane("rq105-batch-scores-export")
+    assert first.refusal_re == r"refusing to export"
+    assert re.search(first.refusal_re, REFUSAL_LINE)
+    assert re.search(first.action_re, ACTION_LINE)
 
 
 def test_every_lane_names_a_distinct_log_dir_or_a_distinct_prefix():
@@ -131,7 +134,7 @@ def _lane_dirs_present() -> bool:
 #:
 #: Read off the real tree 2026-07-30 (the same logs the module's own comment cites).
 EXPECTED_LOG_NAMES = {
-    "weekly-retrain-patchtst": "2026-07-29.log",
+    # weekly-retrain-patchtst retired 2026-08-02 with its job (Grant B).
     "rq105-batch-scores-export": "batch_scores_export_2026-07-29.log",
     # 2026-08-01 expansion — filenames pinned from the real tree, not derived:
     # weekly_wf_promote/2026-08-01.log, conditional_retrain_104/2026-07-31.log and

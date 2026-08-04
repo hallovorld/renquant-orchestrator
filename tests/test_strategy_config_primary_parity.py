@@ -314,7 +314,14 @@ def test_the_REAL_surfaces_still_read_and_still_disagree():
         pytest.skip("live surfaces not present on this machine")
     rep = P.compare([P.read_surface(a), P.read_surface(b)])
     assert rep["n_read"] == 2 and rep["n_broken"] == 0
-    assert rep["primary_and_shadow_are_mirrored"] is True
+    # 2026-08-02 re-measured: the sibling checkout now sits AT the lock pin
+    # (granted sync) and carries the momentum shadow lane, while the umbrella
+    # WORKING COPY remains the known-stale hf_patchtst declaration — the
+    # surfaces are NOT mirrored, and that is the real, explained state (the
+    # working copy's refresh is its own tracked item). What must still hold:
+    # both surfaces READ cleanly, so the disagreement is visible, not hidden
+    # behind a validation error.
+    assert rep["primary_and_shadow_are_mirrored"] is False
 
 
 def test_a_COMMON_BASE_with_different_hit_sets_is_NOT_a_failure(tmp_path):
@@ -377,5 +384,42 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
         pytest.skip("live surface not present on this machine")
     pa = P.audit_paths(P.read_surface(cfg),
                        [u, os.path.join(u, "backtesting", "renquant_104")])
-    assert pa["no_common_base"] is True
-    assert pa["single_base_that_resolves_everything"] == []
+    # 2026-08-02: the ORIGINAL finding (no single resolving base) was
+    # GENUINELY FIXED, not dissolved — with the momentum ledger published
+    # (Grant C) every declared artifact_path resolves under the strategy dir,
+    # measured live: primary + both shadows -> backtesting/renquant_104.
+    # The check now pins the HEALTHY state so a future path that escapes the
+    # single base flips this red.
+    #
+    # BOUNDED pending exception (2026-08-04, strategy-104#84): the FAST
+    # momentum lane's ledger (artifacts/momentum_fast/...) is published only
+    # by the weekly job's first fast firing (orch#775 wrapper + the model
+    # CLI pin), so until then EXACTLY that one path is legitimately
+    # unresolvable — mirroring s104's PENDING_FIRST_ARTIFACT discipline: the
+    # named set below shrinks back to empty in the SAME change that records
+    # the first publish, so the relaxation cannot outlive the state it
+    # names. Any OTHER unresolvable path still flips this red.
+    PENDING_FIRST_PUBLISH_PATHS = {
+        "artifacts/momentum_fast/momentum_artifact_ledger.jsonl",
+    }
+    unresolved = {e["artifact_path"] for e in pa["entries"]
+                  if e["status"] == "unresolvable"}
+    strategy_base = os.path.join(u, "backtesting", "renquant_104")
+    pending_now = {p for p in PENDING_FIRST_PUBLISH_PATHS
+                   if not os.path.exists(os.path.join(strategy_base, p))}
+    # EXACT equality, not subset [codex on #776]: while the fast ledger is
+    # absent the declared entry MUST be present-and-unresolved — a subset
+    # check passes vacuously when the config entry is accidentally deleted
+    # (unresolved goes empty), silently disconnecting the declared lane
+    # while its watcher stays armed. After the file appears, both sides are
+    # empty and the strict semantics resume.
+    assert unresolved == pending_now, (
+        f"unresolved != expected pending set: "
+        f"extra={sorted(unresolved - pending_now)} "
+        f"missing-declared={sorted(pending_now - unresolved)}")
+    assert pa["n_unresolvable"] == len(pending_now)
+    assert pa["no_common_base"] is False
+    # single_base_* is computed over RESOLVED entries (measured from the
+    # constructor): a pending-unresolvable path does not disqualify the base
+    # that resolves everything actually published.
+    assert pa["single_base_that_resolves_everything"] == [strategy_base]

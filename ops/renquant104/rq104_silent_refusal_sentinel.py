@@ -77,11 +77,18 @@ class WatchedJob:
     refusal_re: str | None
     #: matches a run that ACTED (the job ran, decided, and did something)
     action_re: str
-    #: matches a run that FAILED before deciding (crash / hard error). These
-    #: are a SECOND silent class: measured 2026-07-28, the weekly retrain's
+    #: matches a run whose OWN vocabulary says it FAILED (a delegated gate's
+    #: FAIL echo, a chain's "FAILED" line). These runs decided and reported
+    #: failure — non-acting, but NOT crashes, and the alarm must not call
+    #: them CRASHED (2026-08-03 diagnosis of the first scheduled finding: 9
+    #: of retrain-panel104's 11 "CRASHED" runs were honest delegated WF-gate
+    #: FAILs). Empty = the job has no non-crash failure vocabulary.
+    failure_re: str = ""
+    #: matches a run that DIED before deciding (crash / hard error) — the
+    #: original SECOND silent class: measured 2026-07-28, the weekly retrain's
     #: 07-11 and 07-18 runs died on `CorpusRefreshError` and the 07-03 run
     #: hit the same error yet still printed `finished rc=0`.
-    failure_re: str = r"Traceback \(most recent call last\)|CorpusRefreshError|^\w*Error:"
+    crash_re: str = r"Traceback \(most recent call last\)|CorpusRefreshError|^\w*Error:"
     #: Dated logs are normally `<log_dir>/YYYY-MM-DD.log`. Some jobs write
     #: `<prefix>YYYY-MM-DD.log` into a directory SHARED with other jobs --- rq105/
     #: holds six jobs' logs. Without this the finder skips them entirely (the whole
@@ -93,12 +100,12 @@ class WatchedJob:
 #: Registry. A job belongs here when "it ran successfully" and "it did its
 #: job" are different statements.
 WATCHED: tuple[WatchedJob, ...] = (
-    WatchedJob(
-        name="weekly-retrain-patchtst",
-        log_dir=os.path.join(RQ, "logs/weekly_retrain_patchtst"),
-        refusal_re=r"promote:\s*refused",
-        action_re=r"promote:\s*(promoted|advanced|applied)",
-    ),
+    # FOUNDING LANE RETIRED 2026-08-02: weekly-retrain-patchtst (the 2026-07-28
+    # incident this module was built for) was booted out under the operator's
+    # Grant B (decision orch#741; manifest removal orch#755; bootout executed
+    # 22:48Z, verified unloaded). A watch on a job that can never write another
+    # log is either eternal noise or eternal false-quiet — the lane goes, the
+    # doctrine (and this module) stays.
     # SECOND LANE, added 2026-07-30. Same shape as the first: the job's entire
     # purpose is to produce an artifact, it can decline, and declining is a normal
     # exit. Both patterns were read off the REAL dated logs before being written
@@ -138,9 +145,14 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=r"WF gate REJECTED staged model",
         # action read off the emitter, scripts/weekly_wf_promote.sh:412 — no PASS has
         # ever appeared in the 54-log window.
-        action_re=r"weekly_wf_promote PASSED",
+        # FALLBACK-PROMOTED added 2026-08-04 (RenQuant#559 Step 4b): an
+        # RFC#210 freshness-fallback promotion IS an action — the served
+        # artifact changed; counting it as a refusal would keep alarming
+        # over a lane that just acted (the #101 design says the streak
+        # clears honestly on fallback).
+        action_re=r"weekly_wf_promote PASSED|weekly_wf_promote FALLBACK-PROMOTED",
         failure_re=(r"Promote FAILED|Smoke test FAILED|Snapshot freshness backstop "
-                    r"FAILED|Traceback \(most recent call last\)"),
+                    r"FAILED"),
     ),
     WatchedJob(
         name="conditional-retrain104",
@@ -152,8 +164,7 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=None,
         # emitter: scripts/conditional_retrain_104.sh:105
         action_re=r"Gated WF promote chain complete",
-        failure_re=(r"Gated WF promote chain FAILED|Trigger check FAILED|"
-                    r"Traceback \(most recent call last\)"),
+        failure_re=r"Gated WF promote chain FAILED|Trigger check FAILED",
     ),
     WatchedJob(
         name="retrain-panel104",
@@ -164,8 +175,7 @@ WATCHED: tuple[WatchedJob, ...] = (
         refusal_re=None,
         # emitter: scripts/retrain_panel.sh:72
         action_re=r"delegated weekly_wf_promote PASS",
-        failure_re=(r"delegated weekly_wf_promote FAIL|"
-                    r"Traceback \(most recent call last\)"),
+        failure_re=r"delegated weekly_wf_promote FAIL",
     ),
 )
 
@@ -191,7 +201,7 @@ UNWATCHABLE_LANES = {
 @dataclass(frozen=True)
 class RunOutcome:
     day: dt.date
-    outcome: str  # "refused" | "acted" | "undecided"
+    outcome: str  # "refused" | "acted" | "failed" | "crashed" | "undecided"
 
 
 def _dated_logs(log_dir: str, *, as_of: dt.date,
@@ -222,18 +232,23 @@ def _dated_logs(log_dir: str, *, as_of: dt.date,
 
 
 def classify_run(text: str, job: WatchedJob) -> str:
-    """Classify one run: acted / refused / failed / undecided.
+    """Classify one run: acted / crashed / failed / refused / undecided.
 
     Order matters. An ACTION anywhere wins over everything else: a run that
     refuses one candidate and then promotes another has acted, and treating
     it as a refusal would manufacture a streak out of a healthy job. A crash
-    marker outranks a refusal because a run that died did not choose to
-    decline — it never got to decide (measured 2026-07-28: the 07-03 run hit
-    `CorpusRefreshError` AND printed `promote: refused` AND exited rc=0).
+    marker outranks a failure line and a refusal because a run that died did
+    not choose either — it never got to decide (measured 2026-07-28: the
+    07-03 run hit `CorpusRefreshError` AND printed `promote: refused` AND
+    exited rc=0). Crash and failure are SEPARATE outcomes so the alarm can
+    say which it saw (2026-08-03: the first scheduled finding glossed 9
+    delegated WF-gate FAILs as "CRASHED").
     """
     if re.search(job.action_re, text):
         return "acted"
-    if re.search(job.failure_re, text, flags=re.MULTILINE):
+    if re.search(job.crash_re, text, flags=re.MULTILINE):
+        return "crashed"
+    if job.failure_re and re.search(job.failure_re, text, flags=re.MULTILINE):
         return "failed"
     if job.refusal_re and re.search(job.refusal_re, text):
         return "refused"
@@ -286,7 +301,7 @@ def inaction_streak(outcomes: list[RunOutcome]) -> InactionStreak:
     streak: list[RunOutcome] = []
     skipped: list[RunOutcome] = []
     for o in outcomes:
-        if o.outcome in ("refused", "failed"):
+        if o.outcome in ("refused", "failed", "crashed"):
             streak.append(o)
         elif o.outcome == "acted":
             break
@@ -301,6 +316,7 @@ def check(job: WatchedJob, *, as_of: dt.date) -> str | None:
         return None
     detail = ", ".join(f"{o.day.isoformat()}:{o.outcome}" for o in ia.runs[:6])
     n_failed = sum(1 for o in ia.runs if o.outcome == "failed")
+    n_crashed = sum(1 for o in ia.runs if o.outcome == "crashed")
     if ia.skipped:
         span = (f"{len(ia.runs)} non-acting runs spanning "
                 f"{len(ia.skipped)} unclassifiable run(s) not counted as "
@@ -310,7 +326,9 @@ def check(job: WatchedJob, *, as_of: dt.date) -> str | None:
     return (
         f"job '{job.name}' has not acted on {span} "
         f"({detail}"
-        + (f"; {n_failed} of them CRASHED" if n_failed else "")
+        + (f"; {n_crashed} of them CRASHED" if n_crashed else "")
+        + (f"; {n_failed} of them reported FAIL (the job's own verdict, "
+           f"not a crash)" if n_failed else "")
         + f"). A gate refusing once is the gate working; nothing being "
         f"promoted cycle after cycle means the gate cannot be satisfied, its "
         f"input stopped advancing, or the job is failing before it decides. "

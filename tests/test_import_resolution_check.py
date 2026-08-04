@@ -234,3 +234,114 @@ def test_drift_scan_check_is_LOUD_on_a_missing_pin_file(monkeypatch, tmp_path):
         sys.path.pop(0)
     assert len(loud) == 1 and "pin file missing" in loud[0]
     assert info == []
+
+
+def test_bare_invocation_resolves_like_the_daily_not_like_the_shell():
+    """The ops-audit aggregator invokes this checker with NO PYTHONPATH; on its
+    first scheduled run (2026-08-03) three symbols read "unresolvable
+    (ModuleNotFoundError)" purely for that reason while the daily's own path
+    set resolved them fine — the checker measured the invoking shell, not the
+    deployment. A bare subprocess must now succeed on the operator machine
+    (skips loudly where the sibling checkouts are absent — CI)."""
+    import os
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+
+    github = _P(__file__).resolve().parent.parent.parent
+    if not (github / "renquant-backtesting" / "src").is_dir():
+        import pytest
+        pytest.skip("sibling checkouts absent — daily-resolution not reproducible here")
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    r = subprocess.run(
+        [_sys.executable, str(_P(__file__).resolve().parent.parent
+                              / "ops" / "import_resolution_check.py")],
+        capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    assert "unresolvable" not in r.stdout
+
+
+def test_caller_pythonpath_keeps_precedence_over_the_sibling_append():
+    """APPEND, not prepend: a caller-exported resolution must win, so the
+    checker never reports a third resolution that neither the shell nor the
+    daily would use."""
+    import sys as _sys
+    sys_path_before = list(_sys.path)
+    try:
+        import import_resolution_check as C
+        marker = "/nonexistent-caller-export"
+        _sys.path.insert(0, marker)
+        C._ensure_daily_resolution()
+        assert _sys.path[0] == marker  # caller's entry still first
+    finally:
+        _sys.path[:] = sys_path_before
+
+
+def test_materialized_runtime_root_wins_over_a_conflicting_sibling(tmp_path, monkeypatch):
+    """[codex on orch#773] The daily sources current.env FIRST; siblings are
+    only its fallback. With a runtime root materialized, the checker must
+    resolve each repo from the RUNTIME and must NOT also append the sibling —
+    otherwise it can report imports healthy from a newer sibling while the
+    daily (pinned runtime) still fails."""
+    import sys as _sys
+    import import_resolution_check as C
+
+    runtime = tmp_path / "runtime-repos"
+    (runtime / "renquant-backtesting" / "src").mkdir(parents=True)
+    monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(runtime))
+    before = list(_sys.path)
+    try:
+        C._ensure_daily_resolution()
+        added = [p for p in _sys.path if p not in before]
+        runtime_hits = [p for p in added if str(runtime) in p]
+        sibling_hits = [p for p in added
+                        if "renquant-backtesting" in p and str(runtime) not in p]
+        assert runtime_hits, added
+        assert sibling_hits == [], (
+            "sibling appended alongside a materialized runtime — the checker "
+            "would measure a resolution the daily does not use")
+    finally:
+        _sys.path[:] = before
+
+
+def test_current_env_parsing_mirrors_the_shell_export(tmp_path, monkeypatch):
+    import import_resolution_check as C
+    umbrella = tmp_path / "RenQuant"
+    (umbrella / ".subrepo_assembly").mkdir(parents=True)
+    runtime = tmp_path / "rt"
+    runtime.mkdir()
+    (umbrella / ".subrepo_assembly" / "current.env").write_text(
+        "# comment\nexport RENQUANT_ASSEMBLY_DIR=/x\n"
+        f"export RENQUANT_SUBREPO_ROOT={runtime}\n", encoding="utf-8")
+    monkeypatch.delenv("RENQUANT_SUBREPO_ROOT", raising=False)
+    assert C._runtime_root_from_current_env(umbrella) == runtime
+
+
+def test_missing_current_env_falls_back_to_none_not_a_guess(tmp_path, monkeypatch):
+    import import_resolution_check as C
+    monkeypatch.delenv("RENQUANT_SUBREPO_ROOT", raising=False)
+    assert C._runtime_root_from_current_env(tmp_path / "nope") is None
+
+
+def test_runtime_missing_one_repo_does_NOT_fall_back_to_its_sibling(tmp_path, monkeypatch):
+    """[codex on orch#773 round 2] The shell helper picks the root ONCE and
+    emits only that root's repo paths; a repo missing from a materialized
+    runtime must stay loudly unresolvable, never masked by a sibling import."""
+    import sys as _sys
+    import import_resolution_check as C
+
+    runtime = tmp_path / "runtime-repos"
+    (runtime / "renquant-common" / "src").mkdir(parents=True)
+    # renquant-backtesting deliberately ABSENT from the runtime; the real
+    # sibling exists on this machine.
+    monkeypatch.setenv("RENQUANT_SUBREPO_ROOT", str(runtime))
+    before = list(_sys.path)
+    try:
+        C._ensure_daily_resolution()
+        added = [p for p in _sys.path if p not in before]
+        assert any(str(runtime) in p for p in added), added
+        assert not any("renquant-backtesting" in p for p in added), (
+            "a sibling was substituted for a repo missing from the "
+            "materialized runtime — the exact masking the review names")
+    finally:
+        _sys.path[:] = before
