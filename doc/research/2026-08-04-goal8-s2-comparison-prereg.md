@@ -101,12 +101,19 @@ unmeasurable as written.
 
 FROZEN replacement, zero new serving surface: the momentum arm's
 per-session scores are read from the CHAIN-VERIFIED weekly dated
-artifact serving that session (the artifact the ledger tail vouches for
-on that date — momentum scores are weekly-frozen by construction, so
-the artifact IS the durable score record). Per session: top-3 by the
-artifact's scores restricted to names present in that session's
+artifact that was SERVING AS OF THAT SESSION'S CUTOFF — time-safe
+selection rule `[codex on orch#782]`: the serving row for session D is
+the LAST ledger row with `cutoff_date <= D` AND `appended_at_utc <=
+D's session cutoff` (append-only + digest-chained, so this selection is
+reproducible and cannot be altered by later appends), never "an
+artifact now described as serving that date". The readout MUST record,
+per session, the exact serving identity — (`row_index`, `row_sha`,
+`artifact_content_sha256`) — alongside the basket, so any later-ledger
+substitution or look-ahead is mechanically visible. Per session: top-3
+by that artifact's scores restricted to names present in that session's
 prod-scored universe (`candidate_scores` for that session's run — the
-shared universe surface), ties lexicographic. A session whose serving
-artifact cannot be chain-verified from the ledger contributes NO
-momentum basket and counts against the momentum arm's coverage exactly
-like a missing record. Everything else in this document is unchanged.
+shared universe surface), ties lexicographic. A session with no
+qualifying row, or whose selected artifact fails chain verification,
+contributes NO momentum basket and counts against the momentum arm's
+coverage exactly like a missing record. Everything else in this
+document is unchanged.
