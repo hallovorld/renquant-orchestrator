@@ -99,12 +99,18 @@ def _fwd_returns(db_path: Path, session: str) -> dict[str, float]:
 # artifact, sha both directions, parity, golden reproduction, TIME-SAFE row
 # selection) and treats None as a coverage miss.
 
-def _momentum_serving(ledger_path: Path, session: str, session_cutoff_utc: str):
+def _default_momentum_loader(ledger_path: Path, *, session_date: str,
+                             session_cutoff_utc: str):
+    """The REAL provider (requires the pipeline+model distributions —
+    present on the operator machine, absent on hosted CI). run_readout
+    takes an injectable ``momentum_loader`` seam so the DECISION LOGIC is
+    CI-tested with a fake while this real provider stays the default
+    [codex on orch#783 round 3]."""
     from renquant_pipeline.kernel.panel_pipeline.momentum_residual_scorer import (
         load_momentum_artifact_as_of,
     )
     return load_momentum_artifact_as_of(
-        ledger_path, session_date=session,
+        ledger_path, session_date=session_date,
         session_cutoff_utc=session_cutoff_utc)
 
 
@@ -131,6 +137,7 @@ def run_readout(
     fwd_db: Path,
     session_cutoffs_utc: dict[str, str],
     extension_used: bool = False,
+    momentum_loader=None,
 ) -> dict[str, Any]:
     if len(sessions) != WINDOW_SESSIONS:
         raise SystemExit(
@@ -144,8 +151,10 @@ def run_readout(
         rec: dict[str, Any] = {"session": session}
         prod_scores = _runs_db_scores(prod_db, session)
         blend_scores = _runs_db_scores(blend_db, session)
-        mom = _momentum_serving(
-            momentum_ledger, session, session_cutoffs_utc[session])
+        loader = momentum_loader or _default_momentum_loader
+        mom = loader(
+            momentum_ledger, session_date=session,
+            session_cutoff_utc=session_cutoffs_utc[session])
 
         universe = sorted(prod_scores) if prod_scores else []
         arms: dict[str, "list[str] | None"] = {

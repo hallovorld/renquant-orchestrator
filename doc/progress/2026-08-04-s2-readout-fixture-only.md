@@ -44,5 +44,15 @@ ROUND 2 (codex on #783, all three): (1) the two-phase coverage rule is
            record surface is runs.alpaca.db (tag-routed; data/runs.db is
            an empty shell) — the readout takes explicit paths, so this is
            an invocation fact, not a code change.
-NEXT:      merge after pipeline#262; at session 20: one real run, report
-           published with the per-session identity triplets.
+ROUND 3 (codex): the decision suite now runs on HOSTED CI — the
+           provider loader is injected behind run_readout's
+           momentum_loader seam; a _FakeLoader asserts the seam contract
+           (one call per session with the exact (session, cutoff) pair;
+           the supplied identity recorded verbatim) and drives the
+           extension/coverage/canonical-run controls without any distro;
+           the REAL provider remains the default and keeps one optional
+           integration test (importorskip THIS TEST ONLY). CI-sim run:
+           6 passed 1 skipped; operator machine: 7 passed (pipeline#262
+           now merged and pulled).
+NEXT:      merge (pipeline#262 landed); at session 20: one real run,
+           report published with the per-session identity triplets.
