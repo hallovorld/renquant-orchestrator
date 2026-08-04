@@ -407,10 +407,17 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
     strategy_base = os.path.join(u, "backtesting", "renquant_104")
     pending_now = {p for p in PENDING_FIRST_PUBLISH_PATHS
                    if not os.path.exists(os.path.join(strategy_base, p))}
-    assert unresolved <= pending_now, (
-        f"unexpected unresolvable paths beyond the bounded pending set: "
-        f"{sorted(unresolved - pending_now)}")
-    assert pa["n_unresolvable"] == len(unresolved)
+    # EXACT equality, not subset [codex on #776]: while the fast ledger is
+    # absent the declared entry MUST be present-and-unresolved — a subset
+    # check passes vacuously when the config entry is accidentally deleted
+    # (unresolved goes empty), silently disconnecting the declared lane
+    # while its watcher stays armed. After the file appears, both sides are
+    # empty and the strict semantics resume.
+    assert unresolved == pending_now, (
+        f"unresolved != expected pending set: "
+        f"extra={sorted(unresolved - pending_now)} "
+        f"missing-declared={sorted(pending_now - unresolved)}")
+    assert pa["n_unresolvable"] == len(pending_now)
     assert pa["no_common_base"] is False
     # single_base_* is computed over RESOLVED entries (measured from the
     # constructor): a pending-unresolvable path does not disqualify the base
