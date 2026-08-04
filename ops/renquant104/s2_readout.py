@@ -43,16 +43,31 @@ def _top3(scores: dict[str, float]) -> list[str]:
 
 
 def _runs_db_scores(db_path: Path, session: str) -> "dict[str, float] | None":
-    """Per-session scores from a runs db (PROD / BLEND arms): the session's
-    run(s) in pipeline_runs joined to candidate_scores.rank_score. None =
-    the arm has NO record that session (missing, per the frozen tally)."""
+    """Per-session scores from a runs db (PROD / BLEND arms), with the
+    CANONICAL run selection [codex on orch#783 item 3; measured 2026-08-04:
+    the live db has 21-35 runs/session, exactly one carrying candidate-role
+    rows — the daily decision run]: among the session's runs that have >=1
+    role='candidate' row, pick the lexicographically-LAST run_id; scores =
+    that run's role='candidate' rank_scores only; duplicate tickers within
+    the selected run resolve to MAX score (deterministic). None = no run
+    with candidate rows that session (missing, per the frozen tally)."""
     con = sqlite3.connect(str(db_path))
     try:
-        rows = con.execute(
-            "SELECT cs.ticker, cs.rank_score FROM candidate_scores cs "
-            "JOIN pipeline_runs pr ON pr.run_id = cs.run_id "
-            "WHERE pr.run_date = ? AND cs.rank_score IS NOT NULL",
+        run_row = con.execute(
+            "SELECT pr.run_id FROM pipeline_runs pr "
+            "JOIN candidate_scores cs ON cs.run_id = pr.run_id "
+            "WHERE pr.run_date = ? AND cs.role = 'candidate' "
+            "AND cs.rank_score IS NOT NULL "
+            "GROUP BY pr.run_id ORDER BY pr.run_id DESC LIMIT 1",
             (session,),
+        ).fetchone()
+        if not run_row:
+            return None
+        rows = con.execute(
+            "SELECT cs.ticker, MAX(cs.rank_score) FROM candidate_scores cs "
+            "WHERE cs.run_id = ? AND cs.role = 'candidate' "
+            "AND cs.rank_score IS NOT NULL GROUP BY cs.ticker",
+            (run_row[0],),
         ).fetchall()
     finally:
         con.close()
@@ -76,69 +91,21 @@ def _fwd_returns(db_path: Path, session: str) -> dict[str, float]:
     return {str(t): float(r) for t, r in rows}
 
 
-# ── momentum arm: AMENDMENT 1 time-safe ledger selection ─────────────────────
+# ── momentum arm: the pipeline provider loader (pipeline#262) ───────────────
+# codex on orch#783: verification belongs at the pipeline provider boundary —
+# pipeline imports the model-owned verifier and is the canonical artifact
+# consumer. This readout does NOT reimplement chain or artifact logic; it
+# calls load_momentum_artifact_as_of (single-read snapshot, chain, dated
+# artifact, sha both directions, parity, golden reproduction, TIME-SAFE row
+# selection) and treats None as a coverage miss.
 
-def _canon_sha(doc: dict) -> str:
-    body = {k: v for k, v in doc.items() if k != "content_sha256"}
-    canon = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()[:16]
-
-
-def _verify_chain(rows: list[dict]) -> None:
-    prev = None
-    for i, row in enumerate(rows):
-        if row["row_index"] != i:
-            raise ValueError(f"ledger row {i}: row_index {row['row_index']}")
-        if row["prev_row_sha"] != prev:
-            raise ValueError(f"ledger row {i}: prev_row_sha broken")
-        body = {k: v for k, v in row.items() if k != "row_sha"}
-        canon = json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False)
-        actual = "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()[:16]
-        if row["row_sha"] != actual:
-            raise ValueError(f"ledger row {i}: row_sha does not recompute")
-        prev = row["row_sha"]
-
-
-def _momentum_serving(
-    ledger_path: Path, session: str, session_cutoff_utc: str
-) -> "tuple[dict[str, float], dict[str, Any]] | None":
-    """AMENDMENT 1 (as hardened by codex on orch#782): the serving row for
-    session D is the LAST chain-verified ledger row with cutoff_date <= D
-    AND appended_at_utc <= D's session cutoff. Returns (scores, identity
-    triplet) or None (no qualifying/verifiable row -> no basket, counted
-    against coverage)."""
-    try:
-        rows = [json.loads(l) for l in ledger_path.read_text(encoding="utf-8").strip().splitlines()]
-        _verify_chain(rows)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
-    qualifying = [
-        r for r in rows
-        if str(r["cutoff_date"]) <= session and str(r["appended_at_utc"]) <= session_cutoff_utc
-    ]
-    if not qualifying:
-        return None
-    row = qualifying[-1]
-    dated = ledger_path.parent / str(row["cutoff_date"]) / "momentum_residual_v0.json"
-    try:
-        artifact = json.loads(dated.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if _canon_sha(artifact) != artifact.get("content_sha256"):
-        return None
-    if artifact.get("content_sha256") != row["artifact_content_sha256"]:
-        return None
-    scores = {
-        str(t): float(v)
-        for t, v in (artifact.get("scores") or {}).items()
-        if isinstance(v, (int, float)) and not isinstance(v, bool)
-    }
-    identity = {
-        "row_index": row["row_index"],
-        "row_sha": row["row_sha"],
-        "artifact_content_sha256": row["artifact_content_sha256"],
-    }
-    return scores, identity
+def _momentum_serving(ledger_path: Path, session: str, session_cutoff_utc: str):
+    from renquant_pipeline.kernel.panel_pipeline.momentum_residual_scorer import (
+        load_momentum_artifact_as_of,
+    )
+    return load_momentum_artifact_as_of(
+        ledger_path, session_date=session,
+        session_cutoff_utc=session_cutoff_utc)
 
 
 # ── placebo (frozen seed recipe) ─────────────────────────────────────────────
@@ -163,6 +130,7 @@ def run_readout(
     momentum_ledger: Path,
     fwd_db: Path,
     session_cutoffs_utc: dict[str, str],
+    extension_used: bool = False,
 ) -> dict[str, Any]:
     if len(sessions) != WINDOW_SESSIONS:
         raise SystemExit(
@@ -221,7 +189,11 @@ def run_readout(
 
     coverage_ok = bp_n >= MIN_MATCHED_PAIR_COVERAGE and bm_n >= MIN_MATCHED_PAIR_COVERAGE
     if not coverage_ok:
-        verdict = "INSUFFICIENT RECORD — no promotion interest"
+        # Frozen two-phase rule [codex on orch#783 item 1]: the FIRST
+        # 20-session coverage miss consumes the declared extension; only
+        # with the extension already used does the rung close INSUFFICIENT.
+        verdict = ("INSUFFICIENT RECORD — no promotion interest"
+                   if extension_used else "EXTEND")
     elif bp_mean is not None and bp_mean > 0 and missing["blend"] <= MAX_BLEND_MISSING:
         verdict = "PROMOTE-INTEREST"
     elif (bp_mean is not None and bp_mean < 0) and (bm_mean is not None and bm_mean < 0):
@@ -240,6 +212,7 @@ def run_readout(
             "momentum_vs_prod": {"mean_diff": mp_mean, "n": mp_n},
         },
         "coverage_ok": coverage_ok,
+        "extension_used": extension_used,
         "verdict": verdict,
     }
 
@@ -254,6 +227,10 @@ def main(argv: "list[str] | None" = None) -> int:
     ap.add_argument("--blend-db", required=True, type=Path)
     ap.add_argument("--momentum-ledger", required=True, type=Path)
     ap.add_argument("--fwd-db", required=True, type=Path)
+    ap.add_argument("--extension-used", action="store_true",
+                    help="the declared one-time extension window has already "
+                         "run (second phase): a coverage miss now closes the "
+                         "rung INSUFFICIENT instead of extending")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args(argv)
     report = run_readout(
@@ -263,6 +240,7 @@ def main(argv: "list[str] | None" = None) -> int:
         momentum_ledger=args.momentum_ledger,
         fwd_db=args.fwd_db,
         session_cutoffs_utc=json.loads(args.session_cutoffs.read_text()),
+        extension_used=args.extension_used,
     )
     args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"S2 readout: verdict={report['verdict']} -> {args.out}")

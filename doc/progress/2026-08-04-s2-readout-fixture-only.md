@@ -24,5 +24,25 @@ WHY/DIR:   the prereg's written-during-run-after discipline, executed
            momentum-arm gap that became AMENDMENT 1.
 EVIDENCE:  fixture suite 6 passed; no real surface touched (script takes
            only explicit paths).
-NEXT:      merge after orch#782; at session 20: one real run, report
+ROUND 2 (codex on #783, all three): (1) the two-phase coverage rule is
+           implemented — extension_used input; first 20-session coverage
+           miss = EXTEND, miss with the extension used = INSUFFICIENT
+           (both phases positive-controlled, incl. a winning blend never
+           promoting through a miss in either phase); (2) the readout
+           carries NO chain/artifact logic — the momentum arm calls
+           pipeline#262's load_momentum_artifact_as_of at the provider
+           boundary (fixtures build REAL package artifacts and reseal
+           timestamps via ledger.row_sha256_of; the suite importorskips
+           the model distro, so hosted CI skips and the operator machine
+           runs); (3) canonical per-session run selection frozen from
+           measurement (21-35 runs/session live, exactly one carrying
+           candidate rows): candidate-carrying runs only, lexicographic-
+           last run_id, role='candidate', MAX-score duplicate resolution
+           — decoy fixtures include holding-only runs AND a candidate-
+           carrying lower run_id decoy. Branch rebased onto main so the
+           AMENDMENT 1 dependency is merge-enforced. Note: the real prod
+           record surface is runs.alpaca.db (tag-routed; data/runs.db is
+           an empty shell) — the readout takes explicit paths, so this is
+           an invocation fact, not a code change.
+NEXT:      merge after pipeline#262; at session 20: one real run, report
            published with the per-session identity triplets.
