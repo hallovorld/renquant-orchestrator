@@ -25,6 +25,7 @@ Run inside the strategy venv with the subrepo PYTHONPATH (see scripts/subrepo_en
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
 import sys
 from pathlib import Path
@@ -56,8 +57,32 @@ def _finite(v) -> bool:
         return False
 
 
+def _runtime_scorer_fp(art_path: Path, repo: Path | None):
+    """The fingerprint the LIVE runtime itself stamps on load (pinned pipeline
+    PanelScorer). None when the pinned checkout is not importable here —
+    callers must then treat a common-impl mismatch as FAIL (closed), because
+    the runtime's answer is unknown, not because it is known-bad."""
+    if repo is None:
+        return None
+    src = repo / ".subrepo_runtime" / "repos" / "renquant-pipeline" / "src"
+    if not src.is_dir():
+        return None
+    sys.path.insert(0, str(src))
+    try:
+        from renquant_pipeline.kernel.panel_pipeline.panel_scorer import PanelScorer  # noqa: PLC0415
+        return PanelScorer.load(str(art_path)).metadata.get("model_content_fingerprint")
+    except Exception:
+        return None
+    finally:
+        try:
+            sys.path.remove(str(src))
+        except ValueError:
+            pass
+
+
 def check_bundle(config_path: Path, strategy_dir: Path, *,
-                 fingerprint_config=None, model_content_sha256=None) -> dict:
+                 fingerprint_config=None, model_content_sha256=None,
+                 repo: Path | None = None) -> dict:
     # Reuse the live preflight authorities by default; allow injection for unit tests.
     if fingerprint_config is None:
         from renquant_common.config_consistency import fingerprint_config  # noqa: PLC0415
@@ -108,8 +133,28 @@ def check_bundle(config_path: Path, strategy_dir: Path, *,
             cal = json.loads(cal_path.read_text())
             cal_fp = (cal.get("metadata") or {}).get("scorer_model_content_fingerprint")
             scorer_fp = model_content_sha256(art)
-            add("calibrator_scorer_match", cal_fp == scorer_fp,
-                f"calibrator_expects={cal_fp} scorer={scorer_fp}")
+            if cal_fp == scorer_fp:
+                add("calibrator_scorer_match", True,
+                    f"calibrator_expects={cal_fp} scorer={scorer_fp}")
+            else:
+                # 2026-08-04: the common-impl hash and the runtime's stamped
+                # fingerprint are DIFFERENT SCHEMAS (v1 vs legacy; the M6
+                # dispatch compares within one schema). The question this
+                # check must answer is the RUNTIME's: does the pair match at
+                # PanelScorer.load time? Ask it directly when the pinned
+                # pipeline is importable; if it is not, stay FAILED (closed) —
+                # unknown is not a pass.
+                rt_fp = _runtime_scorer_fp(art_path, repo)
+                if rt_fp is not None and cal_fp == rt_fp:
+                    add("calibrator_scorer_match", True,
+                        f"common-impl mismatch (common={scorer_fp}) but the "
+                        f"RUNTIME pair matches: runtime_fp={rt_fp} == "
+                        f"calibrator stamp — schema divergence, runtime is "
+                        f"authoritative")
+                else:
+                    add("calibrator_scorer_match", False,
+                        f"calibrator_expects={cal_fp} scorer={scorer_fp} "
+                        f"runtime_fp={rt_fp}")
     else:
         add("calibrator_scorer_match", True, "global_calibration disabled — n/a")
 
@@ -120,9 +165,32 @@ def check_bundle(config_path: Path, strategy_dir: Path, *,
     else:
         req = ["wf_3cut_sharpe_mean", "spy_sharpe_mean", "strategy_minus_spy_sharpe_mean"]
         missing = [k for k in req if not _finite(wf.get(k))]
-        ok = (wf.get("passed") is True) and not missing and ("n_cuts_beat_spy_sharpe" in wf)
+        gate_passed = wf.get("passed") is True
+        # RFC #210 (2026-08-04 incident, third consumer found the same day):
+        # a freshness-fallback promotion serves with passed=False BY DESIGN,
+        # and the live P-WF-GATE admits it while fresh. This checker's job is
+        # "what the live P-WF-GATE needs for buys", so it mirrors that
+        # license. Rules kept in LOCKSTEP with renquant-pipeline
+        # kernel/rfc210_license.py (exact basis string; parseable ISO
+        # trained_date; age 0..28d; future-dated refuses; fail closed).
+        licensed = False
+        lic_note = ""
+        if not gate_passed:
+            meta = art.get("metadata") or {}
+            basis = meta.get("promotion_basis", art.get("promotion_basis"))
+            raw = art.get("trained_date", meta.get("trained_date"))
+            if basis == "freshness_fallback_rfc210" and isinstance(raw, str) and raw.strip():
+                try:
+                    age = (_dt.date.today() - _dt.date.fromisoformat(raw.strip())).days
+                except ValueError:
+                    lic_note = " rfc210=refused(bad trained_date)"
+                else:
+                    licensed = 0 <= age <= 28
+                    lic_note = f" rfc210={'served' if licensed else 'refused'}(age={age}d)"
+        ok = ((gate_passed or licensed) and not missing
+              and ("n_cuts_beat_spy_sharpe" in wf))
         add("wf_gate_metadata", ok,
-            f"passed={wf.get('passed')} missing_numerics={missing} "
+            f"passed={wf.get('passed')}{lic_note} missing_numerics={missing} "
             f"override={wf.get('operator_authorized_override')}")
 
     ready = all(c["pass"] for c in checks)
@@ -146,7 +214,7 @@ def main():
     if not config_path.exists():
         print(f"config not found: {config_path}", file=sys.stderr)
         sys.exit(2)
-    res = check_bundle(config_path, strategy_dir)
+    res = check_bundle(config_path, strategy_dir, repo=repo)
     if a.json:
         print(json.dumps(res, indent=2))
     else:
