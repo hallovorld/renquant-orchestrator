@@ -64,6 +64,9 @@ import time
 import numpy as np
 import pandas as pd
 
+#: This file's own repository — NOT `Path.cwd()`, which identifies whatever
+#: checkout the caller happened to stand in `[codex on orch#825]`.
+ORCH_REPO = pathlib.Path(__file__).resolve().parent.parent
 RQ = pathlib.Path("/Users/renhao/git/github/RenQuant")
 MODEL_REPO = pathlib.Path("/Users/renhao/git/github/renquant-model")
 BT_REPO = pathlib.Path("/Users/renhao/git/github/renquant-backtesting")
@@ -108,6 +111,12 @@ def _digest_of_mapping(mapping: dict) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _digest_of_rows(rows: list[tuple]) -> str:
+    """Order-independent over a MULTISET of rows — duplicates are preserved."""
+    payload = json.dumps(sorted(rows), separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _git_head(repo: pathlib.Path) -> str | None:
     """The revision of the code that produced the numbers.
 
@@ -127,24 +136,30 @@ def _git_head(repo: pathlib.Path) -> str | None:
 def ledger_row_for(content_sha: str, ledger: pathlib.Path = LEDGER) -> dict:
     """The ledger row serving ``content_sha``, or REFUSE.
 
-    Fails closed on every branch — an unreadable ledger, an unparseable line, a
-    sha no row carries. "I could not check" must not read like "it checks out".
+    [codex on orch#825, round 2] The first version only parsed JSON lines and
+    matched a DECLARED sha. That is not verification: a forged-but-parseable
+    ledger passed, and carrying `prev_row_sha` in the output made it look
+    checked. The chain is now verified by the model package's own
+    ``load_and_verify_ledger`` — row ordering, `prev_row_sha` linkage and each
+    row's self-digest — rather than by a second implementation here that would
+    drift exactly when it mattered.
+
+    Fails closed on every branch: an absent ledger, a broken chain, a sha no
+    row carries. "I could not check" must not read like "it checks out".
     """
+    from renquant_model_momentum.ledger import (LedgerIntegrityError,
+                                                load_and_verify_ledger)
+
     if not ledger.is_file():
         raise ServedArtifactNotLedgered(
             f"no momentum artifact ledger at {ledger} — the served object "
             "cannot be identified, so there is nothing to reconstruct")
-    rows = []
-    for i, line in enumerate(ledger.read_text(encoding="utf-8").splitlines(), 1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError as exc:
-            raise ServedArtifactNotLedgered(
-                f"{ledger} line {i} is not JSON ({exc}) — an unreadable ledger "
-                "is not a clean one") from exc
+    try:
+        rows = load_and_verify_ledger(ledger)
+    except LedgerIntegrityError as exc:
+        raise ServedArtifactNotLedgered(
+            f"{ledger} fails its own chain contract ({exc}) — a ledger that "
+            "does not verify cannot identify the served object") from exc
     hit = [r for r in rows if r.get("artifact_content_sha256") == content_sha]
     if not hit:
         raise ServedArtifactNotLedgered(
@@ -154,7 +169,9 @@ def ledger_row_for(content_sha: str, ledger: pathlib.Path = LEDGER) -> dict:
     row = hit[-1]
     return {
         "ledger_path": str(ledger),
+        "chain_verified_by": "renquant_model_momentum.ledger.load_and_verify_ledger",
         "n_rows": len(rows),
+        "row_sha": row.get("row_sha"),
         "row_index_from_end": len(rows) - rows.index(row),
         "is_ledger_tail": rows.index(row) == len(rows) - 1,
         "appended_at_utc": row.get("appended_at_utc"),
@@ -179,9 +196,19 @@ def served_params(artifact_path: pathlib.Path = SERVED_ARTIFACT) -> dict:
     A mismatch is a refusal, not a warning: scoring history with params the
     served artifact does not carry would answer a question nobody registered.
     """
-    from renquant_model_momentum.train import params_v0
+    from renquant_model_momentum.train import (params_v0,
+                                                verify_artifact_content_sha)
 
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    # RECOMPUTED, not read. The artifact's own content_sha256 is the identity
+    # the ledger matches on; trusting the field it carries makes a corrupted
+    # artifact indistinguishable from the served one [codex on orch#825].
+    try:
+        verify_artifact_content_sha(artifact)
+    except ValueError as exc:
+        raise ServedArtifactNotLedgered(
+            f"{artifact_path}: {exc} — the artifact does not hash to the "
+            "identity it claims, so it is not the served object") from exc
     served = dict(artifact["params"])
     packaged = params_v0()
     compared = ("params_version", "window", "skip", "min_obs", "min_features",
@@ -323,13 +350,17 @@ def produce(*, limit: int | None = None) -> dict:
             "n_input_surfaces": len(read_digests),
             "panel_path": str(train_cli.PANEL_PATH),
             "panel_sha256": _sha256_file(train_cli.PANEL_PATH),
-            "scored_table_sha256": _digest_of_mapping(
-                {f"{r.ticker}|{r.date:%Y-%m-%d}": float(r.mu)
-                 for r in scored.itertuples()}),
+            # A canonical ORDERED LIST, not a dict: a (ticker, date) mapping
+            # silently overwrites duplicate rows, so two scored tables that
+            # differ only in duplicates would hash the same [codex on orch#825].
+            "scored_table_sha256": _digest_of_rows(
+                [(str(r.ticker), f"{r.date:%Y-%m-%d}", float(r.mu))
+                 for r in scored.itertuples()]),
+            "scored_table_n_rows": int(len(scored)),
             # WHAT CODE PRODUCED IT. Unchanged params through revised feature
             # code give different scores under an identical-looking payload.
             "code_revisions": {
-                "renquant-orchestrator": _git_head(pathlib.Path.cwd()),
+                "renquant-orchestrator": _git_head(ORCH_REPO),
                 "renquant-model": _git_head(MODEL_REPO),
                 "renquant-backtesting": _git_head(BT_REPO),
                 "renquant-pipeline": _git_head(PIPELINE_REPO),

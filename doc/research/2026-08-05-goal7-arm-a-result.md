@@ -84,21 +84,46 @@ payload. And reading the artifact FILE and trusting its own `content_sha256`
 proves only that the file is self-consistent; **the served object is the
 ledger's row.**
 
-The producer now REFUSES unless a ledger row carries the artifact's sha (an
-absent ledger, an unparseable line, or an unmatched sha all refuse — "I could
-not check" must not read like "it checks out"), and the payload carries:
+**Round 2 sharpened it further** `[codex on orch#825]`: the first correction
+*claimed* integrity checks it did not perform. `ledger_row_for` only parsed JSON
+and matched a **declared** sha — a forged-but-parseable ledger passed, and
+carrying `prev_row_sha` in the output made it look checked. Verification is now
+delegated to the model package's own APIs rather than re-implemented here, where
+a second copy would drift exactly when it mattered:
+
+- `renquant_model_momentum.ledger.load_and_verify_ledger` — row ordering,
+  `prev_row_sha` linkage and each row's self-digest;
+- `renquant_model_momentum.train.verify_artifact_content_sha` — the artifact's
+  identity **recomputed**, not read off the field it carries.
+
+Tampered-chain and tampered-artifact tests exercise both, built with the
+package's own `append_chained_row` so the fixture satisfies the contract
+production writes.
+
+Two smaller corrections rode with it: the scored-table hash is a canonical
+ordered **list**, since a `(ticker, date)` dict silently overwrites duplicates
+(*the live panel has none — 726,128 rows, 726,128 unique pairs
+`[VERIFIED]` — so this closes a latent collision rather than changing a
+measurement*); and the orchestrator revision comes from **this file's repo
+root**, not `Path.cwd()`, which identifies whatever checkout the caller stood in.
+
+The producer REFUSES unless a verified ledger row carries the artifact's sha (an
+absent ledger, a broken chain, a row missing the chain fields, or an unmatched
+sha all refuse — "I could not check" must not read like "it checks out"), and
+the payload carries:
 
 | field | value `[VERIFIED — this session]` |
 |---|---|
-| ledger row | cutoff `2026-08-02`, **is_ledger_tail true**, `n_scored` 144 |
+| ledger row | cutoff `2026-08-02`, **is_ledger_tail true**, `n_scored` 144, `row_sha` `5c6b8263…`, chain verified by `load_and_verify_ledger` |
 | input surfaces read | **293**, itemised, rolled up to `sha256:684a7601…` |
 | panel file | `sha256:870f68eb…` |
-| scored table | `sha256:64016f41…` |
-| code revisions | orch `c44f6734` · model `81064619` · backtesting `cbe9532a` · pipeline `5d41b312` |
+| scored table | `sha256:9241e590…` over **661,622** ordered rows |
+| code revisions | orch `b85c19dd` · model `81064619` · backtesting `cbe9532a` · pipeline `5d41b312` |
 
-**The re-run under the new provenance code reproduced every number** — 661,622
-rows over 2,380 dates, and all four regimes' `E1`/placebos identical to the
-first run. That is a reproduction, not a restatement.
+**Re-run twice under the changing provenance code, and every number reproduced
+both times** — 661,622 rows over 2,380 dates, all four regimes' `E1` and both
+placebos identical across all three runs. That is a reproduction, not a
+restatement.
 
 ## What lands
 
@@ -109,9 +134,10 @@ first run. That is a reproduction, not a restatement.
 - `doc/research/data/2026-08-05-goal7-arm-a-per-regime.json` — the payload, with
   its provenance block, so the numbers above can be re-derived rather than
   believed.
-- 21 tests, incl. that the shuffle stays within-date, that changed params are
-  refused, that an unledgered / unparseable / absent ledger refuses, that a
-  reconstruction of a **superseded** row must say so, the mutation test (flip
+- 27 tests, incl. that the shuffle stays within-date, that changed params are
+  refused, that an absent ledger / a broken chain / a row missing the chain
+  fields / a tampered artifact all refuse, that a reconstruction of a
+  **superseded** row must say so, the mutation test (flip
   one surface's digest → the roll-up no longer matches, so the runs are not
   comparable even though every summary count is identical), and that **all four
   conditions holding still yields `EXPLORATORY — NOT A CERTIFICATION`**.

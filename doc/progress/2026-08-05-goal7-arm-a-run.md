@@ -30,4 +30,17 @@ the scored-table hash, and all four repos' git revisions. **The re-run
 reproduced every number exactly** — 661,622 rows, 2,380 dates, all four regimes
 unchanged.
 
-Suites: 21 tests · full suite green.
+**Review round 2** `[codex on orch#825]`: the first correction *claimed*
+integrity checks it did not perform — `ledger_row_for` parsed JSON and matched a
+**declared** sha, so a forged-but-parseable ledger passed. Verification is now
+delegated to `load_and_verify_ledger` (chain + per-row self-digest) and
+`verify_artifact_content_sha` (identity **recomputed**), with tampered-chain and
+tampered-artifact tests. Also: the scored-table hash is a canonical ordered list
+rather than a dict that overwrites duplicates (the live panel has none —
+726,128 rows, 726,128 unique pairs — so this closes a latent collision, it does
+not change a measurement), and the orchestrator revision comes from this file's
+repo root rather than `Path.cwd()`.
+
+Re-run twice more. **Every number reproduced both times.**
+
+Suites: 27 tests · full suite green.

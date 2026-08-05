@@ -23,26 +23,34 @@ from scripts.goal7_arm_a_per_regime_runner import (  # noqa: E402
 PAYLOAD = REPO / "doc" / "research" / "data" / "2026-08-05-goal7-arm-a-per-regime.json"
 
 
+def _sealed_artifact(tmp_path, params, name="a.json"):
+    """A synthetic artifact whose content_sha256 actually recomputes — the
+    fixture has to satisfy the same integrity contract production does, or the
+    test is exercising the guard instead of the thing behind it."""
+    from renquant_model_momentum.train import content_sha256_of
+
+    body = {"kind": "momentum_residual_v0", "params": params}
+    body["content_sha256"] = content_sha256_of(body)
+    p = tmp_path / name
+    p.write_text(json.dumps(body), encoding="utf-8")
+    return p
+
+
 class TestTheServedObjectIsCheckedNotAssumed:
     def test_changed_params_are_REFUSED_not_silently_used(self, tmp_path):
         """Registration §1 voids this study for a different fingerprint. A
         producer that scored history with params the served artifact does not
         carry would answer a question nobody registered."""
         art = json.loads(PAYLOAD.read_text())["provenance"]["params"]
-        forged = tmp_path / "a.json"
-        forged.write_text(json.dumps(
-            {"content_sha256": "x", "params": {**art, "window": 63}}),
-            encoding="utf-8")
+        forged = _sealed_artifact(tmp_path, {**art, "window": 63})
         with pytest.raises(P.ServedParamsChanged) as exc:
             P.served_params(forged)
         assert "window" in str(exc.value)
 
     def test_the_UNCHANGED_served_params_pass(self, tmp_path):
         art = json.loads(PAYLOAD.read_text())["provenance"]["params"]
-        ok = tmp_path / "a.json"
-        ok.write_text(json.dumps({"content_sha256": "x", "params": art}),
-                      encoding="utf-8")
-        assert P.served_params(ok)["params"]["window"] == 252
+        assert P.served_params(_sealed_artifact(tmp_path, art))["params"][
+            "window"] == 252
 
 
 class TestTheServedObjectIsTheLEDGERSRowNotAFileOnDisk:
@@ -51,16 +59,38 @@ class TestTheServedObjectIsTheLEDGERSRowNotAFileOnDisk:
     object is the ledger's row; an artifact no row points at is not what the
     blend loads."""
 
-    def _ledger(self, tmp_path, *rows):
-        p = tmp_path / "ledger.jsonl"
-        p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-        return p
+    def _chained(self, tmp_path, *shas):
+        """A ledger built by the model package's OWN appender, so the chain it
+        is checked against is the one production writes."""
+        from renquant_model_momentum.ledger import append_chained_row
+
+        led = tmp_path / "ledger.jsonl"
+        for sha in shas:
+            append_chained_row(
+                {"kind": "momentum_residual_v0", "cutoff_date": "2026-08-02",
+                 "params_version": "v0", "artifact_content_sha256": sha},
+                led)
+        return led
 
     def test_a_sha_NO_row_carries_is_refused(self, tmp_path):
-        led = self._ledger(tmp_path, {"artifact_content_sha256": "aaa"})
+        led = self._chained(tmp_path, "aaa")
         with pytest.raises(P.ServedArtifactNotLedgered) as exc:
             P.ledger_row_for("bbb", led)
         assert "no ledger row carries" in str(exc.value)
+
+    def test_a_ROW_MISSING_the_chain_fields_is_refused(self, tmp_path):
+        """A hand-written line that merely declares a sha is not a ledger row."""
+        led = tmp_path / "l.jsonl"
+        led.write_text(json.dumps({"artifact_content_sha256": "aaa"}) + "\n",
+                       encoding="utf-8")
+        with pytest.raises(P.ServedArtifactNotLedgered) as exc:
+            P.ledger_row_for("aaa", led)
+        assert "chain contract" in str(exc.value)
+
+    def test_a_SUPERSEDED_row_is_legal_but_must_say_so(self, tmp_path):
+        led = self._chained(tmp_path, "aaa", "bbb")
+        assert P.ledger_row_for("bbb", led)["is_ledger_tail"] is True
+        assert P.ledger_row_for("aaa", led)["is_ledger_tail"] is False
 
     def test_an_ABSENT_ledger_is_refused_not_skipped(self, tmp_path):
         with pytest.raises(P.ServedArtifactNotLedgered):
@@ -72,27 +102,75 @@ class TestTheServedObjectIsTheLEDGERSRowNotAFileOnDisk:
                      encoding="utf-8")
         with pytest.raises(P.ServedArtifactNotLedgered) as exc:
             P.ledger_row_for("aaa", p)
-        assert "not JSON" in str(exc.value), (
+        assert "chain contract" in str(exc.value), (
             "'I could not check' must not read like 'it checks out'")
 
-    def test_the_row_identity_is_recorded_including_its_CHAIN_position(
-            self, tmp_path):
-        led = self._ledger(tmp_path,
-                           {"artifact_content_sha256": "aaa", "prev_row_sha": None},
-                           {"artifact_content_sha256": "bbb",
-                            "prev_row_sha": "sha-of-aaa", "cutoff_date": "2026-08-02"})
-        row = P.ledger_row_for("bbb", led)
+    def test_a_TAMPERED_CHAIN_is_refused(self, tmp_path):
+        """[codex on orch#825 round 2] Matching a DECLARED sha is not
+        verification: a forged-but-parseable ledger passed, and carrying
+        prev_row_sha in the output made it look checked. The chain is now
+        verified by the model package's own load_and_verify_ledger."""
+        real = P.LEDGER
+        if not real.is_file():
+            pytest.skip("live ledger absent")
+        rows = [json.loads(l) for l in real.read_text().splitlines() if l.strip()]
+        good = tmp_path / "good.jsonl"
+        good.write_text("".join(json.dumps(r) + "\n" for r in rows),
+                        encoding="utf-8")
+        assert P.ledger_row_for(rows[-1]["artifact_content_sha256"], good)
+
+        tampered = [dict(r) for r in rows]
+        tampered[-1]["n_scored"] = 999          # edited after it was sealed
+        bad = tmp_path / "bad.jsonl"
+        bad.write_text("".join(json.dumps(r) + "\n" for r in tampered),
+                       encoding="utf-8")
+        with pytest.raises(P.ServedArtifactNotLedgered) as exc:
+            P.ledger_row_for(rows[-1]["artifact_content_sha256"], bad)
+        assert "chain contract" in str(exc.value)
+
+    def test_a_TAMPERED_ARTIFACT_is_refused(self, tmp_path):
+        """The artifact's content_sha256 is RECOMPUTED. Trusting the field it
+        carries makes a corrupted artifact indistinguishable from the served
+        one."""
+        art = json.loads(P.SERVED_ARTIFACT.read_text()) if \
+            P.SERVED_ARTIFACT.is_file() else None
+        if art is None:
+            pytest.skip("served artifact absent")
+        art["n_scored"] = 999                   # body changed, sha left alone
+        forged = tmp_path / "a.json"
+        forged.write_text(json.dumps(art), encoding="utf-8")
+        with pytest.raises(P.ServedArtifactNotLedgered) as exc:
+            P.served_params(forged)
+        assert "does not hash to the identity it claims" in str(exc.value)
+
+    def test_the_row_identity_is_recorded_including_its_CHAIN_position(self):
+        if not P.LEDGER.is_file():
+            pytest.skip("live ledger absent")
+        rows = [json.loads(l) for l in P.LEDGER.read_text().splitlines() if l.strip()]
+        row = P.ledger_row_for(rows[-1]["artifact_content_sha256"])
         assert row["is_ledger_tail"] is True
-        assert row["prev_row_sha"] == "sha-of-aaa"
-        older = P.ledger_row_for("aaa", led)
-        assert older["is_ledger_tail"] is False, (
-            "reconstructing a superseded row is legal but must SAY so")
+        assert row["row_sha"] == rows[-1]["row_sha"]
+        assert row["chain_verified_by"].endswith("load_and_verify_ledger")
 
 
 class TestTheInputsAreFingerprintedNotJustCounted:
     """A payload recording only summary counts could be reproduced from revised
     data, or by revised feature code under unchanged params, and report
     different numbers while looking identical [codex on orch#825]."""
+
+    def test_the_scored_table_hash_PRESERVES_duplicates(self):
+        """[codex on orch#825] A (ticker, date) DICT silently overwrites
+        duplicate rows, so two scored tables differing only in duplicates
+        hashed identically. A canonical ordered list does not."""
+        one = [("AAA", "2026-01-02", 1.0)]
+        assert P._digest_of_rows(one) != P._digest_of_rows(one * 2)
+        assert P._digest_of_rows(one + [("BBB", "2026-01-02", 2.0)]) == \
+            P._digest_of_rows([("BBB", "2026-01-02", 2.0)] + one)
+
+    def test_the_orchestrator_revision_comes_from_THIS_repo_not_the_cwd(self):
+        """`Path.cwd()` identifies whatever checkout the caller stood in."""
+        assert (P.ORCH_REPO / "ops" / "ops_audit.py").is_file(), P.ORCH_REPO
+        assert P.ORCH_REPO.name == "renquant-orchestrator"
 
     def test_the_rollup_is_ORDER_independent_but_VALUE_sensitive(self):
         a = {"ohlcv/AAPL": "sha1", "ohlcv/MSFT": "sha2"}

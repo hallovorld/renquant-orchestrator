@@ -11,16 +11,19 @@
     "n_input_surfaces": 293,
     "panel_path": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset.parquet",
     "panel_sha256": "sha256:870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
-    "scored_table_sha256": "sha256:64016f41e844317e990288a3119c74a44bb8dd6ea82645cc011810fefceccc15",
+    "scored_table_sha256": "sha256:9241e590e93688a7ad966e52ca4c1511b131b94d3df441389bc9300b32b65d99",
+    "scored_table_n_rows": 661622,
     "code_revisions": {
-      "renquant-orchestrator": "c44f673415d6d918d9d1c2e55d85fdf4409aa8e9",
+      "renquant-orchestrator": "b85c19ddf1996732e941b557109b5dbb254c94f4",
       "renquant-model": "810646198e9e0896c615aee29454c705cae2f520",
       "renquant-backtesting": "cbe9532a76d9f27c4b5b55afe4772f619c297e5a",
       "renquant-pipeline": "5d41b31249dfe89c6b0b6ac71e5b098471bcee49"
     },
     "served_ledger_row": {
       "ledger_path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/momentum/momentum_artifact_ledger.jsonl",
+      "chain_verified_by": "renquant_model_momentum.ledger.load_and_verify_ledger",
       "n_rows": 1,
+      "row_sha": "5c6b826390004d21bcfd6eef9217300e99081b3e5a0b796bc8235b391b51a6b6",
       "row_index_from_end": 1,
       "is_ledger_tail": true,
       "appended_at_utc": "2026-08-02T18:26:23+00:00",
