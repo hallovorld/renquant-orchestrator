@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
-"""Is the ops-audit getting quieter, and is anything ever DISPOSITIONED?
+"""Is the ops-audit getting quieter, and is anything being DISPOSITIONED?
 
 WHY (GOAL-1, measured 2026-08-05): `com.renquant.ops-audit` runs on a schedule
 and exits 1 every time. Across the three dated logs on disk it reported
 `findings=10`, `findings=10`, `findings=9` out of 11 detectors — 82–91 % firing
-— and its acknowledgement ledger, `ops_audit_acks.json`, **does not exist at
-all**: 0 acks, ever.
+— and every one of those runs printed `ledger … (0 ack(s))`.
 
-An audit where nine of eleven detectors fire daily and nothing is ever
-dispositioned is one the reader learns to skip. That is the same failure this
+SCOPE, and it is the whole point of the naming here: this reads the *retained*
+dated logs, so it can only ever say **no acknowledgement was observed in the
+scanned window**. It cannot say "never". An earlier ack could have expired,
+been pruned, or fallen outside retention, and the ledger file's absence today
+is not evidence about yesterday. Every field and every rendered line says
+"in window" for that reason.
+
+An audit where nine of eleven detectors fire daily and no finding is seen
+being dispositioned is one the reader learns to skip. That is the same failure this
 project keeps meeting from different directions — a three-claim P0 sitting
 two-thirds fixed for four days (orch#726), a sentinel that alarms nine hours
 before the session (orch#811). The alarm is not wrong; it is undifferentiated.
 
-The audit is honest about it — it prints `ledger … (0 ack(s))` on every run —
-but a line nobody diffs is not a trend. This turns the dated logs into one.
+The audit is honest about it — it prints `ledger … (0 ack(s))` on every run in
+that window — but a line nobody diffs is not a trend. This turns the dated logs into one.
 
 Read-only. Usage:  python ops/ops_audit_disposition_trend.py [--days 14]
 """
@@ -36,17 +42,26 @@ SUMMARY_RE = re.compile(
 LEDGER_RE = re.compile(r"ledger (\S+) \((\d+) ack\(s\)\)")
 
 
-def read_runs(logs_dir: pathlib.Path = LOGS, days: int = 14) -> list[dict]:
-    """One row per dated log, newest last. A log with no summary line is
-    RECORDED as unparsed rather than skipped — a day the audit failed to
-    summarise is a fact about the audit, not an absence."""
-    rows: list[dict] = []
+def dated_logs(logs_dir: pathlib.Path = LOGS) -> list[tuple[str, pathlib.Path]]:
+    """Every DATED log on disk, oldest first. The date filter runs BEFORE any
+    windowing: an undated `ops_audit_*.log` must never occupy a slot in the
+    window and silently shorten the evidence it rests on."""
     if not logs_dir.is_dir():
-        return rows
-    for path in sorted(logs_dir.glob("ops_audit_*.log"))[-days:]:
+        return []
+    out = []
+    for path in sorted(logs_dir.glob("ops_audit_*.log")):
         m = LOG_RE.search(path.name)
-        if not m:
-            continue
+        if m:
+            out.append((m.group(1), path))
+    return sorted(out)
+
+
+def read_runs(logs_dir: pathlib.Path = LOGS, days: int = 14) -> list[dict]:
+    """One row per dated log inside the window, newest last. A log with no
+    summary line is RECORDED as unparsed rather than skipped — a day the audit
+    failed to summarise is a fact about the audit, not an absence."""
+    rows: list[dict] = []
+    for date, path in dated_logs(logs_dir)[-days:]:
         text = path.read_text(encoding="utf-8", errors="replace")
         s = None
         for s in SUMMARY_RE.finditer(text):
@@ -55,11 +70,11 @@ def read_runs(logs_dir: pathlib.Path = LOGS, days: int = 14) -> list[dict]:
         for led in LEDGER_RE.finditer(text):
             pass
         if s is None:
-            rows.append({"date": m.group(1), "parsed": False,
+            rows.append({"date": date, "parsed": False,
                          "note": "no summary line — the audit did not report"})
             continue
         rows.append({
-            "date": m.group(1), "parsed": True,
+            "date": date, "parsed": True,
             "n_detectors": int(s.group(1)), "ok": int(s.group(2)),
             "findings": int(s.group(3)), "info": int(s.group(4)),
             "ack_ledger": led.group(1) if led else None,
@@ -68,7 +83,7 @@ def read_runs(logs_dir: pathlib.Path = LOGS, days: int = 14) -> list[dict]:
     return rows
 
 
-def summarize(rows: list[dict]) -> dict:
+def summarize(rows: list[dict], *, n_dated_on_disk: int | None = None) -> dict:
     good = [r for r in rows if r.get("parsed")]
     fired = [r["findings"] for r in good]
     acks = [r["n_acks"] for r in good if r["n_acks"] is not None]
@@ -79,10 +94,19 @@ def summarize(rows: list[dict]) -> dict:
         "findings_last": fired[-1] if fired else None,
         "findings_min": min(fired) if fired else None,
         "findings_max": max(fired) if fired else None,
-        # The load-bearing number: an audit with acks available but never used
-        # is indistinguishable, to a reader, from one whose findings are all real.
-        "max_acks_seen": max(acks) if acks else None,
-        "never_dispositioned": bool(acks) and max(acks) == 0,
+        # What the window covers. Reported so the disposition claim below can
+        # never be read wider than the evidence under it.
+        "window_first": rows[0]["date"] if rows else None,
+        "window_last": rows[-1]["date"] if rows else None,
+        "n_dated_on_disk": n_dated_on_disk,
+        "window_is_all_retained_logs": (
+            None if n_dated_on_disk is None else len(rows) == n_dated_on_disk),
+        # The load-bearing number: an audit with acks available but not used is
+        # indistinguishable, to a reader, from one whose findings are all real.
+        # Scoped to the window — retention can hide an earlier acknowledgement,
+        # so this is NOT a claim about the audit's whole history.
+        "max_acks_seen_in_window": max(acks) if acks else None,
+        "no_ack_observed_in_window": bool(acks) and max(acks) == 0,
     }
 
 
@@ -104,10 +128,17 @@ def render(rows: list[dict], s: dict) -> str:
         direction = "quieter" if d < 0 else ("louder" if d > 0 else "unchanged")
         out.append(f"  findings {s['findings_first']} → {s['findings_last']} "
                    f"over {s['n_parsed']} runs: {direction}")
-    if s["never_dispositioned"]:
-        out.append("  NOTHING has ever been dispositioned (max acks seen: 0) — "
-                   "every finding\n  reads the same as every other, which is how "
-                   "a reader learns to skip them.")
+    if s["window_first"]:
+        cov = {True: "all retained dated logs",
+               False: "a SUBSET of the retained dated logs",
+               None: "coverage vs disk not measured"}[s["window_is_all_retained_logs"]]
+        out.append(f"  window: {s['window_first']} … {s['window_last']} "
+                   f"({s['n_parsed']}/{s['n_days']} parsed) — {cov}")
+    if s["no_ack_observed_in_window"]:
+        out.append("  NO acknowledgement observed in this window (max acks seen: "
+                   "0) — every\n  finding reads the same as every other, which is "
+                   "how a reader learns to skip\n  them. NOT a claim about the "
+                   "audit's whole history: retention can hide an\n  earlier ack.")
     return "\n".join(out)
 
 
@@ -117,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     rows = read_runs(days=args.days)
-    s = summarize(rows)
+    s = summarize(rows, n_dated_on_disk=len(dated_logs()))
     print(json.dumps({"runs": rows, "summary": s}, indent=2) if args.json
           else render(rows, s))
     return 0
