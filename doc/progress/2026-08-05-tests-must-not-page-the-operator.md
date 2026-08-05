@@ -133,3 +133,15 @@ A test now fails if either the root conftest or this document stops naming the
   deserves the same surface-level treatment and none is in scope here.
 
 10 guard tests.
+
+## Review round 5 — a stray probe file, for the SECOND time
+
+`test_subprocess_probe_XXXX.py` (a reviewer's ad-hoc diagnostic, left at the repo
+root) was swept into this PR by `git add -A`. Its name starts with `test_`, so
+pytest would have collected a file with no assertion and no contract.
+
+This is the second stray file `git add -A` has pulled into a PR tonight — the
+first was a 3,064-line `persistence_backup_check.py` in renquant-pipeline#268.
+Both were caught in review, neither by me. **The rule I am adopting: stage
+explicitly (`git add <path> …`), never `-A`, in any repo I did not personally
+leave clean.**
