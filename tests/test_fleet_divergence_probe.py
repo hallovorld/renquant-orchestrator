@@ -82,6 +82,18 @@ class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
             F.probe("2026-08-04", top_k=20, data=tmp_path)
         assert "top-20" in str(exc.value)
 
+    def test_the_refusal_says_HOW_MANY_prod_runs_it_saw(self, tmp_path):
+        """Prod runs an exit-monitor pass every ~12 minutes with no candidates
+        and scores the buy funnel once daily. Without the run count, "scored 0
+        names" reads as broken when it means not-scored-yet."""
+        for i in range(3):
+            _lane(tmp_path, "alpaca", "2026-08-04", {},
+                  run_id=f"r{i}", created_at=f"2026-08-04T1{i}:00:00")
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", data=tmp_path)
+        assert "3 prod run(s) recorded" in str(exc.value)
+        assert "rather than fall back to an older run" in str(exc.value)
+
     def test_a_NON_POSITIVE_top_k_is_refused(self, tmp_path):
         """An empty top-K set makes EVERY lane read SAME_TOP_K_AS_PROD — the
         strongest verdict this file can emit, from a parameter that asked for

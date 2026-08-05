@@ -167,6 +167,19 @@ def score_set_sha256(scores: dict[str, float]) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _n_runs(lane: str, date: str, data: pathlib.Path) -> int:
+    path = data / f"runs.{lane}.db"
+    if not path.is_file():
+        return 0
+    con = sqlite3.connect(f"file://{path}?immutable=1", uri=True)
+    try:
+        return int(con.execute(
+            "select count(*) from pipeline_runs where run_date=? and "
+            "run_bundle_json is not null", (date,)).fetchone()[0])
+    finally:
+        con.close()
+
+
 def _spearman(x: list[float], y: list[float]) -> float:
     from scipy.stats import spearmanr
 
@@ -232,10 +245,20 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
             f"evidence' would publish a missing control as a finding")
     need = max(MIN_COMMON, top_k)
     if len(prod) < need:
+        # WHY the count matters, not just that it is short: prod runs an
+        # exit-monitor pass every ~12 minutes that carries no candidates, and
+        # the buy funnel scores once a day at 13:55 PT. Before that, the latest
+        # run legitimately has zero. Saying how many runs were seen separates
+        # "not scored YET today" from "prod scored nothing" — and the probe
+        # still refuses, because falling back to an older run would publish a
+        # stale baseline as today's.
         raise ProdBaselineUnavailable(
             f"prod run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
             f"than the {need} needed to define a top-{top_k} — the reference "
-            f"cannot support the comparison being asked for")
+            f"cannot support the comparison being asked for "
+            f"({_n_runs(PROD_LANE, date, data)} prod run(s) recorded on this "
+            f"date; the buy funnel scores once daily, so an intraday-only date "
+            f"is expected to refuse rather than fall back to an older run)")
     rows = []
     for lane in SHADOW_LANES:
         try:
