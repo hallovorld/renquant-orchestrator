@@ -82,6 +82,16 @@ class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
             F.probe("2026-08-04", top_k=20, data=tmp_path)
         assert "top-20" in str(exc.value)
 
+    def test_a_NON_POSITIVE_top_k_is_refused(self, tmp_path):
+        """An empty top-K set makes EVERY lane read SAME_TOP_K_AS_PROD — the
+        strongest verdict this file can emit, from a parameter that asked for
+        nothing [codex on orch#826]."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {_n(i): float(i) for i in range(20)})
+        for bad in (0, -1):
+            with pytest.raises(ValueError) as exc:
+                F.probe("2026-08-04", top_k=bad, data=tmp_path)
+            assert "positive" in str(exc.value)
+
     def test_the_CLI_exits_3_rather_than_printing_a_fleet_conclusion(
             self, tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(F, "DATA", tmp_path)
@@ -272,18 +282,51 @@ def test_the_LIVE_evidence_still_reproduces_the_committed_bundle():
             want["lane"], "the lane's scored set changed under the record")
 
 
-def test_the_ONE_lane_with_a_history_diverges():
-    """`blend` is the only lane with more than one date. Six dates, never once
-    matching prod's top 10. Live-bound on purpose: this one is a claim about a
-    RANGE, and the bundle holds a single date."""
-    if not (F.DATA / "runs.alpaca.db").is_file():
-        pytest.skip("umbrella data absent")
-    overlaps = []
-    for d in ("2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31",
-              "2026-08-03", "2026-08-04"):
-        row = next(x for x in F.probe(d)["lanes"]
-                   if x["lane"] == "alpaca_shadow_blend")
-        if "top_k_overlap" in row:
+RANGE_BUNDLE = (REPO / "doc" / "progress" / "data" /
+                "2026-08-05-fleet-divergence-blend-range.json")
+
+
+class TestTheRangeClaimHasItsOwnRecord:
+    """[codex on orch#826] The six-date statement was asserted from a test that
+    re-queried mutable sqlite and skipped when absent, while the committed
+    bundle held ONE date. A claim about a range needs a record of the range."""
+
+    @pytest.fixture(scope="class")
+    def rng(self):
+        import json as _json
+
+        return _json.loads(RANGE_BUNDLE.read_text())
+
+    def test_the_bundle_holds_all_six_dates(self, rng):
+        assert rng["dates"] == ["2026-07-28", "2026-07-29", "2026-07-30",
+                                "2026-07-31", "2026-08-03", "2026-08-04"]
+        assert len(rng["runs"]) == 6
+        assert rng["top_k"] == 10
+
+    def test_blend_never_once_matched_prods_top_10(self, rng):
+        overlaps = []
+        for run in rng["runs"]:
+            row = next(x for x in run["lanes"]
+                       if x["lane"] == "alpaca_shadow_blend")
             overlaps.append(row["top_k_overlap"])
-    assert len(overlaps) >= 5, overlaps
-    assert max(overlaps) < 10, overlaps
+        assert overlaps == [7, 7, 7, 6, 6, 5], overlaps
+        assert max(overlaps) < 10
+
+    def test_each_date_names_the_runs_and_hashes_it_compared(self, rng):
+        for run in rng["runs"]:
+            assert run["prod_run_id"], run["date"]
+            assert run["prod_score_set_sha256"].startswith("sha256:"), run["date"]
+            row = next(x for x in run["lanes"]
+                       if x["lane"] == "alpaca_shadow_blend")
+            assert row["run_id"] and row["score_set_sha256"].startswith("sha256:")
+
+    def test_an_unavailable_baseline_is_RECORDED_in_the_range_not_dropped(
+            self, tmp_path):
+        """A range that quietly shrinks is a different range."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {_n(i): float(i) for i in range(20)})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04",
+              {_n(i): float(i) for i in range(20)})
+        out = F.probe_range(["2026-08-03", "2026-08-04"], data=tmp_path)
+        assert [r["date"] for r in out["runs"]] == ["2026-08-03", "2026-08-04"]
+        assert out["runs"][0]["state"] == F.STATE_PROD_UNAVAILABLE
+        assert out["runs"][0]["lanes"] == []

@@ -217,6 +217,12 @@ def compare(prod: dict[str, float], lane: dict[str, float], *, top_k: int) -> di
 
 
 def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
+    # A top-0 or negative K makes every top-K set empty, so every lane would
+    # read SAME_TOP_K_AS_PROD — the strongest verdict this file can emit, from
+    # a parameter that asked for nothing [codex on orch#826].
+    if not isinstance(top_k, int) or top_k < 1:
+        raise ValueError(f"top_k must be a positive integer, got {top_k!r} — "
+                         "an empty top-K would make every lane 'agree'")
     prod_run, prod = lane_scores(PROD_LANE, date, data)
     # The REFERENCE is validated before anything is compared to it.
     if prod_run is None:
@@ -261,6 +267,25 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
     }
 
 
+def probe_range(dates, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
+    """One row per date for which prod has a usable baseline.
+
+    A claim about a RANGE needs a record of the range `[codex on orch#826]`: the
+    single-date bundle cannot support "never once matched over six dates", and a
+    test that re-derives the range from mutable sqlite can pass long after the
+    evidence moved. Dates whose baseline is unavailable are RECORDED as such,
+    never dropped — a range that quietly shrinks is a different range.
+    """
+    out = []
+    for date in dates:
+        try:
+            out.append(probe(date, top_k=top_k, data=data))
+        except ProdBaselineUnavailable as exc:
+            out.append({"date": date, "state": STATE_PROD_UNAVAILABLE,
+                        "detail": str(exc), "lanes": []})
+    return {"dates": [str(d) for d in dates], "top_k": top_k, "runs": out}
+
+
 def render(result: dict) -> str:
     out = [f"fleet divergence vs prod — {result['date']}",
            f"  prod run {result['prod_run_id']} "
@@ -298,11 +323,21 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--date", default=dt.date.today().isoformat())
     ap.add_argument("--top-k", type=int, default=10)
+    ap.add_argument("--range", nargs="+", metavar="DATE",
+                    help="probe several dates and persist them as ONE bundle — "
+                         "the record a range claim may cite")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--out", help="persist the result bundle here — the record "
                                   "a document may cite, since the sqlite it "
                                   "reads is mutable")
     args = ap.parse_args(argv)
+    if args.range:
+        bundle = probe_range(args.range, top_k=args.top_k, data=DATA)
+        text = json.dumps(bundle, indent=2)
+        if args.out:
+            pathlib.Path(args.out).write_text(text, encoding="utf-8")
+        print(text)
+        return 0
     try:
         # Module-global lookup at CALL time, not the def-time default: a test
         # (and an operator with RENQUANT_REPO_ROOT set) must be able to point
