@@ -86,6 +86,17 @@ Unreadable configs are their own state (`reachability UNKNOWN`) and also break
 the ack: *"I could not read the configs"* must not inherit an ack taken when the
 answer was known.
 
+**And the discovery had to become injectable.** My first version resolved the
+pinned configs *inside* `scan()`, so **eight pure parity tests** — which have
+nothing to do with reachability — failed on a runner with no umbrella checkout
+while passing here `[codex on orch#829, confirmed by CI]`. A test that only
+passes on the machine that wrote it is not a test of the code. `scan()` now
+takes `configs_root` / `served_paths`; production still resolves them itself and
+still fail-closes. The resolution is exercised by a **self-contained** fixture
+that builds its own configs and artifacts tree, including the case that made the
+basename bug visible: a config naming `artifacts/prod/<same-name>` under a
+*different* base is **not** a match.
+
 ## What was DELIBERATELY not acked
 
 **`booster-identity` stays loud.** 36 artifacts collapsing to 15 distinct
@@ -98,7 +109,7 @@ Eight findings remain loud. One ledger entry is not a cleanup; the value of an
 ack ledger is destroyed by a single dishonest entry, so the first one is the one
 I could fully evidence.
 
-Suites: 15 tests — the ledger's shape, the fingerprint bound to what the live
+Suites: 17 tests — the ledger's shape, the fingerprint bound to what the live
 detector actually emits, three escalations that break the ack, its expiry, the
 deliberate omission, and an end-to-end check that the report really changed ·
 full suite green.

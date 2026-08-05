@@ -156,19 +156,51 @@ def test_the_LIVE_audit_reports_it_as_INFO_not_as_a_finding():
     assert others, "if everything went quiet at once, something is wrong"
 
 
-def test_the_reachability_check_compares_PATHS_not_basenames(tmp_path):
-    """A basename match reaches outside its subject: a synthetic fixture named
-    `panel-ltr.alpha158_fund.json` in a scratch directory is not the served
-    artifact. The first version of this check flagged one, i.e. it answered a
-    question about the operator's disk instead of about the root it was asked
-    to scan — caught by the parity suite, and pinned here."""
-    sys.path.insert(0, str(REPO / "ops" / "renquant104"))
-    import gate_stamp_parity as G
+class TestReachabilityResolvesPATHSNotNames:
+    """Self-contained: builds its own configs + artifacts tree, so it tests the
+    resolution rather than whether this machine has an umbrella checkout
+    `[codex on orch#829]`."""
 
-    stamp = {"metadata": {"wf_gate_metadata": {"passed": True}},
-             "wf_gate_metadata": {"passed": False}}
-    (tmp_path / "panel-ltr.alpha158_fund.json").write_text(json.dumps(stamp),
-                                                           encoding="utf-8")
-    problems, infos = G.scan(str(tmp_path), "panel-ltr.alpha158_fund*.json")
-    assert "0 of them SERVED by a pinned config" in infos[0], infos
-    assert not any("SELECTED BY A PINNED CONFIG" in p for p in problems), problems
+    def _tree(self, tmp_path, config_ref):
+        """<base>/artifacts/prod/<artifact>  +  <configs>/strategy_config.json"""
+        sys.path.insert(0, str(REPO / "ops" / "renquant104"))
+        import gate_stamp_parity as G
+
+        art = tmp_path / "artifacts" / "prod"
+        art.mkdir(parents=True)
+        stamp = {"metadata": {"wf_gate_metadata": {"passed": True}},
+                 "wf_gate_metadata": {"passed": False}}
+        (art / "panel-ltr.alpha158_fund.json").write_text(json.dumps(stamp),
+                                                          encoding="utf-8")
+        cfg = tmp_path / "configs"
+        cfg.mkdir()
+        (cfg / "strategy_config.json").write_text(
+            json.dumps({"ranking": {"panel_scoring": {
+                "artifact_path": config_ref}}}), encoding="utf-8")
+        return G, str(art), str(cfg)
+
+    def test_a_config_selecting_the_artifact_marks_it_SERVED(self, tmp_path):
+        G, art, cfg = self._tree(
+            tmp_path, "artifacts/prod/panel-ltr.alpha158_fund.json")
+        problems, infos = G.scan(art, "panel-ltr.alpha158_fund*.json",
+                                 configs_root=cfg)
+        assert "1 of them SERVED by a pinned config" in infos[0], infos
+        assert any("SELECTED BY A PINNED CONFIG" in p for p in problems), problems
+
+    def test_a_SAME_NAMED_artifact_ELSEWHERE_is_not_served(self, tmp_path):
+        """The basename bug: the config names `artifacts/prod/<name>` under a
+        DIFFERENT base, so the scanned file merely shares a filename."""
+        G, art, cfg = self._tree(
+            tmp_path, "/somewhere/else/artifacts/prod/panel-ltr.alpha158_fund.json")
+        problems, infos = G.scan(art, "panel-ltr.alpha158_fund*.json",
+                                 configs_root=cfg)
+        assert "0 of them SERVED by a pinned config" in infos[0], infos
+        assert not any("SELECTED BY A PINNED CONFIG" in p for p in problems)
+
+    def test_UNREADABLE_configs_are_their_own_state_not_zero(self, tmp_path):
+        G, art, _ = self._tree(tmp_path, "artifacts/prod/x.json")
+        problems, infos = G.scan(art, "panel-ltr.alpha158_fund*.json",
+                                 configs_root=str(tmp_path / "no-such-dir"))
+        assert "reachability UNKNOWN" in infos[0], infos
+        assert any("is unknown, which is not the same as none" in p
+                   for p in problems), problems

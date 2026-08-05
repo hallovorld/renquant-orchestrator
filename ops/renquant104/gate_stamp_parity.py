@@ -201,6 +201,33 @@ def served_artifact_paths(configs_root: str | None = None,
     return out
 
 
+def scan_no_reachability(root: str, query: str) -> tuple[list[str], list[str]]:
+    """``scan`` with an EMPTY served set — for tests about parity itself.
+
+    Exists so a pure parity test states "reachability is not what I am testing"
+    instead of silently depending on whether the machine has an umbrella
+    checkout `[codex on orch#829]`.
+    """
+    return scan(root, query, served_paths=set())
+
+
+def main_no_reachability(argv: list[str] | None = None) -> int:
+    """``main`` with reachability discovery disabled — test-facing twin of the
+    helper above, for the same reason."""
+    import argparse as _ap
+
+    ap = _ap.ArgumentParser()
+    ap.add_argument("--root", default=_default_artifacts_root())
+    ap.add_argument("--query", default="panel-ltr.alpha158_fund*.json")
+    a = ap.parse_args(argv)
+    problems, infos = scan_no_reachability(a.root, a.query)
+    for line in infos:
+        print(line)
+    for line in problems:
+        print(line, file=sys.stderr)
+    return 1 if problems else 0
+
+
 def _default_configs_root() -> str:
     """The PINNED strategy-104 configs — the ones the daily run actually loads."""
     env = os.environ.get("RENQUANT_DATA_ROOT")
@@ -218,7 +245,18 @@ def _default_configs_root() -> str:
     return ""
 
 
-def scan(root: str, query: str) -> tuple[list[str], list[str]]:
+def scan(root: str, query: str, *, configs_root: str | None = None,
+         served_paths: set[str] | None = None) -> tuple[list[str], list[str]]:
+    """Parity scan of ``root``, plus the reachability of any both-copy artifact.
+
+    ``served_paths`` / ``configs_root`` are INJECTABLE `[codex on orch#829]`.
+    The first version discovered the workstation's pinned configs from inside
+    `scan`, so eight pure parity tests — which have nothing to do with
+    reachability — started failing on a runner with no umbrella checkout, while
+    passing here. A test that only passes on the machine that wrote it is not a
+    test of the code. Production still resolves them itself and still
+    fail-closes when it cannot.
+    """
     problems: list[str] = []
     both = canon_only = legacy_only = neither = unreadable = malformed = 0
     both_paths: list[str] = []
@@ -290,7 +328,8 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
 
     # Reachability, IN the summary line — see served_artifact_basenames().
     try:
-        served = served_artifact_paths(artifacts_root=root)
+        served = (served_paths if served_paths is not None
+                  else served_artifact_paths(configs_root, artifacts_root=root))
         hit = sorted(os.path.basename(p) for p in both_paths
                      if os.path.realpath(p) in served)
         reach = f"{len(hit)} of them SERVED by a pinned config"
@@ -374,8 +413,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="artifact directory; defaults to the 104 prod "
                          "root resolved via runtime_paths")
     ap.add_argument("--query", default="panel-ltr.alpha158_fund*.json")
+    ap.add_argument("--configs-root", default=None,
+                    help="pinned strategy configs; defaults to the pinned "
+                         "renquant-strategy-104 configs resolved from the data root")
     a = ap.parse_args(argv)
-    problems, infos = scan(a.root, a.query)
+    problems, infos = scan(a.root, a.query, configs_root=a.configs_root)
     for line in infos:
         print(line)
     for line in problems:
