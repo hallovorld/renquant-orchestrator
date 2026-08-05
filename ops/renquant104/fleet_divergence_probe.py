@@ -167,6 +167,19 @@ def score_set_sha256(scores: dict[str, float]) -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _n_runs(lane: str, date: str, data: pathlib.Path) -> int:
+    path = data / f"runs.{lane}.db"
+    if not path.is_file():
+        return 0
+    con = sqlite3.connect(f"file://{path}?immutable=1", uri=True)
+    try:
+        return int(con.execute(
+            "select count(*) from pipeline_runs where run_date=? and "
+            "run_bundle_json is not null", (date,)).fetchone()[0])
+    finally:
+        con.close()
+
+
 def _spearman(x: list[float], y: list[float]) -> float:
     from scipy.stats import spearmanr
 
@@ -232,10 +245,22 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
             f"evidence' would publish a missing control as a finding")
     need = max(MIN_COMMON, top_k)
     if len(prod) < need:
+        # The run COUNT is reported and nothing is inferred from it
+        # `[codex on orch#831]`. A count cannot establish that those runs are
+        # intraday exit-monitor passes, nor that the buy funnel has not reached
+        # its scheduled time — so on a historical date, or after a FAILED
+        # funnel, a message calling this "expected" would convert an unknown
+        # empty baseline into a non-incident by implication. That is the exact
+        # move this probe exists to prevent, and it must not appear in the
+        # probe's own error text. The reader gets the facts and draws the
+        # conclusion.
         raise ProdBaselineUnavailable(
             f"prod run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
             f"than the {need} needed to define a top-{top_k} — the reference "
-            f"cannot support the comparison being asked for")
+            f"cannot support the comparison being asked for "
+            f"({_n_runs(PROD_LANE, date, data)} prod run(s) recorded on this "
+            f"date). Refusing rather than falling back to an older scored run, "
+            f"which would publish a stale baseline as this date's.")
     rows = []
     for lane in SHADOW_LANES:
         try:

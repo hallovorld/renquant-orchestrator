@@ -122,11 +122,24 @@ Running the probe for **2026-08-05** refuses:
 
 > `prod run 2026-08-05-live-622373ac scored 0 name(s) on 2026-08-05`
 
-`[VERIFIED — this session]`. Under the pre-review code that would have been
-reported as *"5 of 5 shadow lanes produced no separating evidence"* — a fleet
-conclusion drawn from a prod run that scored nothing. That is not investigated
-here; it is noted as an observation the guard surfaced, and it belongs to
-GOAL-5, not to this measurement.
+Under the pre-review code that would have been reported as *"5 of 5 shadow lanes
+produced no separating evidence"* — a fleet conclusion drawn from a prod run
+that scored nothing.
+
+**And then the refusal message needed the same discipline — twice.** Checked
+before writing it up as an incident: those are **23 intraday exit-monitor runs**
+(13:30 → 17:48 UTC, every ~12 min), none of which carries candidates; the buy
+funnel scores once daily at 13:55 **PT** and had not run yet
+`[VERIFIED — this session]`. So this is **not-scored-yet, not broken**. The
+refusal now says **how many prod runs it saw** — and stops there
+`[codex on orch#831]`. My first attempt put the diagnosis *into the exception*:
+"an intraday-only date is expected to refuse". A run count cannot establish
+that, and on a historical date or after a **failed** funnel the same message
+would call a real incident "expected" — converting an unknown empty baseline
+into a non-incident by implication, which is the exact move this probe exists
+to prevent, appearing in the probe's own error text. The observation belongs
+here, in the note; the exception reports facts and refuses. A test asserts the
+words "expected", "intraday" and "not yet" do not appear in it.
 
 ## Next
 
@@ -134,7 +147,7 @@ The honest next step is **not** a conclusion about `blend_mom` — it is more
 dates. The probe is read-only and unscheduled; wiring it into the daily fleet
 report is a separate, reviewable step.
 
-Suites: 24 tests — all three no-evidence states kept distinct, the
+Suites: 25 tests — all three no-evidence states kept distinct, the
 absent/empty/too-few prod-baseline refusals, the CLI exiting 3 instead of
 printing a fleet conclusion, the score-set hash being order-independent but
 value-sensitive, the ratio-with-its-denominator rule, the no-cutoff case, the
