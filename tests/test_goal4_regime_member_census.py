@@ -239,3 +239,19 @@ def test_the_WITHDRAWN_claims_do_not_come_back():
     body = doc[:doc.index("### What these 8 readings are NOT")]
     for withdrawn in ("not noise", "degrading", "property of the RECIPE"):
         assert withdrawn not in body, withdrawn
+
+
+def test_the_record_never_states_a_member_count_the_config_contradicts():
+    """[codex on orch#807, twice] I wrote 'the other two members' and left it in
+    place after correcting PROD to TWO members — so the doc contradicted itself.
+    A member count asserted in prose is a number like any other: it has to match
+    the source. This derives it instead of trusting the prose."""
+    doc_path = (Path(__file__).resolve().parent.parent / "doc" / "progress"
+                / "2026-08-05-goal4-regime-member-census.md")
+    doc = " ".join(doc_path.read_text().split())
+    if DEFAULT_CONFIG.exists():
+        n_prod = len(members_from_config(DEFAULT_CONFIG))
+        assert n_prod == 2, n_prod
+        assert "the one other PROD member" in doc
+    for contradiction in ("the other two members", "two thirds of the ensemble"):
+        assert contradiction not in doc, contradiction

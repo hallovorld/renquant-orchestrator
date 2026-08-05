@@ -100,8 +100,10 @@ and the measured one is negatively informative in the regime that carries 88% of
 the book's buys. (The shadow blends add a clf leg that is likewise unmeasured.)
 
 That does not say the blend is bad. It says **GOAL-4 cannot be evaluated on the
-pooled number**, and no ensemble weighting can be justified until the other two
-members are measured on the same axis. A member that is negatively informative in
+pooled number**, and for PROD no ensemble weighting can be justified until **the
+one other PROD member — the slow momentum residual — is measured on the same
+axis**. The clf leg is not part of that statement: it belongs to a separately
+scoped shadow-blend evaluation. A member that is negatively informative in
 BULL_CALM does not stop being so by being averaged.
 
 ## SCOPE — what this does NOT claim
