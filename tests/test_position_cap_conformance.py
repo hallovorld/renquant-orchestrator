@@ -1,0 +1,144 @@
+"""Was each position sized within the cap the deployed config declares?
+
+MEASURED 2026-08-05: TSLA is 23.5 % of a $10.9k live book against
+`BULL_CALM.max_position_pct = 0.12`. It was **bought that way** — the 07-28 buy
+stamped `target_pct = 0.2341` while its own `kelly_target_pct` was `0.0613`.
+`EME` the same day: `0.2109`. Every other buy in the window sized 0.007–0.09.
+
+Two of thirty-three. That is an EVENT, and an event is exactly what goes
+unnoticed without a check.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sqlite3
+import sys
+
+import pytest
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "ops" / "renquant104"))
+import position_cap_conformance as P  # noqa: E402
+
+_SCHEMA = """
+CREATE TABLE trades (trade_date TEXT, ticker TEXT, regime TEXT,
+                     target_pct REAL, kelly_target_pct REAL, exit_reason TEXT);
+"""
+
+
+def _db(tmp_path, *rows):
+    p = tmp_path / "runs.alpaca.db"
+    con = sqlite3.connect(p)
+    con.executescript(_SCHEMA)
+    con.executemany("insert into trades values (?,?,?,?,?,?)", rows)
+    con.commit()
+    con.close()
+    return p
+
+
+def _cfg(tmp_path, params):
+    p = tmp_path / "strategy_config.json"
+    p.write_text(json.dumps({"regime_params": params}), encoding="utf-8")
+    return p
+
+
+class TestItComparesWhatWasDoneToWhatTheConfigSays:
+    def test_a_buy_OVER_the_regime_cap_is_flagged(self, tmp_path):
+        db = _db(tmp_path, ("2026-07-28", "TSLA", "BULL_CALM", 0.2341, 0.0613, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        r = P.scan("2026-07-01", db=db, config_path=cfg)
+        b = r["buys"][0]
+        assert b["state"] == P.STATE_OVER
+        assert b["over_cap_by"] == pytest.approx(0.1141, abs=1e-4)
+        assert b["kelly_ratio"] == pytest.approx(3.82, abs=0.01)
+        assert r["n_over_cap"] == 1
+
+    def test_a_buy_WITHIN_the_cap_is_not_flagged(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "VLO", "BULL_CALM", 0.0559, 0.0, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        r = P.scan("2026-07-01", db=db, config_path=cfg)
+        assert r["buys"][0]["state"] == P.STATE_OK
+        assert r["n_over_cap"] == 0
+
+    def test_a_cap_EQUAL_to_the_target_is_within(self, tmp_path):
+        """The cap is a ceiling, not a strict inequality."""
+        db = _db(tmp_path, ("2026-08-04", "X", "BULL_CALM", 0.12, 0.05, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        assert P.scan("2026-07-01", db=db, config_path=cfg)["buys"][0]["state"] == \
+            P.STATE_OK
+
+
+class TestSilenceIsNeverReadAsCompliance:
+    """Every way the answer can be unknown gets its own ACTIONABLE state —
+    inventing a cap would turn 'the config is silent' into 'within limits'."""
+
+    def test_a_regime_with_NO_cap_declared_is_its_own_state(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", "HIGH_SPIKED", 0.99, 0.05, None))
+        cfg = _cfg(tmp_path, {"HIGH_SPIKED": {}})
+        r = P.scan("2026-07-01", db=db, config_path=cfg)
+        assert r["buys"][0]["state"] == P.STATE_NO_CAP
+        assert r["n_actionable"] == 1
+        assert r["n_over_cap"] == 0, "unknown is not a violation, but it IS actionable"
+
+    def test_a_regime_MISSING_from_the_config_is_the_same(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", "NOT_A_REGIME", 0.99, 0.05, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        assert P.scan("2026-07-01", db=db, config_path=cfg)["buys"][0]["state"] == \
+            P.STATE_NO_CAP
+
+    def test_a_row_with_NO_regime_recorded_is_its_own_state(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", None, 0.99, 0.05, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        assert P.scan("2026-07-01", db=db, config_path=cfg)["buys"][0]["state"] == \
+            P.STATE_UNKNOWN_REGIME
+
+    def test_an_UNREADABLE_config_refuses(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", "BULL_CALM", 0.05, 0.05, None))
+        with pytest.raises(P.EvidenceUnreadable):
+            P.scan("2026-07-01", db=db, config_path=tmp_path / "nope.json")
+
+    def test_a_NON_OBJECT_config_root_refuses(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", "BULL_CALM", 0.05, 0.05, None))
+        bad = tmp_path / "c.json"
+        bad.write_text("[]", encoding="utf-8")
+        with pytest.raises(P.EvidenceUnreadable):
+            P.scan("2026-07-01", db=db, config_path=bad)
+
+    def test_a_MISSING_db_refuses_rather_than_reporting_zero_buys(self, tmp_path):
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        with pytest.raises(P.EvidenceUnreadable) as exc:
+            P.scan("2026-07-01", db=tmp_path / "nope.db", config_path=cfg)
+        assert "no runs DB" in str(exc.value)
+
+
+class TestOnlyLIVEBuysAreCounted:
+    def test_simulated_rows_have_no_trade_date_and_are_excluded(self, tmp_path):
+        """250 kelly_trim rows exist and 0 carry a trade_date — the sim rows
+        would otherwise flood any live conformance count."""
+        db = _db(tmp_path,
+                 (None, "SIM", "BULL_CALM", 0.99, 0.05, "kelly_trim"),
+                 ("2026-08-04", "LIVE", "BULL_CALM", 0.05, 0.05, None))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        r = P.scan("2026-07-01", db=db, config_path=cfg)
+        assert [b["ticker"] for b in r["buys"]] == ["LIVE"]
+
+    def test_a_SELL_is_not_a_sizing_decision(self, tmp_path):
+        db = _db(tmp_path, ("2026-08-04", "X", "BULL_CALM", 0.99, 0.05, "stop_loss"))
+        cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+        assert P.scan("2026-07-01", db=db, config_path=cfg)["buys"] == []
+
+
+def test_the_LIVE_book_is_what_the_record_describes():
+    """Bound to reality: 2 of 33 live buys since 2026-07-01 breached the cap,
+    both on 2026-07-28. If that changes, the design record must be re-derived."""
+    if not P.DB.is_file() or not P.CONFIG.is_file():
+        pytest.skip("umbrella evidence absent — the unit tests above still ran")
+    r = P.scan("2026-07-01")
+    over = [b for b in r["buys"] if b["state"] == P.STATE_OVER]
+    assert {b["ticker"] for b in over} == {"TSLA", "EME"}, over
+    assert {b["trade_date"] for b in over} == {"2026-07-28"}, over
+    for b in over:
+        assert b["kelly_ratio"] > 3.0, (
+            "the breach was ~3.8x the model's own Kelly target — if that has "
+            "shrunk, re-derive the record", b)
