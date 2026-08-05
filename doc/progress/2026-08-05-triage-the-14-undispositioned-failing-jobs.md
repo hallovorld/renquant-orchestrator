@@ -206,3 +206,34 @@ NEXT: weekly-wf-promote (clears two rows at once,
 and orch#843 shows its refusals are correct); the five rq105 PYTHONPATH fallbacks;
 rq104-scorer-identity (in review as orch#847); and the fleet-wide EXIT_ALARMS vs
 EXIT_INTERNAL split, so category-A monitors stop reading as breakage.
+
+## Addendum 3: the concentration reading re-measured the same evening
+
+The row above quotes the monthly statement's `as_of` 2026-07-31. Re-running the
+statement read-only against the live DB, with `--out-dir` pointed at a scratch
+directory so nothing is written to the production research path:
+
+| budget | 2026-07-31 | **2026-08-05** |
+|---|---|---|
+| `per_name_concentration` | 193.4% | **196.0%** |
+| `book_beta` | 169.9% | **167.7%** |
+| `max_drawdown` | 48.7% | **51.1%** (status OK) |
+| `sleeve_dd_sub_budget` | 36.5% | 36.5% |
+
+[VERIFIED — `python -m renquant_orchestrator.risk_budget.report --out-dir <scratch>`,
+rc=1, as_of 2026-08-05, run `2026-08-05-live-2d99f969`]
+
+The breach has **not** resolved. What did change is the book around it: it grew from
+**4 names to 10** (TSLA, WELL, VLO, PANW, GOOG, LRCX, DDOG, NVDA, MRVL, SOFI), so buys
+are landing — and TSLA still sits at **23.52%** against a 12% BULL_CALM cap, **3.6× the
+next largest position**, drifting up from 23.21%.
+
+That shape is consistent with a position entered within the cap and left to appreciate
+with no rebalance rule, rather than a control that failed open — but it is a
+measurement, not a diagnosis, and certainly not an instruction. Drawdown is calm
+(current 2.30%, max 7.66%, PV $10,938 vs peak $11,196), so nothing here is urgent; it
+is simply still true five days into a frozen merge queue, which is exactly the kind of
+standing exposure that the alarm noise was burying.
+
+Cash is **47.0%**, which is the same surface the concurrent session's design PR (#848,
+"the book is 'full' at 47% cash") is working from a different angle.
