@@ -43,3 +43,50 @@ def test_the_transport_backstop_was_installed_during_collection(monkeypatch):
     with pytest.raises(AssertionError, match="REAL notification POST"):
         urllib.request.urlopen(
             urllib.request.Request("https://ntfy.sh/renquant-import-probe", data=b"x"))
+
+
+# ── [codex on orch#806] the two reported escapes: one closed, one recorded ──
+
+def test_a_SUBPROCESS_inherits_suppression(tmp_path):
+    """`os.environ[...] = "1"` (not just an in-process patch) means every child
+    a test spawns starts suppressed. The reported escape needed the child to
+    DELIBERATELY scrub the variable — which no in-process guard can prevent, and
+    which is recorded as residual rather than papered over."""
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "from renquant_common import notify; "
+         "print('suppressed', notify.notifications_suppressed()); "
+         "print('sent', notify.send('CHILD', 'must not send', 'probe'))"],
+        capture_output=True, text=True, check=True).stdout
+    assert "suppressed True" in out, out
+    assert "sent False" in out, out
+
+
+def test_the_ROOT_conftest_installs_the_same_guard():
+    """A plugin loaded with `-p` beats tests/conftest.py; a ROOT conftest is
+    imported before any conftest under testpaths, so it closes the ordinary
+    ordering gap. This asserts the root file exists and delegates rather than
+    duplicating — two copies would drift."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "conftest.py"
+    assert root.exists(), "the root conftest is the earliest in-process hook"
+    text = root.read_text()
+    assert "install_notification_guard" in text
+    assert "def _guarded_urlopen" not in text, (
+        "the root conftest must DELEGATE, not carry a second copy of the guard")
+
+
+def test_installing_twice_is_a_no_op_not_a_double_wrap():
+    """Root + tests conftest both call it. A second wrap would make the guard
+    recursive and the error message useless."""
+    import urllib.request
+
+    from tests.conftest import _guarded_urlopen, install_notification_guard
+
+    install_notification_guard()
+    install_notification_guard()
+    assert urllib.request.urlopen is _guarded_urlopen

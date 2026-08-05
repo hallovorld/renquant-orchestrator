@@ -83,3 +83,38 @@ files under the umbrella. The 2026-07-13 decision-ledger incident was exactly th
 DB case. Each deserves the same surface-level guard; none is in scope for this PR.
 
 7 guard tests · 5555 passed, 2 skipped.
+
+## Review round 3 (codex on orch#806) — two escapes, one closed, one recorded
+
+Codex confirmed the collection-time fix works, then found two ways a test can
+still page the operator, both reproduced from that head:
+
+1. **A pytest plugin loaded with `-p` runs before `tests/conftest.py`**
+   (`plugin_send True`, attempted `https://ntfy.sh/renquant-plugin-probe`).
+   **CLOSED**: a ROOT `conftest.py` is imported before any conftest under
+   `testpaths`. It delegates to `install_notification_guard()` rather than
+   carrying a second copy — two copies would drift — and the installer is
+   idempotent so both call sites are safe. A test asserts the root file exists,
+   delegates, and does not duplicate the guard.
+
+2. **A subprocess that SCRUBS `RENQUANT_NO_NOTIFY`** gets an unguarded
+   interpreter (`send True`). **NOT CLOSED, and not closeable in-process.**
+   What IS fixed is the ordinary case: the guard now sets the variable in
+   `os.environ`, so every child a test spawns INHERITS suppression — a test
+   asserts a real subprocess reports `suppressed True` / `sent False`. A child
+   that deliberately removes the variable is outside anything an in-process
+   guard can reach.
+
+**The claim is therefore scoped, in the PR title and in the root conftest's
+docstring, to what is true:** tests do not page the operator on any path pytest
+controls in-process.
+
+### Residual, recorded not fixed
+
+- a subprocess that deliberately scrubs `RENQUANT_NO_NOTIFY`;
+- other production surfaces a test can still reach by accident: the broker API,
+  the real runs/decision-ledger SQLite databases, live state files under the
+  umbrella. The 2026-07-13 decision-ledger incident was the DB case; each
+  deserves the same surface-level treatment and none is in scope here.
+
+10 guard tests.

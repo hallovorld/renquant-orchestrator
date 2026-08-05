@@ -41,14 +41,22 @@ def _guarded_urlopen(request, *args, **kwargs):
     return _REAL_URLOPEN(request, *args, **kwargs)
 
 
-# INSTALLED AT IMPORT TIME, not only in the fixture. [codex on orch#806]
-# An autouse fixture does not exist yet while pytest COLLECTS — it imports every
-# test module first, and a module-level call into an alert path would fire before
-# any fixture runs. conftest.py is imported before the modules it collects, so
-# installing here closes that window. The fixture below still runs per test, so a
-# test that mutates either one gets it back afterwards.
-os.environ["RENQUANT_NO_NOTIFY"] = "1"
-urllib.request.urlopen = _guarded_urlopen
+def install_notification_guard() -> None:
+    """Install both layers. Idempotent, so the ROOT conftest and this one can
+    both call it and the second call is a no-op.
+
+    INSTALLED AT IMPORT TIME, not only in the fixture. [codex on orch#806]
+    An autouse fixture does not exist yet while pytest COLLECTS — it imports
+    every test module first, and a module-level call into an alert path would
+    fire before any fixture runs. Setting the env var here (not just patching
+    in-process) also means every subprocess a test spawns INHERITS suppression.
+    """
+    os.environ["RENQUANT_NO_NOTIFY"] = "1"
+    if urllib.request.urlopen is not _guarded_urlopen:
+        urllib.request.urlopen = _guarded_urlopen
+
+
+install_notification_guard()
 
 
 @pytest.fixture(autouse=True)
