@@ -59,6 +59,46 @@ answerable from the trade record alone.
 is established: it was `run_type=live`, `broker_mode=alpaca`, `BULL_CALM`,
 `buy_blocked=false`, and it placed two orders at ~3.5× the sizing target.
 
+## 4. The emitted size bears no relation to the computed target
+
+`SizeAndEmitTask` derives the position weight as
+`max_pct = kelly_target_pct × conviction × sigma_mult` (Plan C, kelly_sizing on).
+All three factors are stamped on the trade row, so the intended size is
+recoverable exactly `[推导 from VERIFIED stamps]`:
+
+```
+portfolio_value          $10,565.46      (= invest / target_pct)
+max_pct = 0.061255 × 0.5753 × 0.6591  =  0.023229   → 2.32 %
+intended notional        $245.43
+intended shares @ $309.22 = 0.794       → floors to 0
+ACTUAL                    8 shares / $2,473.76 = 23.41 %
+                          ratio realized / intended = 10.1×
+```
+
+EME is the same shape: intended `$245.43` → **0.330 shares → 0**; actual
+**3 shares / $2,228.19 = 21.09 %**, ratio **9.1×**.
+
+So it is not that the cap was raised, or Kelly ignored, or confidence
+mis-scaled. **On that run the emitted share count bears no relation to the
+computed target at all** — the intended order was *less than one share*, twice,
+and eight and three shares were emitted.
+
+### Ruled out this pass, so the next reader does not re-walk them
+
+- **not** the `bear_only` `override_pct` path — `bear_only=false`, and that is
+  the only caller that passes `override_pct`;
+- **not** a top-up on an existing position — both rows are the ticker's ONLY
+  live row, both `source_task=SizeAndEmitTask`, `source_job=SelectionJob`;
+- **not** the QP path — `qp_target_w` / `qp_delta_w` / `qp_status` all NULL;
+- **not** the Deployment Governor — `enabled=false` in the pinned config.
+
+### What would settle it
+
+Re-running `SizeAndEmitTask` against that run's recorded inputs
+(`portfolio_value`, `available_cash`, `max_pct`, `price`) and seeing whether it
+reproduces 8 shares. **I have not done that, and I am not proposing a fix to a
+mechanism I have not reproduced.**
+
 ## Why this matters more than the number
 
 The largest position in the book — **23.5 % of a $10.9k live account** — is one
