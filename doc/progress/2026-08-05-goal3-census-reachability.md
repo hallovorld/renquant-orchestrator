@@ -55,4 +55,4 @@ a caller can actually confuse invites the next reader to do all 42 — which is 
 the four already-read ones got read in review rather than by design.
 
 Suites: 23 tests in this file (5 new), incl. one bound to the live breakdown ·
-5702 passed, 2 skipped.
+5686 passed, 2 skipped `[VERIFIED — measured]`.
