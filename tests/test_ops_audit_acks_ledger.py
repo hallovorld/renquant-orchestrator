@@ -154,3 +154,21 @@ def test_the_LIVE_audit_reports_it_as_INFO_not_as_a_finding():
     others = [r for r in out["results"]
               if r["status"] == "findings" and r["disposition"] == NEW]
     assert others, "if everything went quiet at once, something is wrong"
+
+
+def test_the_reachability_check_compares_PATHS_not_basenames(tmp_path):
+    """A basename match reaches outside its subject: a synthetic fixture named
+    `panel-ltr.alpha158_fund.json` in a scratch directory is not the served
+    artifact. The first version of this check flagged one, i.e. it answered a
+    question about the operator's disk instead of about the root it was asked
+    to scan — caught by the parity suite, and pinned here."""
+    sys.path.insert(0, str(REPO / "ops" / "renquant104"))
+    import gate_stamp_parity as G
+
+    stamp = {"metadata": {"wf_gate_metadata": {"passed": True}},
+             "wf_gate_metadata": {"passed": False}}
+    (tmp_path / "panel-ltr.alpha158_fund.json").write_text(json.dumps(stamp),
+                                                           encoding="utf-8")
+    problems, infos = G.scan(str(tmp_path), "panel-ltr.alpha158_fund*.json")
+    assert "0 of them SERVED by a pinned config" in infos[0], infos
+    assert not any("SELECTED BY A PINNED CONFIG" in p for p in problems), problems

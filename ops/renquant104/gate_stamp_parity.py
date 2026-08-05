@@ -145,7 +145,8 @@ class ConfigsUnreadable(Exception):
     """The pinned configs could not be read, so reachability is UNKNOWN."""
 
 
-def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
+def served_artifact_paths(configs_root: str | None = None,
+                          artifacts_root: str | None = None) -> set[str]:
     """Every `artifacts/...json` basename any PINNED strategy config selects.
 
     WHY THIS BELONGS IN THE SUMMARY `[codex on orch#829]`. The parity finding's
@@ -156,6 +157,12 @@ def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
     after a config started serving one. The count is now IN the summary line,
     which is what the ack ledger fingerprints, so that change breaks the ack.
 
+    Compared as RESOLVED ABSOLUTE PATHS, never basenames. A basename match
+    reaches outside its subject: a synthetic fixture named
+    `panel-ltr.alpha158_fund.json` in a scratch directory is not the served
+    artifact, and treating it as one made this check answer a question about the
+    operator's disk instead of about the root it was asked to scan.
+
     Raises ``ConfigsUnreadable`` rather than returning an empty set: "I could
     not read the configs" must not report as "nothing is served".
     """
@@ -165,7 +172,14 @@ def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
     paths = sorted(glob.glob(os.path.join(root, "strategy_config*.json")))
     if not paths:
         raise ConfigsUnreadable(f"no strategy_config*.json under {root}")
-    names: set[str] = set()
+    # Config artifact paths are relative to <data root>/backtesting/renquant_104,
+    # which is the parent of the `artifacts/` directory being scanned.
+    art = artifacts_root or _default_artifacts_root()
+    base = os.path.dirname(os.path.dirname(os.path.abspath(art))) if art else ""
+    if not base:
+        raise ConfigsUnreadable("cannot resolve the artifacts base the configs "
+                                "are relative to")
+    out: set[str] = set()
 
     def walk(node):
         if isinstance(node, dict):
@@ -175,7 +189,8 @@ def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
             for v in node:
                 walk(v)
         elif isinstance(node, str) and node.endswith(".json") and "artifacts/" in node:
-            names.add(os.path.basename(node))
+            out.add(os.path.realpath(
+                node if os.path.isabs(node) else os.path.join(base, node)))
 
     for path in paths:
         try:
@@ -183,7 +198,7 @@ def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
                 walk(json.loads(fh.read()))
         except Exception as exc:  # noqa: BLE001
             raise ConfigsUnreadable(f"{os.path.basename(path)}: {exc}") from exc
-    return names
+    return out
 
 
 def _default_configs_root() -> str:
@@ -206,7 +221,7 @@ def _default_configs_root() -> str:
 def scan(root: str, query: str) -> tuple[list[str], list[str]]:
     problems: list[str] = []
     both = canon_only = legacy_only = neither = unreadable = malformed = 0
-    both_names: list[str] = []
+    both_paths: list[str] = []
 
     paths = sorted(glob.glob(os.path.join(root, query)))
     if not paths:
@@ -265,7 +280,7 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
                     f"stamps that disagree on {len(diffs)} path(s) — {shown}{more}. A "
                     f"reader taking the legacy copy gets a different answer from one "
                     f"taking the canonical copy; the artifact itself holds both.")
-            both_names.append(os.path.basename(path))
+            both_paths.append(path)
         elif canon is not None:
             canon_only += 1
         elif legacy is not None:
@@ -275,14 +290,14 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
 
     # Reachability, IN the summary line — see served_artifact_basenames().
     try:
-        served = served_artifact_basenames()
-        n_served_both = sum(1 for n in both_names if n in served)
-        reach = f"{n_served_both} of them SERVED by a pinned config"
-        if n_served_both:
+        served = served_artifact_paths(artifacts_root=root)
+        hit = sorted(os.path.basename(p) for p in both_paths
+                     if os.path.realpath(p) in served)
+        reach = f"{len(hit)} of them SERVED by a pinned config"
+        if hit:
             problems.append(
-                f"gate-stamp parity: {n_served_both} artifact(s) carrying TWO gate "
-                f"stamps are SELECTED BY A PINNED CONFIG: "
-                f"{', '.join(sorted(n for n in both_names if n in served))} — a "
+                f"gate-stamp parity: {len(hit)} artifact(s) carrying TWO gate "
+                f"stamps are SELECTED BY A PINNED CONFIG: {', '.join(hit)} — a "
                 f"disagreeing verdict is reachable by the daily run")
     except ConfigsUnreadable as exc:
         reach = "reachability UNKNOWN (pinned configs unreadable)"

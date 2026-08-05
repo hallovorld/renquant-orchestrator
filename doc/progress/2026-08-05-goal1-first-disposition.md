@@ -68,9 +68,16 @@ fingerprints —
 16 carry BOTH copies (0 of them SERVED by a pinned config)
 ```
 
-`served_artifact_basenames()` reads every `strategy_config*.json` under the
-pinned `renquant-strategy-104/configs` and intersects the selected artifact
-basenames with the both-copy set. **A config change alone now moves a
+`served_artifact_paths()` reads every `strategy_config*.json` under the pinned
+`renquant-strategy-104/configs` and intersects the selected artifacts with the
+both-copy set **as resolved absolute paths, never basenames**. My first version
+did compare basenames, and the parity suite caught it immediately: a synthetic
+fixture named `panel-ltr.alpha158_fund.json` in a scratch directory got flagged
+as *served*, i.e. the check was answering a question about the operator's disk
+instead of about the root it was asked to scan. Both directions are now
+verified — the live prod artifact **is** in the served set and **is not** a
+both-copy artifact, so `0 of them SERVED` holds from either end
+`[VERIFIED — this session]`. **A config change alone now moves a
 fingerprinted number**, so it reports `ACKED_BUT_CHANGED` with every census
 count unchanged — and a test asserts exactly that. If a served both-copy
 artifact is found, the detector raises it as a **problem**, not an info line.
@@ -91,7 +98,7 @@ Eight findings remain loud. One ledger entry is not a cleanup; the value of an
 ack ledger is destroyed by a single dishonest entry, so the first one is the one
 I could fully evidence.
 
-Suites: 14 tests — the ledger's shape, the fingerprint bound to what the live
+Suites: 15 tests — the ledger's shape, the fingerprint bound to what the live
 detector actually emits, three escalations that break the ack, its expiry, the
 deliberate omission, and an end-to-end check that the report really changed ·
 full suite green.
