@@ -3,7 +3,11 @@
 STATUS: diagnosis complete, evidence-only. **No code, no ack, no live surface.** Each
 row below is now dispositionable — that is the deliverable.
 
-WHY: operator report 2026-08-05, *"the issue has been repeatedly showing up for
+WHAT: a per-job diagnosis of all 14 undispositioned failing launchd jobs, each
+read from the log THAT JOB ACTUALLY WRITES, plus the category split that is the
+actual finding. Evidence only — no code, no ack, no live surface.
+
+WHY/DIR: operator report 2026-08-05, *"the issue has been repeatedly showing up for
 months"*. 16 `com.renquant.*` jobs hold a nonzero last exit; 5 acks exist and only 2
 cover a currently-failing job, so **14 are undispositioned**
 [VERIFIED — `launchctl list` ∩ `ops/renquant104/sentinel_acks.json` on origin/main].
@@ -88,7 +92,7 @@ EVIDENCE:
 | book beta | measured 1.0195, limit 0.6, consumption 1.6992, `kind: planning` PROVISIONAL | [VERIFIED — `breaches.book_beta`] |
 | retrain-panel104 is a mirror, not an independent failure | delegates to weekly_wf_promote and reports its result | [VERIFIED — `logs/retrain_panel/2026-08-02.log`] |
 
-NEXT, in the order the evidence supports:
+Ordering, by what the evidence supports:
 1. **weekly-wf-promote** — clears two rows (B), and its newest run already exits 0.
 2. **the 5 rq105 fallbacks** — `renquant-common-run/src` absent means the run
    checkout is not what review approved; that undermines every other deployment claim.
@@ -182,3 +186,23 @@ loop's steps from the shape of its output instead of reading the file. The same 
 produced "27 jobs use the fallback" (it was 5) and "the daily run executes dev checkouts"
 (it does not). Reading the source costs one command; the inference cost three
 retractions.
+
+artifact: none. Nothing is produced or modified; every figure is read from logs, plists
+  and ledgers the fleet had already written.
+prod or exp: neither. Read-only diagnosis. No job is touched, no ack written, no
+  schedule or config changed — deliberately, since seven of the fourteen should never
+  be acked at all.
+existing data: yes, entirely — each job's own dated logs, `launchctl list`,
+  `ops/renquant104/sentinel_acks.json` on origin/main, the installed plists, and the
+  2026-08-01 risk-budget statement. Nothing was re-run to produce any number here.
+best-known?: yes for the diagnosis. Reading each job's real log is the primary record,
+  and it is what corrected the earlier mtime-based attempt (orch#838/#840). It is NOT a
+  best-known remedy for any individual finding — those are named per row and owed to
+  whoever owns each surface.
+scope: documentation only. One progress doc plus two addenda correcting its own earlier
+  claims; no source file, test, config or ack is touched.
+
+NEXT: weekly-wf-promote (clears two rows at once,
+and orch#843 shows its refusals are correct); the five rq105 PYTHONPATH fallbacks;
+rq104-scorer-identity (in review as orch#847); and the fleet-wide EXIT_ALARMS vs
+EXIT_INTERNAL split, so category-A monitors stop reading as breakage.
