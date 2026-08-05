@@ -77,3 +77,27 @@ EVIDENCE:
 | the new tests are load-bearing | all 6 fail against the pre-change module | [VERIFIED — `git stash push ops/…`, re-run: 6 failed] |
 | the probe's own suite | 19 passed (refactor is behaviour-preserving) | [VERIFIED — `pytest -q tests/test_referenced_checkout_freshness.py`] |
 | full suite | 5881 passed, 16 failed | [VERIFIED — `make test`; 15 are the standing host-environmental set and the 16th is the live-state test fixed in orch#849, not yet merged] |
+
+artifact: none. The change adds a call into an existing daily check; it produces no
+  artifact, and the probe it calls is read-only apart from a `git fetch` in the
+  reference dev checkout (never in the checkout being measured).
+prod or exp: production monitoring path — `run_surface_drift_check` runs from a
+  scheduled job. No job is installed, no schedule changes, and no checkout is advanced
+  by this PR; the check only reports.
+existing data: yes — the finding was derived from checkouts and a manifest that already
+  exist (`ops/launchd_manifest.json` for the referenced paths, the run checkout's HEAD,
+  and `origin/main` in the fetched dev tree). Nothing was generated to support it.
+best-known?: for the measurement, yes — counting distance in a fetched reference tree
+  is the only method that survives the run checkout's own `origin/main` being stale,
+  which is the defect being caught. For the WIRING there is a better end state: a
+  reviewed launchd entry of its own, so the check does not depend on the staleness of
+  the very checkout it measures. That needs an operator grant, so this ships the
+  reviewable half.
+scope: one new function in `run_surface_drift_check.py` plus its call site, and a
+  two-line de-duplication in `referenced_checkout_freshness.py` (`FAILING_STATUSES` /
+  `failing()`), which is behaviour-preserving — its own suite is unchanged and green.
+
+NEXT: the operator grant. `renquant-orchestrator-run` is 36 commits behind with 21 jobs
+running from it; advancing it is a live-surface sync and not mine to do. This check
+begins executing only after that first advance — stated here rather than left for the
+merge to imply.
