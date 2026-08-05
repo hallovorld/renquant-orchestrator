@@ -416,3 +416,112 @@ def test_validate_repo_dir_fails_loudly_for_non_umbrella_checkout(tmp_path) -> N
 
     with pytest.raises(FileNotFoundError, match="data"):
         retrain_common.validate_repo_dir(repo)
+
+
+# ── orch#798: the sole writer must be INVOKED here, in lockstep ──────────────
+
+class TestRawlabelSoleWriterInvocation:
+    """MEASURED 2026-08-04: base-data#48 correctly made
+    `renquant_base_data.rawlabel_sidecar` the SOLE writer and retired this
+    task's self-build — but the writer's only SCHEDULED invocation lived in
+    `weekly_retrain_patchtst.sh`, retired 08-02/03. The side-product was
+    orphaned; three panel refreshes later the consume check refused
+    (panel-only=288) and σ-head training was blocked with no living path back.
+    """
+
+    def _helper(self):
+        from renquant_orchestrator.retrain_alpha158_fund import (
+            _publish_rawlabel_via_sole_writer,
+        )
+        return _publish_rawlabel_via_sole_writer
+
+    def test_it_invokes_the_sole_writer_module_never_a_reimplementation(
+        self, tmp_path, monkeypatch
+    ):
+        """The amendment is honoured by CALLING the writer, not copying it."""
+        import renquant_orchestrator.retrain_alpha158_fund as M
+
+        seen = {}
+
+        class _Proc:
+            returncode = 0
+            stdout = stderr = ""
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            out = Path(cmd[cmd.index("--output") + 1])
+            out.write_text("built", encoding="utf-8")
+            return _Proc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        out = tmp_path / "rawlabel.parquet"
+        info = self._helper()(panel, out, 60, ohlcv_dir=tmp_path / "ohlcv")
+
+        assert "renquant_base_data.rawlabel_sidecar" in seen["cmd"]
+        assert info["writer"] == "renquant_base_data.rawlabel_sidecar"
+        assert out.exists() and out.read_text() == "built"
+
+    def test_it_stages_and_atomically_replaces_never_writes_in_place(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed build must not leave a torn served sidecar."""
+        import renquant_orchestrator.retrain_alpha158_fund as M
+
+        out = tmp_path / "rawlabel.parquet"
+        out.write_text("PREVIOUS-GOOD-BYTES", encoding="utf-8")
+
+        class _Proc:
+            returncode = 1
+            stdout = ""
+            stderr = "writer exploded"
+
+        def fake_run(cmd, **kw):
+            # a writer that half-writes then fails
+            Path(cmd[cmd.index("--output") + 1]).write_text("TORN", encoding="utf-8")
+            return _Proc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        with pytest.raises(M.RawlabelValidationError) as exc:
+            self._helper()(panel, out, 60, ohlcv_dir=tmp_path / "ohlcv")
+        assert "sole base-data writer failed" in str(exc.value)
+        # the served file is untouched and the staging file is cleaned up
+        assert out.read_text() == "PREVIOUS-GOOD-BYTES"
+        assert not out.with_name(out.name + ".incoming").exists()
+
+    def test_exit_zero_without_output_is_still_a_failure(self, tmp_path, monkeypatch):
+        import renquant_orchestrator.retrain_alpha158_fund as M
+
+        class _Proc:
+            returncode = 0
+            stdout = stderr = ""
+
+        monkeypatch.setattr("subprocess.run", lambda cmd, **kw: _Proc())
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        with pytest.raises(M.RawlabelValidationError) as exc:
+            self._helper()(panel, tmp_path / "rawlabel.parquet", 60,
+                           ohlcv_dir=tmp_path / "ohlcv")
+        assert "exited 0 but produced no output" in str(exc.value)
+
+    def test_the_horizon_is_passed_through_not_defaulted(self, tmp_path, monkeypatch):
+        seen = {}
+
+        class _Proc:
+            returncode = 0
+            stdout = stderr = ""
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            Path(cmd[cmd.index("--output") + 1]).write_text("b", encoding="utf-8")
+            return _Proc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        self._helper()(panel, tmp_path / "raw.parquet", 20, ohlcv_dir=tmp_path / "o")
+        i = seen["cmd"].index("--horizon-trading-days")
+        assert seen["cmd"][i + 1] == "20"

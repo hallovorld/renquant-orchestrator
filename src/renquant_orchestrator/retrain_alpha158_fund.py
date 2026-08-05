@@ -1206,6 +1206,57 @@ class MergeFundFeaturesTask(Task):
         return True
 
 
+def _publish_rawlabel_via_sole_writer(panel_in: Path, rawlabel_out: Path,
+                                     horizon: int, *, ohlcv_dir: Path) -> dict:
+    """Publish the canonical sidecar by INVOKING the sole writer.
+
+    WHY THIS EXISTS (measured 2026-08-04, orch#798): base-data#48 correctly
+    made ``renquant_base_data.rawlabel_sidecar`` the SOLE WRITER and retired
+    this task's self-build — but the writer's only SCHEDULED invocation lived
+    inside ``weekly_retrain_patchtst.sh``, which was retired 2026-08-02/03.
+    The side-product was orphaned: three panel refreshes later the consume
+    check below correctly refused (panel-only=288) and, with RenQuant#427
+    merged, σ-head training was blocked with no living path back.
+
+    Calling the sole writer is NOT a second implementation — it is the
+    amendment's own contract, invoked from the one place that can guarantee
+    lockstep: immediately after the panel it must match was rebuilt, in the
+    same process, before anything consumes it.
+
+    Staging + atomic replace: the served file is never opened for write in
+    place, so a failed build cannot leave a torn sidecar behind. Fail-closed:
+    an unimportable writer or a non-zero build raises, and the caller's
+    existing except-path writes the invalidation receipt.
+    """
+    import os as _os
+    import subprocess as _subprocess
+    import sys as _sys
+
+    staging = rawlabel_out.with_name(rawlabel_out.name + ".incoming")
+    cmd = [
+        _sys.executable, "-m", "renquant_base_data.rawlabel_sidecar",
+        "--fund-panel", str(panel_in),
+        "--ohlcv-dir", str(ohlcv_dir),
+        "--output", str(staging),
+        "--horizon-trading-days", str(horizon),
+    ]
+    log.info("σ-head _rawlabel: invoking the SOLE writer -> %s", staging)
+    proc = _subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        staging.unlink(missing_ok=True)
+        raise RawlabelValidationError(
+            "the sole base-data writer failed to publish the canonical "
+            f"_rawlabel (rc={proc.returncode}): {(proc.stderr or proc.stdout)[-400:]}"
+        )
+    if not staging.exists():
+        raise RawlabelValidationError(
+            f"the sole writer exited 0 but produced no output at {staging}"
+        )
+    _os.replace(staging, rawlabel_out)
+    log.info("σ-head _rawlabel: published in-lockstep with %s", panel_in)
+    return {"writer": "renquant_base_data.rawlabel_sidecar", "staged_via": str(staging)}
+
+
 class RefreshSigmaHeadRawLabelTask(Task):
     """CONSUME + certify the canonical σ-head RAW ``_rawlabel`` sidecar
     (base-data#48 §2.1) — this task no longer WRITES it.
@@ -1302,14 +1353,19 @@ class RefreshSigmaHeadRawLabelTask(Task):
                     panel_in,
                 )
                 return True
-            # CONSUME the canonical file (base-data#48 §2.1) — the SOLE writer
-            # (renquant_base_data.rawlabel_sidecar, upstream) must have already
-            # published it. This task never writes the corpus itself.
+            # PUBLISH via the sole writer, THEN consume (orch#798). The
+            # amendment's single-writer rule is honoured by INVOKING that
+            # writer here — not by reimplementing it — from the one place
+            # that can guarantee lockstep: right after the panel rebuild,
+            # before anything reads the sidecar.
+            summary["publish"] = _publish_rawlabel_via_sole_writer(
+                panel_in, rawlabel_out, ctx.rawlabel_horizon,
+                ohlcv_dir=ctx.ohlcv_dir,
+            )
             if not rawlabel_out.exists():
                 raise RawlabelValidationError(
-                    "canonical σ-head _rawlabel is absent — the sole base-data "
-                    f"writer published no {rawlabel_out} (upstream corpus refresh "
-                    "did not run / failed before this retrain)"
+                    "canonical σ-head _rawlabel is absent after the sole "
+                    f"writer ran — no {rawlabel_out}"
                 )
             verify_fn = ctx.rawlabel_verify_fn or _default_rawlabel_verify_fn(
                 ctx.rawlabel_min_finite_fraction
