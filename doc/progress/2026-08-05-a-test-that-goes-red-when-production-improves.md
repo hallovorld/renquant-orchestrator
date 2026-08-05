@@ -73,3 +73,24 @@ EVIDENCE:
 | the cause is an improvement | `PRODUCT_STALE` → `WROTE_OUTPUT` | [VERIFIED — live `P.probe("2026-08-04")`] |
 | the refutation assertions still pass | 4 wrote, 3 named jobs `WROTE_OUTPUT` | [VERIFIED — same probe] |
 | probe suite | **15 passed** | [VERIFIED — `pytest -q tests/test_rq105_job_liveness_probe.py`] |
+
+artifact: none. No probe, job, log or live surface is touched — the change is entirely
+  inside `tests/test_rq105_job_liveness_probe.py`.
+prod or exp: neither. A test-only correction; the rq105 jobs, their schedules and their
+  outputs are untouched, and nothing about the system's behaviour changes.
+existing data: yes — the refutation this test carries rests on dated logs the rq105
+  jobs already wrote for the 2026-08-04 session. Nothing was re-run to produce it, and
+  the state change that broke the assertion (`PRODUCT_STALE` → `WROTE_OUTPUT`) was read
+  from those same logs via `P.probe("2026-08-04")`.
+best-known?: yes for the stated problem. The alternative — re-pinning the assertion to
+  today's state — reproduces the defect one day later. Asserting only the evidence that
+  supports the claim, plus an invariant that holds in both directions, is what makes the
+  test survive the system changing.
+scope: one test function. The unit tests above it, the probe module, and the other live
+  assertions are untouched; the `>= 4 wrote` and three named-job assertions that carry
+  the actual refutation are unchanged.
+
+NEXT: the two conditions this test stopped pinning are still worth watching, but by the
+liveness probe on the day it runs — not by a test asserting yesterday's reading.
+`rq105-session-scheduler` remains `LOG_EMPTY` and is one of the 14 undispositioned
+failing jobs in orch#841; it needs a diagnosis or a reviewed ack, not an assertion.
