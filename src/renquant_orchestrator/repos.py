@@ -214,6 +214,10 @@ def run_repos(
         from .agent_workflows import audit_merged_prs
 
         total_missing = 0
+        total_window_missing = 0
+        total_in_window = 0
+        window_offenders: list[dict] = []
+        uncovered: list[dict] = []
         for e in entries:
             try:
                 audit = audit_merged_prs(e.owner_repo, token, limit=merge_audit_limit)
@@ -225,13 +229,28 @@ def run_repos(
                     "n_missing_pre_merge_audit": 0,
                 }
             total_missing += int(audit.get("n_missing_pre_merge_audit") or 0)
+            total_window_missing += int(audit.get("n_missing_in_window") or 0)
+            total_in_window += int(audit.get("n_merged_in_window") or 0)
+            if audit.get("window_fully_covered") is False:
+                uncovered.append({"repo": e.name,
+                                  "why": audit.get("coverage_note") or "not covered"})
+            for row in (audit.get("missing_in_window") or []):
+                window_offenders.append({"repo": e.name, **row})
             result["repos"].append({"repo": e.name, "audit": audit})
         result["limit"] = int(merge_audit_limit)
         result["n_missing_pre_merge_audit"] = total_missing
-        result["ok"] = total_missing == 0 and not any(
+        # THE GATE is the window, not all history — history cannot be made compliant
+        # (a pre-merge marker cannot be added after the merge), so gating on it produces
+        # a permanently red alarm. See agent_workflows.GATE_WINDOW_DAYS.
+        result["n_missing_in_window"] = total_window_missing
+        result["n_merged_in_window"] = total_in_window
+        result["missing_in_window"] = window_offenders[:10]
+        result["uncovered_windows"] = uncovered
+        result["ok"] = total_window_missing == 0 and not uncovered and not any(
             (repo.get("audit") or {}).get("error")
             for repo in result["repos"]
         )
+        result["summary"] = merge_audit_summary(result)
         return result
     if action == "exec":
         if not exec_cmd:
@@ -282,3 +301,36 @@ def run_repos(
             result["total_merged"] = merged_so_far
         return result
     raise ValueError(f"unknown repos action {action!r}")
+
+
+def merge_audit_summary(result: dict) -> str:
+    """One line an operator can act on at 06:00 without opening anything.
+
+    The alarm this replaces said exactly `merge audit failed` — no count, no repo, no
+    example, no next step — every five minutes, for months. A page that cannot be acted
+    on is indistinguishable from noise, and it costs the channel that also carries the
+    real alarms.
+    """
+    win = int(result.get("n_missing_in_window") or 0)
+    of = int(result.get("n_merged_in_window") or 0)
+    days = 0
+    for repo in result.get("repos") or []:
+        days = int((repo.get("audit") or {}).get("gate_window_days") or 0) or days
+    hist = int(result.get("n_missing_pre_merge_audit") or 0)
+    errs = [r["repo"] for r in (result.get("repos") or [])
+            if (r.get("audit") or {}).get("error")]
+    if errs:
+        return f"merge-audit COULD NOT CHECK {', '.join(errs[:3])} — fix the reader, not the count"
+    unc = result.get("uncovered_windows") or []
+    if unc:
+        return ("merge-audit COVERAGE INCOMPLETE — "
+                f"{unc[0]['repo']}: {unc[0]['why']}. Not a clean verdict: raise --limit")
+    if win == 0:
+        return f"merge-audit OK — 0/{of} merges in the last {days}d missing a pre-merge marker"
+    ex = result.get("missing_in_window") or []
+    first = ex[0] if ex else {}
+    who = first.get("merged_by") or "?"
+    return (f"merge-audit: {win}/{of} merges in the last {days}d lack a pre-merge "
+            f"'Merged by' comment (e.g. {first.get('repo','?')}#{first.get('number','?')} "
+            f"by {who}). Post it BEFORE merging; it cannot be added afterwards. "
+            f"[{hist} historical, not gating]")

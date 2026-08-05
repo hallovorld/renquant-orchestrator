@@ -55,7 +55,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -882,17 +882,88 @@ def merge_audit_status(pr: dict) -> dict:
     }
 
 
-def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50) -> dict:
-    """Return a JSON-ready audit of recent merged PR traceability."""
+#: Days of merge history the recurring GATE judges. History outside it is still
+#: measured and reported — it is simply not something a future action can change.
+#:
+#: WHY A WINDOW AT ALL (orch, 2026-08-05, operator-reported). The gate was
+#: `ok = no missing marker in ALL history`, and the marker must predate the merge
+#: (`created_at <= merged_at`). A merged PR can still receive comments but can never
+#: receive a PRE-merge one, so a single violation makes that PR permanently
+#: non-compliant and the gate permanently red — 375 of 454 PRs, failing every 5 minutes
+#: for months no matter how anyone behaves afterwards. A gate that cannot be satisfied
+#: is not a gate; it is a generator of pages nobody can act on, and it trains everyone
+#: to ignore the channel that also carries the real ones.
+#:
+#: A rolling window is satisfiable BY BEHAVIOUR: comply for the window's length and it
+#: goes green on its own. Nothing is hidden — `n_missing_pre_merge_audit` still counts
+#: everything fetched, and the window figures sit beside it.
+GATE_WINDOW_DAYS = 7
+
+
+def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
+                     gate_window_days: int = GATE_WINDOW_DAYS,
+                     now: "datetime | None" = None) -> dict:
+    """Return a JSON-ready audit of recent merged PR traceability.
+
+    `ok` is the GATE and covers only the last `gate_window_days` of merges — the part
+    a future action can still change. The historical totals are reported alongside and
+    deliberately do NOT gate: see `GATE_WINDOW_DAYS`.
+    """
     prs = fetch_merged_prs(repo, token, limit=limit)
     rows = [merge_audit_status(pr) for pr in prs]
     missing = [row for row in rows if not row["has_pre_merge_audit"]]
+
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=int(gate_window_days))
+    in_window = [r for r in rows
+                 if (_parse_github_datetime(r.get("merged_at")) or cutoff) >= cutoff]
+    window_missing = [r for r in in_window if not r["has_pre_merge_audit"]]
+
+    # COVERAGE, or the window verdict is a guess (review round 1 on the rescope).
+    # `fetch_merged_prs` returns only the `limit` most recent merges. If every fetched
+    # merge lies INSIDE the window, the window extends past what was fetched and an
+    # older in-window violation is invisible — `ok` could read True while the stated
+    # window was never clean. A false green on a compliance gate is worse than the
+    # permanently-red gate this replaced: one gets ignored, the other gets believed.
+    #
+    # Coverage is therefore measured, and an uncovered window FAILS CLOSED with its own
+    # reason. "I could not see the whole window" is a third state, never folded into
+    # "the window is clean".
+    #
+    # Truncation is the ONLY thing that can hide an in-window merge, so that is what
+    # the test asks about (review round 2/3 on the rescope: my first two rules were
+    # fail-closed but not attainable, and turned every quiet repo permanently red).
+    #   * `len(rows) < limit` — the response was EXHAUSTED. Nothing older exists to
+    #     fetch, whatever the dates say. This also covers a repo with zero merges.
+    #   * otherwise the list was capped, and coverage holds only if the fetch reached
+    #     back past the cutoff. `<=` because the window is inclusive of the cutoff, so
+    #     a merge landing exactly on it is in-window and observed, not unseen.
+    dates = [_parse_github_datetime(r.get("merged_at")) for r in rows]
+    oldest = min([d for d in dates if d], default=None)
+    exhausted = len(rows) < int(limit)
+    covered = exhausted or (oldest is not None and oldest <= cutoff)
+    coverage_note = None if covered else (
+        f"window NOT fully covered: fetched the {len(rows)}-merge limit and the oldest "
+        f"of them still postdates the {int(gate_window_days)}d cutoff, so older "
+        f"in-window merges were never examined — raise --limit above {len(rows)}")
+
     return {
         "repo": repo,
         "limit": limit,
         "n_merged_prs": len(rows),
         "n_missing_pre_merge_audit": len(missing),
-        "ok": not missing,
+        "gate_window_days": int(gate_window_days),
+        "n_merged_in_window": len(in_window),
+        "n_missing_in_window": len(window_missing),
+        "missing_in_window": [
+            {"number": r.get("number"), "url": r.get("url"),
+             "merged_by": r.get("merged_by"), "merged_at": r.get("merged_at")}
+            for r in window_missing[:10]
+        ],
+        "window_fully_covered": covered,
+        "coverage_note": coverage_note,
+        # the GATE: only the window, and only when the window was actually SEEN.
+        # Historical misses are recorded, never gating.
+        "ok": (not window_missing) and covered,
         "prs": rows,
     }
 
