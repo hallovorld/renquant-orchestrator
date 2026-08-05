@@ -48,10 +48,20 @@ exist yet.
    same-day manual invocation is indistinguishable here. The probe states this
    in its own output and claims only "wrote output during the session".
 
-So the refutation is **four of the four jobs #621 called dead did write output**
-(quote-logger, postclose, batch-export, shadow-serving) — enough to retire
-"silent 28 days / 17–19 missed firings each" — while **session-scheduler stays
-open** and the pairing product is a session stale.
+### The refutation, counted correctly `[codex on orch#815]`
+
+#621's four "dead" jobs are `postclose`, `quote-logger`, **`session-scheduler`**
+and `shadow-serving`. An earlier version of this paragraph wrote "four of four"
+by substituting `batch-scores-export` — which #621 listed as **surviving** — for
+`session-scheduler`. That is not a rounding error; it swapped the one job still
+unestablished for one the issue never disputed.
+
+**Three of the four** have direct output evidence for 2026-08-04: `quote-logger`,
+`postclose`, `shadow-serving`. That is enough to retire "silent 28 days / 17–19
+missed weekday firings each" for those three. **`session-scheduler` remains
+unestablished** (empty log, no product of its own), and `shadow-serving`'s
+evidence is same-day `WROTE_OUTPUT`, not a proved scheduled firing. The pairing
+product is a session stale.
 
 ## Also corrected: the alarm-delivery failure is already fixed
 
