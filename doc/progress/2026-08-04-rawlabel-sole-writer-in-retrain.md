@@ -52,3 +52,40 @@ Suite: 21 passed.
 The one-off republish already done tonight (grants-logged) and the Saturday
 playbook's obligation F remain as they are until this deploys; after deploy,
 obligation F becomes automatic and #795 should drop it.
+
+## Review round 2 — CI caught a real regression, and the fix is a better design
+
+The first implementation invoked the writer UNCONDITIONALLY on every run. CI
+(where `renquant_base_data` is not importable) went red on four pre-existing
+tests: a sidecar already in lockstep was being republished, and the absent-file
+error stopped saying "absent".
+
+Those tests were right. base-data#48's consume-only semantics are the correct
+FAST PATH — if the served sidecar already matches the freshly-rebuilt panel,
+this task should read and certify it and invoke nothing. Republishing a good
+corpus is a pointless rebuild and a write this task does not need to make.
+
+So the task is now **repair-only**:
+
+```
+verify the served sidecar against the fresh panel
+  ├── in lockstep  → consume + certify, writer NEVER invoked   (unchanged)
+  └── absent / out of lockstep → invoke the SOLE writer, then VERIFY AGAIN
+```
+
+The second verify is load-bearing: a republish that still fails the lockstep
+check must not be certified.
+
+A failed repair now names BOTH the corpus defect and the repair failure —
+"canonical σ-head _rawlabel is absent — no <path>, and the sole base-data writer
+could not republish it: <why>". What blocks σ-head training is the corpus state;
+what the operator must fix is the writer. The 08-04 orphan stayed open three days
+partly because the message named only one of them.
+
+Four more tests: a lockstep corpus is never republished (and its bytes are
+unchanged); an orphaned corpus is republished and RE-verified, with the
+republished bytes — not the stale ones — deciding; an absent corpus triggers the
+writer; a failed republish names both and still writes the invalidation receipt.
+39 passed in this file, 60 across both retrain files.
+
+Codex's two round-1 findings (finally-cleanup, repo env) are also in this branch.

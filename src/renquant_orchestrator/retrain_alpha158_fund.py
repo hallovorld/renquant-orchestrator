@@ -1372,26 +1372,58 @@ class RefreshSigmaHeadRawLabelTask(Task):
                     panel_in,
                 )
                 return True
-            # PUBLISH via the sole writer, THEN consume (orch#798). The
-            # amendment's single-writer rule is honoured by INVOKING that
-            # writer here — not by reimplementing it — from the one place
-            # that can guarantee lockstep: right after the panel rebuild,
-            # before anything reads the sidecar.
-            summary["publish"] = _publish_rawlabel_via_sole_writer(
-                ctx, panel_in, rawlabel_out, ctx.rawlabel_horizon,
-                ohlcv_dir=ctx.ohlcv_dir,
-            )
-            if not rawlabel_out.exists():
-                raise RawlabelValidationError(
-                    "canonical σ-head _rawlabel is absent after the sole "
-                    f"writer ran — no {rawlabel_out}"
-                )
             verify_fn = ctx.rawlabel_verify_fn or _default_rawlabel_verify_fn(
                 ctx.rawlabel_min_finite_fraction
             )
-            # A verification failure raises and falls to the except below; the
-            # canonical corpus is READ-ONLY here and is never mutated.
-            report = dict(verify_fn(rawlabel_out, panel_in, ctx.rawlabel_horizon))
+            # CONSUME FIRST (base-data#48 §2.1 unchanged): if the served sidecar
+            # is already in lockstep with the freshly-rebuilt panel, this task
+            # still only reads and certifies it — no writer is invoked, no bytes
+            # are touched.
+            report, in_lockstep, trigger = {}, False, None
+            if rawlabel_out.exists():
+                try:
+                    report = dict(verify_fn(rawlabel_out, panel_in, ctx.rawlabel_horizon))
+                    in_lockstep = True
+                    summary["publish"] = {"invoked": False,
+                                          "reason": "already in lockstep with the fresh panel"}
+                except Exception as stale_exc:
+                    trigger = f"out of lockstep with the fresh panel ({stale_exc})"
+            else:
+                trigger = f"absent — no {rawlabel_out}"
+
+            # REPAIR ONLY IF NEEDED (orch#798). The panel was just rebuilt, so a
+            # sidecar that fails the lockstep check is the orphan measured on
+            # 2026-08-04: base-data#48 correctly made
+            # `renquant_base_data.rawlabel_sidecar` the SOLE writer, but the
+            # writer's only SCHEDULED invocation lived in the PatchTST weekly job
+            # retired 08-02/03, so nothing republished it. Republishing here
+            # honours the amendment by INVOKING that writer — not reimplementing
+            # it — from the one place that can guarantee lockstep.
+            if not in_lockstep:
+                log.warning("σ-head _rawlabel %s — invoking the SOLE writer to "
+                            "republish in lockstep", trigger)
+                summary["republish_trigger"] = trigger
+                try:
+                    summary["publish"] = _publish_rawlabel_via_sole_writer(
+                        ctx, panel_in, rawlabel_out, ctx.rawlabel_horizon,
+                        ohlcv_dir=ctx.ohlcv_dir,
+                    )
+                except Exception as pub_exc:
+                    # Name BOTH: what was wrong with the served corpus, and why
+                    # the repair could not fix it. The first is what blocks
+                    # σ-head training; the second is what the operator must fix.
+                    raise RawlabelValidationError(
+                        f"canonical σ-head _rawlabel is {trigger}, and the sole "
+                        f"base-data writer could not republish it: {pub_exc}"
+                    ) from pub_exc
+                if not rawlabel_out.exists():
+                    raise RawlabelValidationError(
+                        "canonical σ-head _rawlabel is absent after the sole "
+                        f"writer ran — no {rawlabel_out}"
+                    )
+                # A verification failure raises and falls to the except below; the
+                # canonical corpus is READ-ONLY here and is never mutated.
+                report = dict(verify_fn(rawlabel_out, panel_in, ctx.rawlabel_horizon))
             # Certify the CONSUMED corpus: compute rawlabel_sha256 from the
             # already-durable on-disk bytes and stamp the provenance sidecar LAST
             # (atomic temp+fsync+replace) so a reader that verifies the digest is
