@@ -78,3 +78,27 @@ of it. Five regression tests added, including codex's repro verbatim, a trailing
 shape — wrappers grep their own logs for these lines), `printf`/`notify` still
 counting, and an anti-regression check that the tightened matcher still resolves
 all nine live contracted lines. 11 passed.
+
+## Review round 3 (codex on orch#804)
+
+Codex confirmed round 2 fixed the comment repro, then found two more — one in
+each direction, and the FALSE-NEGATIVE is the dangerous one:
+
+1. **A real emitter was rejected** when `#` appeared inside the emitted string:
+   `echo "#tag === X ==="`. Refusing a legitimate emitter means the tool can
+   never re-capture that line again — permanently worse than the false positive
+   it was guarding against. The comment scan is now quote-aware: `#` only starts
+   a comment outside quotes.
+2. **A dead `echo` inside a here-doc block comment was still accepted**:
+   `: <<'BLOCK'` … `echo "=== X ==="` … `BLOCK`. That line never executes.
+   Matching is now file-level (`_emit_sites`), tracking here-doc state so bodies
+   are skipped, including `<<-DELIM` and quoted delimiters.
+
+`_emit_sites` is deliberately conservative: if a real emitter ever moves INSIDE
+a here-doc it under-counts, `recapture` refuses on the count mismatch, and a
+human looks. Refusing is the safe direction; silently re-pinning is not.
+
+Six more tests (hash-in-double-quotes, hash-in-single-quotes, a REAL trailing
+comment still refused, here-doc block comment refused, a real emitter after the
+here-doc closes still found, `<<-'PY'` and `<<"EOF"` delimiters both close).
+17 in this file; 5552 passed, 2 skipped across the repo.

@@ -37,21 +37,73 @@ UMBRELLA = pathlib.Path("/Users/renhao/git/github/RenQuant")
 CONTRACT = pathlib.Path(__file__).resolve().parent / "emitter_contract.json"
 
 
+_HEREDOC_OPEN = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1")
+
+
+def _strip_unquoted_comment(prefix: str) -> tuple[str, bool]:
+    """Return (code part of `prefix`, commented_out).
+
+    A `#` only starts a comment OUTSIDE quotes. `echo "#tag === X ==="` is a
+    real emit site whose prefix contains a `#` inside a string — rejecting it
+    would refuse a legitimate re-capture forever, which is worse than the
+    false positive it was guarding against. [codex on orch#804]
+    """
+    single = double = False
+    for i, ch in enumerate(prefix):
+        if ch == "'" and not double:
+            single = not single
+        elif ch == '"' and not single:
+            double = not double
+        elif ch == "#" and not single and not double:
+            return prefix[:i], True
+    return prefix, False
+
+
 def _is_emitter_line(line: str, template: str) -> bool:
     """True only if `line` is a shell statement that EMITS `template`.
 
-    Rejects comments and any occurrence whose prefix is commented out, and
-    requires an emitter command (`echo`/`printf`/`notify`) ahead of the text —
-    so quoting the template in a comment or a grep pattern is not an emit site.
+    Requires an emitter command (`echo`/`printf`/`notify`) ahead of the text and
+    that the occurrence is not inside a comment — so quoting the template in a
+    comment or a grep pattern list is not an emit site. Quote-aware, so a `#`
+    inside the emitted string does not make it look like a comment.
+
+    Line-level only: a line inside a here-doc body never executes, and that
+    cannot be seen from one line. `_emit_sites` handles it.
     """
     if template not in line:
         return False
     if line.lstrip().startswith("#"):
         return False
-    prefix = line[:line.index(template)]
-    if "#" in prefix:
+    prefix, commented = _strip_unquoted_comment(line[:line.index(template)])
+    if commented:
         return False
     return bool(_EMITTER_CMD.search(prefix))
+
+
+def _emit_sites(text: str, template: str) -> list[int]:
+    """1-indexed lines of `text` that actually EMIT `template`.
+
+    Skips here-doc bodies. `: <<'BLOCK' ... BLOCK` is the idiomatic shell block
+    comment, and an `echo` inside one never runs — re-pinning to it is the same
+    class of error as re-pinning to a `#` comment. [codex on orch#804]
+
+    Conservative by design: if a real emitter ever moves INSIDE a here-doc, this
+    under-counts, `recapture` refuses on the count mismatch, and a human looks.
+    Refusing is the safe direction; silently re-pinning is not.
+    """
+    sites: list[int] = []
+    delimiter: str | None = None
+    for i, line in enumerate(text.splitlines(), start=1):
+        if delimiter is not None:
+            if line.strip() == delimiter:
+                delimiter = None
+            continue
+        opened = _HEREDOC_OPEN.search(line)
+        if _is_emitter_line(line, template):
+            sites.append(i)
+        if opened:
+            delimiter = opened.group(2)
+    return sites
 
 
 def recapture(contract: dict, umbrella: pathlib.Path) -> list[str]:
@@ -66,9 +118,8 @@ def recapture(contract: dict, umbrella: pathlib.Path) -> list[str]:
         path = umbrella / rel
         if not path.exists():
             raise SystemExit(f"REFUSING: {rel} absent — cannot re-capture off-machine")
-        lines = path.read_text(errors="ignore").splitlines()
-        hits = sorted(i + 1 for i, ln in enumerate(lines)
-                      if _is_emitter_line(ln, template))
+        text = path.read_text(errors="ignore")
+        hits = _emit_sites(text, template)
         if len(hits) != len(rows):
             raise SystemExit(
                 f"REFUSING: {rel} has {len(hits)} emit site(s) for {template!r} but "

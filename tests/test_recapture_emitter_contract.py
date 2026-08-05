@@ -135,3 +135,65 @@ def test_the_live_contract_still_resolves_under_the_TIGHTER_matcher():
             / "emitter_contract.json")
     contract = json.loads(path.read_text())
     assert recapture(contract, umbrella) == []
+
+
+# ── [codex on orch#804] round 2: quote-aware, here-doc-aware ────────────────
+
+def test_a_HASH_inside_the_emitted_string_is_not_a_comment(tmp_path):
+    """False-NEGATIVE guard, and the dangerous one: refusing a legitimate
+    emitter means the tool can never re-capture that line again."""
+    c = _fixture(tmp_path, ["", 'echo "#tag === X ==="'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    recapture(c, tmp_path)
+    assert c["lines"][0]["source"] == "scripts/w.sh:2"
+
+
+def test_a_single_quoted_hash_is_also_not_a_comment(tmp_path):
+    c = _fixture(tmp_path, ["", "echo '# === X ==='"],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    recapture(c, tmp_path)
+    assert c["lines"][0]["source"] == "scripts/w.sh:2"
+
+
+def test_a_REAL_trailing_comment_is_still_a_comment(tmp_path):
+    """The quote-awareness must not undo the round-1 fix."""
+    c = _fixture(tmp_path, ['ls   # echo "=== X ===" used to live here'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    with pytest.raises(SystemExit):
+        recapture(c, tmp_path)
+
+
+def test_an_echo_inside_a_HEREDOC_block_comment_never_executes(tmp_path):
+    """`: <<'BLOCK' ... BLOCK` is the idiomatic shell block comment. An echo in
+    there never runs; re-pinning to it is the same error as a `#` comment."""
+    c = _fixture(tmp_path,
+                 [": <<'BLOCK'", 'echo "=== X ==="', "BLOCK", 'echo "other"'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:9"}])
+    with pytest.raises(SystemExit) as exc:
+        recapture(c, tmp_path)
+    assert "0 emit site(s)" in str(exc.value)
+    assert c["lines"][0]["source"] == "scripts/w.sh:9"
+
+
+def test_a_REAL_emitter_after_a_heredoc_closes_is_still_found(tmp_path):
+    """Here-doc state must not leak past its delimiter."""
+    c = _fixture(tmp_path,
+                 ["cat <<EOF", "some payload", "EOF", 'echo "=== X ==="'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    recapture(c, tmp_path)
+    assert c["lines"][0]["source"] == "scripts/w.sh:4"
+
+
+def test_a_quoted_and_a_dash_heredoc_delimiter_both_close(tmp_path):
+    for opener, closer in ((["cat <<-'PY'"], "PY"), (['cat <<"EOF"'], "EOF")):
+        c = _fixture(tmp_path,
+                     [*opener, 'echo "=== X ==="', closer, 'echo "=== X ==="'],
+                     [{"job": "j", "kind": "action", "template": "=== X ===",
+                       "source": "scripts/w.sh:1"}])
+        recapture(c, tmp_path)
+        assert c["lines"][0]["source"] == "scripts/w.sh:4", opener
