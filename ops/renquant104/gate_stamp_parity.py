@@ -141,9 +141,125 @@ def compare(canon: dict, legacy: dict) -> list[str]:
                                                len(rank)), s))
 
 
-def scan(root: str, query: str) -> tuple[list[str], list[str]]:
+class ConfigsUnreadable(Exception):
+    """The pinned configs could not be read, so reachability is UNKNOWN."""
+
+
+def served_artifact_paths(configs_root: str | None = None,
+                          artifacts_root: str | None = None) -> set[str]:
+    """Every `artifacts/...json` basename any PINNED strategy config selects.
+
+    WHY THIS BELONGS IN THE SUMMARY `[codex on orch#829]`. The parity finding's
+    severity is entirely a question of reachability — a both-copy artifact no
+    config names is a historical curiosity; one a config selects means a reader
+    can get a verdict the canonical copy never gave. The census counts could not
+    tell those apart, so an ack taken while nothing was served kept holding
+    after a config started serving one. The count is now IN the summary line,
+    which is what the ack ledger fingerprints, so that change breaks the ack.
+
+    Compared as RESOLVED ABSOLUTE PATHS, never basenames. A basename match
+    reaches outside its subject: a synthetic fixture named
+    `panel-ltr.alpha158_fund.json` in a scratch directory is not the served
+    artifact, and treating it as one made this check answer a question about the
+    operator's disk instead of about the root it was asked to scan.
+
+    Raises ``ConfigsUnreadable`` rather than returning an empty set: "I could
+    not read the configs" must not report as "nothing is served".
+    """
+    root = configs_root or _default_configs_root()
+    if not root or not os.path.isdir(root):
+        raise ConfigsUnreadable(f"no pinned strategy configs at {root!r}")
+    paths = sorted(glob.glob(os.path.join(root, "strategy_config*.json")))
+    if not paths:
+        raise ConfigsUnreadable(f"no strategy_config*.json under {root}")
+    # Config artifact paths are relative to <data root>/backtesting/renquant_104,
+    # which is the parent of the `artifacts/` directory being scanned.
+    art = artifacts_root or _default_artifacts_root()
+    base = os.path.dirname(os.path.dirname(os.path.abspath(art))) if art else ""
+    if not base:
+        raise ConfigsUnreadable("cannot resolve the artifacts base the configs "
+                                "are relative to")
+    out: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+        elif isinstance(node, str) and node.endswith(".json") and "artifacts/" in node:
+            out.add(os.path.realpath(
+                node if os.path.isabs(node) else os.path.join(base, node)))
+
+    for path in paths:
+        try:
+            with open(path, "rb") as fh:
+                walk(json.loads(fh.read()))
+        except Exception as exc:  # noqa: BLE001
+            raise ConfigsUnreadable(f"{os.path.basename(path)}: {exc}") from exc
+    return out
+
+
+def scan_no_reachability(root: str, query: str) -> tuple[list[str], list[str]]:
+    """``scan`` with an EMPTY served set — for tests about parity itself.
+
+    Exists so a pure parity test states "reachability is not what I am testing"
+    instead of silently depending on whether the machine has an umbrella
+    checkout `[codex on orch#829]`.
+    """
+    return scan(root, query, served_paths=set())
+
+
+def main_no_reachability(argv: list[str] | None = None) -> int:
+    """``main`` with reachability discovery disabled — test-facing twin of the
+    helper above, for the same reason."""
+    import argparse as _ap
+
+    ap = _ap.ArgumentParser()
+    ap.add_argument("--root", default=_default_artifacts_root())
+    ap.add_argument("--query", default="panel-ltr.alpha158_fund*.json")
+    a = ap.parse_args(argv)
+    problems, infos = scan_no_reachability(a.root, a.query)
+    for line in infos:
+        print(line)
+    for line in problems:
+        print(line, file=sys.stderr)
+    return 1 if problems else 0
+
+
+def _default_configs_root() -> str:
+    """The PINNED strategy-104 configs — the ones the daily run actually loads."""
+    env = os.environ.get("RENQUANT_DATA_ROOT")
+    bases = [env] if env else []
+    here = os.path.abspath(__file__)
+    repo = here
+    for _ in range(4):
+        repo = os.path.dirname(repo)
+        bases.append(os.path.join(os.path.dirname(repo), "RenQuant"))
+    for base in bases:
+        cand = os.path.join(base, ".subrepo_runtime", "repos",
+                            "renquant-strategy-104", "configs")
+        if os.path.isdir(cand):
+            return cand
+    return ""
+
+
+def scan(root: str, query: str, *, configs_root: str | None = None,
+         served_paths: set[str] | None = None) -> tuple[list[str], list[str]]:
+    """Parity scan of ``root``, plus the reachability of any both-copy artifact.
+
+    ``served_paths`` / ``configs_root`` are INJECTABLE `[codex on orch#829]`.
+    The first version discovered the workstation's pinned configs from inside
+    `scan`, so eight pure parity tests — which have nothing to do with
+    reachability — started failing on a runner with no umbrella checkout, while
+    passing here. A test that only passes on the machine that wrote it is not a
+    test of the code. Production still resolves them itself and still
+    fail-closes when it cannot.
+    """
     problems: list[str] = []
     both = canon_only = legacy_only = neither = unreadable = malformed = 0
+    both_paths: list[str] = []
 
     paths = sorted(glob.glob(os.path.join(root, query)))
     if not paths:
@@ -202,6 +318,7 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
                     f"stamps that disagree on {len(diffs)} path(s) — {shown}{more}. A "
                     f"reader taking the legacy copy gets a different answer from one "
                     f"taking the canonical copy; the artifact itself holds both.")
+            both_paths.append(path)
         elif canon is not None:
             canon_only += 1
         elif legacy is not None:
@@ -209,9 +326,27 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
         else:
             neither += 1
 
+    # Reachability, IN the summary line — see served_artifact_basenames().
+    try:
+        served = (served_paths if served_paths is not None
+                  else served_artifact_paths(configs_root, artifacts_root=root))
+        hit = sorted(os.path.basename(p) for p in both_paths
+                     if os.path.realpath(p) in served)
+        reach = f"{len(hit)} of them SERVED by a pinned config"
+        if hit:
+            problems.append(
+                f"gate-stamp parity: {len(hit)} artifact(s) carrying TWO gate "
+                f"stamps are SELECTED BY A PINNED CONFIG: {', '.join(hit)} — a "
+                f"disagreeing verdict is reachable by the daily run")
+    except ConfigsUnreadable as exc:
+        reach = "reachability UNKNOWN (pinned configs unreadable)"
+        problems.append(
+            f"gate-stamp parity: could not read the pinned strategy configs "
+            f"({exc}) — whether a both-copy artifact is SERVED is unknown, which "
+            f"is not the same as none being served")
     infos = [
         f"gate-stamp parity: {len(paths)} artifact(s) scanned — {both} carry BOTH "
-        f"copies, {canon_only} canonical-only, {legacy_only} legacy-only, "
+        f"copies ({reach}), {canon_only} canonical-only, {legacy_only} legacy-only, "
         f"{neither} no stamp, {malformed} malformed, {unreadable} unreadable",
     ]
     # The denominator is stated so a shrinking scan cannot read as a clean one.
@@ -278,8 +413,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="artifact directory; defaults to the 104 prod "
                          "root resolved via runtime_paths")
     ap.add_argument("--query", default="panel-ltr.alpha158_fund*.json")
+    ap.add_argument("--configs-root", default=None,
+                    help="pinned strategy configs; defaults to the pinned "
+                         "renquant-strategy-104 configs resolved from the data root")
     a = ap.parse_args(argv)
-    problems, infos = scan(a.root, a.query)
+    problems, infos = scan(a.root, a.query, configs_root=a.configs_root)
     for line in infos:
         print(line)
     for line in problems:
