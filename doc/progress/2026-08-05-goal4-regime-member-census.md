@@ -42,14 +42,37 @@ against `RenQuant/backtesting/renquant_104/artifacts`]`
 | 2026-08-02 | −0.0294 | +0.3388 | −0.1294 | −0.0656 |
 | 2026-08-04 | −0.0300 | +0.3388 | −0.1290 | −0.0656 |
 
-- **BULL_CALM: NEGATIVE in 8/8** (min −0.0339, max −0.0294). Stable over a month,
-  not noise.
-- **BEAR: POSITIVE in 8/8** (+0.3346 … +0.3417). Also stable.
-- BULL_VOLATILE: negative in 8/8 and **degrading** (−0.080 → −0.129).
-- All eight carry the SAME `candidate_recipe_fingerprint`
-  `sha256:cfdd6cb8e950da0f`, which is exactly the known "the gate admits on
-  recipe hash only" property. So this shape is a property of the RECIPE, not of
-  any single training run.
+- **BULL_CALM: negative in all 8 readings** (min −0.0339, max −0.0294), `n_dates`
+  363–377.
+- **BEAR: positive in all 8 readings** (+0.3346 … +0.3417), `n_dates` **50**.
+- BULL_VOLATILE: negative in all 8, `n_dates` **11–16**.
+- CHOPPY: negative in all 8, `n_dates` 27–30.
+- All eight carry the same `candidate_recipe_fingerprint` `sha256:cfdd6cb8e950da0f`.
+
+### What these 8 readings are NOT `[codex on orch#807]`
+
+The first version of this doc called the BULL_CALM result "stable over a month,
+not noise", called BULL_VOLATILE "degrading", and called the shape "a property of
+the RECIPE". **All three are withdrawn — none is supported by what was measured.**
+
+- The 8 profiles come from one corpus with **heavily overlapping evaluation
+  windows**. They are not independent samples, so "8/8" is not a significance
+  statement; it is one estimate re-read eight times with slightly different end
+  dates. No CI, no block bootstrap, no independence gap was computed here.
+- **BULL_VOLATILE has `n_dates` 11–16.** Nothing should be characterised on that,
+  least of all a trend. "Degrading" is withdrawn.
+- **BEAR has `n_dates` 50.** +0.335 on 50 overlapping dates is striking and worth
+  investigating; it is not established.
+- The shared recipe fingerprint is **consistent with** a recipe-level cause and
+  is not evidence for it — the gate admits on recipe hash only, so a shared
+  fingerprint is what you would see either way. "Property of the RECIPE" is
+  withdrawn.
+
+What survives, and is all that is claimed: **on this corpus, at the enforced 2×
+shift, the primary panel recipe's measured genuine IC is negative in BULL_CALM
+in every stamped reading, on 363–377 dates — while the pooled figure the gate
+reports is positive.** Every number above carries its source artifact path in the
+census output.
 
 **Member 2 — momentum residual v0 (ledger-served): ZERO per-regime evidence.**
 Its artifact carries no `wf_gate_metadata` at all.

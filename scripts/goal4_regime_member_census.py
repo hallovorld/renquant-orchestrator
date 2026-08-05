@@ -118,15 +118,29 @@ def _profiles(artifacts: pathlib.Path, stem: str) -> dict[str, dict]:
         out.setdefault(digest, {
             "run_at": meta.get("run_at"),
             "recipe_fingerprint": meta.get("candidate_recipe_fingerprint"),
+            # [codex on orch#807] provenance: a number with no file behind it
+            # cannot be re-checked by the next reader.
+            "source_artifact": str(path),
+            "profile_digest": digest,
             "profile": profile,
         })
     return out
 
 
+def _cell(profile: dict, regime: str) -> dict:
+    return ((profile.get("per_regime") or {}).get(regime) or {}).get(SHIFT) or {}
+
+
 def _genuine(profile: dict, regime: str):
-    cell = ((profile.get("per_regime") or {}).get(regime) or {}).get(SHIFT) or {}
-    value = cell.get("genuine_ic")
+    value = _cell(profile, regime).get("genuine_ic")
     return value if isinstance(value, (int, float)) else None
+
+
+def _n_dates(profile: dict, regime: str):
+    """Sample size behind each cell. Without it a −0.03 on 11 dates reads the
+    same as a −0.03 on 363, which is most of the interpretation. [codex on #807]"""
+    value = _cell(profile, regime).get("n_dates")
+    return value if isinstance(value, int) else None
 
 
 def census(artifacts: pathlib.Path = DEFAULT_ARTIFACTS,
@@ -140,7 +154,10 @@ def census(artifacts: pathlib.Path = DEFAULT_ARTIFACTS,
             vintages.append({
                 "run_at": rec["run_at"],
                 "recipe_fingerprint": rec["recipe_fingerprint"],
+                "source_artifact": rec["source_artifact"],
+                "profile_digest": rec["profile_digest"],
                 **{r: _genuine(rec["profile"], r) for r in REGIMES},
+                "n_dates": {r: _n_dates(rec["profile"], r) for r in REGIMES},
             })
         members.append({"member": label, "stem": stem,
                         "n_vintages": len(vintages), "vintages": vintages})
@@ -172,8 +189,16 @@ def render(result: dict) -> str:
             if vals:
                 sign = "NEGATIVE" if max(vals) < 0 else ("POSITIVE" if min(vals) > 0
                                                          else "MIXED")
-                lines.append(f"    {r}: {sign} in {len(vals)}/{len(vals)} vintages "
-                             f"(min {min(vals):+.4f}, max {max(vals):+.4f})")
+                ns = sorted({v["n_dates"][r] for v in m["vintages"]
+                             if v["n_dates"][r] is not None})
+                lines.append(f"    {r}: {sign} in {len(vals)}/{len(vals)} readings "
+                             f"(min {min(vals):+.4f}, max {max(vals):+.4f}; "
+                             f"n_dates {ns if ns else 'unstamped'})")
+        lines.append("    NOTE: these readings share one corpus and heavily "
+                     "OVERLAPPING evaluation windows — they are not independent "
+                     "samples, so agreement across them is not a significance "
+                     "statement. [codex on orch#807]")
+        lines.append(f"    provenance: {m['vintages'][0]['source_artifact']} (first)")
         lines.append("")
     return "\n".join(lines)
 

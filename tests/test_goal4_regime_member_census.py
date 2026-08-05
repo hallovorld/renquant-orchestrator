@@ -118,7 +118,7 @@ class TestTheVerdictLine:
             _artifact(tmp_path, f"panel-ltr.alpha158_fund.{i}.json",
                       _profile(BULL_CALM=v), run_at=f"2026-07-0{i+5}")
         text = render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
-        assert "BULL_CALM: NEGATIVE in 2/2 vintages" in text
+        assert "BULL_CALM: NEGATIVE in 2/2 readings" in text
         assert "min -0.0340" in text and "max -0.0290" in text
 
     def test_a_sign_change_reads_MIXED_not_a_summary_statistic(self, tmp_path):
@@ -194,3 +194,48 @@ def test_the_LIVE_census_still_says_what_the_record_says():
     assert others and all(m["n_vintages"] == 0 for m in others), (
         "a PROD blend member gained per-regime evidence — update the GOAL-4 record",
         [(m["member"], m["n_vintages"]) for m in others])
+
+
+class TestProvenanceAndSampleSize:
+    """[codex on orch#807] A number with no file behind it cannot be re-checked,
+    and a -0.03 on 11 dates reads the same as a -0.03 on 363 without n_dates."""
+
+    def test_each_vintage_names_its_source_artifact(self, tmp_path):
+        _artifact(tmp_path, "panel-ltr.alpha158_fund.json", _profile(BULL_CALM=-0.03))
+        v = census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["vintages"][0]
+        assert v["source_artifact"].endswith("panel-ltr.alpha158_fund.json")
+        assert v["profile_digest"]
+
+    def test_n_dates_is_carried_per_regime_and_rendered(self, tmp_path):
+        prof = {"per_regime": {"BULL_CALM": {SHIFT: {"genuine_ic": -0.03,
+                                                     "n_dates": 363}},
+                               "BULL_VOLATILE": {SHIFT: {"genuine_ic": -0.08,
+                                                         "n_dates": 11}}}}
+        _artifact(tmp_path, "panel-ltr.alpha158_fund.json", prof)
+        result = census(tmp_path, _config(tmp_path, *PROD_LIKE))
+        assert result["members"][0]["vintages"][0]["n_dates"]["BULL_CALM"] == 363
+        text = render(result)
+        assert "n_dates [363]" in text and "n_dates [11]" in text
+
+    def test_an_unstamped_n_dates_reads_as_unstamped_not_zero(self, tmp_path):
+        _artifact(tmp_path, "panel-ltr.alpha158_fund.json", _profile(BULL_CALM=-0.03))
+        text = render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
+        assert "n_dates unstamped" in text
+
+    def test_the_NON_INDEPENDENCE_caveat_is_printed_with_every_member(self, tmp_path):
+        """Agreement across overlapping windows is not a significance statement,
+        and the census must say so where the numbers are, not only in a doc."""
+        _artifact(tmp_path, "panel-ltr.alpha158_fund.json", _profile(BULL_CALM=-0.03))
+        text = render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
+        assert "OVERLAPPING evaluation windows" in text
+        assert "not independent samples" in text
+
+
+def test_the_WITHDRAWN_claims_do_not_come_back():
+    """orch#807 withdrew 'not noise', 'degrading' and 'property of the RECIPE' as
+    unsupported. This fails if any is reintroduced into the record."""
+    doc = (Path(__file__).resolve().parent.parent / "doc" / "progress"
+           / "2026-08-05-goal4-regime-member-census.md").read_text()
+    body = doc[:doc.index("### What these 8 readings are NOT")]
+    for withdrawn in ("not noise", "degrading", "property of the RECIPE"):
+        assert withdrawn not in body, withdrawn
