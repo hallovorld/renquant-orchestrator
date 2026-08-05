@@ -84,3 +84,26 @@ asserts `rows["rq105-postclose-pairing"]["state"] == STATE_STALE_PRODUCT` agains
 against unmodified `src` [VERIFIED — re-run on a docs-only branch]. A test pinned to
 live state that keeps changing underneath it needs its own fix; raising it here rather
 than letting it ride as background noise, which is the habit this whole batch is about.
+
+artifact: none produced or modified — `scorer_identity_monitor.py` is a read-only
+  diff over run bundles already written by the daily pipeline.
+prod or exp: neither. Monitor-side naming only; no config, artifact, schedule or live
+  surface is touched, and the lanes it names are the ones the runs already stamped.
+existing data: yes — the fix and its tests are derived from run bundles that already
+  existed (`pipeline_runs.run_bundle_json` for 2026-07-31-live-381747dd,
+  2026-08-03-live-2499e454, 2026-08-04-live-df731314), read `mode=ro&immutable=1`.
+  No new run, no re-scoring, nothing recomputed.
+best-known?: yes for the stated problem. Keying a lane by its stamped artifact path is
+  the only identifier that survives the list changing membership AND distinguishes two
+  slots whose basenames collide. A name-based key was rejected on measurement, not
+  taste: 2026-08-04 stamps the same basename in `momentum/` and `momentum_fast/`.
+scope: one function (`_shadow_lane_name`) plus its call site, and the test fixture that
+  never stamped a shadow path. Behaviour for prod-panel and calibrator lanes is
+  untouched; the same-path-new-sha case is pinned so identity-keying cannot make the
+  monitor blind to the swap it exists for.
+
+NEXT: `rq104-scorer-identity` stays loud — its finding is real (PatchTST left the
+shadow lineup and the momentum lanes arrived with no recorded promote/rollback event).
+This change makes the alarm *say that*; recording those lineup changes as events, so
+they read as INFO rather than CRITICAL, is the follow-up and belongs with whoever owns
+the promote ledger.
