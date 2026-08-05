@@ -831,13 +831,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                               "cross-repo merge fan-out (bounded by --max-merges)")
     repos_p.add_argument("--max-merges", type=int, default=0,
                          help="cap on total merges in a cross-repo merge sweep")
-    repos_p.add_argument("--limit", type=int, default=50,
+    # 200, not 50: the gate judges a 7-day window and the fetch must reach past it, or
+    # the coverage check (correctly) refuses to call the window clean. Measured
+    # 2026-08-05, merges in the last 7d per repo: model 50+, orchestrator 50+ (both
+    # CAPPED by the old default, so truly higher), RenQuant 36, pipeline 36, then 21,
+    # 19, 6, 5, 1. 200 clears the busiest with headroom; the coverage note still fires
+    # if a repo ever outgrows it, so this number cannot silently become wrong.
+    repos_p.add_argument("--limit", type=int, default=200,
                          help="for action=merge-audit: merged PRs to audit per repo")
     repos_p.add_argument(
         "--strict",
         dest="repos_strict",
         action="store_true",
-        help="for action=merge-audit: return non-zero on missing pre-merge markers",
+        help=("for action=merge-audit: return non-zero when the GATE fails. The gate is "
+              "the last GATE_WINDOW_DAYS (7) of merges, not all history: a merged PR can "
+              "never gain a pre-merge marker, so gating on history could never return "
+              "green. Historical misses are still counted and reported "
+              "(n_missing_pre_merge_audit) but do not gate. A window the fetch --limit "
+              "could not cover also fails, with coverage_note explaining why — an unseen "
+              "window is never reported as a clean one."),
     )
 
     # `repos exec` takes its command after a literal `--`. Split it off

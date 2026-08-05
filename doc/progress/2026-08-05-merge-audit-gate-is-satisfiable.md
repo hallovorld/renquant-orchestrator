@@ -79,3 +79,37 @@ NOT DONE, and deliberately: retry. The operator asked for it, and it is the wron
 remedy here — this failure is deterministic (the same PRs fail every run), so retrying
 would produce identical failures and multiply the noise. The problem is repetition of
 an unchanged verdict, not a transient one.
+
+## Review round 1: the window gate could return a FALSE GREEN
+
+`fetch_merged_prs` returns only the `limit` most recent merges. When a repo merges more
+than `limit` times inside the window, every fetched PR lies inside it, the window extends
+past what was fetched, and an older in-window violation is invisible — `ok` could read
+True while the stated window was never clean.
+
+**A false green on a compliance gate is worse than the permanently-red gate this
+replaced: one gets ignored, the other gets believed.**
+
+Coverage is now measured. If no fetched merge predates the cutoff, the window was not
+fully seen and the audit **fails closed** with `coverage_note` — "I could not see the
+whole window" is a third state, never folded into "the window is clean".
+
+Confirmed live on the first run: `renquant-model` and `renquant-orchestrator` both
+tripped it at the old default.
+
+**The finding also corrected my numbers.** The figure in this doc's first version —
+189/217 — was itself truncated. With the window fully covered:
+
+| | first (truncated) | corrected |
+|---|---|---|
+| in-window missing | 189/217 | **261/356** |
+| historical missing | 375 | **790** |
+
+`--limit` default 50 → 200, from measurement rather than taste: merges in the last 7d
+per repo were model 50+, orchestrator 50+ (both *capped* by the old default, so truly
+higher), RenQuant 36, pipeline 36, then 21, 19, 6, 5, 1. 200 clears the busiest with
+headroom, and the coverage note still fires if a repo outgrows it — so the number cannot
+silently become wrong.
+
+The `--strict` help text now defines the bounded gate, the non-gating historical
+measurement, and the coverage failure, instead of claiming every audited miss fails.

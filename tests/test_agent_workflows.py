@@ -1160,3 +1160,51 @@ def test_the_gate_CAN_go_green_by_behaviour_alone(monkeypatch):
 
     assert AW.audit_merged_prs("o/r", None, now=day_of)["ok"] is False
     assert AW.audit_merged_prs("o/r", None, now=later)["ok"] is True
+
+
+def test_a_TRUNCATED_window_fails_closed_instead_of_reporting_clean(monkeypatch):
+    """Review round 1 on the rescope: the gate could return a FALSE GREEN.
+
+    `fetch_merged_prs` returns only the `limit` most recent merges. When a repo merges
+    more than `limit` times inside the window — measured live: 217 merges in 7 days —
+    every fetched PR lies inside the window, the window extends past what was fetched,
+    and an older in-window violation is simply invisible. `ok` would have read True
+    while the stated window was never clean.
+
+    A false green on a compliance gate is worse than the permanently-red gate this
+    replaced: one gets ignored, the other gets believed. So an unseen window is its own
+    state and fails closed.
+    """
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    # every fetched PR is inside the 7d window and all are marked: nothing looks wrong,
+    # and that is exactly the trap — the violation sits just beyond the fetch limit.
+    prs = [_merged(n, f"2026-08-0{(n % 4) + 1}T00:00:00Z", marked=True) for n in range(1, 4)]
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, limit=3, now=now)
+
+    assert audit["window_fully_covered"] is False
+    assert audit["n_missing_in_window"] == 0      # nothing VISIBLE is missing…
+    assert audit["ok"] is False                   # …and it still must not say clean
+    assert "raise --limit" in (audit["coverage_note"] or "")
+
+
+def test_a_window_that_IS_fully_covered_reports_clean(monkeypatch):
+    """Anti-vacuity: coverage must not make the gate permanently red again. One fetched
+    merge OLDER than the cutoff proves the window was fully seen."""
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    prs = [_merged(1, "2026-08-04T00:00:00Z", marked=True),
+           _merged(2, "2026-06-01T00:00:00Z", marked=False)]   # predates the cutoff
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, now=now)
+
+    assert audit["window_fully_covered"] is True
+    assert audit["ok"] is True
+    assert audit["n_missing_pre_merge_audit"] == 1   # the old one is still counted

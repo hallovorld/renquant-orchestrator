@@ -918,6 +918,24 @@ def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
                  if (_parse_github_datetime(r.get("merged_at")) or cutoff) >= cutoff]
     window_missing = [r for r in in_window if not r["has_pre_merge_audit"]]
 
+    # COVERAGE, or the window verdict is a guess (review round 1 on the rescope).
+    # `fetch_merged_prs` returns only the `limit` most recent merges. If every fetched
+    # merge lies INSIDE the window, the window extends past what was fetched and an
+    # older in-window violation is invisible — `ok` could read True while the stated
+    # window was never clean. A false green on a compliance gate is worse than the
+    # permanently-red gate this replaced: one gets ignored, the other gets believed.
+    #
+    # Coverage is therefore measured, and an uncovered window FAILS CLOSED with its own
+    # reason. "I could not see the whole window" is a third state, never folded into
+    # "the window is clean".
+    dates = [_parse_github_datetime(r.get("merged_at")) for r in rows]
+    oldest = min([d for d in dates if d], default=None)
+    covered = bool(rows) and oldest is not None and oldest < cutoff
+    coverage_note = None if covered else (
+        f"window NOT fully covered: fetched {len(rows)} merge(s) and none predates the "
+        f"{int(gate_window_days)}d cutoff, so older in-window merges were never "
+        f"examined — raise --limit above {len(rows)}")
+
     return {
         "repo": repo,
         "limit": limit,
@@ -931,8 +949,11 @@ def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
              "merged_by": r.get("merged_by"), "merged_at": r.get("merged_at")}
             for r in window_missing[:10]
         ],
-        # the GATE: only the window. Historical misses are recorded, never gating.
-        "ok": not window_missing,
+        "window_fully_covered": covered,
+        "coverage_note": coverage_note,
+        # the GATE: only the window, and only when the window was actually SEEN.
+        # Historical misses are recorded, never gating.
+        "ok": (not window_missing) and covered,
         "prs": rows,
     }
 

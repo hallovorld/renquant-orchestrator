@@ -217,6 +217,7 @@ def run_repos(
         total_window_missing = 0
         total_in_window = 0
         window_offenders: list[dict] = []
+        uncovered: list[dict] = []
         for e in entries:
             try:
                 audit = audit_merged_prs(e.owner_repo, token, limit=merge_audit_limit)
@@ -230,6 +231,9 @@ def run_repos(
             total_missing += int(audit.get("n_missing_pre_merge_audit") or 0)
             total_window_missing += int(audit.get("n_missing_in_window") or 0)
             total_in_window += int(audit.get("n_merged_in_window") or 0)
+            if audit.get("window_fully_covered") is False:
+                uncovered.append({"repo": e.name,
+                                  "why": audit.get("coverage_note") or "not covered"})
             for row in (audit.get("missing_in_window") or []):
                 window_offenders.append({"repo": e.name, **row})
             result["repos"].append({"repo": e.name, "audit": audit})
@@ -241,7 +245,8 @@ def run_repos(
         result["n_missing_in_window"] = total_window_missing
         result["n_merged_in_window"] = total_in_window
         result["missing_in_window"] = window_offenders[:10]
-        result["ok"] = total_window_missing == 0 and not any(
+        result["uncovered_windows"] = uncovered
+        result["ok"] = total_window_missing == 0 and not uncovered and not any(
             (repo.get("audit") or {}).get("error")
             for repo in result["repos"]
         )
@@ -316,6 +321,10 @@ def merge_audit_summary(result: dict) -> str:
             if (r.get("audit") or {}).get("error")]
     if errs:
         return f"merge-audit COULD NOT CHECK {', '.join(errs[:3])} — fix the reader, not the count"
+    unc = result.get("uncovered_windows") or []
+    if unc:
+        return ("merge-audit COVERAGE INCOMPLETE — "
+                f"{unc[0]['repo']}: {unc[0]['why']}. Not a clean verdict: raise --limit")
     if win == 0:
         return f"merge-audit OK — 0/{of} merges in the last {days}d missing a pre-merge marker"
     ex = result.get("missing_in_window") or []
