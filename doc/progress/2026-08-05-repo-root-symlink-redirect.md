@@ -43,8 +43,12 @@ current production exposure, is not the trade I want.
 
 ## What lands
 
-- **Both hardcoded roots become real temp directories.** A fixture root anyone
-  can create outside pytest's tmp tree is not a fixture root — and one did.
+- **Both hardcoded roots become real temp directories** — *created*, not merely
+  named. The first version of one of them only built the string:
+  `Path.resolve()` is non-strict, so it passed without ever establishing the
+  isolation the record claimed `[codex on orch#835]`. A test that passes without
+  establishing its stated condition is the same green-over-nothing this branch
+  exists to close, arriving inside the fix for it.
 - **A guard test** fails if any test re-introduces a `RENQUANT_REPO_ROOT` outside
   the tmp tree, so this cannot come back quietly.
 - **The hazard is pinned as behaviour**: a symlinked root resolves to its target,

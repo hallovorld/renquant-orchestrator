@@ -177,7 +177,14 @@ def test_inventory_localizes_repo_root_paths(monkeypatch, tmp_path) -> None:
     # The hazard itself is pinned by its own test in
     # tests/test_runtime_paths_symlink_redirect.py — this one is about the
     # inventory, and should fail only when the inventory is wrong.
-    repo_root = str(tmp_path / "RenQuant")
+    # CREATED, not just named [codex on orch#835]. `Path.resolve()` is
+    # non-strict, so a merely-named root still "works" — and the record claimed
+    # a real temp directory while this one was a string. A test that passes
+    # without establishing its stated isolation condition is the same green-
+    # over-nothing this branch exists to close.
+    root = tmp_path / "RenQuant"
+    root.mkdir()
+    repo_root = str(root)
     monkeypatch.setenv("RENQUANT_REPO_ROOT", repo_root)
 
     payload = inventory_payload()
