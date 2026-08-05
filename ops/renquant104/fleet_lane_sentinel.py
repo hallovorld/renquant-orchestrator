@@ -61,7 +61,12 @@ STATE_FAIL_CLOSED = "FAIL_CLOSED"
 STATE_MISSING = "MISSING"
 STATE_DORMANT = "DORMANT"
 STATE_NOT_YET_RUN = "NOT_YET_RUN"
-ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING)
+STATE_PROFILE_ABSENT = "PROFILE_ABSENT"
+ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING, STATE_PROFILE_ABSENT)
+
+SESSION_STARTED = "started"
+SESSION_NOT_STARTED = "not_started"
+SESSION_UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -106,8 +111,17 @@ def lane_is_dormant(lane: FleetLane, configs_dir: Path = PINNED_CONFIGS) -> bool
     return False
 
 
+class DbUnreadable(Exception):
+    """The DB exists but could not be read. NOT the same as 'no row'."""
+
+
 def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
-    """A broker tag's runs-DB row for ``date``, or None. Read-only, immutable."""
+    """A broker tag's runs-DB row for ``date``, or None. Read-only, immutable.
+
+    Raises ``DbUnreadable`` when the file exists but cannot be queried — folding
+    that into ``None`` is what let "cannot read the evidence" masquerade as
+    "there is no evidence" [codex on orch#811].
+    """
     db = data_dir / f"runs.{tag}.db"
     if not db.exists():
         return None
@@ -118,8 +132,8 @@ def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
             "WHERE run_date=? ORDER BY created_at DESC LIMIT 1", (date,)
         ).fetchone()
         con.close()
-    except sqlite3.Error:
-        return None
+    except sqlite3.Error as exc:
+        raise DbUnreadable(f"{db.name}: {exc}") from exc
     if not row:
         return None
     return {"run_id": row[0], "n_candidates": row[1] or 0,
@@ -127,23 +141,54 @@ def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
 
 
 def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | None:
-    return _tag_record(lane.tag, date, data_dir)
+    """A lane's row, or None. An unreadable lane DB is treated as NO record —
+    the lane then falls through to the MISSING/NOT_YET_RUN decision, which is
+    made on PROD evidence, never on this one."""
+    try:
+        return _tag_record(lane.tag, date, data_dir)
+    except DbUnreadable:
+        return None
+
+
+def profile_absent(lane: FleetLane, configs_dir: Path | None = None) -> bool:
+    """The lane's PINNED profile file does not exist.
+
+    A CONFIG defect, true independently of whether any session ran — the daily
+    wrapper will skip that rail whenever it next runs. Downgrading it to
+    NOT_YET_RUN erased the pre-session detection case this sentinel was added
+    for [codex on orch#811].
+    """
+    return not (configs_dir or PINNED_CONFIGS).joinpath(lane.profile).exists()
+
+
+def session_state(date: str, data_dir: Path | None = None) -> str:
+    """``started`` | ``not_started`` | ``unknown`` for the daily session.
+
+    Evidence: the PROD lane's own runs-DB row. Prod runs first in the wrapper
+    and every fleet lane is a later step (verified against `daily_104.sh`), so
+    no prod row means no session — and a lane never asked to run has not failed.
+
+    THREE states, not two [codex on orch#811]. An unreadable/corrupt prod DB is
+    ``unknown``, and ``unknown`` NEVER downgrades a lane: folding "cannot read
+    the evidence" into "there is no evidence" is exactly the silencer this state
+    was supposed to avoid becoming.
+
+    Known weakness, stated rather than hidden: the prod row is written LATE in
+    `RunnerAdapter.commit()`, after state save and order application, so a
+    session that died mid-flight can leave no prod row. That is why ``unknown``
+    exists and why a lane with its OWN evidence (a record, or a fail-closed
+    marker) is always judged on that first.
+    """
+    try:
+        return (SESSION_STARTED if _tag_record(PROD_TAG, date, data_dir or DATA)
+                else SESSION_NOT_STARTED)
+    except DbUnreadable:
+        return SESSION_UNKNOWN
 
 
 def session_started(date: str, data_dir: Path | None = None) -> bool:
-    """Did the daily session run at all on ``date``?
-
-    Evidence: the PROD lane's own runs-DB row. Prod runs first in the wrapper
-    and every fleet lane is a later step, so no prod row means no session — and
-    a lane that has not been asked to run has not failed.
-
-    This is deliberately NOT a silencer. When it returns False the lanes report
-    ``NOT_YET_RUN`` and the sentinel says so on its own line; the operator sees
-    "the session has not run", not an empty screen. And it can only fire when
-    PROD is also absent — if prod ran and a lane did not, that lane is still
-    MISSING and still actionable.
-    """
-    return _tag_record(PROD_TAG, date, data_dir or DATA) is not None
+    """Back-compat convenience: True only for a positively observed session."""
+    return session_state(date, data_dir) == SESSION_STARTED
 
 
 def _log_says_fail_closed(lane: FleetLane, date: str, logs_dir: Path = LOGS) -> bool:
@@ -170,6 +215,12 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
     configs_dir = configs_dir or PINNED_CONFIGS
     data_dir = data_dir or DATA
     logs_dir = logs_dir or LOGS
+    if profile_absent(lane, configs_dir):
+        # A config defect is true whether or not anything ran today, so it is
+        # checked BEFORE the session state and is never downgraded.
+        return STATE_PROFILE_ABSENT, (
+            f"the pinned profile {lane.profile} does not exist — the daily "
+            f"wrapper will skip this rail on its next run")
     if lane_is_dormant(lane, configs_dir):
         return STATE_DORMANT, "pinned profile declares a pending-first-artifact component"
     rec = _lane_record(lane, date, data_dir)
@@ -203,10 +254,16 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
             "lane log carries a scorer fail-closed marker and NO record exists "
             "— the lane refused before it could write one"
         )
-    if not session_started(date, data_dir):
+    state = session_state(date, data_dir)
+    if state == SESSION_NOT_STARTED:
         return STATE_NOT_YET_RUN, (
             "the daily session has not run yet on this date (no PROD runs-DB "
             "row either) — a lane that was never asked to run has not failed")
+    if state == SESSION_UNKNOWN:
+        return STATE_MISSING, (
+            "no runs-DB record for this session, and the PROD runs-DB could "
+            "NOT BE READ — an unreadable evidence source is not evidence of a "
+            "session that never started, so this stays actionable")
     return STATE_MISSING, "no runs-DB record for this session and the lane is not dormant"
 
 
@@ -233,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     if alarms:
         print(f"\nFLEET SENTINEL: {len(alarms)} actionable lane state(s) on {args.date}")
         return 1
-    if not session_started(args.date):
+    if session_state(args.date) == SESSION_NOT_STARTED:
         # Say it out loud. A silent all-clear on a date nothing ran is the same
         # ambiguity this state was added to remove, one level up.
         print(f"\nFLEET SENTINEL: the daily session has NOT RUN on {args.date} "

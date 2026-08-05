@@ -73,4 +73,32 @@ record on a day the session ran is an alarm.*
 - `2026-08-04` (a real session): exit **0**, "all 5 lanes accounted for" —
   unchanged.
 
-Suites: 23 in this file · 5611 passed, 2 skipped repo-wide.
+## Review round 2 — the two ways it WAS still a silencer
+
+Codex verified the wrapper's step order against `daily_104.sh` (prod Step 3
+returns before the Step 5 lanes, so the ordering premise holds) and then found
+two real holes:
+
+1. **"Cannot read the evidence" was folded into "there is no evidence."**
+   `_tag_record` returned `None` for any `sqlite3.Error`, so a corrupt or
+   unreadable `runs.alpaca.db` after a REAL session would downgrade a genuinely
+   failed lane from actionable `MISSING` to quiet `NOT_YET_RUN`. The session
+   check is now **three-valued** — `started` / `not_started` / `unknown` — and
+   `unknown` NEVER downgrades: the lane stays `MISSING` and the detail says the
+   prod DB could not be read.
+2. **I erased the pre-session detection case.** A vanished pinned profile is a
+   CONFIG defect that is true whether or not anything ran, and my updated test
+   wrote a prod row first, hiding that. A missing profile now has its own
+   actionable state, `PROFILE_ABSENT`, checked BEFORE the session state and
+   never downgraded by it — asserted against all three session states.
+
+Codex also noted, and this is recorded rather than fixed: the prod row is
+written LATE in `RunnerAdapter.commit()`, after state save and order
+application, so a session that died mid-flight can leave no prod row. That is
+precisely why `unknown` exists and why a lane with its OWN evidence (a record,
+or a fail-closed marker) is judged on that first. And `NOT_YET_RUN` still exits
+0, so Step 6 does not page differently — the wrapper's success branch still
+collapses "not run" and "all accounted for" into one rc, distinguished only in
+the printed line.
+
+Suites: 27 in this file · 5615 passed, 2 skipped repo-wide.
