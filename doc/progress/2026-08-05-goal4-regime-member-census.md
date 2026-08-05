@@ -122,10 +122,9 @@ BULL_CALM does not stop being so by being averaged.
 1. Stamp per-regime evidence for the **slow momentum residual**, the one other
    PROD member. Until then the PROD ensemble is one measured member and one
    unmeasured, on the axis that decides.
-   The shadow profiles can be censused today with `--config <profile>` — run
-   against RCS the clf leg appears and is likewise unstamped — but **this PR
-   does not bind or claim a shadow-ensemble result**; only PROD is derived,
-   tested and asserted here. A shadow-blend evaluation is separately scoped.
+   The census accepts `--config <profile>`, so a shadow profile can be measured
+   the same way. **This PR does not bind or claim any shadow result**; only PROD
+   is derived, tested and asserted here. Shadow evaluation is separately scoped.
 2. Explain the BULL_CALM buy concentration (orch#805 item 2).
 3. Only then: any ensemble weighting proposal, preregistered, per-arm placebo.
 
