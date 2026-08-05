@@ -137,13 +137,20 @@ def test_dormant_lane_is_quiet_and_only_config_can_declare_it(tree):
     assert state == S.STATE_DORMANT and state not in S.ACTIONABLE
 
 
-def test_absent_profile_is_NOT_dormant(tree):
+def test_absent_profile_is_NOT_dormant_and_alarms_BEFORE_any_session(tree):
     """A vanished profile must never read as 'declared dormant' — that is the
-    exact silence this sentinel exists to remove."""
+    exact silence this sentinel exists to remove.
+
+    [codex on orch#811] It must also alarm with NO prod row. A missing profile
+    is a CONFIG defect that is true whether or not anything ran; the wrapper
+    will skip that rail on its next run. My first version of the session check
+    wrote a prod row here, which erased exactly this pre-session detection case.
+    """
     _, data, _ = tree
-    _db(data, S.PROD_TAG, n_candidates=80)   # session ran, so absence is real
-    state, _ = _classify(LANE, tree)
-    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_ABSENT and state in S.ACTIONABLE
+    assert "will skip this rail" in detail
 
 
 def test_dormancy_cannot_be_declared_by_editing_the_sentinel(tree):
@@ -326,3 +333,53 @@ def test_directories_resolve_at_CALL_time_not_at_import(tree, monkeypatch):
     assert state == S.STATE_NOT_YET_RUN, (
         "classify read a directory bound at import instead of the current one")
     assert S.session_started(DATE) is False
+
+
+# ── [codex on orch#811] "cannot read the evidence" is not "no evidence" ──────
+
+def _corrupt_db(dirpath: Path, tag: str) -> None:
+    dirpath.mkdir(parents=True, exist_ok=True)
+    (dirpath / f"runs.{tag}.db").write_bytes(b"this is not a sqlite file")
+
+
+def test_an_UNREADABLE_prod_db_keeps_the_lane_ACTIONABLE(tree):
+    """The silencer this change could have become: if runs.alpaca.db is
+    corrupt after a REAL session, a lane that also failed before writing its own
+    row must NOT be downgraded to the quiet NOT_YET_RUN."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _corrupt_db(data, S.PROD_TAG)
+    assert S.session_state(DATE, data) == S.SESSION_UNKNOWN
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert "could NOT BE READ" in detail
+
+
+def test_session_state_is_THREE_valued_not_two(tree):
+    _, data, _ = tree
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    _db(data, S.PROD_TAG, n_candidates=80)
+    assert S.session_state(DATE, data) == S.SESSION_STARTED
+    _corrupt_db(data, S.PROD_TAG)
+    assert S.session_state(DATE, data) == S.SESSION_UNKNOWN
+
+
+def test_an_unreadable_LANE_db_does_not_decide_anything(tree):
+    """A lane's own DB being unreadable must not be mistaken for a session
+    verdict — the started/not-started call is made on PROD evidence only."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _corrupt_db(data, LANE.tag)
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_NOT_YET_RUN
+
+
+def test_a_PROFILE_ABSENT_lane_is_never_downgraded_by_the_session_check(tree):
+    cfg, data, _ = tree
+    for prep in (lambda: None,
+                 lambda: _db(data, S.PROD_TAG, n_candidates=80),
+                 lambda: _corrupt_db(data, S.PROD_TAG)):
+        prep()
+        state, _ = _classify(LANE, tree)
+        assert state == S.STATE_PROFILE_ABSENT and state in S.ACTIONABLE
