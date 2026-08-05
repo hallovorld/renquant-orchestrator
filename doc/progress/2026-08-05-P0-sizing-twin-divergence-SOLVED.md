@@ -35,26 +35,61 @@ so **the weakest candidates receive the largest positions.**
 
 ## Reproduced 7 / 7 `[VERIFIED — this session]`
 
-Feeding the umbrella copy the inputs recorded on the orders themselves:
+Feeding the umbrella copy the inputs recorded on each `buy_pending` row:
 
-| date | name | umbrella copy says | actually placed |
-|---|---|---|---|
-| 07-28 **LIVE** | TSLA | **8** (23.4 %) | **8** ✓ |
-| 07-28 **LIVE** | EME | **3** (21.1 %) | **3** ✓ |
-| 07-28 **LIVE** | SPG | **1** (2.2 %) | **1** ✓ |
-| 08-03 dry-run | AMZN | **9** (22.7 %) | **9** ✓ |
-| 08-03 dry-run | MRK | **20** (24.2 %) | **20** ✓ |
-| 08-03 dry-run | PYPL | **47** (25.0 %) | **47** ✓ |
-| 08-03 dry-run | GOOG | **1** (3.3 %) | **1** ✓ |
+| date | name | umbrella copy says | recorded size | reached the broker? |
+|---|---|---|---|---|
+| 07-28 live db | TSLA | **8** (23.4 %) | **8** ✓ | **NO** — `broker_order_id` is NULL |
+| 07-28 live db | EME | **3** (21.1 %) | **3** ✓ | **NO** — `broker_order_id` is NULL |
+| 07-28 live db | SPG | **1** (2.2 %) | **1** ✓ | **NO** — `broker_order_id` is NULL |
+| 08-03 dry-run | AMZN | **9** (22.7 %) | **9** ✓ | n/a (dry) |
+| 08-03 dry-run | MRK | **20** (24.2 %) | **20** ✓ | n/a (dry) |
+| 08-03 dry-run | PYPL | **47** (25.0 %) | **47** ✓ | n/a (dry) |
+| 08-03 dry-run | GOOG | **1** (3.3 %) | **1** ✓ | n/a (dry) |
 
 The **same inputs through the pinned copy** give `0, 0, 1 / 0, 0, 0, 1`.
 
 **That is why five rounds of reproduction failed: I was running the fixed twin.**
 Every "impossible" result was correct — about the wrong file.
 
-SPG is the control that makes it airtight: its target bought a whole share, the
-fallback never fired, and **both copies agree on 1**. That is exactly why one of
-the three orders that day was correctly sized.
+SPG is the control: its target bought a whole share, the fallback never fired,
+and **both copies agree on 1**.
+
+### CORRECTION — I called these "placed live orders". They were not. `[VERIFIED]`
+
+An earlier revision of this doc headed the last column **"actually placed"**. That
+was wrong, and it made the P0 read one category more severe than the evidence
+supports. Measured against `data/runs.alpaca.db`:
+
+| | |
+|---|---:|
+| `buy_pending` rows, all time | 63 |
+| …that carry a `broker_order_id` | **18** |
+| …that never reached the broker | **45** |
+| **max `target_pct` that DID reach the broker** | **9.06 %** (FTNT, 07-16) |
+| max `target_pct` among rows that never did | 23.41 % (TSLA, 07-28) |
+
+**Every oversized row died before the broker** — TSLA 23.41 %, LLY 22.00 %,
+LLY 21.53 %, EME 21.09 %. The largest position this defect has ever actually
+placed is **9.06 %**, inside the 12 % BULL_CALM cap.
+
+Corroborating, from the run logs: the 07-28 daily run resolved
+`no trade (risk_gate_vol_dropped(29))` with a `wash_sale_mass_block`
+`FunnelIntegrityAlert`, and it dispatched through **`daily-bridge` registered
+under `.subrepo_runtime`** — i.e. the **pinned** kernel. The only 07-28 rows with
+a real `broker_order_id` are two SPG **sells**.
+
+So the honest statement of this P0 is:
+
+- the two copies diverge — **proven**, 191/864;
+- the umbrella copy computes 21–25 % positions — **proven**;
+- **the umbrella copy has never placed an oversized order at the broker** —
+  measured, and it is the reason this is a latent defect and not an incident.
+
+What remains load-bearing: something downstream is absorbing these, and *that*
+is unidentified. A defect that only survives because an unrelated gate happens to
+fire first is not contained — it is **unexploded**. But it has not gone off, and
+saying it did would have been a fabrication in the direction of my own thesis.
 
 ## Scope of the divergence
 
@@ -101,16 +136,42 @@ Checked before letting this claim stand `[VERIFIED]`:
   bridge. That run imports the **umbrella** kernel — which is why the preflight
   reproduces the oversizing every day, and why it is a safe place to observe it.
 
-**What I have NOT established: which of the two surfaces the run that actually
-placed the 2026-07-28 orders was using.** The umbrella twin reproduces those
-orders 7/7 and the pinned twin refuses them, which is strong evidence — but
-"strong evidence" is not the same as having identified the process, and the
-`source_task` stamp cannot disambiguate it because two sizers share the string
-(§ above).
+### The attribution gap is now CLOSED — by reading the log, not by inference `[VERIFIED]`
 
-So the honest statement is: **the divergence is proven, the mechanism is proven,
-and the attribution of the live orders to a specific surface is not.** I am not
-closing that gap by inference.
+An earlier revision left this open: *"which of the two surfaces the run that
+placed the 2026-07-28 orders was using."* It is answerable, and the answer did
+not need the twin evidence at all — `logs/daily_104/2026-07-28.log:24-25` records
+the dispatch:
+
+```
+ok   renquant_orchestrator live-bridge  [registered under …/.subrepo_runtime/repos/renquant-orchestrator/src]
+ok   renquant_orchestrator daily-bridge [registered under …/.subrepo_runtime/repos/renquant-orchestrator/src]
+```
+
+**The 07-28 run went through the bridge — the PINNED, clamped kernel** — and it
+resolved `no trade`. It placed no buys at all. `RQ_DAILY_RUNNER` is set in no
+LaunchAgent plist and in no manifest `environment` block, so the `umbrella`
+fallback has never been armed on this machine.
+
+I had the twin reproducing 7/7 and let that stand in for an answer for a whole
+round. The dispatch line was in the first 25 lines of the log the entire time.
+**Reproducing a defect tells you what a file does; it does not tell you what ran.**
+
+### Which surfaces DO reach the stale kernel `[VERIFIED — all 39 launchd jobs]`
+
+Classifying every job in `ops/launchd_manifest.json` by whether its wrapper goes
+through the bridge or invokes `-m live.runner` directly:
+
+| kernel surface | jobs |
+|---|---:|
+| bridge → **pinned** kernel (`daily104`, `intraday104`) | 2 |
+| **direct → umbrella (stale) kernel** | **1** — `com.renquant.rq104-dawn-preflight` |
+| no `live.runner` at all | 36 |
+
+**Exactly one scheduled job runs the stale kernel, and it is a preflight that
+places nothing.** That is the whole live exposure of a 120-file divergence today
+— which is good news, and is also precisely why the divergence has been able to
+grow to 120 files unnoticed.
 
 ## The wider finding
 
