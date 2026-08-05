@@ -22,42 +22,46 @@ predictors:
 | `KLEN` | +0.04962 | +0.05425 | **+0.00463** | 0.051 |
 | `ROC60` | +0.01924 | +0.02405 | **+0.00481** | 0.058 |
 
-## Why the big number does not become a big number
+## Why a big row-fraction need not become a big IC change
 
 **`clip` is a MONOTONE transform, and Spearman is invariant to monotone
 transforms** — except through the ties they create. Clipping perturbs ranks only
-at the two ends; the interior keeps its order. "53 % of rows clipped" sounds
-catastrophic for a rank statistic and is not.
+where it creates ties.
 
-The ceiling is measurable too, and the test pins it: force **every** value into
-just two tie groups on a perfectly monotone relation and the IC falls
-**1.000 → 0.866**, a 0.134 cost. That is the worst this transform can do here;
-the live panel, whose interior stays distinct, pays ≤0.005.
+### No ceiling is claimed `[codex on orch#822]`
 
-*(My first version of that test guessed ">0.9" and failed at 0.866. The measured
+An earlier version of this document said the 0.134 two-tie-group case was "the
+ceiling on what clipping can cost". **The very next test in the same file
+contradicts it**: a distribution whose values all land on one side of the bound
+collapses to ONE tie group and loses the correlation entirely — the worst case is
+**1.0**. How much is lost depends on how the values sit against the bound, which
+is exactly why the served scorer must be measured rather than extrapolated to.
+
+*(That test also began as a guess — ">0.9" — and failed at 0.866. The measured
 value is pinned instead of the guess.)*
 
-## Consequences for the record
+## What this does NOT settle — and what I wrongly used it to settle
 
-- **orch#817 downgraded** from P0 to a correctness/consistency issue, retitled.
-- **The caveats I posted on orch#805 / #744 are narrowed.** BEAR `+0.335` and
-  BULL_CALM `−0.029` are separated by ~70× the perturbation; they are **not**
-  plausibly clip artefacts, and my "should not be quoted" is withdrawn.
-- **What still deserves fixing**, for consistency rather than magnitude: the real
-  arm is unclipped while the placebo arm is clipped, so `genuine_ic` subtracts
-  differently-transformed quantities. Small here; gratuitous everywhere.
-- **The units observation stands**: `fwd_60d_excess` is standardised (sd 0.998)
-  while `fwd_60d_excess_raw` is the return (sd 0.185). A ±0.5 clip is a 1.19 %
-  winsorisation on the raw column and 0.501 SD on the standardised one — which
-  still looks like a clip written for the other column.
+These are **three fixed panel predictors, not a served scorer's `mu`**. The
+evidence at issue in orch#805 / #807 / #809 is scorer-based IC.
 
-## Scope
+I used this measurement to downgrade orch#817 off P0 and to narrow the caveats on
+those issues. **Both moves are withdrawn**: using instrument probes to retire a
+severity question about scorer evidence substitutes one measurement for another.
+orch#817's severity is restored to **unresolved**, and the caveats are restored
+to "the size of the effect on these numbers is not established".
 
-Fixed panel predictors, **not** a served scorer's `mu`. A model whose scores
-concentrate differently against the clipped tails could move more. The ≤0.005
-figure is a statement about this instrument's sensitivity, not about that model's
-numbers, and the script says so in its own output.
+Three severity moves on one issue in one night — flagged, downgraded, restored —
+is one too many, and the fault each time was the same: acting before the right
+quantity was measured.
 
-Suites: 7 new tests, incl. both extremes of the monotone property and one bound
-to the live corpus that fails if the clip ever starts mattering · 5687 passed,
+## What actually settles it
+
+Score the served artifact over the same validation slice and compute the per-date
+IC twice, clipped and unclipped. That is the outstanding work; this script is the
+harness it can reuse, and its own output now states that these numbers cannot
+settle a severity question.
+
+Suites: 9 tests, incl. both extremes of the tie behaviour (two groups → 0.866,
+one group → total loss) and one bound to the live corpus · 5687 passed,
 2 skipped.

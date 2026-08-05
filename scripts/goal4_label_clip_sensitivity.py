@@ -4,15 +4,17 @@
 WHY (orch#817, 2026-08-05): I raised a P0 on the strength of two correct
 numbers — 53 % of `fwd_60d_excess` rows exceed |0.5|, and clipping collapses
 726,100 distinct values to 340,527 — and did NOT measure the consequence before
-setting the severity. Measured afterwards, the mean per-date IC moves by at most
-~0.005.
+setting the severity. Measured afterwards on three fixed panel predictors, the
+mean per-date IC moves by at most ~0.005.
 
-The reason is the property I should have reasoned from in the first place:
-**`clip` is a MONOTONE transform and Spearman is invariant to monotone
-transforms**, except through the ties one creates. Clipping the extremes
-perturbs ranks at the two ends only. A large *fraction of rows* is not a large
-*rank* perturbation, and this script exists so nobody (me included) has to argue
-about that again — they can run it.
+The property to reason from is that **`clip` is MONOTONE and Spearman is
+invariant to monotone transforms**, except through the ties one creates. A large
+*fraction of rows* is not automatically a large *rank* perturbation.
+
+NO CEILING IS CLAIMED [codex on orch#822]: if a distribution's values all land
+on one side of the bound they collapse into a SINGLE tie group and the whole
+correlation is lost. The cost depends on how the values sit against the bound,
+and 0.866-on-two-groups is calibration, not a worst case.
 
 Read-only. It answers a question about the INSTRUMENT, not about any model:
 it uses fixed predictors taken from the panel itself, not a scorer's output.
@@ -95,12 +97,17 @@ def render(r: dict) -> str:
         "",
         "  `clip` is MONOTONE and Spearman is invariant to monotone transforms",
         "  except through the ties they create — so a large fraction of clipped",
-        "  ROWS is not a large RANK perturbation. Reasoning from the row",
-        "  fraction is what made orch#817 look like a P0.",
+        "  ROWS is not automatically a large RANK perturbation.",
+        "",
+        "  NO CEILING IS CLAIMED [codex on orch#822]. A distribution whose values",
+        "  all land on ONE side of the clip collapses to a single tie group and",
+        "  loses the whole correlation — the worst case is 1.0, not 0.134. How",
+        "  much is lost depends entirely on how the values sit against the bound.",
         "",
         "  SCOPE: fixed panel predictors, NOT a served scorer's mu. A model whose",
         "  scores concentrate differently against the clipped tails could move",
-        "  more; this measures the instrument, not any model.",
+        "  more. These numbers cannot settle a severity question about",
+        "  scorer-based IC evidence; they describe three named probes.",
     ]
     return "\n".join(lines)
 
