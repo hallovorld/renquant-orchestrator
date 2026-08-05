@@ -493,3 +493,61 @@ def test_a_dormant_lane_with_no_evidence_is_still_plainly_quiet(tree):
     state, detail = _classify(LANE, tree)
     assert state == S.STATE_DORMANT and state not in S.ACTIONABLE
     assert "fail-closed" not in detail and "STALE" not in detail
+
+
+# ── [codex on orch#812] the PATTERN, not one more instance ──────────────────
+
+def _unreadable_log(logs: Path, lane, date=DATE) -> Path:
+    """A log that EXISTS but cannot be read (a directory in its place)."""
+    logs.mkdir(parents=True, exist_ok=True)
+    path = logs / f"{date}_{lane.log_stem}.log"
+    path.mkdir()
+    return path
+
+
+def test_an_unreadable_LOG_is_actionable_not_quiet(tree):
+    """The third fold-in: _log_says_fail_closed caught OSError and returned
+    False, so an unreadable log became 'no marker' and the lane fell through to
+    a quiet state."""
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _unreadable_log(logs, LANE)
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+    assert "session log could not be read" in detail
+
+
+def test_an_unreadable_LOG_is_actionable_even_when_DORMANT(tree):
+    cfg, _, logs = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _unreadable_log(logs, LANE)
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+
+
+def test_an_ABSENT_log_is_still_a_legitimate_no_marker(tree):
+    """Anti-false-positive: absence is fine, unreadability is not."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db(data, LANE.tag, n_candidates=83)
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_RECORDED
+
+
+def test_NO_evidence_reader_silently_defaults_on_an_unreadable_source():
+    """Invert the default, do not enumerate. This module folded 'cannot read'
+    into 'absent' three separate times, each fixed alone before the next was
+    found. Every reader must raise EvidenceUnreadable rather than return a
+    default, so a FOURTH instance cannot be added quietly."""
+    import inspect
+
+    src = inspect.getsource(S)
+    for reader in ("_tag_record", "_log_says_fail_closed"):
+        body = src[src.index(f"def {reader}("):]
+        body = body[:min([body.index(m) for m in ("\ndef ", "\nclass ")
+                          if m in body] or [len(body)])]
+        assert "raise EvidenceUnreadable" in body or "raise DbUnreadable" in body, (
+            f"{reader} does not raise on an unreadable source")
+        assert "        return False\n    return any" not in body, reader
+    assert issubclass(S.DbUnreadable, S.EvidenceUnreadable)
+    assert S.STATE_EVIDENCE_UNREADABLE in S.ACTIONABLE
