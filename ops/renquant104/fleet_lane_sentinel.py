@@ -243,10 +243,35 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
         # checked BEFORE dormancy and BEFORE the session state, and is never
         # downgraded by either.
         return STATE_PROFILE_DEFECT, defect
-    if lane_is_dormant(lane, configs_dir):
-        return STATE_DORMANT, "pinned profile declares a pending-first-artifact component"
     rec = _lane_record(lane, date, data_dir)
     marker = _log_says_fail_closed(lane, date, logs_dir)
+
+    # DORMANCY IS CHECKED AGAINST EVIDENCE, not before it [codex on orch#812].
+    # The fast lanes still EXECUTE daily (`daily_104.sh` Steps 5c/5e); the
+    # pending-first-artifact marker only declares that the fast artifact is not
+    # published yet. It does not make every later failure benign, and returning
+    # DORMANT before looking at the lane's row or log meant a dormant lane with
+    # a fail-closed marker reported as quiet with no mention of it at all.
+    if lane_is_dormant(lane, configs_dir):
+        if rec is not None and (rec["n_candidates"] > 0 or rec["n_buys"] > 0):
+            # It SCORED. That contradicts "the artifact is not published yet",
+            # so the declaration is stale — and a stale dormancy declaration is
+            # precisely how a lane goes dark without anyone noticing.
+            return STATE_MISSING, (
+                f"pinned profile declares a pending-first-artifact component, but "
+                f"{rec['run_id']} scored candidates={rec['n_candidates']} "
+                f"buys={rec['n_buys']} — the dormancy declaration is STALE and "
+                f"must be removed from the profile")
+        detail = "pinned profile declares a pending-first-artifact component"
+        if marker:
+            # Expected for a dormant lane (its pending leg cannot load), but it
+            # is SAID, not swallowed: a quiet state that hides its evidence is
+            # how the reader stops being able to tell quiet from broken.
+            detail += (" — the lane ran and fail-closed, as a lane missing its "
+                       "declared-pending component is expected to")
+        if rec is not None:
+            detail += f" (record {rec['run_id']}, candidates=0)"
+        return STATE_DORMANT, detail
 
     # RECORD-FIRST, marker second. MEASURED 2026-08-04 while running this
     # sentinel against the very incident it was written for: the lane

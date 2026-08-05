@@ -122,4 +122,29 @@ session state and is never downgraded by either. The state is renamed
 including a dormant one — is not a defect, so the check cannot become a
 false-positive generator.
 
-Suites: 31 in this file · 5619 passed, 2 skipped repo-wide.
+## Review round 4 — dormancy was short-circuiting before evidence
+
+The last hole, and it was in the ORIGINAL sentinel, not in this change:
+`classify()` returned `DORMANT` **before looking at the lane's row or log**.
+But the fast lanes still EXECUTE daily (`daily_104.sh` Steps 5c/5e) — the
+pending-first-artifact marker only declares that the fast artifact is not
+published yet; it does not make every later failure benign. Codex reproduced a
+dormant lane with BOTH a zero-candidate row and a `panel_scorer_load_failed`
+marker reporting as plain quiet `DORMANT`, with no mention of either.
+
+Dormancy is now judged **against** the evidence:
+
+- dormant + no evidence → plainly quiet, unchanged;
+- dormant + fail-closed marker → still quiet (a lane missing its declared-pending
+  component is *expected* to fail closed) but the line **says so**, with the
+  record id. A quiet state that hides its evidence is how a reader stops being
+  able to tell quiet from broken;
+- dormant + a record that actually **SCORED** → **actionable**. Scoring
+  contradicts "the artifact is not published yet", so the declaration is STALE —
+  and a stale dormancy declaration is precisely how a lane goes dark without
+  anyone noticing.
+
+A test pins that the ordinary dormant case stays quiet and silent, so this does
+not become a noise generator.
+
+Suites: 34 in this file · 5622 passed, 2 skipped repo-wide.

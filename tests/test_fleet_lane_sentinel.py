@@ -430,3 +430,43 @@ def test_a_VALID_profile_is_not_a_defect(tree):
     assert S.profile_defect(LANE, cfg) is None
     state, _ = _classify(LANE, tree)
     assert state == S.STATE_DORMANT
+
+
+# ── [codex on orch#812] dormancy is checked AGAINST evidence, not before it ──
+
+def test_a_dormant_lane_that_FAIL_CLOSED_says_so_instead_of_hiding_it(tree):
+    """The fast lanes still EXECUTE daily; the pending-artifact marker only says
+    the fast artifact is unpublished. Returning DORMANT before looking at the
+    row or log meant a dormant lane with a fail-closed marker reported quiet
+    with no mention of it — a quiet state that hides its evidence is how the
+    reader stops being able to tell quiet from broken."""
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _db_zero(data, LANE.tag)
+    (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
+        "panel_scorer_load_failed", encoding="utf-8")
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT           # still quiet — this IS expected
+    assert "fail-closed" in detail            # ... but it is SAID
+    assert "candidates=0" in detail
+
+
+def test_a_dormant_lane_that_actually_SCORED_is_ACTIONABLE(tree):
+    """A stale dormancy declaration is precisely how a lane goes dark without
+    anyone noticing: it scored, so the profile's 'pending first artifact' is no
+    longer true."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _db(data, LANE.tag, n_candidates=83)      # it SCORED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert "declaration is STALE" in detail
+
+
+def test_a_dormant_lane_with_no_evidence_is_still_plainly_quiet(tree):
+    """Anti-false-positive: the ordinary dormant case must not become noisy."""
+    cfg, _, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT and state not in S.ACTIONABLE
+    assert "fail-closed" not in detail and "STALE" not in detail
