@@ -1,7 +1,15 @@
 # The complete E2E execution pipeline — every link, its automation, and its trust mechanism
 
-AS-OF: **2026-08-05T04:05Z (21:05 PT)** — every mutable status cell below
-is verified at this timestamp; refresh the timestamp with any update.
+AS-OF: **2026-08-05T04:19Z (21:19 PT)** — every mutable status cell below is
+verified at this timestamp against the DEPLOYED surfaces (live tree
+`ba2b3eb5`, runtime s104 `b99101d5`), not against merged-but-undeployed work.
+Refresh the timestamp with any update.
+
+PROVENANCE RULE (codex on orch#800, 2026-08-04): a repair may be described as
+current reality only when it is MERGED **and** verified present on the surface
+that runs it at this AS-OF. Anything merged-but-not-deployed, or open, is
+labelled as such inline. The map is a measured-state document; backdating a
+repair into it is the same defect class as an asserted-not-measured number.
 
 Operator directive 2026-08-04 ("我要的是e2e的完整执行流水线…完整的！可信任的！").
 This document is the single map of the full chain — data → training →
@@ -43,7 +51,7 @@ papered over.
 | In-process shadows (xgb variant, slow momentum, fast momentum) | same scoring pass, identity-stamped health records | shadow-scorer sentinel (3 lanes incl. the dormant fast lane), liveness receipts, silent-refusal sentinel with a versioned emitter contract |
 | Step 5: clf-blend e2e | full funnel, readonly broker, own state/db | certified profile with dual identity pins; distinct alert titles; rank-domain guard fail-closes probability floors on uncalibrated scores |
 | Step 5b: S1 momentum-blend e2e (callsign **RSs**) | ACTIVE; first execution 2026-08-04 found TWO consumer misses fixed same-day (pipeline#263 license; pipeline#264 broker tag) | gates on the PINNED config only; lane-isolated tag/state/db; guard file CI-enumerated |
-| Step 5c/5d/5e: fleet lanes **Rf / RCS / RCf** (GOAL-9, orch#794) | rails + profiles + tags all deployed 2026-08-04; RCS (rev-blend + slow) is serving-eligible, Rf/RCf dormant until the 2026-08-08 fast-momentum genesis | tags registered AT BIRTH (pipeline#265 — the #793 checklist applied before the rail existed); 3-component support via pipeline#267 (equal-weight z-sum generalized verbatim, N≥2); each lane's success echo pinned to its OWN profile identity by test |
+| Step 5c/5d/5e: fleet lanes **Rf / RCS / RCf** (GOAL-9, orch#794) | rails + profiles + tags deployed 2026-08-04 and all five lanes EXECUTED that evening. Measured first results: Rf/RCf fail-closed by design (fast ledger absent until the 08-08 genesis); **RCS fail-closed on a real defect** — its clf leg carried `kind:"xgb"`, the shadow-model vocabulary, where the blend loader expects `panel`/`momentum_residual` (83 candidates cleared). Fix s104#91 MERGED `c8bba9c9`; **runtime s104 is still `b99101d5` at this AS-OF, so RCS remains fail-closed until the next pin advance + deploy** | tags registered AT BIRTH (pipeline#265 — the #793 checklist applied before the rail existed); 3-component support via pipeline#267 (equal-weight z-sum generalized verbatim, N≥2); each lane's success echo pinned to its OWN profile identity by test |
 
 ## 5. Execution
 
@@ -89,8 +97,10 @@ papered over.
    no pinned config matched the xgb candidate, and the reference search fell
    through to the umbrella WORKING COPY (A8's known-diverged file). The gate
    derived phantom "production semantics" from it while `config_parity`
-   passed. RenQuant#580 makes the lock-aligned runtime config the ONLY
-   candidate and FAILS CLOSED otherwise. Consequence: until the blend-prod
+   passed. RenQuant#580 — **MERGED `ba2b3eb5` and DEPLOYED; verified at this
+   AS-OF: `candidates=("$pinned_path")` is the sole candidate line in the live
+   wrapper and the `WEEKLY-BLOCKED` fail-closed path is present** — makes the
+   lock-aligned runtime config the ONLY candidate. Consequence: until the blend-prod
    reference rule is decided (#799), the weekly promote will BLOCK loudly
    rather than emit numbers — and RFC#210 freshness governance, which runs on
    any nonzero gate exit, is what keeps prod fresh. Three redesign items stay

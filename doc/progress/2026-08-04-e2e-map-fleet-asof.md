@@ -21,3 +21,20 @@ Second AS-OF refresh of the day (the map's own discipline). What changed since
   the orphaned rawlabel host (orch#798), and the built-but-unscored clf corpus.
 
 No behavior changes — documentation of measured state only.
+
+## Round 2 (codex): the AS-OF must not backdate an unmerged repair
+
+Codex caught a real provenance defect: the first version stamped
+2026-08-05T04:05Z while describing RenQuant#580's fail-closed behaviour as
+current reality — #580 was still OPEN at that timestamp. Backdating a repair
+into a measured-state document is the same defect class as an
+asserted-not-measured number.
+
+Fixed by doing the verification rather than the wording: #580 is now merged
+(`ba2b3eb5`) and DEPLOYED, re-verified at the new AS-OF (2026-08-05T04:19Z)
+against the live wrapper — `candidates=("$pinned_path")` is the sole candidate
+line and the `WEEKLY-BLOCKED` path is present. The map now also carries an
+explicit PROVENANCE RULE, and applies it to the fleet row: s104#91 (the RCS
+clf-component-kind fix) is MERGED `c8bba9c9` but the runtime s104 checkout is
+still `b99101d5`, so RCS is documented as still fail-closed until the next pin
+advance + deploy.
