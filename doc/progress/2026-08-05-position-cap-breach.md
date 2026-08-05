@@ -125,15 +125,48 @@ which would be the obvious culprit — but **$100,000 is NOT in the band**
 (it gives TSLA **7** shares, not 8; EME 3, which matches). So `initial_cash`
 alone does not explain it, and I am not rounding a near-miss into a match.
 
-### What this establishes, and what it does not
+## 6. The broker's own record REFUTES the portfolio-value hypothesis
 
-**Established:** the emitted sizes are consistent with a portfolio value about
-**10–11× the one stamped on the same rows** — i.e. two different values for one
-quantity inside a single run. That is the shape this repo keeps a registry of.
+I went to Alpaca's order history for that day. The orders are real, filled, and
+there is a **third one in the same second** that I had not been looking at
+`[VERIFIED — Alpaca /v2/orders, 2026-07-28]`:
 
-**Not established:** where that value came from. I have not found the code path
-that supplies it, and I am not proposing a fix to a mechanism I have not
-located. The next step is that path, not a patch.
+```
+17:45:47  buy TSLA  qty=8  filled 8 @ 306.5236
+17:45:48  buy EME   qty=3  filled 3 @ 704.2550
+17:45:48  buy SPG   qty=1  filled 1 @ 237.5200
+```
+
+Against the one intended notional of **$245.43**:
+
+| name | fill px | intended shares | floors to | ACTUAL | actual $ | × target |
+|---|---:|---:|---:|---:|---:|---:|
+| SPG | 237.52 | 1.033 | **1** | **1** | $237.52 | **1.0×** |
+| TSLA | 306.52 | 0.801 | **0** | **8** | $2,452.19 | **10.0×** |
+| EME | 704.25 | 0.348 | **0** | **3** | $2,112.76 | **8.6×** |
+
+**A 10× portfolio value would have made SPG ~10 shares too. It made exactly 1 —
+its correct size.** So the portfolio value was fine, and my inference in §5 is
+**refuted by a control that was sitting in the same second of the same run.**
+
+### The actual pattern
+
+The two names that got ~10× are **exactly the two whose intended share count
+floored to ZERO** (0.801 and 0.348). The one that floored to a legitimate 1 got
+exactly 1.
+
+So this is not a scaling error. **It is the sub-one-share path** — the names
+integer flooring would have dropped are the ones that came back oversized. That
+is the same sub-one-share arithmetic already logged as a deployment blocker
+(orch#608 / pipeline#224), but with the opposite sign: there it silently
+dropped names, here it silently multiplied two of them by ~10.
+
+### What is still NOT established
+
+Which branch does it — the deferred one-share rescue, or something else. I have
+narrowed it from "the whole sizing path" to "the sub-one-share branch, on a run
+where a same-cycle control sized correctly", and I am **still not proposing a
+fix**, because naming the branch is one grep away and guessing it is not.
 
 ## Why this matters more than the number
 
