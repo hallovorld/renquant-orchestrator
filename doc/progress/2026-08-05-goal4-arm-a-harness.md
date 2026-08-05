@@ -25,26 +25,40 @@ BEAR/BULL_CALM numbers this whole line of work rests on:
 | need | existing implementation |
 |---|---|
 | production regime per date | `build_regime_series(dates)` |
-| per-regime mean/median/std IC, hit rate, `n_dates`, `n_rows` | `regime_diagnostics(val, mu, label, regimes)` → `summarize_ic` |
+| per-regime mean of the per-DATE Spearman IC, plus median/std/hit-rate/`n_dates` | `regime_diagnostics(val, mu, label, regimes)` → `summarize_ic` |
 | the 2× shifted-label placebo, per regime | `regime_shift_diagnostics(..., shifts=(120,))` |
 
-So the harness is deliberately **thin**: it supplies inputs and applies the
-frozen decision predicate, and **computes no statistic of its own**. A test
-asserts that — no `spearmanr`, no `corrcoef`, no local `summarize_ic` — because
-a second statistical harness beside a reviewed one is how two answers to the same
-question appear.
+**Not an exact identity, and the difference is named** `[codex on orch#816]`:
+`regime_diagnostics` feeds `summarize_ic` the label as `g[label].clip(-0.5, 0.5)`.
+§2 of the registration defines `E1(R)` against `fwd_60d_excess` and **does not
+freeze that clipping step**. Clipping can create ties and so can move a Spearman
+coefficient. So the correct statement is: *the gate's helpers compute the
+registered quantity up to a label-clipping step the registration does not
+specify* — which has to be resolved (adopt the clip in an amended registration,
+or pass an unclipped label) **before Arm A is run**, not after seeing its number.
+
+## Provenance is enforced at RUNTIME, not asserted in prose
+
+An earlier version of this harness accepted any JSON from any source while the
+write-up claimed it was "built on the gate's own statistics", and its test only
+grepped the source — so a docstring mention satisfied it `[codex on orch#816]`.
+The runner now REFUSES a payload whose `provenance.producers` does not name all
+three gate helpers, and the refusal is tested per-missing-producer.
 
 ## What it enforces
 
-§6's four conditions, transcribed and individually testable
+§6's four conditions, transcribed and **individually** testable
 (`n_dates(BULL_CALM) ≥ 30`, `E1 > 0`, `E1 > max_k shuffle_ic_k` — the WORST of
-the five fixed-seed replications — and `E1 > placebo_shift`), plus §3's rule that
-**Arm A can never certify**: `certify()` raises `ArmMisuse` on an Arm A verdict
-even when all four conditions hold, and a test proves exactly that case.
+the five fixed-seed replications — and `E1 > placebo_shift`).
 
-`NOT CERTIFIED` carries its registered meaning — *the member did not meet this
-evidence standard*, **not** *the signal is absent* — with the conservative
-predicate named as the reason.
+**And §3's arm boundary, which the first version did not actually hold.** It took
+an `arm` argument and returned `CERTIFIED` for `arm="B"` — the frozen
+distinction undone by passing a string, in an Arm-A-named runner, exposed on the
+CLI `[codex on orch#816]`. There is now **no `arm` parameter, no `--arm` flag and
+no Arm B path**: the outcome is always `EXPLORATORY — NOT A CERTIFICATION`, and
+`certify()` **always raises**, including on a hand-built Arm B verdict. Arm B is
+the served ledger, calendar-blocked to roughly 2027; its runner does not exist
+and must not be faked here.
 
 ## What is NOT here
 
@@ -55,4 +69,4 @@ predicate named as the reason.
   labels mature ~2026-10-27, and the ≥30 BULL_CALM floor pushes certification to
   roughly 2027.
 
-Suites: 14 new tests · 5642 passed, 2 skipped repo-wide `[VERIFIED — measured after the change]`.
+Suites: 20 tests · 5642 passed, 2 skipped repo-wide `[VERIFIED — measured after the change]`.
