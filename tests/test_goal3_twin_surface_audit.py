@@ -1,11 +1,20 @@
-"""GOAL-3: the twin guard's SUBJECT, measured before anyone installs it elsewhere.
+"""GOAL-3: a duplicate-definition census, and the guard's missing counterpart root.
 
-renquant-pipeline's twin guard scans `__all__`. The obvious next step — install
-it in the other repos — has a prior question: would it SEE anything there?
-Measured 2026-08-05: `__all__` covers 3 of renquant-orchestrator's 949
-module-level public definitions, so an `__all__`-scoped guard there would report
-clean forever. That is the registry's own defect class (a check whose subject is
-not the object you assume), one level up.
+renquant-pipeline's twin guard resolves each `__all__` export and looks for a
+same-named definition under one CONFIGURED counterpart root, `kernel/`. This
+module does NOT compute that relation: it is an all-files, same-name census, and
+its counts must never be compared with the guard's.
+
+The one contract-faithful fact about the guard needs no new machinery and is
+measured by `--kernel-root-map`: `renquant_pipeline` is the only package with a
+`kernel/` root, so everywhere else the guard's relation is UNDEFINED — not
+"passes", not "clean".
+
+`[codex on orch#814]` An earlier version of this docstring said `__all__` covers
+"3 of 949 module-level public definitions" and that a guard there "would report
+clean forever". Both are withdrawn: 949 is the count of UNIQUE public definition
+NAMES, and the ratio compared the documented API against unrelated internal
+names — a comparison this file otherwise exists to stop making.
 """
 from __future__ import annotations
 
