@@ -158,12 +158,19 @@ def test_the_RECORD_names_the_revision_that_was_actually_measured():
     except ModuleNotFoundError:
         pytest.skip("renquant_pipeline not importable here")
     text = RECORD.read_text(encoding="utf-8")
-    recorded = re.findall(r"repo revision ([0-9a-f]{7,40})", text)
-    assert recorded, ("the progress record must state the revision it measured; "
-                      "found none in " + str(RECORD))
+    # A dedicated marker, not prose: the first version parsed "repo revision
+    # <sha>" out of running text, and a table rewrite silently made it match
+    # NOTHING — a binding that can be broken by formatting is not a binding.
+    recorded = re.findall(r"VERIFIED-AT repo revision ([0-9a-f]{40})", text)
+    assert recorded, ("the progress record must carry a VERIFIED-AT line for "
+                      "every revision it was measured at; found none in "
+                      + str(RECORD))
     measured = r["package_repo_revision"]
-    for rev in recorded:
-        assert measured.startswith(rev), (
-            f"the record cites pipeline revision {rev}, but the measured "
-            f"checkout is at {measured[:12]} — re-derive the 20/19/0 result "
-            f"against the current source rather than inheriting it")
+    # CI checks the PINNED pipeline out; this workstation sits on a different
+    # commit. Both are legitimate places to run from, so the record lists every
+    # revision it was actually verified at and the measured one must be AMONG
+    # them — a third, unverified revision still fails. [codex on orch#833]
+    assert any(measured.startswith(rev) for rev in recorded), (
+        f"the record cites pipeline revision(s) {recorded}, but the measured "
+        f"checkout is at {measured[:12]} — re-derive the 20/19/0 result "
+        f"against this source rather than inheriting it")

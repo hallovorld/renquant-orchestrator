@@ -16,16 +16,30 @@ and reading `__module__` off the exported object — no heuristic.
 record naming only the package *name* could have measured another checkout or an
 installed wheel `[codex on orch#833]`:
 
+| where | repo revision | result |
+|---|---|---|
+| CI, which checks out the **PINNED** pipeline | `3be590956f13` | **20 / 19 / 0** |
+| this workstation's sibling checkout | `5d41b31249df` | **20 / 19 / 0** |
+
+Both are verified `[VERIFIED — this session]`; the pinned one was measured in a
+throwaway `git worktree` so no shared checkout was moved. The machine-readable
+form the test parses — prose formatting must not be able to break the binding:
+
 ```
-/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline
-repo revision 5d41b31249df
+VERIFIED-AT repo revision 3be590956f1339ae6099be34cf347dad6c7712bb
+VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
 ```
 
-A test parses that revision back out of **this file** and asserts it is the one
-the measurement actually ran against `[codex on orch#833]`. Asserting only that
-the revision is 40 characters proved nothing: the pipeline checkout could
-advance while the aggregate stayed 20/19/0, and CI would have stayed green over
-a provenance claim that had quietly gone stale.
+**That split is itself worth recording.** CI runs against the revision
+production is pinned to; the workstation sits on a later commit. The first
+version of this record cited only the workstation's — so the number was correct
+and its provenance was not.
+
+A test parses these revisions back out of **this file** and asserts the measured
+checkout is among them `[codex on orch#833]`. Asserting only that the revision is
+40 characters proved nothing: the checkout could advance while the aggregate
+stayed 20/19/0 and CI would have stayed green over a provenance claim that had
+quietly gone stale. A *third*, unverified revision still fails.
 
 `renquant_pipeline` at that revision, over its **20** duplicated `__all__`
 exports:
