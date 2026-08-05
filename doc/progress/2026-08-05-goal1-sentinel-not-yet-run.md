@@ -101,4 +101,25 @@ or a fail-closed marker) is judged on that first. And `NOT_YET_RUN` still exits
 collapses "not run" and "all accounted for" into one rc, distinguished only in
 the printed line.
 
-Suites: 27 in this file · 5615 passed, 2 skipped repo-wide.
+## Review round 3 — existence is not enough
+
+Codex re-pushed the edge cases (prod DB with no table, a prod row for a
+different date, an empty prod DB file, an unreadable LANE db while prod ran) and
+confirmed each behaves correctly, then found the last hole:
+
+**An EXISTING but UNPARSEABLE pinned profile was still silenced until the
+session ran.** `profile_absent()` checked only `exists()`; `lane_is_dormant()`
+swallows a JSON error and returns False; so `classify()` fell through to the
+session check and reported the quiet `NOT_YET_RUN`. And it is not hypothetical —
+codex traced it: the wrapper gates these lanes on **file existence alone**
+(`daily_104.sh`) and then hands the path to the runner, whose loader
+**hard-parses** it with `json.loads` (`renquant_strategy_104/config.py`).
+
+`profile_absent` is now `profile_defect`, returning a REASON: absent, unreadable,
+invalid JSON, or not a JSON object. It is checked before dormancy and before the
+session state and is never downgraded by either. The state is renamed
+`PROFILE_DEFECT` to match what it now covers. A test asserts a valid profile —
+including a dormant one — is not a defect, so the check cannot become a
+false-positive generator.
+
+Suites: 31 in this file · 5619 passed, 2 skipped repo-wide.

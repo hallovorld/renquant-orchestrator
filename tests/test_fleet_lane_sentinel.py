@@ -149,7 +149,7 @@ def test_absent_profile_is_NOT_dormant_and_alarms_BEFORE_any_session(tree):
     _, data, _ = tree
     assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
     state, detail = _classify(LANE, tree)
-    assert state == S.STATE_PROFILE_ABSENT and state in S.ACTIONABLE
+    assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
     assert "will skip this rail" in detail
 
 
@@ -382,4 +382,51 @@ def test_a_PROFILE_ABSENT_lane_is_never_downgraded_by_the_session_check(tree):
                  lambda: _corrupt_db(data, S.PROD_TAG)):
         prep()
         state, _ = _classify(LANE, tree)
-        assert state == S.STATE_PROFILE_ABSENT and state in S.ACTIONABLE
+        assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+
+
+def test_an_UNPARSEABLE_profile_alarms_BEFORE_any_session(tree):
+    """[codex on orch#812] Existence is not enough. The wrapper gates these
+    lanes on file existence alone and then hands the path to the runner, whose
+    loader hard-parses it with json.loads — so a malformed profile is a real
+    pre-session failure, and checking only exists() silenced it until the
+    session ran."""
+    cfg, data, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text("{not json at all", encoding="utf-8")
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+    assert "not valid JSON" in detail
+
+
+def test_a_profile_that_is_not_an_OBJECT_also_alarms(tree):
+    cfg, _, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text('["a", "list"]', encoding="utf-8")
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_DEFECT
+    assert "not a JSON object" in detail
+
+
+def test_a_profile_defect_is_never_downgraded_by_ANY_session_state(tree):
+    cfg, data, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text("{broken", encoding="utf-8")
+    for prep in (lambda: None,
+                 lambda: _db(data, S.PROD_TAG, n_candidates=80),
+                 lambda: _corrupt_db(data, S.PROD_TAG)):
+        prep()
+        state, _ = _classify(LANE, tree)
+        assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+
+
+def test_a_VALID_profile_is_not_a_defect(tree):
+    """Anti-false-positive: the check must not reject healthy profiles."""
+    cfg, _, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    assert S.profile_defect(LANE, cfg) is None
+    _profile(cfg, LANE.profile, pending=True)
+    assert S.profile_defect(LANE, cfg) is None
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT

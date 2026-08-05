@@ -61,8 +61,8 @@ STATE_FAIL_CLOSED = "FAIL_CLOSED"
 STATE_MISSING = "MISSING"
 STATE_DORMANT = "DORMANT"
 STATE_NOT_YET_RUN = "NOT_YET_RUN"
-STATE_PROFILE_ABSENT = "PROFILE_ABSENT"
-ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING, STATE_PROFILE_ABSENT)
+STATE_PROFILE_DEFECT = "PROFILE_DEFECT"
+ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING, STATE_PROFILE_DEFECT)
 
 SESSION_STARTED = "started"
 SESSION_NOT_STARTED = "not_started"
@@ -150,15 +150,37 @@ def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | No
         return None
 
 
-def profile_absent(lane: FleetLane, configs_dir: Path | None = None) -> bool:
-    """The lane's PINNED profile file does not exist.
+def profile_defect(lane: FleetLane, configs_dir: Path | None = None) -> str | None:
+    """A reason string when the lane's PINNED profile is UNUSABLE, else None.
 
-    A CONFIG defect, true independently of whether any session ran — the daily
-    wrapper will skip that rail whenever it next runs. Downgrading it to
-    NOT_YET_RUN erased the pre-session detection case this sentinel was added
-    for [codex on orch#811].
+    A CONFIG defect is true independently of whether any session ran — the daily
+    wrapper will skip or fail that rail whenever it next runs. Downgrading one to
+    NOT_YET_RUN erased the pre-session detection case this sentinel exists for
+    [codex on orch#811].
+
+    EXISTENCE IS NOT ENOUGH [codex on orch#812]. The wrapper gates these lanes on
+    file existence alone (`daily_104.sh`) and then hands the path to the runner,
+    whose loader hard-parses it with `json.loads`
+    (`renquant_strategy_104/config.py`). So a malformed profile is a real
+    pre-session failure, not a hypothetical one, and checking only `exists()`
+    silenced it until the session ran.
     """
-    return not (configs_dir or PINNED_CONFIGS).joinpath(lane.profile).exists()
+    path = (configs_dir or PINNED_CONFIGS) / lane.profile
+    if not path.exists():
+        return (f"the pinned profile {lane.profile} does not exist — the daily "
+                f"wrapper will skip this rail on its next run")
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        return (f"the pinned profile {lane.profile} could not be read ({exc}) — "
+                f"the runner's loader will fail on it")
+    except ValueError as exc:
+        return (f"the pinned profile {lane.profile} is not valid JSON ({exc}) — "
+                f"the runner's loader hard-parses it and will fail on it")
+    if not isinstance(cfg, dict):
+        return (f"the pinned profile {lane.profile} is not a JSON object — "
+                f"the runner's loader will fail on it")
+    return None
 
 
 def session_state(date: str, data_dir: Path | None = None) -> str:
@@ -215,12 +237,12 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
     configs_dir = configs_dir or PINNED_CONFIGS
     data_dir = data_dir or DATA
     logs_dir = logs_dir or LOGS
-    if profile_absent(lane, configs_dir):
+    defect = profile_defect(lane, configs_dir)
+    if defect:
         # A config defect is true whether or not anything ran today, so it is
-        # checked BEFORE the session state and is never downgraded.
-        return STATE_PROFILE_ABSENT, (
-            f"the pinned profile {lane.profile} does not exist — the daily "
-            f"wrapper will skip this rail on its next run")
+        # checked BEFORE dormancy and BEFORE the session state, and is never
+        # downgraded by either.
+        return STATE_PROFILE_DEFECT, defect
     if lane_is_dormant(lane, configs_dir):
         return STATE_DORMANT, "pinned profile declares a pending-first-artifact component"
     rec = _lane_record(lane, date, data_dir)
