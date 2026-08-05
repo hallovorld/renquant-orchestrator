@@ -221,11 +221,50 @@ in the pinned config.
 So: **every emitter I can find is excluded, and the stamp that should have told
 me which one it was is shared by two of them.** That is the honest state.
 
-**Still not proposing a fix.** The remaining decisive step is runtime
-instrumentation — record the effective `max_pct` and the emitting module on
-every order — because static reading has now excluded every candidate and the
-existing stamp cannot disambiguate them. **Making the stamp unique is itself the
-first fix**, and it is a smaller, safer change than touching sizing arithmetic.
+## 8. The instrumentation already exists — and it settles the `max_pct` question
+
+I was about to propose recording the effective `max_pct` at the emit site. **It
+is already recorded**, in `trades.decision_inputs_json` `[VERIFIED]`:
+
+| name | recorded `max_pct` | conviction | sigma_mult | kelly_enabled | cash before |
+|---|---:|---:|---:|---|---:|
+| SPG | 0.02312497 | 0.3775 | — | true | — |
+| TSLA | **0.02322928** | 0.5753 | 0.6591 | true | $9,162.85 |
+| EME | **0.02437756** | 0.4040 | 0.9850 | true | $6,689.09 |
+
+**`max_pct` was correct for all three.** ~2.3 % each — the Kelly path did its job.
+So the cap was never raised, and my §7 phrasing ("sized with 10× the position
+cap") is wrong: the cap that was *used* is on the record and it is right.
+
+### Which revives the portfolio-value question, in a sharper form
+
+With the **recorded** `max_pct`, each fill pins its own PV band exactly:
+
+| name | shares | PV that yields exactly that count |
+|---|---:|---|
+| SPG | 1 | `[$10,271, $20,542)` ← **contains** the run's stamped $10,565 |
+| TSLA | 8 | `[$105,565, $118,760)` ← does **not** |
+| EME | 3 | `[$86,668, $115,558)` ← does **not** |
+
+So within **one emit loop**, SPG sized off a portfolio value of ~$10.5 k while
+TSLA and EME sized off ~$105–115 k. **Two different portfolio values for three
+orders in the same cycle.**
+
+My §6 refutation said a 10× PV would have made SPG 10 shares too. That is only
+true if all three shared one PV — and the recorded `max_pct` values now show
+they did not. **The refutation was right to kill the "the run's PV was 10×"
+claim, and wrong to kill the PV direction entirely.**
+
+### What is now established
+
+- `max_pct` correct for all three — **not** a cap or Kelly failure;
+- SPG consistent with the real book, TSLA and EME with a book ~10× larger;
+- so the divergence is in the **portfolio value each name was sized against**,
+  inside a single loop.
+
+**Still not proposing a fix**, but the next read is now one line wide: what
+`portfolio_value` does `compute_position_size` receive per iteration, and can it
+change between candidates in the same loop.
 
 ## Why this matters more than the number
 
