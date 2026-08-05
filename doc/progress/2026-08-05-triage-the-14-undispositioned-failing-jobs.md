@@ -40,7 +40,7 @@ reason this list looks hopeless and stays that way.
 | **rq104-model-freshness** | 3 | `shadow-panel` effective_selection_cutoff **2026-02-10, age 176d**, receipt has no `promoted_pin` (fail-closed escalate); tournament 141/142 at 43d | `launchd_model-freshness.out`, 2026-08-05 |
 | **rq104-silent-refusal** | 1 | `retrain-panel104` has **11 non-acting runs** (2026-08-02, 07-26, 07-19, 07-12, 07-05, 06-28 …; 2 CRASHED, 9 self-reported FAIL) | `launchd_silent_refusal.out`, 2026-08-04 |
 | **rq105-liveness** | 1 | `paired_is.jsonl` last complete row 2026-08-03 while today is 2026-08-04 (stale); post-close completion bound exceeded | `launchd_liveness.out` |
-| **run-surface-drift** | 1 | PYTHONPATH **fallback is firing**: `renquant-common-run/src` is absent, so scheduled jobs resolve to the dev checkout — which copy executes is decided by filesystem state, not review | `launchd_run_surface_drift.out`, 2026-08-05T07:00 |
+| **run-surface-drift** | 1 | PYTHONPATH **fallback is firing for exactly 5 jobs**, all `rq105-*` (batch-scores-export, postclose, quote-logger, session-scheduler, shadow-serving): their wrappers use the `[ -d X-run/src ] \|\| X/src` idiom and `renquant-common-run/src` does not exist, so they resolve to the dev checkout. **21 other jobs declare a deterministic root and are clean.** | `launchd_run_surface_drift.out`, 2026-08-05T07:00 |
 | **ops-audit** | 1 | 4 NEW findings (launchd-liveness, ack-ledger, gate-stamp-parity, booster-identity). Also reports its ledger at `renquant-orchestrator-run/ops/ops_audit_acks.json` with **0 acks** while the dev checkout has 1 — merged-but-not-deployed | `launchd_ops-audit.out`, 2026-08-05T05:50 |
 
 **rq104-silent-refusal is the instrument this fleet already has** for "did the job
@@ -90,8 +90,45 @@ EVIDENCE:
 
 NEXT, in the order the evidence supports:
 1. **weekly-wf-promote** — clears two rows (B), and its newest run already exits 0.
-2. **run-surface-drift's fallback** — `renquant-common-run/src` absent means the run
+2. **the 5 rq105 fallbacks** — `renquant-common-run/src` absent means the run
    checkout is not what review approved; that undermines every other deployment claim.
 3. **rq104-scorer-identity** — unexplained shadow-model fingerprint changes are the
    kind of thing that is cheap now and expensive later.
 4. Fleet-wide `EXIT_ALARMS` vs `EXIT_INTERNAL`, so category A stops reading as breakage.
+
+## Addendum: the fallback's real scope, and how the daily run resolves
+
+Bounding the `run-surface-drift` row took three corrections, all of the same shape —
+reading a **superset as the alarm set** — and they are recorded because the shape
+recurs:
+
+1. Grepping `pythonpath com.renquant` returned **27** jobs and I read them as flagged.
+   That pattern also matches the checker's own `declares a deterministic root` INFO
+   line. Flagged: **5**. Clean: **21**.
+2. All five are `rq105-*`. The idiom the checker looks for is specifically
+   `VAR="<...>-run/src"; [ -d "$VAR" ] || VAR="<...>/src"`, which only the rq105
+   wrappers use. `daily104` and `intraday104` were never flagged.
+3. I then ran the daily run's own resolver in a stripped environment and got
+   `/Users/renhao/git/github` — the dev checkouts. Wrong: I had omitted
+   `renquant_load_subrepo_env` (`daily_104.sh:109`), which sources
+   `RenQuant/.subrepo_assembly/current.env`. **Stripping the environment removed the
+   very thing that decides the answer.** With that line included the resolver returns
+   `RenQuant/.subrepo_runtime/repos`, matching what the last real run logged:
+   `strategy_config resolved: …/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`.
+
+So: **the daily/intraday lane resolves to the pinned assembly, deterministically.** The
+fallback is real but confined to the five rq105 jobs, and today it is benign — the
+`renquant-common` dev checkout sits at exactly `origin/main` (detached, 0 ahead, 0
+behind). What the checker objects to stands: *which* copy executes is decided by
+whether a directory exists, not by review.
+
+[VERIFIED — `grep "by FALLBACK"` vs `grep "declares a deterministic root"` on the
+2026-08-05T07:00 scan; the resolver re-run with `renquant_load_subrepo_env` included;
+`git -C … rev-parse`/`rev-list --count` on the five sibling checkouts, read-only]
+
+Also verified while checking the dev checkouts, since it bears on the same question:
+`renquant-pipeline` is on `feat/persist-served-matrix` and `renquant-strategy-104` on
+`fix/f1-f3-clf-component-kind`, but **both are 0 commits ahead of `origin/main`** —
+they carry no code main does not — and pipeline's one "dirty" entry is an *untracked*
+`persistence_backup_check.py` at the repo root, not on any `src` path. Benign today;
+unreviewed as a mechanism.
