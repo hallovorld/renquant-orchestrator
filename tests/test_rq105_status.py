@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 OPS_DIR = REPO / "ops" / "renquant105"
 sys.path.insert(0, str(OPS_DIR))
@@ -217,3 +219,58 @@ class TestTheDashboardAppliesTheLaneGuardToPRODToo:
         src = inspect.getsource(dashboard)
         assert "LANE_EVIDENCE = {}" in src
         assert '"prod": None' not in src
+
+
+class TestAValidJsonRootIsStillValidated:
+    """[codex on orch#824] `json.loads` succeeding does not make a bundle a
+    bundle. Both rq105 files were parsed and then `.get`/`len` called on the
+    result, so `[]` / `null` / a scalar raised and took the WHOLE dashboard
+    down — every other row with it. A dashboard that dies on one malformed
+    file reports nothing about the healthy things it also checks."""
+
+    def _write(self, tmp_path, scores_body, meta_body=None):
+        d = tmp_path / "data" / "rq105"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "batch_scores_2026-08-05.json").write_text(scores_body,
+                                                       encoding="utf-8")
+        if meta_body is not None:
+            (d / "batch_scores_2026-08-05.meta.json").write_text(
+                meta_body, encoding="utf-8")
+        return dashboard._batch_scores(tmp_path, "2026-08-05")
+
+    @pytest.mark.parametrize("root,kind", [
+        ("[]", "list"), ("null", "null"), ("3", "int"), ('"s"', "str"),
+    ])
+    def test_a_non_object_SCORES_root_fails_closed(self, tmp_path, root, kind):
+        r = self._write(tmp_path, root)
+        assert r["icon"] == dashboard.FAIL
+        assert kind in r["status"], r
+
+    @pytest.mark.parametrize("root,kind", [("[]", "list"), ("null", "null")])
+    def test_a_non_object_META_root_fails_closed(self, tmp_path, root, kind):
+        r = self._write(tmp_path, '{"AAPL": 1.0}', root)
+        assert r["icon"] == dashboard.FAIL
+        assert kind in r["status"], r
+        assert r["detail"] == "1 tickers", "the scores it DID read stay reported"
+
+    def test_unparseable_json_is_not_reported_as_available(self, tmp_path):
+        r = self._write(tmp_path, "{not json")
+        assert r["icon"] == dashboard.FAIL
+        assert "unreadable" in r["status"]
+
+    def test_a_WELL_FORMED_bundle_still_reads_available(self, tmp_path):
+        """Anti-over-correction: the guard must not fail the healthy case."""
+        r = self._write(tmp_path, '{"AAPL": 1.0, "MSFT": 2.0}',
+                        '{"run_id": "r1", "coverage": 1.0, "score_source": "prod"}')
+        assert r["icon"] == dashboard.OK
+        assert "2 tickers" in r["detail"] and "source=prod" in r["detail"]
+
+
+def test_the_lane_guard_docstring_no_longer_claims_to_be_blend_only():
+    """[codex on orch#824] The contract line still said \"for a
+    broker-mode-gated source (blend)\" after the code had stopped being
+    blend-only. A description of the version before the change is worse than
+    none — it reads as though someone checked."""
+    doc = dashboard._db_latest_run.__doc__
+    assert "EVERY source" in doc
+    assert "for a\n    broker-mode-gated source (blend), also reuses" not in doc

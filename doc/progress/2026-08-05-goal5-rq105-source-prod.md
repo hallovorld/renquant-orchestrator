@@ -79,6 +79,24 @@ git -C /Users/renhao/git/github/renquant-orchestrator-run pull --ff-only
 
 Until then rq105 keeps exporting **blend**. I have not touched that checkout.
 
+## Two review findings, both real `[codex]`
+
+**A valid JSON root is not a bundle.** `rq105_status.py::_batch_scores` parsed
+both rq105 files and then called `.get`/`len` on the result, so a valid-JSON
+non-object root (`[]`, `null`, a scalar) raised and took the **whole dashboard**
+down — every other row with it. A dashboard that dies on one malformed file
+reports nothing about the healthy things it also checks. Both roots are now
+validated and a bad one fails closed **on its own row**, keeping the counts it
+did manage to read.
+
+**A contract line describing the version before the change.** The
+`_db_latest_run` docstring still said "for a broker-mode-gated source (blend),
+also reuses `_blend_lane_gaps`" after the code had stopped being blend-only. My
+edit had targeted a differently-wrapped copy of that sentence and silently
+matched nothing — the exact failure mode I have a rule for: *verify the old text
+is gone*, and I did not. A stale contract line is worse than none, because it
+reads as though someone checked. A test now asserts the old phrasing is absent.
+
 ## Tests
 
 `test_the_WRAPPER_default_is_prod` pins the line the operator actually flips —

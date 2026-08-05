@@ -153,20 +153,46 @@ def _today_logs(rq_root: Path, today: str) -> list[dict]:
 
 
 def _batch_scores(rq_root: Path, today: str) -> dict:
-    """Check batch scores availability for today."""
+    """Check batch scores availability for today.
+
+    [codex on orch#824] `json.loads` succeeding does not make a bundle a
+    bundle. Both files were parsed and then `.get`/`len` was called on the
+    result, so a valid-JSON non-object root (`[]`, `null`, a scalar) raised
+    AttributeError/TypeError and took the WHOLE dashboard down — every other
+    row with it. A dashboard that dies on one malformed file reports nothing
+    about the nine healthy things it also checks. Both roots are validated,
+    and a bad one fails CLOSED on its own row.
+    """
     data_dir = rq_root / "data" / "rq105"
     scores_path = data_dir / f"batch_scores_{today}.json"
     meta_path = data_dir / f"batch_scores_{today}.meta.json"
     if not scores_path.exists():
         return {"status": f"no scores for {today}", "icon": FAIL, "detail": ""}
-    scores = json.loads(scores_path.read_text())
+    try:
+        scores = json.loads(scores_path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        return {"status": f"scores file unreadable ({exc})", "icon": FAIL,
+                "detail": ""}
+    if not isinstance(scores, dict):
+        kind = "null" if scores is None else type(scores).__name__
+        return {"status": f"scores file root is {kind}, not an object — a "
+                          f"malformed bundle is not an available one",
+                "icon": FAIL, "detail": ""}
     detail = f"{len(scores)} tickers"
     if meta_path.exists():
-        meta = json.loads(meta_path.read_text())
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            return {"status": f"meta file unreadable ({exc})", "icon": FAIL,
+                    "detail": detail}
+        if not isinstance(meta, dict):
+            kind = "null" if meta is None else type(meta).__name__
+            return {"status": f"meta file root is {kind}, not an object",
+                    "icon": FAIL, "detail": detail}
         detail += f", run={meta.get('run_id', '?')}, coverage={meta.get('coverage', '?')}"
-        # 2026-07-28 blend switch: surface WHICH scorer produced the vector
-        # (bundles exported before the switch carry no score_source — show
-        # the pre-switch reality, prod, rather than '?').
+        # Surface WHICH scorer produced the vector. Bundles exported before the
+        # 2026-07-28 blend switch carry no score_source; show the pre-switch
+        # reality, prod, rather than '?'.
         detail += f", source={meta.get('score_source', 'prod')}"
     return {"status": "available", "icon": OK, "detail": detail}
 
@@ -187,11 +213,16 @@ def _db_latest_run(rq_root: Path) -> dict:
     session, reusing export_batch_scores._select_source_run — the real
     exporter contract (pipeline_runs completion, run_type='live', non-empty
     strategy, MIN_ROWS panel_score rows, created_at ordering) — rather than a
-    dashboard-local approximation that could disagree with it. For a
-    broker-mode-gated source (blend), also reuses _blend_lane_gaps — the
-    same fail-closed evidence guard export_batch_scores.main() enforces
-    before export — so this row can't report a run as ready when the real
-    exporter would refuse it as a malformed or incomplete blend run."""
+    dashboard-local approximation that could disagree with it.
+
+    It also reuses `_lane_gaps` for EVERY source, not just blend — the same
+    fail-closed evidence guard `export_batch_scores.main()` enforces before
+    export — so this row cannot report a run as ready when the real exporter
+    would refuse it. [codex on orch#824] This sentence said "for a
+    broker-mode-gated source (blend)" after the code had already stopped being
+    blend-only: a contract line describing the version before the change is
+    worse than none, because it reads as though someone checked.
+    """
     source = _active_score_source()
     if source not in LANE_EVIDENCE:
         return {
