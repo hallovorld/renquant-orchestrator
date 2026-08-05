@@ -235,3 +235,33 @@ class TestMalformedIsNotAbsent:
         _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json", {"kind": "x"})
         assert P.probe_one("x", "prod/panel-ltr.alpha158_fund.json",
                            tmp_path)["state"] == P.STATE_NO_STAMP
+
+
+class TestAValidJsonRootIsStillValidated:
+    """[codex on orch#820, round 3] `json.loads` succeeding does not make the
+    payload an artifact. An array/null/scalar root reached `.get` and raised
+    AttributeError — one malformed artifact taking down the probe for BOTH."""
+
+    @pytest.mark.parametrize("root,kind", [
+        ("[]", "list"), ("null", "null"), ("3", "int"),
+        ('"a string"', "str"), ("true", "bool"),
+    ])
+    def test_a_non_object_root_is_MALFORMED_not_a_crash(self, tmp_path, root, kind):
+        d = tmp_path / "prod"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "panel-ltr.alpha158_fund.json").write_text(root, encoding="utf-8")
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_MALFORMED, r
+        assert kind in r["detail"], r
+        assert r["state"] in P.ACTIONABLE
+
+    def test_one_malformed_artifact_does_not_take_down_the_OTHER(self, tmp_path):
+        """The reason a crash is worse than a bad state: probe() reports every
+        serving artifact, and an exception reports none of them."""
+        (tmp_path / "prod").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "shadow").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "prod" / "panel-ltr.alpha158_fund.json").write_text(
+            "[]", encoding="utf-8")
+        _artifact(tmp_path, "shadow/panel-clf.top-decile.fwd60.json", {})
+        rows = P.probe(tmp_path)
+        assert [r["state"] for r in rows] == [P.STATE_MALFORMED, P.STATE_NO_STAMP]

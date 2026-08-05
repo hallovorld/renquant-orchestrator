@@ -85,4 +85,13 @@ swallowing a lesser one is how two-thirds-fixed P0s stay invisible.
 Read-only. No schedule, no artifact touched, and no judgement of any claim's
 quality — only whether it exists and resolves.
 
-Suites: 37 tests · full suite green.
+**Round 3 — a valid JSON root is not an artifact.** `json.loads` succeeding
+says nothing about shape: `[]`, `null` and scalars are all valid JSON, and
+`_gate_stamp` reached `.get` on them. That raised `AttributeError` and took
+down the **whole probe** — so one malformed artifact reported no state for
+*either* serving artifact, which is strictly worse than reporting a bad one.
+The root is now validated before it is reached into, and a non-object root is
+`STAMP_MALFORMED` (broken, not uncertified). `[codex]`
+
+Suites: 43 tests, incl. five non-object roots by name and the
+one-malformed-artifact-does-not-hide-the-other case · full suite green.

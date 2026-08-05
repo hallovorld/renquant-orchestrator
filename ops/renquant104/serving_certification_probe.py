@@ -210,6 +210,17 @@ def probe_one(label: str, rel: str, artifacts: pathlib.Path = ARTIFACTS) -> dict
         return {**row, "state": STATE_UNREADABLE,
                 "detail": f"could not be read/parsed ({exc}) — an unreadable "
                           f"artifact is not an absent claim"}
+    # [codex on orch#820, round 3] `json.loads` succeeding does not make the
+    # payload an artifact. `[]`, `null` and scalars are all valid JSON, and
+    # `_gate_stamp` went straight to `.get` on them — an AttributeError that
+    # crashed the whole probe instead of emitting one actionable state for one
+    # artifact. Validate the ROOT before reaching into it.
+    if not isinstance(payload, dict):
+        kind = "null" if payload is None else type(payload).__name__
+        return {**row, "state": STATE_MALFORMED,
+                "detail": f"the artifact parses as JSON but its root is {kind}, "
+                          f"not an object — it can carry no stamp at all, which "
+                          f"is a broken artifact, not an uncertified one"}
     try:
         stamp = _gate_stamp(payload)
     except StampMalformed as exc:
