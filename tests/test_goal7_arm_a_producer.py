@@ -106,39 +106,50 @@ class TestTheServedObjectIsTheLEDGERSRowNotAFileOnDisk:
             "'I could not check' must not read like 'it checks out'")
 
     def test_a_TAMPERED_CHAIN_is_refused(self, tmp_path):
-        """[codex on orch#825 round 2] Matching a DECLARED sha is not
-        verification: a forged-but-parseable ledger passed, and carrying
-        prev_row_sha in the output made it look checked. The chain is now
-        verified by the model package's own load_and_verify_ledger."""
-        real = P.LEDGER
-        if not real.is_file():
-            pytest.skip("live ledger absent")
-        rows = [json.loads(l) for l in real.read_text().splitlines() if l.strip()]
-        good = tmp_path / "good.jsonl"
-        good.write_text("".join(json.dumps(r) + "\n" for r in rows),
-                        encoding="utf-8")
-        assert P.ledger_row_for(rows[-1]["artifact_content_sha256"], good)
+        """[codex on orch#825] Matching a DECLARED sha is not verification: a
+        forged-but-parseable ledger passed, and carrying prev_row_sha in the
+        output made it look checked.
 
-        tampered = [dict(r) for r in rows]
-        tampered[-1]["n_scored"] = 999          # edited after it was sealed
+        SELF-CONTAINED — it builds its own chain with the model package's own
+        appender. The first version read the LIVE ledger and SKIPPED when
+        absent, so a clean CI checkout reported green without exercising this
+        guard at all: exactly the regression the test exists to lock down.
+        """
+        led = self._chained(tmp_path, "aaa", "bbb")
+        assert P.ledger_row_for("bbb", led)["is_ledger_tail"] is True
+
+        rows = [json.loads(l) for l in led.read_text().splitlines() if l.strip()]
+        rows[-1]["cutoff_date"] = "2099-01-01"   # edited after it was sealed
         bad = tmp_path / "bad.jsonl"
-        bad.write_text("".join(json.dumps(r) + "\n" for r in tampered),
+        bad.write_text("".join(json.dumps(r) + "\n" for r in rows),
                        encoding="utf-8")
         with pytest.raises(P.ServedArtifactNotLedgered) as exc:
-            P.ledger_row_for(rows[-1]["artifact_content_sha256"], bad)
+            P.ledger_row_for("bbb", bad)
         assert "chain contract" in str(exc.value)
+
+    def test_a_REMOVED_row_breaks_the_chain(self, tmp_path):
+        """Append-only means a deletion must be detectable, not just an edit."""
+        led = self._chained(tmp_path, "aaa", "bbb", "ccc")
+        rows = [json.loads(l) for l in led.read_text().splitlines() if l.strip()]
+        del rows[1]
+        bad = tmp_path / "bad.jsonl"
+        bad.write_text("".join(json.dumps(r) + "\n" for r in rows),
+                       encoding="utf-8")
+        with pytest.raises(P.ServedArtifactNotLedgered):
+            P.ledger_row_for("ccc", bad)
 
     def test_a_TAMPERED_ARTIFACT_is_refused(self, tmp_path):
         """The artifact's content_sha256 is RECOMPUTED. Trusting the field it
         carries makes a corrupted artifact indistinguishable from the served
-        one."""
-        art = json.loads(P.SERVED_ARTIFACT.read_text()) if \
-            P.SERVED_ARTIFACT.is_file() else None
-        if art is None:
-            pytest.skip("served artifact absent")
-        art["n_scored"] = 999                   # body changed, sha left alone
-        forged = tmp_path / "a.json"
-        forged.write_text(json.dumps(art), encoding="utf-8")
+        one. Self-contained for the same reason as above."""
+        params = json.loads(PAYLOAD.read_text())["provenance"]["params"]
+        sealed = _sealed_artifact(tmp_path, params)
+        assert P.served_params(sealed)["params"]["window"] == 252
+
+        body = json.loads(sealed.read_text())
+        body["n_scored"] = 999                   # body changed, sha left alone
+        forged = tmp_path / "forged.json"
+        forged.write_text(json.dumps(body), encoding="utf-8")
         with pytest.raises(P.ServedArtifactNotLedgered) as exc:
             P.served_params(forged)
         assert "does not hash to the identity it claims" in str(exc.value)
@@ -209,11 +220,17 @@ class TestTheInputsAreFingerprintedNotJustCounted:
 
 @pytest.fixture
 def payload_or_skip():
-    if not PAYLOAD.is_file():
-        pytest.skip("payload absent")
+    """The payload is COMMITTED, so this asserts rather than skips.
+
+    It used to skip when the file was absent or lacked the fingerprint block —
+    conditions that cannot hold in a checkout of this branch, so the skip could
+    only ever have hidden a regression that deleted or downgraded the record.
+    """
+    assert PAYLOAD.is_file(), f"the committed payload is missing: {PAYLOAD}"
     d = json.loads(PAYLOAD.read_text())
-    if "input_read_digests" not in d:
-        pytest.skip("payload predates input fingerprinting")
+    assert "input_read_digests" in d, (
+        "the committed payload lost its input fingerprints — the numbers in "
+        "the result document are no longer re-derivable")
     return d
 
 

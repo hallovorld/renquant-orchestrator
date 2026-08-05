@@ -98,7 +98,12 @@ a second copy would drift exactly when it mattered:
 
 Tampered-chain and tampered-artifact tests exercise both, built with the
 package's own `append_chained_row` so the fixture satisfies the contract
-production writes.
+production writes. They are **self-contained**: the first versions read the live
+ledger/artifact and *skipped* when absent, so a clean CI checkout would have
+reported green without exercising either guard — the precise regression they
+exist to lock down `[codex on orch#825]`. Two dead skips in the payload fixture
+went with them: the payload is committed, so "absent" could only have hidden a
+record that had been deleted or downgraded.
 
 Two smaller corrections rode with it: the scored-table hash is a canonical
 ordered **list**, since a `(ticker, date)` dict silently overwrites duplicates
@@ -134,7 +139,7 @@ restatement.
 - `doc/research/data/2026-08-05-goal7-arm-a-per-regime.json` — the payload, with
   its provenance block, so the numbers above can be re-derived rather than
   believed.
-- 27 tests, incl. that the shuffle stays within-date, that changed params are
+- 28 tests, incl. that the shuffle stays within-date, that changed params are
   refused, that an absent ledger / a broken chain / a row missing the chain
   fields / a tampered artifact all refuse, that a reconstruction of a
   **superseded** row must say so, the mutation test (flip
