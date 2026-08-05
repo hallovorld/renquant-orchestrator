@@ -117,3 +117,33 @@ def test_the_LIVE_orchestrator_measurement_behind_the_GOAL3_claim():
     assert r["visible_to_an_all_scoped_guard"] == [], (
         "an __all__-scoped guard would now see something here — re-derive the "
         "GOAL-3 record", r["visible_to_an_all_scoped_guard"])
+
+
+def test_the_POSITIVE_CONTROL_is_in_the_SUITE_not_only_in_the_prose():
+    """[codex on orch#814] I described a positive control in the doc and never
+    wrote it as a test, so a regression to the old dynamic-`__all__` failure
+    mode — which reported ZERO duplicates everywhere, including pipeline —
+    would still have passed.
+
+    renquant-pipeline is KNOWN to have ~20 exported duplicate names. A method
+    that finds none there is broken, whatever it reports about other repos.
+    """
+    r = audit("renquant_pipeline")
+    assert r["all_size"] >= 40, ("pipeline's __all__ read as nearly empty — the "
+                                 "dynamic-__all__ failure mode is back", r["all_size"])
+    assert len(r["visible_to_an_all_scoped_guard"]) >= 15, (
+        "pipeline's exported duplicates vanished — the method is broken, so no "
+        "'clean' result for any other repo can be trusted",
+        r["visible_to_an_all_scoped_guard"])
+    for known in ("PanelScoringJob", "ApplyScoresTask", "LoadScorerTask"):
+        assert known in r["duplicates"], known
+        assert r["duplicates"][known]["shape"] == "differing-bodies", known
+
+
+def test_a_repo_reporting_clean_is_only_meaningful_WITH_the_control():
+    """The two halves are one claim: 'orchestrator has no exported duplicates'
+    means something only because the same call finds pipeline's."""
+    control = audit("renquant_pipeline")
+    subject = audit("renquant_orchestrator")
+    assert control["visible_to_an_all_scoped_guard"], "control found nothing"
+    assert subject["visible_to_an_all_scoped_guard"] == []

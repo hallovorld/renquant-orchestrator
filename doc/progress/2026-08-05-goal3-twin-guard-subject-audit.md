@@ -58,7 +58,17 @@ to have ~19, so a method that finds none there is broken — `__all__` is built
 dynamically in that package, `literal_eval` failed, and the `if not names:
 continue` skipped the repo silently. **A silent skip is a vacuous pass.** The
 tool now imports the package and reads `__all__` off the module, the way the
-pipeline guard does, and the live-corpus test fails if this repo's numbers move.
+pipeline guard does.
+
+And the control is now **in the suite, not only in this paragraph**
+`[codex on orch#814]`: I had described it in prose while the tests only checked
+loose thresholds on this repo, so a regression to the dynamic-`__all__` failure
+would still have passed.
+`test_the_POSITIVE_CONTROL_is_in_the_SUITE_not_only_in_the_prose` calls
+`audit("renquant_pipeline")` and requires its known exported duplicates to be
+found; a companion test states the dependency plainly — *"orchestrator has no
+exported duplicates" means something only because the same call finds
+pipeline's*.
 
 ## NEXT
 
