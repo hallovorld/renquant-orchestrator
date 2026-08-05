@@ -40,17 +40,70 @@ def _no_live_regime_chain(monkeypatch):
         "unavailable_because": None})
 
 
-class TestTheThreeQuestionsStayApart:
-    def test_an_ABSENT_ledger_is_not_an_empty_one(self, tmp_path):
-        with pytest.raises(P.LedgerUnreadable) as exc:
-            P.probe(dt.date(2026, 8, 5), path=tmp_path / "nope.jsonl")
-        assert "no ledger at" in str(exc.value)
+class TestUnavailableEvidenceIsAnOBSERVABLEState:
+    """[codex on orch#836] LEDGER_ABSENT and LEDGER_UNREADABLE were declared
+    states that `probe()` could never return — it raised instead, and `--json`
+    emitted nothing. A declared state a caller cannot observe is not a state,
+    and a daily report needs to tell unavailable evidence from an ordinary
+    not-yet-eligible result."""
 
-    def test_an_UNPARSEABLE_ledger_refuses(self, tmp_path):
+    def test_an_ABSENT_ledger_is_a_structured_result(self, tmp_path):
+        r = P.probe_result(dt.date(2026, 8, 5), path=tmp_path / "nope.jsonl")
+        assert r["state"] == P.STATE_NO_LEDGER
+        assert "no ledger at" in r["unavailable_because"]
+
+    def test_an_UNPARSEABLE_ledger_is_a_structured_result(self, tmp_path):
         p = tmp_path / "l.jsonl"
         p.write_text("{not json\n", encoding="utf-8")
+        r = P.probe_result(dt.date(2026, 8, 5), path=p)
+        assert r["state"] == P.STATE_UNREADABLE
+
+    def test_the_counts_are_NONE_not_zero(self, tmp_path):
+        """Zero would read like a measurement of an empty ledger."""
+        r = P.probe_result(dt.date(2026, 8, 5), path=tmp_path / "nope.jsonl")
+        assert r["n_rows"] is None and r["n_primary_matured"] is None
+        assert "NOT 'nothing accrued'" in P.render(r)
+
+    def test_the_CLI_exits_2_on_unavailable_evidence(self, tmp_path, monkeypatch,
+                                                    capsys):
+        monkeypatch.setattr(P, "LEDGER", tmp_path / "nope.jsonl")
+        assert P.main(["--as-of", "2026-08-05", "--json"]) == 2
+        assert json.loads(capsys.readouterr().out)["state"] == P.STATE_NO_LEDGER
+
+    def test_the_exception_still_exists_for_callers_that_want_it(self, tmp_path):
         with pytest.raises(P.LedgerUnreadable):
-            P.probe(dt.date(2026, 8, 5), path=p)
+            P.probe(dt.date(2026, 8, 5), path=tmp_path / "nope.jsonl")
+
+
+class TestABrokenPRODUCERIsNotAnEmptyLedger:
+    """A row the accrual cannot count must not read as 'nothing accrued yet' —
+    that is the exact state this probe exists to tell apart from 'it stopped'."""
+
+    def test_a_row_with_NO_cutoff_date_is_UNREADABLE_not_skipped(self, tmp_path):
+        p = tmp_path / "l.jsonl"
+        p.write_text(json.dumps({"kind": "momentum_residual_v0"}) + "\n",
+                     encoding="utf-8")
+        r = P.probe_result(dt.date(2026, 8, 5), path=p)
+        assert r["state"] == P.STATE_UNREADABLE
+        assert "no cutoff_date" in r["unavailable_because"]
+
+    def test_a_MALFORMED_cutoff_date_is_UNREADABLE_not_a_raw_ValueError(
+            self, tmp_path):
+        p = tmp_path / "l.jsonl"
+        p.write_text(json.dumps({"cutoff_date": "not-a-date"}) + "\n",
+                     encoding="utf-8")
+        r = P.probe_result(dt.date(2026, 8, 5), path=p)
+        assert r["state"] == P.STATE_UNREADABLE
+        assert "is not a date" in r["unavailable_because"]
+
+    def test_a_NON_OBJECT_row_is_UNREADABLE(self, tmp_path):
+        p = tmp_path / "l.jsonl"
+        p.write_text("[]\n", encoding="utf-8")
+        assert P.probe_result(dt.date(2026, 8, 5), path=p)["state"] == \
+            P.STATE_UNREADABLE
+
+
+class TestTheThreeQuestionsStayApart:
 
     def test_a_ledger_that_STOPPED_growing_is_its_own_state(self, tmp_path):
         """The failure the probe exists for: the job died and the wait looks
@@ -76,6 +129,20 @@ class TestItRefusesToProjectFromNothing:
         assert r["state"] == P.STATE_GENESIS_ONLY
         assert r["projection"]["projected"] is False
         assert "cannot be OBSERVED" in r["projection"]["refused_because"]
+        assert "projected_eligible_on_or_after" not in r["projection"]
+
+    def test_an_ELIGIBLE_arm_projects_NOTHING(self, tmp_path):
+        """[codex on orch#836] `need` went <= 0 and the arithmetic produced a
+        'projected eligibility' date in the PAST. A reached threshold is not a
+        forecast."""
+        cutoffs = [(dt.date(2025, 1, 6) + dt.timedelta(days=7 * i)).isoformat()
+                   for i in range(40)]
+        led = _ledger(tmp_path, *cutoffs)
+        r = P.probe(dt.date(2026, 8, 5), path=led)
+        assert r["state"] == P.STATE_ELIGIBLE
+        assert r["n_primary_matured"] >= P.MIN_DATES_PRIMARY
+        assert r["projection"]["projected"] is False
+        assert "already eligible" in r["projection"]["refused_because"]
         assert "projected_eligible_on_or_after" not in r["projection"]
 
     def test_enough_cutoffs_project_from_the_OBSERVED_rate(self, tmp_path):

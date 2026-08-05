@@ -65,17 +65,42 @@ inflate the single number that decides eligibility.
 possible**. Stated because an optimistic maturity makes Arm B look closer than
 it is.
 
+## Three correctness gaps the review found, all real `[codex on orch#836]`
+
+**1. Two declared states could never be observed.** `LEDGER_ABSENT` and
+`LEDGER_UNREADABLE` were in the state table, but `probe()` *raised* instead of
+returning them and `--json` emitted nothing at all. **A declared state a caller
+cannot observe is not a state** — and a daily report that gets an exception
+where it expected a row cannot tell *unavailable evidence* from *not eligible
+yet*, which is the one distinction this probe exists for. `probe_result()` now
+returns a structured row for both (counts `None`, **not zero**), the CLI exits
+**2** on them, and the exception stays available for callers that want it.
+
+**2. A broken producer could read as an empty ledger.** A row with no
+`cutoff_date` was silently skipped; a malformed one raised a raw `ValueError`.
+Every field the accrual needs is now validated per row and surfaces as
+`LEDGER_UNREADABLE`. A row the accrual cannot count is a **broken producer**,
+not "nothing accrued yet".
+
+**3. An eligible arm was still being forecast.** Once
+`n_primary_matured ≥ 30`, `need` went ≤ 0 and the arithmetic produced a
+"projected eligibility" date **in the past**. A reached threshold is not a
+forecast; the projection is now explicitly refused with *"already eligible"*.
+
 ## Not claimed
 
 Nothing about whether the momentum member works. Arm A already established that
 all four §6 conditions hold on the reconstruction **and certify nothing**. This
 is about whether the evidence that *could* certify is still being produced.
 
-Suites: 11 tests — the three unreadable/absent/stopped distinctions, one late
+Suites: 18 tests — the three unreadable/absent/stopped distinctions, one late
 firing NOT reading as stopped, the refusal-to-project, projection from an
 observed rate once there are three cutoffs, business-day maturity, unknown
-regimes counting as unknown, and the live ledger pinned. Regimes come from an
-injected stub so the tests never depend on the umbrella being present.
+regimes counting as unknown, and the live ledger pinned — plus the three above: unavailable
+evidence as an observable state with `None` counts and CLI exit 2, a row with a
+missing/malformed/non-object `cutoff_date` reading as `LEDGER_UNREADABLE`, and
+an already-eligible arm projecting nothing. Regimes come from an injected stub
+so the tests never depend on the umbrella being present.
 
 ## Next
 

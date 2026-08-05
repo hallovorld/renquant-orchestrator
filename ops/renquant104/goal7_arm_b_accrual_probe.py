@@ -69,21 +69,52 @@ STATE_ELIGIBLE = "ARM_B_ELIGIBLE"
 
 
 class LedgerUnreadable(Exception):
-    """Could not read the accrual evidence. NOT the same as 'nothing accrued'."""
+    """Could not read the accrual evidence. NOT the same as 'nothing accrued'.
+
+    Carries the STATE it maps to, so :func:`probe_result` can return a
+    structured row for it. A declared state a caller can never observe is not a
+    state `[codex on orch#836]` — and a daily report needs to tell unavailable
+    evidence from an ordinary not-yet-eligible result.
+    """
+
+    def __init__(self, message: str, state: str = "LEDGER_UNREADABLE") -> None:
+        super().__init__(message)
+        self.state = state
 
 
 def read_ledger(path: pathlib.Path = LEDGER) -> list[dict]:
+    """Every row, with EVERY field the accrual calculation needs validated.
+
+    [codex on orch#836] The first version skipped a row with no `cutoff_date`
+    and let a malformed one raise a raw ValueError. Both hide a broken producer
+    behind something that reads like "nothing accrued yet" — which is precisely
+    the state this probe exists to tell apart from "it stopped".
+    """
     if not path.is_file():
-        raise LedgerUnreadable(f"no ledger at {path}")
+        raise LedgerUnreadable(f"no ledger at {path}", STATE_NO_LEDGER)
     rows = []
     for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise LedgerUnreadable(f"{path} line {i}: {exc}") from exc
+            raise LedgerUnreadable(f"{path} line {i}: {exc}")
+        if not isinstance(row, dict):
+            raise LedgerUnreadable(
+                f"{path} line {i}: row is {type(row).__name__}, not an object")
+        raw = row.get("cutoff_date")
+        if raw is None:
+            raise LedgerUnreadable(
+                f"{path} line {i}: no cutoff_date — a row the accrual cannot "
+                "count is a broken producer, not an empty ledger")
+        try:
+            dt.date.fromisoformat(str(raw))
+        except ValueError as exc:
+            raise LedgerUnreadable(
+                f"{path} line {i}: cutoff_date {raw!r} is not a date ({exc})")
+        rows.append(row)
     return rows
 
 
@@ -159,7 +190,15 @@ def probe(as_of: dt.date, *, path: pathlib.Path = LEDGER) -> dict:
         state = STATE_ACCRUING
 
     projection: dict = {"projected": False}
-    if len(cutoffs) >= MIN_ROWS_TO_PROJECT:
+    if state == STATE_ELIGIBLE:
+        # [codex on orch#836] `need` goes <= 0 here and the arithmetic produced
+        # a "projected eligibility" date in the PAST. A reached threshold is not
+        # a forecast.
+        projection["refused_because"] = (
+            f"already eligible: {len(primary_matured)} matured "
+            f"{PRIMARY_REGIME} date(s) >= the {MIN_DATES_PRIMARY} the "
+            "registration requires — there is nothing left to project")
+    elif len(cutoffs) >= MIN_ROWS_TO_PROJECT:
         span = (cutoffs[-1] - cutoffs[0]).days
         rate = (len(cutoffs) - 1) / span if span else 0.0
         known = [d for d in per_date if d["regime_known"]]
@@ -204,8 +243,41 @@ def probe(as_of: dt.date, *, path: pathlib.Path = LEDGER) -> dict:
     }
 
 
+def probe_result(as_of: dt.date, *, path: pathlib.Path = LEDGER) -> dict:
+    """:func:`probe`, but an unreadable/absent ledger becomes a STRUCTURED row.
+
+    The exception stays available for callers that want it; this is the shape a
+    daily report consumes, because a report that gets an exception where it
+    expected a row cannot distinguish "evidence unavailable" from "not eligible
+    yet" — and those are the two things this probe exists to keep apart.
+    """
+    try:
+        return probe(as_of, path=path)
+    except LedgerUnreadable as exc:
+        return {
+            "as_of": as_of.isoformat(), "ledger": str(path),
+            "state": exc.state, "unavailable_because": str(exc),
+            "n_rows": None, "n_cutoffs": None, "newest_cutoff": None,
+            "days_since_newest_cutoff": None, "missed_firings": None,
+            "cadence_days": CADENCE_DAYS,
+            "regime_source_unavailable_because": None,
+            "per_cutoff": [],
+            # NOT zero. A count of the primary regime is unknown when the
+            # ledger cannot be read, and zero would read like a measurement.
+            "n_primary_matured": None, "n_needed_primary": MIN_DATES_PRIMARY,
+            "projection": {"projected": False,
+                           "refused_because": "the ledger could not be read"},
+        }
+
+
 def render(r: dict) -> str:
     out = [f"GOAL-7 Arm B accrual — as of {r['as_of']}", ""]
+    if r.get("unavailable_because"):
+        out.append(f"  STATE: {r['state']}")
+        out.append(f"  {r['unavailable_because']}")
+        out.append("  Evidence UNAVAILABLE — this is NOT 'nothing accrued'. "
+                   "Every count below is unknown,\n  not zero.")
+        return "\n".join(out)
     out.append(f"  ledger rows ................. {r['n_rows']}")
     out.append(f"  distinct cutoffs ............ {r['n_cutoffs']}")
     out.append(f"  newest cutoff ............... {r['newest_cutoff']} "
@@ -238,14 +310,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--as-of", default=dt.date.today().isoformat())
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    try:
-        r = probe(dt.date.fromisoformat(args.as_of), path=LEDGER)
-    except LedgerUnreadable as exc:
-        print(f"REFUSED: {exc} — an unreadable ledger is not an empty one",
-              file=sys.stderr)
-        return 2
+    r = probe_result(dt.date.fromisoformat(args.as_of), path=LEDGER)
     print(json.dumps(r, indent=2) if args.json else render(r))
-    return 1 if r["state"] in (STATE_STOPPED, STATE_NO_LEDGER) else 0
+    # Structured either way, so a daily report always gets a row — and an
+    # unreadable ledger still exits NON-ZERO rather than looking ordinary.
+    if r["state"] in (STATE_NO_LEDGER, STATE_UNREADABLE):
+        return 2
+    return 1 if r["state"] == STATE_STOPPED else 0
 
 
 if __name__ == "__main__":
