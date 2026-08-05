@@ -92,8 +92,17 @@ def read_ledger(path: pathlib.Path = LEDGER) -> list[dict]:
     """
     if not path.is_file():
         raise LedgerUnreadable(f"no ledger at {path}", STATE_NO_LEDGER)
+    # [codex on orch#836, round 3] `is_file()` succeeding does not make the bytes
+    # readable: permissions, a mid-read I/O error, or non-UTF-8 content all raise
+    # AFTER the existence check and would escape the state machine, leaving --json
+    # with no LEDGER_UNREADABLE row. Unavailable evidence has to stay observable
+    # through every path that can make it unavailable, not just the obvious one.
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise LedgerUnreadable(f"cannot read {path}: {type(exc).__name__}: {exc}")
     rows = []
-    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for i, line in enumerate(text.splitlines(), 1):
         line = line.strip()
         if not line:
             continue

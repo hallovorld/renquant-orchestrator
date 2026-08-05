@@ -74,6 +74,44 @@ class TestUnavailableEvidenceIsAnOBSERVABLEState:
         with pytest.raises(P.LedgerUnreadable):
             P.probe(dt.date(2026, 8, 5), path=tmp_path / "nope.jsonl")
 
+    def test_a_ledger_that_EXISTS_but_cannot_be_READ_is_still_structured(
+            self, tmp_path, monkeypatch, capsys):
+        """[codex on orch#836, round 3] `is_file()` succeeding does not make the
+        bytes readable. A permission or I/O failure raises AFTER the existence
+        check, so it escaped the state machine entirely and left `--json` with no
+        row — the exact unavailable-vs-not-eligible confusion the states exist to
+        prevent, arriving through a second door."""
+        p = tmp_path / "l.jsonl"
+        p.write_text(json.dumps({"cutoff_date": "2026-07-01"}) + "\n",
+                     encoding="utf-8")
+        real_read_text = Path.read_text
+
+        def _boom(self, *a, **k):
+            if self == p:
+                raise PermissionError(13, "Permission denied")
+            return real_read_text(self, *a, **k)
+
+        monkeypatch.setattr(Path, "read_text", _boom)
+
+        r = P.probe_result(dt.date(2026, 8, 5), path=p)
+        assert r["state"] == P.STATE_UNREADABLE
+        assert "PermissionError" in r["unavailable_because"]
+        assert r["n_rows"] is None            # never a zero that reads as measured
+
+        monkeypatch.setattr(P, "LEDGER", p)
+        assert P.main(["--as-of", "2026-08-05", "--json"]) == 2
+        assert json.loads(capsys.readouterr().out)["state"] == P.STATE_UNREADABLE
+
+    def test_a_ledger_with_NON_UTF8_bytes_is_UNREADABLE_not_a_raw_decode_error(
+            self, tmp_path):
+        p = tmp_path / "l.jsonl"
+        p.write_bytes(b'{"cutoff_date": "2026-07-01", "x": "\xff\xfe"}\n')
+
+        r = P.probe_result(dt.date(2026, 8, 5), path=p)
+
+        assert r["state"] == P.STATE_UNREADABLE
+        assert "UnicodeDecodeError" in r["unavailable_because"]
+
 
 class TestABrokenPRODUCERIsNotAnEmptyLedger:
     """A row the accrual cannot count must not read as 'nothing accrued yet' —

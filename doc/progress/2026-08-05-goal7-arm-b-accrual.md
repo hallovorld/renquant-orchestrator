@@ -107,3 +107,20 @@ so the tests never depend on the umbrella being present.
 Unscheduled and read-only for now. Wiring it into the daily fleet report is the
 obvious follow-up and a separate reviewable step — a probe nobody runs has the
 same failure mode as the thing it watches.
+
+## Review round 3: unavailable evidence had a second door
+
+`is_file()` succeeding does not make the bytes readable. `path.read_text()` can still
+raise `OSError` (permission, mid-read I/O) or `UnicodeDecodeError` — **after** the
+existence check — so those escaped the state machine entirely and `--json` emitted no
+`LEDGER_UNREADABLE` row at all. The states exist to keep "I could not see the
+evidence" apart from "nothing accrued"; a path that bypasses them defeats the whole
+construction, and it is the least visible way to do it.
+
+The read/decode step is now inside `LedgerUnreadable`, carrying the exception type so
+the reason is legible rather than just "unreadable".
+
+Two regressions: a monkeypatched `PermissionError` on that exact path (asserting the
+structured result, `n_rows is None`, and `--json` exit 2 with the state), and a file
+of genuine non-UTF-8 bytes. Both fail against the pre-change module [VERIFIED — `git
+stash push ops/…`, re-run: 2 failed]. Suite: 20 passed.
