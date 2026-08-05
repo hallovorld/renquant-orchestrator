@@ -34,6 +34,17 @@ def _db(dirpath: Path, tag: str, *, n_candidates: int) -> None:
     con.commit(); con.close()
 
 
+def _db_zero(dirpath: Path, tag: str) -> None:
+    """A row for a run that recorded but scored nothing — the fail-closed shape."""
+    dirpath.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(dirpath / f"runs.{tag}.db")
+    con.execute("CREATE TABLE pipeline_runs (run_id TEXT, run_date TEXT, "
+                "n_candidates INT, n_buys INT, n_exits INT, created_at TEXT)")
+    con.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?)",
+                ("r1", DATE, 0, 0, 0, "2026-08-04 21:00:00"))
+    con.commit(); con.close()
+
+
 @pytest.fixture
 def tree(tmp_path):
     cfg, data, logs = tmp_path / "cfg", tmp_path / "data", tmp_path / "logs"
@@ -111,8 +122,9 @@ def test_zero_candidate_record_alarms_and_mentions_the_marker(tree):
 
 
 def test_missing_record_alarms_when_not_dormant(tree):
-    cfg, _, _ = tree
+    cfg, data, _ = tree
     _profile(cfg, LANE.profile, pending=False)
+    _db(data, S.PROD_TAG, n_candidates=80)   # the SESSION ran; this lane did not
     state, detail = _classify(LANE, tree)
     assert state == S.STATE_MISSING and state in S.ACTIONABLE
     assert "not dormant" in detail
@@ -128,6 +140,8 @@ def test_dormant_lane_is_quiet_and_only_config_can_declare_it(tree):
 def test_absent_profile_is_NOT_dormant(tree):
     """A vanished profile must never read as 'declared dormant' — that is the
     exact silence this sentinel exists to remove."""
+    _, data, _ = tree
+    _db(data, S.PROD_TAG, n_candidates=80)   # session ran, so absence is real
     state, _ = _classify(LANE, tree)
     assert state == S.STATE_MISSING and state in S.ACTIONABLE
 
@@ -221,3 +235,94 @@ def test_wrapper_is_invocable_with_an_explicit_session_date():
     """What the daily wrapper's last step relies on: positional date arg."""
     src = WRAPPER.read_text()
     assert 'SESSION_DATE="${1:-$(date +%Y-%m-%d)}"' in src
+
+
+# ── GOAL-1: "has not run" is not "has failed" ────────────────────────────────
+#
+# MEASURED 2026-08-05 03:45 PT, nine hours before the daily run: this sentinel
+# reported 3 ACTIONABLE lane states on a date where NOTHING had run. That is the
+# exact ambiguity GOAL-1 exists to remove — an operator seeing MISSING cannot
+# tell "the lane crashed" from "the day has not started".
+
+
+def test_no_PROD_row_makes_an_absent_lane_NOT_YET_RUN(tree):
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)          # no prod db, no lane db
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_NOT_YET_RUN
+    assert state not in S.ACTIONABLE
+    assert "has not run yet" in detail
+
+
+def test_a_PROD_row_restores_MISSING_as_ACTIONABLE(tree):
+    """The load-bearing half: this must NOT become a silencer. If prod ran and a
+    lane did not record, that lane is still an alarm."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db(data, S.PROD_TAG, n_candidates=80)              # the session DID run
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+
+
+def test_a_FAIL_CLOSED_lane_stays_actionable_even_with_no_PROD_row(tree):
+    """Order matters: a lane that DID record a fail-closed run is judged on its
+    own evidence and is never downgraded by the session check — even though no
+    PROD row exists, which would otherwise mean NOT_YET_RUN."""
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db_zero(data, LANE.tag)                 # recorded, but scored nothing
+    (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
+        "panel_scoring_fail_closed(83)", encoding="utf-8")
+    assert S.session_started(DATE, data) is False
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_FAIL_CLOSED and state in S.ACTIONABLE
+
+
+def test_DORMANCY_still_wins_over_the_session_check(tree):
+    """Dormancy is a config fact; it must not depend on whether anything ran."""
+    cfg, _, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT
+
+
+def test_session_started_reads_PROD_not_the_lane(tree):
+    """Anti-vacuity: a lane's own db must not be mistaken for the session."""
+    _, data, _ = tree
+    assert S.session_started(DATE, data) is False
+    _db(data, LANE.tag, n_candidates=83)
+    assert S.session_started(DATE, data) is False, "a lane row is not a session"
+    _db(data, S.PROD_TAG, n_candidates=80)
+    assert S.session_started(DATE, data) is True
+
+
+def test_the_all_clear_SAYS_the_session_has_not_run(tree, capsys, monkeypatch):
+    """A silent all-clear on a date nothing ran is the same ambiguity one level
+    up — the operator must be told which of the two they are looking at."""
+    cfg, data, logs = tree
+    for lane in S.FLEET:
+        _profile(cfg, lane.profile, pending=False)
+    monkeypatch.setattr(S, "DATA", data)
+    monkeypatch.setattr(S, "PINNED_CONFIGS", cfg)
+    monkeypatch.setattr(S, "LOGS", logs)
+    rc = S.main(["--date", DATE])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "has NOT RUN" in out
+    assert "lanes accounted for" not in out
+
+
+def test_directories_resolve_at_CALL_time_not_at_import(tree, monkeypatch):
+    """Found while writing the NOT_YET_RUN test: `main()` bound DATA/LOGS as
+    parameter defaults at import, so a redirected run silently measured the REAL
+    tree. A watcher that reads production when you point it elsewhere is worse
+    than one that errors."""
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=False)
+    monkeypatch.setattr(S, "DATA", data)
+    monkeypatch.setattr(S, "PINNED_CONFIGS", cfg)
+    monkeypatch.setattr(S, "LOGS", logs)
+    state, _ = S.classify(LANE, DATE)            # no explicit dirs
+    assert state == S.STATE_NOT_YET_RUN, (
+        "classify read a directory bound at import instead of the current one")
+    assert S.session_started(DATE) is False
