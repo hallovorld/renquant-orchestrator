@@ -253,5 +253,52 @@ def test_the_record_never_states_a_member_count_the_config_contradicts():
         n_prod = len(members_from_config(DEFAULT_CONFIG))
         assert n_prod == 2, n_prod
         assert "the one other PROD member" in doc
-    for contradiction in ("the other two members", "two thirds of the ensemble"):
+    # [codex on orch#807] The first guard listed one exact phrasing, so the
+    # variant actually present ("two thirds of the SHADOW ensembles") sailed
+    # through. Guard the PATTERN, not one spelling.
+    for contradiction in ("the other two members", "two thirds"):
         assert contradiction not in doc, contradiction
+
+
+def test_the_record_claims_NO_shadow_result_ANYWHERE():
+    """This PR derives, tests and asserts PROD only, so the record must not
+    state a shadow finding — not in THE STATEMENT, not in NEXT, not inside the
+    scope disclaimer itself.
+
+    [codex on orch#809, three rounds] First the guard only required the
+    disclaimer to be PRESENT, which is not the same as forbidding the claim.
+    Then it excised the disclaimer paragraph — and the claim was INSIDE it, so
+    the carve-out was shaped to fit the violation. There is no exemption list
+    now: the whole document is checked.
+    """
+    doc = " ".join((Path(__file__).resolve().parent.parent / "doc" / "progress"
+                    / "2026-08-05-goal4-regime-member-census.md").read_text().split())
+    assert "does not bind or claim any shadow result" in doc
+    # Any sentence that reports a shadow MEASUREMENT. Mentioning the --config
+    # capability is fine; reporting what it found is not.
+    for claim in ("clf leg appears", "likewise unstamped", "also unmeasured",
+                  "shadow blends add", "shadow ensembles are unmeasured",
+                  "two thirds of the shadow", "against RCS"):
+        assert claim not in doc, (
+            f"{claim!r} reports a shadow finding this PR does not bind")
+
+
+def test_the_record_never_states_a_member_count_the_config_contradicts():
+    """[codex on orch#807, twice] I wrote 'the other two members' and left it in
+    place after correcting PROD to TWO members — so the doc contradicted itself.
+    A member count asserted in prose is a number like any other: it has to match
+    the source. This derives it instead of trusting the prose."""
+    doc_path = (Path(__file__).resolve().parent.parent / "doc" / "progress"
+                / "2026-08-05-goal4-regime-member-census.md")
+    doc = " ".join(doc_path.read_text().split())
+    if DEFAULT_CONFIG.exists():
+        n_prod = len(members_from_config(DEFAULT_CONFIG))
+        assert n_prod == 2, n_prod
+        assert "the one other PROD member" in doc
+    # [codex on orch#807] The first guard listed one exact phrasing, so the
+    # variant actually present ("two thirds of the SHADOW ensembles") sailed
+    # through. Guard the PATTERN, not one spelling.
+    for contradiction in ("the other two members", "two thirds"):
+        assert contradiction not in doc, contradiction
+
+

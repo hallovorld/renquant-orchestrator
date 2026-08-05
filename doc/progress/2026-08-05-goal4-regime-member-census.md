@@ -90,14 +90,13 @@ census exists to find: a claim about a configuration that has moved. The member
 list is now **derived from the pinned config** at run time, `--config` selects a
 shadow profile, an unrecognised component becomes a labelled ROW rather than a
 silent drop, and a config with no components REFUSES instead of returning an
-empty census. Run against the RCS shadow profile, the clf leg appears and is
-also unmeasured.
+empty census.
 
 ## THE STATEMENT
 
 The PROD blend is **one member measured on the decisive axis and one unmeasured**,
 and the measured one is negatively informative in the regime that carries 88% of
-the book's buys. (The shadow blends add a clf leg that is likewise unmeasured.)
+the book's buys.
 
 That does not say the blend is bad. It says **GOAL-4 cannot be evaluated on the
 pooled number**, and for PROD no ensemble weighting can be justified until **the
@@ -120,14 +119,24 @@ BULL_CALM does not stop being so by being averaged.
 
 ## NEXT
 
-1. Stamp per-regime evidence for the momentum member (PROD) and the clf member
-   (shadow) — until then half the PROD ensemble, and two thirds of the shadow
-   ensembles, are unmeasured on the axis that decides.
+1. Stamp per-regime evidence for the **slow momentum residual**, the one other
+   PROD member. Until then the PROD ensemble is one measured member and one
+   unmeasured, on the axis that decides.
+   The census accepts `--config <profile>`, so a shadow profile can be measured
+   the same way. **This PR does not bind or claim any shadow result**; only PROD
+   is derived, tested and asserted here. Shadow evaluation is separately scoped.
 2. Explain the BULL_CALM buy concentration (orch#805 item 2).
 3. Only then: any ensemble weighting proposal, preregistered, per-arm placebo.
 
-Suite: 14 tests. Two are bound to reality: one fails if the pinned PROD blend's
-MEMBERSHIP changes (codex's second finding — the earlier test only re-ran the
-census over its own hardcoded rows, so membership drift could not fail it), and
-one fails if BULL_CALM ever stops being negative in every vintage or if a PROD
-member gains evidence. Neither can go stale quietly.
+Two tests bind EXTERNAL state and are the ones that keep this record honest:
+one fails if the pinned PROD blend's MEMBERSHIP changes (the first version only
+re-ran the census over its own hardcoded rows, so membership drift could not fail
+it), and one fails if BULL_CALM stops being negative in every reading or if a PROD
+member gains evidence. The rest are repository-source checks — including guards
+that a withdrawn claim is not reintroduced and that a member count in prose
+matches the config.
+
+No test count is quoted here on purpose: an earlier revision stated one, got it
+wrong, and was then "fixed" by adding a nested `pytest --collect-only` call to
+maintain it. Deleting a number that need not exist beats building machinery to
+keep it true `[codex on orch#809]`.
