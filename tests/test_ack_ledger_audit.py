@@ -306,7 +306,13 @@ def test_the_live_ledger_is_measured_not_asserted():
     stale = {j: v for j, v in lags.items() if v is not None and v > 0}
     fresh = {j: v for j, v in lags.items() if v == 0}
 
-    assert stale, "no row is stale — the audit has nothing to detect, so it proves nothing"
+    # 2026-08-05: the two stale rows were RE-REVIEWED and re-stamped, so the live
+    # ledger now has none. That is the goal — but it meant this control, which
+    # demanded a live stale row, could only pass while the ledger was defective.
+    # A positive control bound to today's defects retires itself the moment the
+    # defect is fixed; the anti-vacuity check is now SYNTHETIC and always
+    # available, and the live assertion is that every stale row (if any) is
+    # reported.
     for job, lag in stale.items():
         assert any(job in f and "expiry clock" in f for f in R["findings"]), (job, lag)
 
@@ -319,7 +325,9 @@ def test_the_live_ledger_is_measured_not_asserted():
     # measured in the ACTIVE artifact's promotion_basis stamp).
     assert fresh == {"com.renquant.conditional-retrain104": 0,
                      "com.renquant.monthly-meta-label-retrain": 0,
-                     "com.renquant.rq104-degradation-sentinel": 0}, fresh
+                     "com.renquant.rq104-degradation-sentinel": 0,
+                     "com.renquant.rq105-batch-scores-export": 0,
+                     "com.renquant.shadow-ab-daily": 0}, fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
 
 
@@ -816,3 +824,26 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
     assert not [f for f in R["findings"] if "unknown clears_check kind" in f]
     for r in R["rows"]:
         assert r["condition_finding"] is None, r
+
+
+def test_the_ANTI_VACUITY_control_is_SYNTHETIC_not_bound_to_a_live_defect(tmp_path):
+    """A stale row must still be DETECTED — proven on a repo built for it.
+
+    Until 2026-08-05 this property was pinned by requiring the LIVE ledger to
+    contain a stale row. That control could only pass while the ledger was
+    defective: fixing the two mis-stamped rows retired the very evidence that
+    the audit can see staleness at all. A positive control that dies when the
+    thing it guards is repaired is not a control — so it is synthetic here, and
+    available forever.
+    """
+    root = _repo(tmp_path / "stale", [
+        ({"j": _ack("2026-07-01")}, "2026-07-01"),
+        # the row is EDITED later without its stamp moving: exactly the lag the
+        # audit exists to report.
+        ({"j": _ack("2026-07-01", reason="re-diagnosed, stamp not moved")},
+         "2026-07-20"),
+    ])
+    R = A.audit(dt.date(2026, 7, 25), str(root / A.LEDGER_REL), str(root))
+    row = R["rows"][0]
+    assert row["stamp_lag_days"] == 19, row
+    assert any("expiry clock" in f for f in R["findings"]), R["findings"]
