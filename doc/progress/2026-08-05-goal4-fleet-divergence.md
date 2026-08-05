@@ -126,14 +126,20 @@ Under the pre-review code that would have been reported as *"5 of 5 shadow lanes
 produced no separating evidence"* — a fleet conclusion drawn from a prod run
 that scored nothing.
 
-**And then the refusal message needed the same discipline.** Checked before
-writing it up as an incident: those are **23 intraday exit-monitor runs**
+**And then the refusal message needed the same discipline — twice.** Checked
+before writing it up as an incident: those are **23 intraday exit-monitor runs**
 (13:30 → 17:48 UTC, every ~12 min), none of which carries candidates; the buy
 funnel scores once daily at 13:55 **PT** and had not run yet
 `[VERIFIED — this session]`. So this is **not-scored-yet, not broken**. The
-refusal now says how many prod runs it saw and why an intraday-only date is
-expected to refuse — and it still refuses, because falling back to an older
-scored run would publish a stale baseline as today's.
+refusal now says **how many prod runs it saw** — and stops there
+`[codex on orch#831]`. My first attempt put the diagnosis *into the exception*:
+"an intraday-only date is expected to refuse". A run count cannot establish
+that, and on a historical date or after a **failed** funnel the same message
+would call a real incident "expected" — converting an unknown empty baseline
+into a non-incident by implication, which is the exact move this probe exists
+to prevent, appearing in the probe's own error text. The observation belongs
+here, in the note; the exception reports facts and refuses. A test asserts the
+words "expected", "intraday" and "not yet" do not appear in it.
 
 ## Next
 

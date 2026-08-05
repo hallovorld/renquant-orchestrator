@@ -83,16 +83,29 @@ class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
         assert "top-20" in str(exc.value)
 
     def test_the_refusal_says_HOW_MANY_prod_runs_it_saw(self, tmp_path):
-        """Prod runs an exit-monitor pass every ~12 minutes with no candidates
-        and scores the buy funnel once daily. Without the run count, "scored 0
-        names" reads as broken when it means not-scored-yet."""
+        """Without the run count, "scored 0 names" is missing the one fact that
+        lets a reader tell a quiet morning from a broken funnel."""
         for i in range(3):
             _lane(tmp_path, "alpaca", "2026-08-04", {},
                   run_id=f"r{i}", created_at=f"2026-08-04T1{i}:00:00")
         with pytest.raises(F.ProdBaselineUnavailable) as exc:
             F.probe("2026-08-04", data=tmp_path)
         assert "3 prod run(s) recorded" in str(exc.value)
-        assert "rather than fall back to an older run" in str(exc.value)
+        assert "stale baseline" in str(exc.value)
+
+    def test_the_refusal_DIAGNOSES_NOTHING(self, tmp_path):
+        """[codex on orch#831] A run count cannot establish that those runs are
+        intraday passes, nor that the funnel's scheduled time has not arrived.
+        On a historical date, or after a FAILED funnel, calling the zero-score
+        state 'expected' would convert an unknown empty baseline into a
+        non-incident by implication — the exact move this probe exists to
+        prevent, appearing in the probe's own error text."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {})
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", data=tmp_path)
+        msg = str(exc.value).lower()
+        for word in ("expected", "intraday", "once daily", "not yet", "13:55"):
+            assert word not in msg, (word, msg)
 
     def test_a_NON_POSITIVE_top_k_is_refused(self, tmp_path):
         """An empty top-K set makes EVERY lane read SAME_TOP_K_AS_PROD — the

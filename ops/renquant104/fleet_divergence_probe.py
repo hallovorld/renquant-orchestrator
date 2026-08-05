@@ -245,20 +245,22 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
             f"evidence' would publish a missing control as a finding")
     need = max(MIN_COMMON, top_k)
     if len(prod) < need:
-        # WHY the count matters, not just that it is short: prod runs an
-        # exit-monitor pass every ~12 minutes that carries no candidates, and
-        # the buy funnel scores once a day at 13:55 PT. Before that, the latest
-        # run legitimately has zero. Saying how many runs were seen separates
-        # "not scored YET today" from "prod scored nothing" — and the probe
-        # still refuses, because falling back to an older run would publish a
-        # stale baseline as today's.
+        # The run COUNT is reported and nothing is inferred from it
+        # `[codex on orch#831]`. A count cannot establish that those runs are
+        # intraday exit-monitor passes, nor that the buy funnel has not reached
+        # its scheduled time — so on a historical date, or after a FAILED
+        # funnel, a message calling this "expected" would convert an unknown
+        # empty baseline into a non-incident by implication. That is the exact
+        # move this probe exists to prevent, and it must not appear in the
+        # probe's own error text. The reader gets the facts and draws the
+        # conclusion.
         raise ProdBaselineUnavailable(
             f"prod run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
             f"than the {need} needed to define a top-{top_k} — the reference "
             f"cannot support the comparison being asked for "
             f"({_n_runs(PROD_LANE, date, data)} prod run(s) recorded on this "
-            f"date; the buy funnel scores once daily, so an intraday-only date "
-            f"is expected to refuse rather than fall back to an older run)")
+            f"date). Refusing rather than falling back to an older scored run, "
+            f"which would publish a stale baseline as this date's.")
     rows = []
     for lane in SHADOW_LANES:
         try:
