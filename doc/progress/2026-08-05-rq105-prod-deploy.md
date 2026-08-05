@@ -49,12 +49,29 @@ Tomorrow's 06:15 export will be the first scheduled run on the new source.
 the wrapper default. This reverts *only* the score source and leaves the other
 19 files deployed.
 
-**Full revert, if the whole sync must come back out.** Use `checkout -B`, not a
-bare `checkout <sha>`:
+**Full revert, if the whole sync must come back out.** It is a destructive
+action — `checkout -B` moves the checked-out branch backward **and updates the
+worktree**, so it can overwrite an uncommitted runtime hotfix. That is the
+incident this very record describes, arriving from the other direction
+`[codex on orch#828]`. Run the preflight first, and **stop** if either check
+fails — the narrow env override above needs none of this:
 
 ```
+# 1. nothing uncommitted may be destroyed. Must print 0.
+git -C /Users/renhao/git/github/renquant-orchestrator-run status --porcelain | wc -l
+
+# 2. the checkout must still be at the commit this record deployed.
+#    If it is not, someone deployed after me: STOP and use the env override,
+#    because this sha is no longer the state you are reverting FROM.
+git -C /Users/renhao/git/github/renquant-orchestrator-run rev-parse HEAD
+#    expected: b1e325a12eb39e1bd620256bc372c7dc21871f4d
+
+# 3. only then:
 git -C /Users/renhao/git/github/renquant-orchestrator-run checkout -B main 7f7b759cd9acd6e0a92c12d59456b9e177ad6a13
 ```
+
+Step 3 **intentionally discards** any checkout commits made after
+`b1e325a1` — which is why step 2 exists rather than being a formality.
 
 `git checkout <sha>` would leave the runtime checkout **detached**, and the next
 deployment — `git pull --ff-only` — then fails because it is no longer on a
