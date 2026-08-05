@@ -102,3 +102,17 @@ Six more tests (hash-in-double-quotes, hash-in-single-quotes, a REAL trailing
 comment still refused, here-doc block comment refused, a real emitter after the
 here-doc closes still found, `<<-'PY'` and `<<"EOF"` delimiters both close).
 17 in this file; 5552 passed, 2 skipped across the repo.
+
+## Review round 4 (codex on orch#804)
+
+The here-doc tracker closed on `line.strip() == delimiter`, which is not
+shell-correct: `<<EOF` ends ONLY on a line that is exactly the delimiter — `  EOF`
+does not close it — and `<<-EOF` permits leading TABS only, never spaces. Codex
+verified the shell behaviour against bash and produced a fixture
+(`cat <<EOF` / `  EOF` / `echo "=== X ==="` / `EOF`) where the tracker ended the
+here-doc early and re-pinned to an echo bash is still swallowing as body.
+
+Closing is now exact, with `<<-` stripping tabs only. Three more tests: an
+indented delimiter does not close a plain here-doc; `<<-` closes on tabs but not
+on spaces; the delimiter appearing as ordinary body text does not close.
+20 tests in this file, and `--check` against the live wrappers exits 0.

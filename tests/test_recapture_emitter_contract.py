@@ -197,3 +197,47 @@ def test_a_quoted_and_a_dash_heredoc_delimiter_both_close(tmp_path):
                        "source": "scripts/w.sh:1"}])
         recapture(c, tmp_path)
         assert c["lines"][0]["source"] == "scripts/w.sh:4", opener
+
+
+# ── [codex on orch#804] round 3: shell-CORRECT here-doc closing ─────────────
+
+def test_an_INDENTED_delimiter_does_NOT_close_a_plain_heredoc(tmp_path):
+    """Verified against bash: `<<EOF` ends only on a line that is EXACTLY the
+    delimiter. Closing on `line.strip()` ended the here-doc early and re-pinned
+    to an echo bash is still swallowing as body."""
+    c = _fixture(tmp_path,
+                 ["cat <<EOF", "  EOF", 'echo "=== X ==="', "EOF"],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:9"}])
+    with pytest.raises(SystemExit) as exc:
+        recapture(c, tmp_path)
+    assert "0 emit site(s)" in str(exc.value)
+    assert c["lines"][0]["source"] == "scripts/w.sh:9"
+
+
+def test_a_dash_heredoc_closes_on_TABS_but_not_on_SPACES(tmp_path):
+    # <<- strips leading TABS: this one closes, so the later echo IS a site
+    c = _fixture(tmp_path,
+                 ["cat <<-EOF", "body", "\tEOF", 'echo "=== X ==="'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    recapture(c, tmp_path)
+    assert c["lines"][0]["source"] == "scripts/w.sh:4"
+
+    # ... but SPACES never close, even for <<-
+    c2 = _fixture(tmp_path,
+                  ["cat <<-EOF", "body", "  EOF", 'echo "=== X ==="', "EOF"],
+                  [{"job": "j", "kind": "action", "template": "=== X ===",
+                    "source": "scripts/w.sh:9"}])
+    with pytest.raises(SystemExit):
+        recapture(c2, tmp_path)
+
+
+def test_a_delimiter_appearing_as_ordinary_body_text_does_not_close(tmp_path):
+    c = _fixture(tmp_path,
+                 ["cat <<EOF", "the word EOF appears here", 'echo "=== X ==="',
+                  "EOF"],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:9"}])
+    with pytest.raises(SystemExit):
+        recapture(c, tmp_path)

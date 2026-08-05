@@ -37,7 +37,7 @@ UMBRELLA = pathlib.Path("/Users/renhao/git/github/RenQuant")
 CONTRACT = pathlib.Path(__file__).resolve().parent / "emitter_contract.json"
 
 
-_HEREDOC_OPEN = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\1")
+_HEREDOC_OPEN = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][A-Za-z_0-9]*)\2")
 
 
 def _strip_unquoted_comment(prefix: str) -> tuple[str, bool]:
@@ -93,16 +93,25 @@ def _emit_sites(text: str, template: str) -> list[int]:
     """
     sites: list[int] = []
     delimiter: str | None = None
+    tabs_ok = False
     for i, line in enumerate(text.splitlines(), start=1):
         if delimiter is not None:
-            if line.strip() == delimiter:
+            # Shell-correct close: `<<EOF` ends only on a line that is EXACTLY
+            # the delimiter — `  EOF` does NOT close it. `<<-EOF` permits
+            # leading TABS only, never spaces. Closing on `line.strip()` made
+            # the tracker end a here-doc early and re-pin to an echo bash is
+            # still swallowing as body. [codex on orch#804, verified against
+            # bash 2026-08-05]
+            candidate = line.lstrip("\t") if tabs_ok else line
+            if candidate == delimiter:
                 delimiter = None
             continue
         opened = _HEREDOC_OPEN.search(line)
         if _is_emitter_line(line, template):
             sites.append(i)
         if opened:
-            delimiter = opened.group(2)
+            tabs_ok = opened.group(1) == "-"
+            delimiter = opened.group(3)
     return sites
 
 
