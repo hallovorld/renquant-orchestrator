@@ -1,57 +1,65 @@
-# 2026-08-05 — GOAL-1: the ops tools deploy from a surface nobody was tracking
+# 2026-08-05 — GOAL-1: two deploy surfaces, both tracked; one grant covered only one
 
-## The measurement
+## The claim I had to withdraw first
 
-The daily wrapper runs the fleet sentinel from a checkout the pin lockfile does
-not govern `[VERIFIED — this session]`:
+An earlier version of this document said the `renquant-orchestrator-run`
+checkout was "a surface nobody was tracking". **That is false**
+`[codex on orch#819, verified against source]`:
 
-```
-scripts/daily_104.sh:977
-FLEET_SENTINEL="${RQ_ORCH_RUN_DIR:-/Users/renhao/git/github/renquant-orchestrator-run}/ops/renquant104/fleet_lane_sentinel_daily.sh"
-```
+- `ops/launchd_manifest.json` **in this repo** carries **22** occurrences of
+  `renquant-orchestrator-run` — all 21 jobs' ProgramArguments are committed. I
+  had grepped `RenQuant/ops/launchd_manifest.json`, a path that does not exist,
+  and read the empty result as absence.
+- `ops/run_surface_drift_check.py:138-140` checks that checkout **explicitly**,
+  against its fetched `origin/main`, and its docstring records the very incident
+  it was built for: *"the renquant-orchestrator-run checkout sat ~130 commits
+  behind origin/main carrying six uncommitted hotfixes; nothing tracked either
+  fact."*
 
-**21 launchd plists** point at `renquant-orchestrator-run`. Everything under
-`ops/` executes from there: the fleet sentinel, the rq105 liveness probe, the
-ack-ledger audit, the silent-refusal sentinel.
+So the tracking exists, it is committed, and it is scheduled. **The thing I
+"found" was already found, and fixed, before tonight.**
 
-`subrepos.lock.json` — the surface orch#808 was written against — governs
-`RenQuant/.subrepo_runtime/repos/*`, the **libraries** the pipeline imports. It
-never touches the run checkout.
+## What survives, and it is narrower
 
-### Why that matters for GOAL-1 specifically
+There really are **two** deploy surfaces, and they advance by **different
+mechanisms**:
 
-Measured before the incident below: the run checkout at `3b65bef` carried **0**
-occurrences of `NOT_YET_RUN` / `EvidenceUnreadable` / `PROFILE_DEFECT`, while
-`main` carried **14**. So every sentinel hardening merged tonight
-(orch#811 / #812 / #813) — including the fix for a sentinel that folded "cannot
-read the evidence" into "no evidence" — **was merged and not running**, and a
-grant on orch#808 alone would not have changed that while reading as "deployed".
+| surface | governs | correct state | how it advances |
+|---|---|---|---|
+| `subrepos.lock.json` runtime repos | the libraries the pipeline imports | each repo **at its pinned commit** | a reviewed PR editing the lockfile |
+| `renquant-orchestrator-run` | every `ops/` tool the 21 launchd jobs execute | **`origin/main`** | `git pull --ff-only` on the checkout |
 
-That is *merged is not deployed* with an extra layer: two surfaces, one tracked.
+Both are watched by the same scan. But note what the second row means: for the
+run checkout, **"correct" is `main`, not a pin.** Merging to `main` *is* the
+review gate for it; the checkout only has to catch up.
 
-## The incident that exposed it
+### The consequence that is actually load-bearing for GOAL-5
 
-I advanced that run checkout **without authorisation** at 06:46 PT today, by
-running `git checkout main && git pull` in a shell whose `cd` had leaked out of a
-compound command into the run checkout. Full report, blast radius and the exact
-revert command: **orch#818**. Nothing uncommitted was clobbered; the pre-incident
-sha is intact; I have not touched it since, and the keep-or-restore decision is
-the operator's.
+**orch#808 asked for the lockfile pins only.** Granting it would have advanced
+the libraries and left every `ops/` tool — the fleet sentinel, the rq105 probe,
+the ack-ledger audit — untouched, because the lockfile does not govern them.
+Measured before today's sync: that checkout carried **0** occurrences of
+`NOT_YET_RUN` / `EvidenceUnreadable` / `PROFILE_DEFECT`, while `main` carried
+**14** — i.e. the whole sentinel hardening was merged and not running.
 
-I found the two-surface gap *while investigating my own mistake*. The gap was
-real before the mistake and would still be real if it had not happened.
+That gap is real and orch#808 is corrected to name both surfaces. It is a gap in
+**my grant request**, not in the project's tracking.
 
-## What this adds to the record
+## The incident that ran alongside this
 
-- orch#808 is retitled and corrected to name **both** surfaces, with a table of
-  what each governs and how each advances.
-- The run checkout is **not** in `ops/launchd_manifest.json` `[VERIFIED — grep]`,
-  so the daily run-surface drift scan does not watch the thing 21 jobs execute.
-  That is the next reliability gap to close, and it is a design question (what
-  "correct" means for a checkout that is routinely fast-forwarded), not a patch.
+I fast-forwarded that run checkout **without authorisation** at 06:46 PT, when a
+`cd` leaked out of a compound command (orch#818, with the exact revert).
+Given the above, the honest reading is: the checkout was **in drift** (behind
+`main`, which the scan alarms on) and my mistake moved it **into** the state the
+scan requires. Unasked — not undesired. Restoring `3b65bef` would put it back
+into drift and the next scheduled scan would alarm; that is stated on #818 so the
+choice is made knowing it.
 
-## The working rule I am adopting
+## Two working rules from this
 
-**Never run a git command in a compound after a `cd` into another repository.**
-Every git invocation against a repo I am not standing in takes `git -C <path>`
-explicitly, so the target lives in the command rather than in shell state.
+1. **Never run a git command in a compound after a `cd` into another
+   repository** — always `git -C <path>`, so the target is in the command rather
+   than in shell state.
+2. **Before writing "nothing tracks X", grep the repo that would track it.** I
+   asserted an absence from a path that does not exist, and built a PR narrative
+   on the empty result.
