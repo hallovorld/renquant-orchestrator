@@ -16,13 +16,17 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 from scripts.goal3_public_export_resolution import (  # noqa: E402
     STATE_NO_COUNTERPART, STATE_RESOLVES_ELSEWHERE, STATE_RESOLVES_TO_COUNTERPART,
-    render, resolve_exports)
+    STATE_UNRESOLVABLE, render, resolve_exports)
 
 
-def _pkg(tmp_path, name, files: dict, all_names=(), init_extra=""):
+def _pkg(tmp_path, name, files: dict, all_names=(), init_extra="",
+         with_kernel=True):
     root = tmp_path / name
-    (root / "kernel").mkdir(parents=True, exist_ok=True)
-    (root / "kernel" / "__init__.py").write_text("", encoding="utf-8")
+    if with_kernel:
+        (root / "kernel").mkdir(parents=True, exist_ok=True)
+        (root / "kernel" / "__init__.py").write_text("", encoding="utf-8")
+    else:
+        root.mkdir(parents=True, exist_ok=True)
     (root / "__init__.py").write_text(
         f"__all__ = {list(all_names)!r}\n{init_extra}\n", encoding="utf-8")
     for fname, body in files.items():
@@ -75,6 +79,37 @@ class TestItReadsWhatTheExportACTUALLYIs:
         assert resolve_exports(pkg)["exports"][0]["shape"] == "identical-copy"
 
 
+    def test_an_export_that_carries_NO_module_is_its_own_state(self, tmp_path):
+        """A `__all__` entry bound to something with no `__module__` (a plain
+        value, a namedtuple field, an int) must not be silently classified —
+        the fourth state exists so it lands somewhere visible."""
+        pkg = _pkg(tmp_path, "p_res7",
+                   {"plain.py": CLS.format(1), "kernel/twin.py": CLS.format(2)},
+                   all_names=["J"], init_extra="J = 7")
+        assert resolve_exports(pkg)["exports"][0]["state"] == STATE_UNRESOLVABLE
+
+    def test_a_package_with_NO_kernel_root_reads_UNDEFINED_not_clean(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_res8",
+                   {"a.py": CLS.format(1), "b.py": CLS.format(2)},
+                   all_names=["J"], init_extra="from p_res8.a import J",
+                   with_kernel=False)
+        r = resolve_exports(pkg)
+        assert r["has_counterpart_root"] is False
+        text = render(r)
+        assert "UNDEFINED here, not clean" in text
+        assert "RESOLVES" not in text, "no per-export verdict may be printed"
+
+    def test_the_measured_COPY_is_recorded(self, tmp_path):
+        """`import` resolves against sys.path: a record naming only the package
+        NAME could have measured another checkout or an installed wheel."""
+        pkg = _pkg(tmp_path, "p_res9",
+                   {"plain.py": CLS.format(1), "kernel/twin.py": CLS.format(2)},
+                   all_names=["J"], init_extra="from p_res9.plain import J")
+        r = resolve_exports(pkg)
+        assert r["package_path"].endswith("p_res9")
+        assert "measured copy" in render(r)
+
+
 def test_the_render_REFUSES_to_say_production_runs_the_wrong_code(tmp_path):
     pkg = _pkg(tmp_path, "p_res6",
                {"plain.py": CLS.format(1), "kernel/twin.py": CLS.format(2)},
@@ -100,3 +135,7 @@ def test_the_LIVE_pipeline_measurement_behind_the_GOAL3_record():
     assert va["shape"] == "differing-bodies", (
         "the public and kernel order-attribution validators accept mutually "
         "incompatible schemas — if they ever converge, re-derive the record")
+    # The record cites a specific checkout, not "whatever was importable".
+    assert r["package_repo"] is not None and \
+        r["package_repo"].endswith("renquant-pipeline"), r["package_repo"]
+    assert r["package_repo_revision"] and len(r["package_repo_revision"]) == 40

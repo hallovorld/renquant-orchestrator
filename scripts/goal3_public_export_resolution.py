@@ -35,6 +35,7 @@ import argparse
 import importlib
 import json
 import pathlib
+import subprocess
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -51,6 +52,15 @@ STATE_NO_COUNTERPART = "NO_COUNTERPART_TWIN"
 STATE_RESOLVES_TO_COUNTERPART = "RESOLVES_TO_COUNTERPART"
 STATE_RESOLVES_ELSEWHERE = "RESOLVES_TO_THE_OTHER_TWIN"
 STATE_UNRESOLVABLE = "EXPORT_DID_NOT_RESOLVE"
+
+
+def _git_head(repo: pathlib.Path) -> str | None:
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):       # pragma: no cover
+        return None
+    return out.stdout.strip() or None
 
 
 def resolve_exports(package: str) -> dict:
@@ -79,8 +89,21 @@ def resolve_exports(package: str) -> dict:
             # Bodies that DIFFER mean the two are not a wrapper and its target.
             "shape": cell["shape"],
         })
+    # WHICH COPY WAS MEASURED. `import` resolves against sys.path, so a record
+    # naming only the package NAME cannot be checked against a repository —
+    # a different checkout, or an installed wheel, would report the same
+    # header and different numbers `[codex on orch#833]`.
+    pkg_path = pathlib.Path(module.__file__).resolve().parent
+    repo_root = None
+    for parent in pkg_path.parents:
+        if (parent / ".git").exists():
+            repo_root = parent
+            break
     return {
         "package": package,
+        "package_path": str(pkg_path),
+        "package_repo": str(repo_root) if repo_root else None,
+        "package_repo_revision": _git_head(repo_root) if repo_root else None,
         "counterpart_root": COUNTERPART,
         "has_counterpart_root": result["has_kernel_counterpart_root"],
         "n_exported_duplicates": len(rows),
@@ -92,7 +115,10 @@ def resolve_exports(package: str) -> dict:
 
 
 def render(result: dict) -> str:
-    out = [f"GOAL-3 public-export resolution — {result['package']}", ""]
+    rev = result.get("package_repo_revision")
+    out = [f"GOAL-3 public-export resolution — {result['package']}",
+           f"  measured copy: {result.get('package_path')}",
+           f"  repo revision: {rev[:12] if rev else 'NOT A GIT CHECKOUT'}", ""]
     if not result["has_counterpart_root"]:
         out.append(f"  no {result['counterpart_root']}/ root — the guard's "
                    f"relation is UNDEFINED here, not clean")

@@ -12,7 +12,17 @@ and reading `__module__` off the exported object — no heuristic.
 
 ## Measured `[VERIFIED — this session]`
 
-`renquant_pipeline`, over its **20** duplicated `__all__` exports:
+**Which copy was measured**, because `import` resolves against `sys.path` and a
+record naming only the package *name* could have measured another checkout or an
+installed wheel `[codex on orch#833]`:
+
+```
+/Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline
+repo revision 5d41b31249df…
+```
+
+`renquant_pipeline` at that revision, over its **20** duplicated `__all__`
+exports:
 
 | resolves to | count |
 |---|---:|
@@ -72,9 +82,13 @@ resolves-to-the-other-twin, no-counterpart-twin, did-not-resolve. A package
 without a `kernel/` root reads **UNDEFINED**, not clean — the same three-valued
 discipline the census uses.
 
-Suites: 7 tests, incl. all four states, the shape riding along (a wrapper is not
-a twin), the render refusing the production claim, and the live 20/19/0 pinned
-exactly.
+Suites: 10 tests. All four states are exercised — including the two the first
+version only *claimed* to cover `[codex on orch#833]`: an export bound to
+something with no `__module__` (`EXPORT_DID_NOT_RESOLVE`), and a package with no
+`kernel/` root, which reads **UNDEFINED** and prints no per-export verdict at
+all. Plus the shape riding along (a wrapper is not a twin), the render refusing
+the production claim, the measured copy being recorded, and the live 20/19/0
+pinned to a named repository revision.
 
 ## Next
 
