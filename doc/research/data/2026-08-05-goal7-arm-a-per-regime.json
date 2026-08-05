@@ -1,0 +1,109 @@
+{
+  "arm": "A",
+  "registration": "doc/research/2026-08-05-goal7-momentum-per-regime-prereg.md",
+  "provenance": {
+    "producers": [
+      "build_regime_series",
+      "regime_diagnostics",
+      "regime_shift_diagnostics"
+    ],
+    "score_construction": "renquant_model_momentum.train.train_momentum_artifact",
+    "served_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/momentum/2026-08-02/momentum_residual_v0.json",
+    "served_artifact_content_sha256": "a824c480cd9c564b8cb7276a5b8c03882d26c833fec6ee53ba234b952cb30109",
+    "params": {
+      "min_features": 3,
+      "min_obs": 200,
+      "min_side_obs": 30,
+      "names_per_date_floor": 50,
+      "params_source": "tools/goal7_momentum_run.py::FROZEN + MIN_SIDE_OBS (frozen in model#164 \u00a72, F5 floor in model#177); mirrored into renquant_model_momentum._frozen_params_v0 so the wheel is self-sufficient, with equality held by test_params_v0_mirrors_the_sealed_v1_runner",
+      "params_version": "v0",
+      "skip": 21,
+      "window": 252
+    },
+    "label": "fwd_60d_excess",
+    "shift_days": 120,
+    "shuffle_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "window_rule": "every matured panel date \u2014 no range selected",
+    "n_scored_rows": 661622,
+    "n_scored_dates": 2380,
+    "first_date": "2016-11-16",
+    "last_date": "2026-05-07",
+    "label_clip": "regime_diagnostics clips the label to +/-0.5 (the gate helper's own behaviour, not a choice here)"
+  },
+  "per_regime": {
+    "BEAR": {
+      "mean_ic": 0.0024661055448043554,
+      "n_dates": 412,
+      "n_rows": 116106,
+      "hit_rate": 0.5679611650485437,
+      "placebo_shuffle": 0.002383534960986684,
+      "placebo_shuffle_reps": [
+        -0.002112974532325389,
+        0.0010282378853295978,
+        0.0008598454521163222,
+        0.002383534960986684,
+        -0.004097364979966713
+      ],
+      "placebo_shift": -0.07299029233419825,
+      "label_autocorr_ic": 0.04133515638719034,
+      "placebo_shift_n_dates": 407
+    },
+    "BULL_CALM": {
+      "mean_ic": 0.029753465354078815,
+      "n_dates": 1684,
+      "n_rows": 467562,
+      "hit_rate": 0.6181710213776722,
+      "placebo_shuffle": 0.000609585505841679,
+      "placebo_shuffle_reps": [
+        0.0004335511139577278,
+        0.000609585505841679,
+        -0.0009650013669631665,
+        -5.664416917363801e-05,
+        -3.5636997368044465e-05
+      ],
+      "placebo_shift": 0.023048989788672664,
+      "label_autocorr_ic": 0.014084658747239931,
+      "placebo_shift_n_dates": 1605
+    },
+    "BULL_VOLATILE": {
+      "mean_ic": -0.047693269457962637,
+      "n_dates": 183,
+      "n_rows": 49568,
+      "hit_rate": 0.40437158469945356,
+      "placebo_shuffle": 0.002938445433132644,
+      "placebo_shuffle_reps": [
+        0.0022157727145314613,
+        0.002938445433132644,
+        0.0024279314617048297,
+        -0.005083505900161767,
+        -0.0036631817960486417
+      ],
+      "placebo_shift": -0.008238283460558656,
+      "label_autocorr_ic": 0.10307462734864323,
+      "placebo_shift_n_dates": 158
+    },
+    "CHOPPY": {
+      "mean_ic": 0.08947804517103293,
+      "n_dates": 101,
+      "n_rows": 28386,
+      "hit_rate": 0.7821782178217822,
+      "placebo_shuffle": 0.007504522493037934,
+      "placebo_shuffle_reps": [
+        0.0010534347496804312,
+        -0.007864288074825917,
+        -0.0008105046970344682,
+        1.6814585429883097e-05,
+        0.007504522493037934
+      ],
+      "placebo_shift": 0.05033569870569946,
+      "label_autocorr_ic": 0.04210569132593489,
+      "placebo_shift_n_dates": 90
+    }
+  }
+}
