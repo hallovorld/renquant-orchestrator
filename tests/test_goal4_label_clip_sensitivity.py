@@ -110,3 +110,41 @@ def test_the_LIVE_measurement_behind_the_severity_downgrade():
         assert abs(cell["mean_delta"]) < 0.02, (
             "the clip now moves mean per-date IC materially — revisit the "
             "orch#817 severity downgrade", pred, cell)
+
+
+# ── [codex on orch#822] the only measurement that speaks to SCORER evidence ──
+
+def test_the_served_mode_reports_the_level_gap_it_cannot_explain():
+    """The measurement that settled orch#817's severity, and the caveat that
+    must travel with it: 591 dates matches the stamp exactly, the absolute level
+    does not, and the DELTA is a paired within-slice difference that survives a
+    constant offset but not a materially different row set."""
+    import pathlib
+
+    from goal4_label_clip_sensitivity import render_served
+
+    art = pathlib.Path("/Users/renhao/git/github/RenQuant/backtesting/"
+                       "renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json")
+    if not art.exists():
+        pytest.skip("served artifact absent — the unit tests above still ran")
+    # render only; scoring the panel is a minutes-long job and belongs in the
+    # tool, not in the suite.
+    fake = {"artifact": str(art), "window": ["2023-12-26", "2026-05-05"],
+            "n_rows": 164869, "n_dates": 591, "stamped_real_ic": 0.04655813988989114,
+            "stamped_n_oos_dates": 591, "mean_ic_unclipped": 0.06106,
+            "mean_ic_clipped": 0.06627, "paired_mean_delta": 0.00521}
+    text = render_served(fake)
+    assert "PAIRED mean delta" in text
+    assert "need NOT match the stamp" in text
+    assert "materially different ROW SET would move" in text
+    assert "stamped real_ic" in text
+
+
+def test_the_served_mode_is_reachable_from_the_CLI():
+    """Anti-inert-scaffolding: the mode that settles the question must be
+    runnable, not just importable."""
+    src = Path(__file__).resolve().parent.parent / "scripts" / \
+        "goal4_label_clip_sensitivity.py"
+    text = src.read_text(encoding="utf-8")
+    assert "--served-artifact" in text
+    assert "served_sensitivity(args.served_artifact" in text

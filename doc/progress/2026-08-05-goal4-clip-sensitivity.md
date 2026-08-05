@@ -55,13 +55,42 @@ Three severity moves on one issue in one night — flagged, downgraded, restored
 is one too many, and the fault each time was the same: acting before the right
 quantity was measured.
 
-## What actually settles it
+## What settles it — DONE, on the served scorer
 
-Score the served artifact over the same validation slice and compute the per-date
-IC twice, clipped and unclipped. That is the outstanding work; this script is the
-harness it can reuse, and its own output now states that these numbers cannot
-settle a severity question.
+`[VERIFIED — this session]` Loaded `artifacts/prod/panel-ltr.alpha158_fund.json`
+through the pipeline's own registry, scored the gate's fallback corpus over the
+stamp's own window (`2023-12-26 … 2026-05-05`), and computed the per-date IC
+twice:
 
-Suites: 9 tests, incl. both extremes of the tie behaviour (two groups → 0.866,
-one group → total loss) and one bound to the live corpus · 5687 passed,
-2 skipped.
+| | |
+|---|---|
+| rows / dates | 164,869 / **591** — exactly the stamp's `sanity_n_oos_dates` |
+| mean per-date IC, unclipped | **+0.06106** |
+| mean per-date IC, clipped | **+0.06627** |
+| **paired mean Δ** | **+0.00521** |
+
+So on the **served scorer**, the clip moves the mean per-date IC by **+0.0052**.
+orch#817's severity is settled on the right object: **not P0**, a ±0.005
+perturbation cannot turn BEAR `+0.335` into BULL_CALM `−0.029`.
+
+### The gap I could not explain, stated rather than glossed
+
+My unclipped level is **+0.0611**; the artifact stamps `real_ic = 0.04656`. The
+**date count matches exactly**, so the window is right and the level is not.
+Undistinguished causes: a different `min_names` floor, universe filtering the
+gate applies, or a manifest-scoped panel rather than the fallback corpus.
+
+**Why the conclusion survives it**: the quantity is a **paired within-slice
+difference** — same scorer, same rows, same dates, label transformed two ways. A
+constant offset does not move a paired delta. A materially different *row set*
+would, and the level gap is exactly the evidence that possibility is open. The
+tool prints this caveat with every served run.
+
+## Scope, finally correct
+
+The panel-feature probes (≤0.005) describe three named instruments. The served
+measurement (+0.0052) describes the artifact whose evidence was at issue. Only
+the second can speak to orch#805/#807/#809, and it now does.
+
+Suites: 11 tests, incl. both tie extremes, the served-mode caveat and a
+CLI-reachability check · full suite green.

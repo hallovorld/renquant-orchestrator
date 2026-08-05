@@ -112,13 +112,97 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
+def served_sensitivity(artifact_path: pathlib.Path,
+                       panel_path: pathlib.Path = DEFAULT_PANEL,
+                       label: str = DEFAULT_LABEL) -> dict:
+    """The paired delta on a SERVED artifact's own mu.
+
+    [codex on orch#822] Panel-feature probes cannot settle a severity question
+    about scorer-based IC evidence. This scores the artifact through the
+    pipeline's own registry over the window its stamp declares, and reports the
+    same clipped-vs-unclipped paired difference.
+
+    Reproduction caveat, stated because it is real: the absolute level here need
+    not equal the artifact's stamped `real_ic` — the gate may filter rows this
+    does not. The DELTA is a paired within-slice difference and is robust to a
+    constant offset; it is NOT robust to a materially different row set, which
+    is why the level is reported alongside it rather than hidden.
+    """
+    import numpy as np
+    import pandas as pd
+    from scipy import stats
+
+    art = json.loads(pathlib.Path(artifact_path).read_text())
+    feat = art.get("feature_cols") or []
+    stamp = (art.get("metadata") or {}).get("wf_gate_metadata") or {}
+    start, end = stamp.get("sanity_eval_start"), stamp.get("sanity_eval_end")
+
+    from renquant_pipeline.kernel.panel_pipeline.model_registry import registry
+    scorer = registry.get("xgb").scorer_loader(pathlib.Path(artifact_path), {})
+
+    df = pd.read_parquet(panel_path, columns=["date", label, *feat]).dropna(
+        subset=[label])
+    df["date"] = pd.to_datetime(df["date"])
+    if start:
+        df = df[df["date"] >= pd.Timestamp(start)]
+    if end:
+        df = df[df["date"] <= pd.Timestamp(end)]
+    df = df.assign(mu=np.asarray(scorer.score(df[feat]), dtype=float))
+
+    rows = []
+    for _, g in df.groupby("date"):
+        s = g[["mu", label]].dropna()
+        if len(s) < MIN_NAMES:
+            continue
+        rows.append((float(stats.spearmanr(s["mu"], s[label]).statistic),
+                     float(stats.spearmanr(s["mu"],
+                                           s[label].clip(-CLIP, CLIP)).statistic)))
+    unc = np.array([r[0] for r in rows]); clp = np.array([r[1] for r in rows])
+    return {
+        "artifact": str(artifact_path), "window": [start, end],
+        "n_rows": int(len(df)), "n_dates": len(rows),
+        "stamped_real_ic": stamp.get("real_ic"),
+        "stamped_n_oos_dates": stamp.get("sanity_n_oos_dates"),
+        "mean_ic_unclipped": float(unc.mean()) if len(unc) else None,
+        "mean_ic_clipped": float(clp.mean()) if len(clp) else None,
+        "paired_mean_delta": float((clp - unc).mean()) if len(unc) else None,
+    }
+
+
+def render_served(r: dict) -> str:
+    return "\n".join([
+        f"served-artifact clip sensitivity — {pathlib.Path(r['artifact']).name}",
+        f"  window {r['window'][0]} … {r['window'][1]}: "
+        f"{r['n_rows']:,} rows / {r['n_dates']} dates "
+        f"(stamp says {r['stamped_n_oos_dates']})",
+        "",
+        f"  mean per-date IC unclipped .. {r['mean_ic_unclipped']:+.5f}",
+        f"  mean per-date IC clipped .... {r['mean_ic_clipped']:+.5f}",
+        f"  PAIRED mean delta ........... {r['paired_mean_delta']:+.5f}",
+        "",
+        f"  stamped real_ic ............. {r['stamped_real_ic']}",
+        "  The absolute level need NOT match the stamp — the gate may filter",
+        "  rows this does not. The DELTA is a paired within-slice difference and",
+        "  survives a constant offset; a materially different ROW SET would move",
+        "  it, and the level gap is the evidence of that possibility.",
+    ])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--panel", type=pathlib.Path, default=DEFAULT_PANEL)
     ap.add_argument("--predictors", nargs="+", default=["KMID", "KLEN", "ROC60"])
+    ap.add_argument("--served-artifact", type=pathlib.Path, default=None,
+                    help="score this artifact through the pipeline registry and "
+                         "measure the SAME paired delta on its mu — the only "
+                         "measurement that speaks to scorer-based IC evidence")
     ap.add_argument("--since", default=DEFAULT_SINCE)
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    if args.served_artifact:
+        r = served_sensitivity(args.served_artifact, args.panel)
+        print(json.dumps(r, indent=2) if args.json else render_served(r))
+        return 0
     r = sensitivity(args.panel, tuple(args.predictors), since=args.since)
     print(json.dumps(r, indent=2) if args.json else render(r))
     return 0
