@@ -255,16 +255,46 @@ true if all three shared one PV — and the recorded `max_pct` values now show
 they did not. **The refutation was right to kill the "the run's PV was 10×"
 claim, and wrong to kill the PV direction entirely.**
 
-### What is now established
+## 9. …and §8 is wrong too. One loop, ONE portfolio value.
 
-- `max_pct` correct for all three — **not** a cap or Kelly failure;
-- SPG consistent with the real book, TSLA and EME with a book ~10× larger;
-- so the divergence is in the **portfolio value each name was sized against**,
-  inside a single loop.
+I checked whether `portfolio_value` can differ per candidate. It cannot:
+`ctx.portfolio_value` is **read** eleven times in `task_selection.py` and
+**never assigned**. And the trade rows prove the three orders are one loop
+`[VERIFIED]`:
 
-**Still not proposing a fix**, but the next read is now one line wide: what
-`portfolio_value` does `compute_position_size` receive per iteration, and can it
-change between candidates in the same loop.
+| name | run | cash before | shares | invest | target_pct | implied PV |
+|---|---|---:|---:|---:|---:|---:|
+| TSLA | `…-6194047c` | $9,162.85 | 8 | $2,473.76 | 0.234137 | **$10,565.46** |
+| EME | `…-6194047c` | $6,689.09 | 3 | $2,228.19 | 0.210894 | **$10,565.46** |
+| SPG | `…-6194047c` | $4,460.90 | 1 | $231.70 | 0.021930 | **$10,565.46** |
+
+Same run. Cash decrements **exactly** by each fill. **The same portfolio value
+on all three.** So "two different PVs in one loop" was impossible, and §8 dies
+with §5 and §6.
+
+## 10. What actually survives: the trigger is price > target notional
+
+One loop, one PV of $10,565.46, and `max_pct` correct for every name. Feeding
+those into the real `compute_position_size`:
+
+| name | price | target notional | intended shares | ACTUAL |
+|---|---:|---:|---:|---:|
+| SPG | $237.52 | $244.32 | 1.03 → **1** | **1** ✓ |
+| TSLA | $306.52 | $245.43 | 0.80 → **0** | **8** ✗ |
+| EME | $704.26 | $257.55 | 0.37 → **0** | **3** ✗ |
+
+**The two that went wrong are exactly the two whose price EXCEEDS the target
+notional** — the sub-one-share region. The one whose price fits under it was
+sized correctly.
+
+So the defect is not the cap (correct), not Kelly (correct), not the portfolio
+value (identical, correct), and not conviction or σ (recorded, correct). **It is
+the branch that handles "the target buys less than one share"** — and
+`sizing.one_share_floor_enabled` is `false`, so whatever ran there was not the
+documented rescue.
+
+That is a one-condition trigger on a live-money path, and it is the tightest the
+evidence gets without runtime instrumentation. **Still no fix proposed.**
 
 ## Why this matters more than the number
 
