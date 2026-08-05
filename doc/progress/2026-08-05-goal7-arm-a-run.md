@@ -19,4 +19,15 @@ The producer is a separate file from the runner deliberately — the harness tha
 judges cannot be the harness that chooses — and it refuses outright if the
 served params stop matching the packaged construction (§1).
 
-Suites: 13 new tests · full suite green.
+**After review** `[codex on orch#825]`: the payload was not re-derivable. The
+producer reads mutable surfaces, so a later run over revised data — or revised
+feature code under unchanged params — would report different numbers under an
+identical-looking payload; and trusting the artifact file's own hash proves only
+self-consistency, since the served object is the **ledger's row**. The producer
+now refuses unless a ledger row carries that sha, and the payload records the
+row identity, all **293** input digests (itemised + rolled up), the panel sha,
+the scored-table hash, and all four repos' git revisions. **The re-run
+reproduced every number exactly** — 661,622 rows, 2,380 dates, all four regimes
+unchanged.
+
+Suites: 21 tests · full suite green.

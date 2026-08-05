@@ -31,7 +31,18 @@ the run so they cannot be chosen after seeing an outcome:
    per-date IC by +0.00521 `[VERIFIED — orch#817/#822]`.
 
 REFUSES rather than proceeds when the served params do not match the packaged
-`params_v0()` — registration §1 voids this study for a different fingerprint.
+`params_v0()` — registration §1 voids this study for a different fingerprint —
+or when **no ledger row carries the artifact's content sha**. Reading the
+artifact FILE and trusting its own hash proves only that the file is
+self-consistent; the served object is the ledger's row `[codex on orch#825]`.
+
+AND IT FINGERPRINTS ITS OWN INPUTS. The producer reads MUTABLE surfaces — the
+panel, 145 OHLCV files, the sector map. A payload that records only summary
+counts could be reproduced with revised data, or by revised feature code under
+unchanged params, and report different numbers while looking identical. So the
+payload carries: every reader-recorded digest (itemised and rolled up), the
+panel file's own sha, a content hash of the scored table, the git revision of
+all four repositories, and the ledger row's identity.
 
 Read-only. Writes ONLY the payload path given on the command line.
 
@@ -41,10 +52,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import time
 
@@ -57,6 +70,8 @@ BT_REPO = pathlib.Path("/Users/renhao/git/github/renquant-backtesting")
 PIPELINE_REPO = pathlib.Path("/Users/renhao/git/github/renquant-pipeline")
 SERVED_ARTIFACT = (RQ / "backtesting" / "renquant_104" / "artifacts" /
                    "momentum" / "2026-08-02" / "momentum_residual_v0.json")
+LEDGER = (RQ / "backtesting" / "renquant_104" / "artifacts" / "momentum" /
+          "momentum_artifact_ledger.jsonl")
 LABEL = "fwd_60d_excess"
 GATE_SHIFT_DAYS = 120          # the enforced placebo leg's own shift (2 x 60)
 SHUFFLE_SEEDS = (1, 2, 3, 4, 5)
@@ -67,6 +82,88 @@ PRODUCERS = ("build_regime_series", "regime_diagnostics",
 
 class ServedParamsChanged(RuntimeError):
     """Registration §1: this study is void for a different params fingerprint."""
+
+
+class ServedArtifactNotLedgered(RuntimeError):
+    """The artifact being reconstructed is not the one the ledger serves.
+
+    [codex on orch#825] Reading the artifact FILE and trusting its own
+    `content_sha256` proves only that the file is self-consistent. The served
+    object is the ledger's row; an artifact on disk that no ledger row points at
+    is not what the blend loads, and reconstructing it would answer a question
+    about a file rather than about production.
+    """
+
+
+def _sha256_file(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return "sha256:" + h.hexdigest()
+
+
+def _digest_of_mapping(mapping: dict) -> str:
+    payload = json.dumps(sorted(mapping.items()), separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _git_head(repo: pathlib.Path) -> str | None:
+    """The revision of the code that produced the numbers.
+
+    Recorded because "the served params are unchanged" does not mean "the
+    construction is unchanged": the same params through revised feature code
+    give different scores, and the payload would look identical
+    `[codex on orch#825]`.
+    """
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):       # pragma: no cover
+        return None
+    return out.stdout.strip() or None
+
+
+def ledger_row_for(content_sha: str, ledger: pathlib.Path = LEDGER) -> dict:
+    """The ledger row serving ``content_sha``, or REFUSE.
+
+    Fails closed on every branch — an unreadable ledger, an unparseable line, a
+    sha no row carries. "I could not check" must not read like "it checks out".
+    """
+    if not ledger.is_file():
+        raise ServedArtifactNotLedgered(
+            f"no momentum artifact ledger at {ledger} — the served object "
+            "cannot be identified, so there is nothing to reconstruct")
+    rows = []
+    for i, line in enumerate(ledger.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ServedArtifactNotLedgered(
+                f"{ledger} line {i} is not JSON ({exc}) — an unreadable ledger "
+                "is not a clean one") from exc
+    hit = [r for r in rows if r.get("artifact_content_sha256") == content_sha]
+    if not hit:
+        raise ServedArtifactNotLedgered(
+            f"no ledger row carries artifact_content_sha256={content_sha!r} "
+            f"({len(rows)} row(s) read) — the artifact on disk is not the one "
+            "the blend serves, and registration §1 is void for it")
+    row = hit[-1]
+    return {
+        "ledger_path": str(ledger),
+        "n_rows": len(rows),
+        "row_index_from_end": len(rows) - rows.index(row),
+        "is_ledger_tail": rows.index(row) == len(rows) - 1,
+        "appended_at_utc": row.get("appended_at_utc"),
+        "cutoff_date": row.get("cutoff_date"),
+        "effective_train_cutoff_date": row.get("effective_train_cutoff_date"),
+        "prev_row_sha": row.get("prev_row_sha"),
+        "n_scored": row.get("n_scored"),
+        "artifact_content_sha256": row.get("artifact_content_sha256"),
+    }
 
 
 def _load_module(name: str, path: pathlib.Path):
@@ -99,7 +196,7 @@ def served_params(artifact_path: pathlib.Path = SERVED_ARTIFACT) -> dict:
 
 
 def score_panel(panel: pd.DataFrame, params: dict, *, limit: int | None = None,
-                progress_every: int = 100) -> pd.DataFrame:
+                progress_every: int = 100) -> tuple[pd.DataFrame, dict]:
     """(ticker, date, label, mu) for every matured panel date.
 
     `mu` is `train_momentum_artifact`'s composite score — the packaged
@@ -127,7 +224,11 @@ def score_panel(panel: pd.DataFrame, params: dict, *, limit: int | None = None,
             print(f"  scored {i}/{len(dates)} dates  ({time.time() - t0:.0f}s)",
                   flush=True)
     out = pd.concat(rows, ignore_index=True)
-    return out.dropna(subset=["mu", LABEL]).reset_index(drop=True)
+    # The readers RECORD a sha for every surface they served. Discarding them
+    # was the gap: a later run over revised OHLCV would report different
+    # numbers under an identical-looking payload [codex on orch#825].
+    return (out.dropna(subset=["mu", LABEL]).reset_index(drop=True),
+            dict(readers.read_digests()))
 
 
 def _shuffle_within_date(val: pd.DataFrame, seed: int) -> pd.DataFrame:
@@ -162,8 +263,13 @@ def produce(*, limit: int | None = None) -> dict:
     panel["date"] = pd.to_datetime(panel["date"])
     panel = panel.dropna(subset=[LABEL])
 
+    ledger = ledger_row_for(served["artifact"]["content_sha256"])
+    print(f"served artifact is ledgered: cutoff {ledger['cutoff_date']}, "
+          f"row {ledger['row_index_from_end']} from the end, "
+          f"tail={ledger['is_ledger_tail']}", flush=True)
+
     print(f"scoring {panel['date'].nunique()} matured panel dates …", flush=True)
-    scored = score_panel(panel, served["params"], limit=limit)
+    scored, read_digests = score_panel(panel, served["params"], limit=limit)
     print(f"scored rows: {len(scored)}  dates: {scored['date'].nunique()}",
           flush=True)
 
@@ -211,6 +317,24 @@ def produce(*, limit: int | None = None) -> dict:
         "registration": "doc/research/2026-08-05-goal7-momentum-per-regime-prereg.md",
         "provenance": {
             "producers": list(PRODUCERS),
+            # WHAT WAS READ. Rolled up AND itemised: the roll-up is what a
+            # mutation test compares, the itemisation is what an auditor reads.
+            "input_read_digests_sha256": _digest_of_mapping(read_digests),
+            "n_input_surfaces": len(read_digests),
+            "panel_path": str(train_cli.PANEL_PATH),
+            "panel_sha256": _sha256_file(train_cli.PANEL_PATH),
+            "scored_table_sha256": _digest_of_mapping(
+                {f"{r.ticker}|{r.date:%Y-%m-%d}": float(r.mu)
+                 for r in scored.itertuples()}),
+            # WHAT CODE PRODUCED IT. Unchanged params through revised feature
+            # code give different scores under an identical-looking payload.
+            "code_revisions": {
+                "renquant-orchestrator": _git_head(pathlib.Path.cwd()),
+                "renquant-model": _git_head(MODEL_REPO),
+                "renquant-backtesting": _git_head(BT_REPO),
+                "renquant-pipeline": _git_head(PIPELINE_REPO),
+            },
+            "served_ledger_row": ledger,
             "score_construction": "renquant_model_momentum.train.train_momentum_artifact",
             "served_artifact": str(SERVED_ARTIFACT),
             "served_artifact_content_sha256": served["artifact"]["content_sha256"],
@@ -227,6 +351,7 @@ def produce(*, limit: int | None = None) -> dict:
                           "gate helper's own behaviour, not a choice here)",
         },
         "per_regime": per_regime,
+        "input_read_digests": read_digests,
     }
 
 
@@ -240,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     try:
         payload = produce(limit=args.limit)
-    except ServedParamsChanged as exc:
+    except (ServedParamsChanged, ServedArtifactNotLedgered) as exc:
         print(f"REFUSED: {exc}")
         return 3
     if args.limit:

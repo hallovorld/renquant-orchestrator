@@ -74,6 +74,32 @@ and were fixed **before** any number was computed:
    on the served scorer that same clip moved the paired per-date IC by +0.00521
    `[VERIFIED — orch#817/#822]`.
 
+## Provenance, after review `[codex on orch#825]`
+
+The first payload recorded summary counts and the served artifact's own hash.
+That is not enough to re-derive anything: the producer reads **mutable**
+surfaces, so a later run over revised OHLCV — or the same params through revised
+feature code — would report different numbers under an identical-looking
+payload. And reading the artifact FILE and trusting its own `content_sha256`
+proves only that the file is self-consistent; **the served object is the
+ledger's row.**
+
+The producer now REFUSES unless a ledger row carries the artifact's sha (an
+absent ledger, an unparseable line, or an unmatched sha all refuse — "I could
+not check" must not read like "it checks out"), and the payload carries:
+
+| field | value `[VERIFIED — this session]` |
+|---|---|
+| ledger row | cutoff `2026-08-02`, **is_ledger_tail true**, `n_scored` 144 |
+| input surfaces read | **293**, itemised, rolled up to `sha256:684a7601…` |
+| panel file | `sha256:870f68eb…` |
+| scored table | `sha256:64016f41…` |
+| code revisions | orch `c44f6734` · model `81064619` · backtesting `cbe9532a` · pipeline `5d41b312` |
+
+**The re-run under the new provenance code reproduced every number** — 661,622
+rows over 2,380 dates, and all four regimes' `E1`/placebos identical to the
+first run. That is a reproduction, not a restatement.
+
 ## What lands
 
 - `scripts/goal7_arm_a_producer.py` — the producer. Separate from the runner on
@@ -83,6 +109,9 @@ and were fixed **before** any number was computed:
 - `doc/research/data/2026-08-05-goal7-arm-a-per-regime.json` — the payload, with
   its provenance block, so the numbers above can be re-derived rather than
   believed.
-- 13 tests, incl. that the shuffle stays within-date, that changed params are
-  refused, and that **all four conditions holding still yields
-  `EXPLORATORY — NOT A CERTIFICATION`**.
+- 21 tests, incl. that the shuffle stays within-date, that changed params are
+  refused, that an unledgered / unparseable / absent ledger refuses, that a
+  reconstruction of a **superseded** row must say so, the mutation test (flip
+  one surface's digest → the roll-up no longer matches, so the runs are not
+  comparable even though every summary count is identical), and that **all four
+  conditions holding still yields `EXPLORATORY — NOT A CERTIFICATION`**.

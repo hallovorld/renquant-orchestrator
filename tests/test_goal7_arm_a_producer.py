@@ -45,6 +45,100 @@ class TestTheServedObjectIsCheckedNotAssumed:
         assert P.served_params(ok)["params"]["window"] == 252
 
 
+class TestTheServedObjectIsTheLEDGERSRowNotAFileOnDisk:
+    """[codex on orch#825] Reading the artifact FILE and trusting its own
+    `content_sha256` proves only that the file is self-consistent. The served
+    object is the ledger's row; an artifact no row points at is not what the
+    blend loads."""
+
+    def _ledger(self, tmp_path, *rows):
+        p = tmp_path / "ledger.jsonl"
+        p.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        return p
+
+    def test_a_sha_NO_row_carries_is_refused(self, tmp_path):
+        led = self._ledger(tmp_path, {"artifact_content_sha256": "aaa"})
+        with pytest.raises(P.ServedArtifactNotLedgered) as exc:
+            P.ledger_row_for("bbb", led)
+        assert "no ledger row carries" in str(exc.value)
+
+    def test_an_ABSENT_ledger_is_refused_not_skipped(self, tmp_path):
+        with pytest.raises(P.ServedArtifactNotLedgered):
+            P.ledger_row_for("aaa", tmp_path / "nope.jsonl")
+
+    def test_an_UNPARSEABLE_line_is_refused(self, tmp_path):
+        p = tmp_path / "l.jsonl"
+        p.write_text('{"artifact_content_sha256": "aaa"}\n{not json\n',
+                     encoding="utf-8")
+        with pytest.raises(P.ServedArtifactNotLedgered) as exc:
+            P.ledger_row_for("aaa", p)
+        assert "not JSON" in str(exc.value), (
+            "'I could not check' must not read like 'it checks out'")
+
+    def test_the_row_identity_is_recorded_including_its_CHAIN_position(
+            self, tmp_path):
+        led = self._ledger(tmp_path,
+                           {"artifact_content_sha256": "aaa", "prev_row_sha": None},
+                           {"artifact_content_sha256": "bbb",
+                            "prev_row_sha": "sha-of-aaa", "cutoff_date": "2026-08-02"})
+        row = P.ledger_row_for("bbb", led)
+        assert row["is_ledger_tail"] is True
+        assert row["prev_row_sha"] == "sha-of-aaa"
+        older = P.ledger_row_for("aaa", led)
+        assert older["is_ledger_tail"] is False, (
+            "reconstructing a superseded row is legal but must SAY so")
+
+
+class TestTheInputsAreFingerprintedNotJustCounted:
+    """A payload recording only summary counts could be reproduced from revised
+    data, or by revised feature code under unchanged params, and report
+    different numbers while looking identical [codex on orch#825]."""
+
+    def test_the_rollup_is_ORDER_independent_but_VALUE_sensitive(self):
+        a = {"ohlcv/AAPL": "sha1", "ohlcv/MSFT": "sha2"}
+        assert P._digest_of_mapping(a) == P._digest_of_mapping(
+            {"ohlcv/MSFT": "sha2", "ohlcv/AAPL": "sha1"})
+        assert P._digest_of_mapping(a) != P._digest_of_mapping(
+            {"ohlcv/AAPL": "sha1", "ohlcv/MSFT": "CHANGED"})
+        assert P._digest_of_mapping(a) != P._digest_of_mapping({"ohlcv/AAPL": "sha1"})
+
+    def test_a_MUTATED_input_makes_the_result_non_comparable(self, payload_or_skip):
+        """The mutation test the review asked for: flip ONE surface's digest and
+        the roll-up no longer matches the record, so the two runs cannot be
+        compared even though every summary count is identical."""
+        recorded = payload_or_skip["input_read_digests"]
+        assert recorded, "the payload must itemise what it read"
+        mutated = dict(recorded)
+        victim = sorted(mutated)[0]
+        mutated[victim] = "sha256:" + "0" * 64
+        assert (P._digest_of_mapping(mutated)
+                != payload_or_skip["provenance"]["input_read_digests_sha256"])
+
+    def test_the_payload_records_the_CODE_that_produced_it(self, payload_or_skip):
+        revs = payload_or_skip["provenance"]["code_revisions"]
+        assert set(revs) == {"renquant-orchestrator", "renquant-model",
+                             "renquant-backtesting", "renquant-pipeline"}
+        assert all(v is None or len(v) == 40 for v in revs.values()), revs
+
+    def test_the_payload_records_the_ledger_row_it_reconstructed(
+            self, payload_or_skip):
+        row = payload_or_skip["provenance"]["served_ledger_row"]
+        assert row["artifact_content_sha256"] == (
+            payload_or_skip["provenance"]["served_artifact_content_sha256"])
+        assert row["is_ledger_tail"] is True
+        assert row["cutoff_date"] == "2026-08-02"
+
+
+@pytest.fixture
+def payload_or_skip():
+    if not PAYLOAD.is_file():
+        pytest.skip("payload absent")
+    d = json.loads(PAYLOAD.read_text())
+    if "input_read_digests" not in d:
+        pytest.skip("payload predates input fingerprinting")
+    return d
+
+
 class TestTheShuffleIsTheRegisteredOne:
     def test_the_permutation_stays_INSIDE_each_date(self):
         """§4's placebo is a within-date label shuffle. Permuting across dates
