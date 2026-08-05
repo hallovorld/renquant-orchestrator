@@ -68,4 +68,4 @@ pipeline guard does, and the live-corpus test fails if this repo's numbers move.
 2. Read the orchestrator's top candidates (the retrain Tasks first — they sit on
    the model-production path) and record which ones are real twins.
 
-Suites: 10 new tests · 5628 passed, 2 skipped repo-wide.
+Suites: 10 new tests · 5634 passed, 2 skipped repo-wide.
