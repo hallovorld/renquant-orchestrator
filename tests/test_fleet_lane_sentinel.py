@@ -70,15 +70,44 @@ def test_the_RCS_shape_alarms_zero_candidates(tree):
     assert "ZERO candidates" in detail
 
 
-def test_log_marker_alarms_even_when_a_record_looks_normal(tree):
+def test_a_repaired_lane_stops_alarming_but_the_earlier_failure_is_reported(tree):
+    """MEASURED 2026-08-04 running this sentinel against its own incident:
+    RCS fail-closed at 21:02, was fixed, re-ran healthy at 22:02 — and the
+    session log still carried the earlier marker. A marker-first rule kept
+    alarming on a REPAIRED lane, which trains its reader to ignore it. The
+    record is per-run and latest-wins, so a healthy latest record supersedes
+    an earlier marker — and the note says so, rather than hiding it."""
     cfg, data, logs = tree
     _profile(cfg, LANE.profile, pending=False)
     _db(data, LANE.tag, n_candidates=83)
     (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
         "... Panel scoring contract failed (panel_scorer_load_failed) ...",
         encoding="utf-8")
-    state, _ = _classify(LANE, tree)
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_RECORDED and state not in S.ACTIONABLE
+    assert "EARLIER run" in detail and "supersedes" in detail
+
+
+def test_marker_without_any_record_still_alarms(tree):
+    """The marker's real job: a lane that refused before writing a record."""
+    cfg, _, logs = tree
+    _profile(cfg, LANE.profile, pending=False)
+    (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
+        "... panel_scoring_fail_closed ...", encoding="utf-8")
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_FAIL_CLOSED and state in S.ACTIONABLE
+    assert "NO record" in detail
+
+
+def test_zero_candidate_record_alarms_and_mentions_the_marker(tree):
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db(data, LANE.tag, n_candidates=0)
+    (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
+        "... panel_scorer_load_failed ...", encoding="utf-8")
+    state, detail = _classify(LANE, tree)
     assert state == S.STATE_FAIL_CLOSED
+    assert "ZERO candidates" in detail and "fail-closed marker" in detail
 
 
 def test_missing_record_alarms_when_not_dormant(tree):
@@ -173,14 +202,22 @@ def test_wrapper_exec_redirects_before_any_work():
         assert marker in src, marker
 
 
-def test_manifest_declares_the_job_with_a_bounded_pending_install():
+def test_no_launchd_job_is_declared_for_this_sentinel():
+    """Round 3 (codex): the sentinel runs as the DAILY WRAPPER's last step,
+    after the very Step-5e legs it inspects — so there is no cadence to guess
+    and no plist to install. A launchd entry would reintroduce both problems
+    (the first draft picked 15:30 PT from a MANUAL run's clock; a scheduled
+    13:55 run's fleet legs are still moving then, and the job would have paged
+    MISSING on a healthy fleet)."""
     manifest = json.loads(MANIFEST.read_text())
     jobs = manifest.get("jobs", manifest)
-    assert JOB in jobs, "the scheduled surface must be declared in the reviewed manifest"
-    entry = jobs[JOB]
-    assert entry["program_args"][-1].endswith(
-        "ops/renquant104/fleet_lane_sentinel_daily.sh")
-    assert "fleet_lane_sentinel_" in entry["evidence_glob"]
-    pending = [k for k in entry if k.endswith("_pending_install")]
-    assert len(pending) == 1, "the pending state must be declared by exactly one dated key"
-    assert "same change that installs" in entry[pending[0]].lower()
+    assert JOB not in jobs, (
+        "this sentinel must not acquire a launchd job: its correct trigger is "
+        "daily-run completion, not a clock"
+    )
+
+
+def test_wrapper_is_invocable_with_an_explicit_session_date():
+    """What the daily wrapper's last step relies on: positional date arg."""
+    src = WRAPPER.read_text()
+    assert 'SESSION_DATE="${1:-$(date +%Y-%m-%d)}"' in src

@@ -148,16 +148,6 @@
       ],
       "program_args_sha256": "3b43716ba5eeb00676263fbcdced45f1505688215d4349bafe66a392fa9d9dff"
     },
-    "com.renquant.rq104-fleet-lane-sentinel": {
-      "_purpose": "GOAL-1 (orch#801): the ONLY watcher of the five GOAL-9 fleet e2e lanes (RC/RSs/Rf/RCS/RCf). Classifies each lane for the session date and pages on FAIL_CLOSED (scorer refused — the measured 2026-08-04 RCS shape, 83 candidates cleared, found only because a human read the log) or MISSING (no record, lane not declared dormant). Dormancy comes ONLY from the pinned profile's pending-first-artifact marker, so no lane can be silenced outside review.",
-      "_schedule_comment": "daily 15:30 PT (StartCalendarInterval Hour=15 Minute=30). WHY THIS SLOT: the daily run starts 13:55 PT and its Step 5-5e fleet legs finished at 21:14 PT on their first full evening (each leg re-scores the panel); 15:30 is chosen to sit AFTER a normal-length run's fleet legs while staying same-session. If a fleet leg is still running the lane reads MISSING and pages — a false alarm this cadence must be re-measured against once the fleet's steady-state wall time is known (first measurement: 2026-08-04, ~55 min from Step 5 to Step 5e under CPU contention from a parallel promote chain).",
-      "_2026_08_04_pending_install": "declared PENDING_INSTALL: the reviewed surface lands first; the launchctl bootstrap is a machine action under the standing landing-grant rule (one grant per batch). Delete this key in the SAME change that installs the plist — the run-surface drift scan alarming on a manifest entry with no installed job is the DESIGNED reminder until then.",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/fleet_lane_sentinel_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
-      "program_args": [
-        "/bin/bash",
-        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/fleet_lane_sentinel_daily.sh"
-      ]
-    },
     "com.renquant.rq104-liveness": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",

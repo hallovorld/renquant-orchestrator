@@ -135,23 +135,37 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path = PINNED_CONFIGS,
     if lane_is_dormant(lane, configs_dir):
         return STATE_DORMANT, "pinned profile declares a pending-first-artifact component"
     rec = _lane_record(lane, date, data_dir)
-    fail_closed = _log_says_fail_closed(lane, date, logs_dir)
-    if fail_closed:
-        return STATE_FAIL_CLOSED, (
-            "lane log carries a scorer fail-closed marker"
-            + (f"; record n_candidates={rec['n_candidates']}" if rec else "; no record")
-        )
-    if rec is None:
-        return STATE_MISSING, "no runs-DB record for this session and the lane is not dormant"
-    if rec["n_candidates"] == 0:
+    marker = _log_says_fail_closed(lane, date, logs_dir)
+
+    # RECORD-FIRST, marker second. MEASURED 2026-08-04 while running this
+    # sentinel against the very incident it was written for: the lane
+    # fail-closed at 21:02, was fixed, and re-ran healthy at 22:02 — but the
+    # session's log still carried the earlier run's marker, so a
+    # marker-first rule kept alarming on an already-repaired lane. A watcher
+    # that cannot see a repair trains its reader to ignore it.
+    #
+    # The DB record is per-run and latest-wins; it is the stronger evidence of
+    # CURRENT state. The log marker's real job is the case the record cannot
+    # express: a lane that fail-closed WITHOUT leaving a usable record.
+    if rec is not None and rec["n_candidates"] > 0:
+        detail = (f"{rec['run_id']}: candidates={rec['n_candidates']} "
+                  f"buys={rec['n_buys']} exits={rec['n_exits']}")
+        if marker:
+            detail += (" — note: an EARLIER run this session left a fail-closed "
+                       "marker; the latest run is healthy and supersedes it")
+        return STATE_RECORDED, detail
+    if rec is not None:  # record exists but scored nothing
         return STATE_FAIL_CLOSED, (
             f"record {rec['run_id']} scored ZERO candidates — the lane ran but "
             "produced no decision surface"
+            + ("; lane log carries a scorer fail-closed marker" if marker else "")
         )
-    return STATE_RECORDED, (
-        f"{rec['run_id']}: candidates={rec['n_candidates']} buys={rec['n_buys']} "
-        f"exits={rec['n_exits']}"
-    )
+    if marker:
+        return STATE_FAIL_CLOSED, (
+            "lane log carries a scorer fail-closed marker and NO record exists "
+            "— the lane refused before it could write one"
+        )
+    return STATE_MISSING, "no runs-DB record for this session and the lane is not dormant"
 
 
 def patrol(date: str, **kw) -> tuple[list[str], list[str]]:

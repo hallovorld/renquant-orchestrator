@@ -33,6 +33,21 @@ Two design rules the tests enforce:
   `MISSING` — calling it "declared dormant" would be exactly the silence this
   sentinel exists to remove.
 
+## Round 4: run it against its own incident, and fix what that exposed
+
+Running the sentinel after RCS was repaired exposed a real semantic defect:
+the lane had fail-closed at 21:02, was fixed, and re-ran healthy at 22:02 —
+but the session log still carried the earlier marker, so the marker-first rule
+kept alarming on an ALREADY-REPAIRED lane. A watcher that cannot see a repair
+trains its reader to ignore it.
+
+Now RECORD-FIRST: the per-run DB record (latest-wins) decides current state;
+the log marker's job is the case the record cannot express — a lane that
+refused before writing any record. A healthy latest record with an earlier
+marker reports `RECORDED` **with the earlier failure named in the detail**,
+never hidden. Re-run after the change: all 5 lanes accounted for, exit 0, with
+RCS carrying the earlier-failure note.
+
 ## Verification
 
 First live run, `--date 2026-08-04`, exit 1:
@@ -52,6 +67,26 @@ two lanes whose dormancy is declared. Suite: 9 passed (healthy, the RCS
 zero-candidate shape, log-marker-over-normal-record, missing, dormant,
 absent-profile-is-not-dormant, no-mute-list, registry completeness, patrol
 partitioning).
+
+## Round 3 (codex): no plist, no cadence guess — couple to daily completion
+
+Codex refused round 2 for two correct reasons: a manifest entry without a
+plist still leaves the job absent from LaunchAgents (a drift reminder is not a
+watcher), and the schedule rationale was internally contradictory — it cited
+"daily run starts 13:55 PT" and "Step 5-5e finished at 21:14 PT" and then
+picked 15:30, conflating a MANUAL 20:18 run's clock with the scheduled run's.
+
+Rather than re-measure a cadence, the trigger is now the right one: the
+sentinel runs as the DAILY WRAPPER's last step, immediately after the Step-5e
+legs it inspects. There is nothing to schedule (the daily job is already
+installed and reviewed), nothing to guess, and no window in which the checker
+inspects a still-running fleet. The launchd entry and its pending-install
+state are removed; `PENDING_INSTALL` returns to empty, and a test now asserts
+this sentinel must NOT acquire a launchd job, with the reason recorded.
+
+The daily-wrapper invocation is the companion RenQuant PR (the wrapper logic
+stays here, on the orchestrator's side of the boundary; the umbrella only
+calls it).
 
 ## Round 2 (codex): the scheduled surface is part of the claim
 
