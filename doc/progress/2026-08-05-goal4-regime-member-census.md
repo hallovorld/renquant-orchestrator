@@ -51,14 +51,30 @@ against `RenQuant/backtesting/renquant_104/artifacts`]`
   recipe hash only" property. So this shape is a property of the RECIPE, not of
   any single training run.
 
-**Members 2 and 3 — clf top-decile fwd60, momentum residual v0:
-ZERO per-regime evidence.** Neither artifact carries `wf_gate_metadata` at all.
+**Member 2 — momentum residual v0 (ledger-served): ZERO per-regime evidence.**
+Its artifact carries no `wf_gate_metadata` at all.
+
+### Correction (codex on orch#807): what the PROD blend actually is
+
+The first version of this census froze the member list as panel + clf +
+momentum and called it "the live blend". **That was wrong.** The pinned PROD
+config declares **two** components — panel primary and slow momentum residual.
+The clf top-decile leg belongs to the SHADOW profiles (the RC/RCS lanes), not to
+production `[VERIFIED — pinned `strategy_config.json`, 2026-08-05]`.
+
+Freezing a member list in code is the same error one level up from the one this
+census exists to find: a claim about a configuration that has moved. The member
+list is now **derived from the pinned config** at run time, `--config` selects a
+shadow profile, an unrecognised component becomes a labelled ROW rather than a
+silent drop, and a config with no components REFUSES instead of returning an
+empty census. Run against the RCS shadow profile, the clf leg appears and is
+also unmeasured.
 
 ## THE STATEMENT
 
-The live blend is **one member measured on the decisive axis and two unmeasured**,
+The PROD blend is **one member measured on the decisive axis and one unmeasured**,
 and the measured one is negatively informative in the regime that carries 88% of
-the book's buys.
+the book's buys. (The shadow blends add a clf leg that is likewise unmeasured.)
 
 That does not say the blend is bad. It says **GOAL-4 cannot be evaluated on the
 pooled number**, and no ensemble weighting can be justified until the other two
@@ -79,11 +95,14 @@ BULL_CALM does not stop being so by being averaged.
 
 ## NEXT
 
-1. Stamp per-regime evidence for the clf and momentum members — until then two
-   thirds of the ensemble is unmeasured on the axis that decides.
+1. Stamp per-regime evidence for the momentum member (PROD) and the clf member
+   (shadow) — until then half the PROD ensemble, and two thirds of the shadow
+   ensembles, are unmeasured on the axis that decides.
 2. Explain the BULL_CALM buy concentration (orch#805 item 2).
 3. Only then: any ensemble weighting proposal, preregistered, per-arm placebo.
 
-Suite: 10 new tests, incl. one bound to the LIVE corpus that fails if BULL_CALM
-ever stops being negative in every vintage, or if a fleet member gains evidence —
-so this record cannot silently go stale.
+Suite: 14 tests. Two are bound to reality: one fails if the pinned PROD blend's
+MEMBERSHIP changes (codex's second finding — the earlier test only re-ran the
+census over its own hardcoded rows, so membership drift could not fail it), and
+one fails if BULL_CALM ever stops being negative in every vintage or if a PROD
+member gains evidence. Neither can go stale quietly.

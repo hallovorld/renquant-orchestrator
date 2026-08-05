@@ -38,13 +38,54 @@ DEFAULT_ARTIFACTS = pathlib.Path(
 SHIFT = "2x"
 REGIMES = ("BULL_CALM", "BEAR", "BULL_VOLATILE", "CHOPPY")
 
-# The live blend's members (s104 prod profile, 2026-08-05). Named explicitly so
-# a member that has NO evidence shows up as a row rather than as an absence.
-MEMBERS = (
-    ("panel primary (XGB recipe)", "panel-ltr.alpha158_fund"),
-    ("clf top-decile fwd60", "panel-clf.top-decile.fwd60"),
-    ("momentum residual v0", "momentum_residual_v0"),
-)
+# The member list is DERIVED FROM THE PINNED CONFIG, never frozen in code.
+# [codex on orch#807] The first version hardcoded panel + clf + momentum and
+# presented it as "the live blend". It is not: PROD is panel + slow momentum;
+# the clf leg is a SHADOW blend member (the RC/RCS lanes). Freezing a member
+# list is the same error one level up from the one this census exists to find —
+# a claim about a configuration that has moved.
+DEFAULT_CONFIG = pathlib.Path(
+    "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/"
+    "renquant-strategy-104/configs/strategy_config.json")
+
+# artifact_path -> the filename stem the stamped artifacts are found under, plus
+# a human label. A component whose path is not recognised still becomes a row
+# (labelled by its path) so it cannot vanish from the census silently.
+_KNOWN_STEMS = {
+    "artifacts/prod/panel-ltr.alpha158_fund.json":
+        ("panel primary (XGB recipe)", "panel-ltr.alpha158_fund"),
+    "artifacts/shadow/panel-clf.top-decile.fwd60.json":
+        ("clf top-decile fwd60", "panel-clf.top-decile.fwd60"),
+    "artifacts/momentum/momentum_artifact_ledger.jsonl":
+        ("momentum residual v0 (ledger-served)", "momentum_residual_v0"),
+}
+
+
+def members_from_config(config_path: pathlib.Path) -> list[tuple[str, str]]:
+    """(label, artifact stem) for each component the PINNED config declares.
+
+    Raises rather than guessing: a census that silently reported an empty
+    member list would read as "nothing to measure" instead of "the config could
+    not be read", which is the failure mode this whole line of work is about.
+    """
+    payload = json.loads(config_path.read_text())
+    panel = ((payload.get("ranking") or {}).get("panel_scoring") or {})
+    components = panel.get("components")
+    if not isinstance(components, list) or not components:
+        raise SystemExit(
+            f"{config_path} declares no blend components "
+            f"(kind={panel.get('kind')!r}) — nothing to census; this is a "
+            f"config-read failure, not an empty result")
+    out: list[tuple[str, str]] = []
+    for component in components:
+        path = str((component or {}).get("artifact_path") or "")
+        known = _KNOWN_STEMS.get(path)
+        if known:
+            out.append(known)
+        else:
+            out.append((f"UNRECOGNISED component ({path or 'no artifact_path'})",
+                        pathlib.Path(path).stem or "__none__"))
+    return out
 
 
 def _profiles(artifacts: pathlib.Path, stem: str) -> dict[str, dict]:
@@ -88,9 +129,11 @@ def _genuine(profile: dict, regime: str):
     return value if isinstance(value, (int, float)) else None
 
 
-def census(artifacts: pathlib.Path = DEFAULT_ARTIFACTS) -> dict:
+def census(artifacts: pathlib.Path = DEFAULT_ARTIFACTS,
+           config: pathlib.Path = DEFAULT_CONFIG) -> dict:
+    declared = members_from_config(config)
     members = []
-    for label, stem in MEMBERS:
+    for label, stem in declared:
         found = _profiles(artifacts, stem)
         vintages = []
         for digest, rec in sorted(found.items(), key=lambda kv: str(kv[1]["run_at"])):
@@ -101,7 +144,8 @@ def census(artifacts: pathlib.Path = DEFAULT_ARTIFACTS) -> dict:
             })
         members.append({"member": label, "stem": stem,
                         "n_vintages": len(vintages), "vintages": vintages})
-    return {"shift": SHIFT, "regimes": list(REGIMES), "members": members}
+    return {"shift": SHIFT, "regimes": list(REGIMES), "config": str(config),
+            "members": members}
 
 
 def _fmt(value) -> str:
@@ -109,7 +153,8 @@ def _fmt(value) -> str:
 
 
 def render(result: dict) -> str:
-    lines = [f"GOAL-4 per-regime member census (genuine_ic at {result['shift']} shift)", ""]
+    lines = [f"GOAL-4 per-regime member census (genuine_ic at {result['shift']} shift)",
+             f"members DERIVED FROM: {result['config']}", ""]
     for m in result["members"]:
         lines.append(f"— {m['member']}  [{m['n_vintages']} distinct vintage(s)]")
         if not m["vintages"]:
@@ -136,9 +181,12 @@ def render(result: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--artifacts", type=pathlib.Path, default=DEFAULT_ARTIFACTS)
+    ap.add_argument("--config", type=pathlib.Path, default=DEFAULT_CONFIG,
+                    help="strategy config whose blend components define the "
+                         "member list (default: the PINNED prod config)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    result = census(args.artifacts)
+    result = census(args.artifacts, args.config)
     print(json.dumps(result, indent=2, default=str) if args.json else render(result))
     return 0
 

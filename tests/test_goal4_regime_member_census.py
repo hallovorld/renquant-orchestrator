@@ -17,11 +17,26 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.goal4_regime_member_census import (  # noqa: E402
-    MEMBERS,
+    DEFAULT_CONFIG,
     SHIFT,
     census,
+    members_from_config,
     render,
 )
+
+
+def _config(tmp_path: Path, *artifact_paths) -> Path:
+    """A strategy config whose blend declares exactly these components."""
+    path = tmp_path / "strategy_config.json"
+    path.write_text(json.dumps({"ranking": {"panel_scoring": {
+        "kind": "blend",
+        "components": [{"artifact_path": a} for a in artifact_paths]}}}),
+        encoding="utf-8")
+    return path
+
+
+PROD_LIKE = ("artifacts/prod/panel-ltr.alpha158_fund.json",
+             "artifacts/momentum/momentum_artifact_ledger.jsonl")
 
 
 def _artifact(dirpath: Path, name: str, profile, *, run_at="2026-08-04",
@@ -46,7 +61,7 @@ class TestItReadsTheRightThing:
         _artifact(tmp_path, "panel-ltr.alpha158_fund.json",
                   {"per_regime": {"BULL_CALM": {"1x": {"genuine_ic": 0.5},
                                                 "2x": {"genuine_ic": -0.03}}}})
-        got = census(tmp_path)["members"][0]["vintages"][0]
+        got = census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["vintages"][0]
         assert got["BULL_CALM"] == pytest.approx(-0.03)
 
     def test_byte_copies_of_one_verdict_are_ONE_vintage(self, tmp_path):
@@ -55,14 +70,14 @@ class TestItReadsTheRightThing:
         prof = _profile(BULL_CALM=-0.03, BEAR=0.33)
         for i in range(5):
             _artifact(tmp_path, f"panel-ltr.alpha158_fund.copy{i}.json", prof)
-        assert census(tmp_path)["members"][0]["n_vintages"] == 1
+        assert census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["n_vintages"] == 1
 
     def test_two_genuinely_different_profiles_are_TWO_vintages(self, tmp_path):
         _artifact(tmp_path, "panel-ltr.alpha158_fund.a.json",
                   _profile(BULL_CALM=-0.03), run_at="2026-07-05")
         _artifact(tmp_path, "panel-ltr.alpha158_fund.b.json",
                   _profile(BULL_CALM=-0.04), run_at="2026-08-04")
-        v = census(tmp_path)["members"][0]["vintages"]
+        v = census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["vintages"]
         assert [x["run_at"] for x in v] == ["2026-07-05", "2026-08-04"]
 
 
@@ -72,29 +87,29 @@ class TestAbsenceReadsAsAbsence:
         appear would read as 'nothing to report'; it must read as 'unmeasured on
         the axis that decides'."""
         _artifact(tmp_path, "panel-ltr.alpha158_fund.json", _profile(BULL_CALM=-0.03))
-        result = census(tmp_path)
-        assert [m["member"] for m in result["members"]] == [m[0] for m in MEMBERS]
+        result = census(tmp_path, _config(tmp_path, *PROD_LIKE))
+        assert len(result["members"]) == 2
         unmeasured = [m for m in result["members"] if m["n_vintages"] == 0]
-        assert len(unmeasured) == 2
+        assert len(unmeasured) == 1
         assert "NO per-regime evidence" in render(result)
         assert "unmeasured on the axis that decides" in render(result)
 
     def test_a_regime_missing_from_a_profile_is_None_not_zero(self, tmp_path):
         """A zero would read as 'measured, and it is zero'."""
         _artifact(tmp_path, "panel-ltr.alpha158_fund.json", _profile(BEAR=0.33))
-        v = census(tmp_path)["members"][0]["vintages"][0]
+        v = census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["vintages"][0]
         assert v["BEAR"] == pytest.approx(0.33)
         assert v["BULL_CALM"] is None
-        assert "n/a" in render(census(tmp_path))
+        assert "n/a" in render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
 
     def test_an_absent_artifacts_dir_yields_an_empty_census_not_a_crash(self, tmp_path):
-        result = census(tmp_path / "nope")
+        result = census(tmp_path / "nope", _config(tmp_path, *PROD_LIKE))
         assert all(m["n_vintages"] == 0 for m in result["members"])
 
     def test_unreadable_json_is_skipped_not_counted(self, tmp_path):
         (tmp_path / "panel-ltr.alpha158_fund.broken.json").write_text("{not json",
                                                                      encoding="utf-8")
-        assert census(tmp_path)["members"][0]["n_vintages"] == 0
+        assert census(tmp_path, _config(tmp_path, *PROD_LIKE))["members"][0]["n_vintages"] == 0
 
 
 class TestTheVerdictLine:
@@ -102,7 +117,7 @@ class TestTheVerdictLine:
         for i, v in enumerate((-0.029, -0.034)):
             _artifact(tmp_path, f"panel-ltr.alpha158_fund.{i}.json",
                       _profile(BULL_CALM=v), run_at=f"2026-07-0{i+5}")
-        text = render(census(tmp_path))
+        text = render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
         assert "BULL_CALM: NEGATIVE in 2/2 vintages" in text
         assert "min -0.0340" in text and "max -0.0290" in text
 
@@ -112,25 +127,70 @@ class TestTheVerdictLine:
         for i, v in enumerate((-0.03, +0.02)):
             _artifact(tmp_path, f"panel-ltr.alpha158_fund.{i}.json",
                       _profile(BULL_CALM=v), run_at=f"2026-07-0{i+5}")
-        assert "BULL_CALM: MIXED" in render(census(tmp_path))
+        assert "BULL_CALM: MIXED" in render(census(tmp_path, _config(tmp_path, *PROD_LIKE)))
 
 
-def test_the_LIVE_census_still_says_what_the_issue_says():
+class TestTheMemberListIsDERIVED:
+    """[codex on orch#807] The first version froze panel + clf + momentum in code
+    and called it "the live blend". It was not: PROD is panel + slow momentum;
+    the clf leg belongs to the SHADOW profiles. Freezing a member list is the
+    same error one level up from the one this census exists to find."""
+
+    def test_the_members_come_from_the_config_not_from_code(self, tmp_path):
+        only_panel = _config(tmp_path, "artifacts/prod/panel-ltr.alpha158_fund.json")
+        assert [m[0] for m in members_from_config(only_panel)] == [
+            "panel primary (XGB recipe)"]
+        three = _config(tmp_path, *PROD_LIKE,
+                        "artifacts/shadow/panel-clf.top-decile.fwd60.json")
+        assert len(members_from_config(three)) == 3
+
+    def test_an_UNRECOGNISED_component_is_a_ROW_not_a_drop(self, tmp_path):
+        """A new member must never vanish from the census silently."""
+        cfg = _config(tmp_path, "artifacts/prod/panel-ltr.alpha158_fund.json",
+                      "artifacts/prod/some-new-leg.json")
+        labels = [m[0] for m in members_from_config(cfg)]
+        assert any("UNRECOGNISED" in x for x in labels), labels
+
+    def test_a_config_with_no_components_REFUSES(self, tmp_path):
+        """An empty member list would read as 'nothing to measure' instead of
+        'the config could not be read'."""
+        path = tmp_path / "c.json"
+        path.write_text(json.dumps({"ranking": {"panel_scoring": {"kind": "xgb"}}}),
+                        encoding="utf-8")
+        with pytest.raises(SystemExit, match="no blend components"):
+            members_from_config(path)
+
+
+def test_the_LIVE_PINNED_config_is_what_the_record_describes():
+    """Bound to the pinned PROD config, so MEMBERSHIP drift fails here — not
+    only evidence drift. If a leg is added or removed, this test names it and
+    the GOAL-4 record has to be rewritten rather than quietly inherited."""
+    if not DEFAULT_CONFIG.exists():
+        pytest.skip("pinned strategy config absent — unit tests above still ran")
+    labels = [m[0] for m in members_from_config(DEFAULT_CONFIG)]
+    assert labels == ["panel primary (XGB recipe)",
+                      "momentum residual v0 (ledger-served)"], (
+        "the pinned PROD blend membership changed — re-derive the GOAL-4 census "
+        "claim before trusting it", labels)
+
+
+def test_the_LIVE_census_still_says_what_the_record_says():
     """Bound to reality, skips loudly off-machine. If the live corpus ever stops
     showing this, orch#805 and the GOAL-4 re-scope must be revisited — which is
     the point of pinning it."""
     live = Path("/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts")
-    if not live.exists():
-        pytest.skip("umbrella artifacts absent — the unit tests above still ran")
-    result = census(live)
+    if not live.exists() or not DEFAULT_CONFIG.exists():
+        pytest.skip("umbrella artifacts/config absent — unit tests above still ran")
+    result = census(live, DEFAULT_CONFIG)
     primary = result["members"][0]
+    assert primary["member"] == "panel primary (XGB recipe)"
     assert primary["n_vintages"] >= 8, primary["n_vintages"]
     bull = [v["BULL_CALM"] for v in primary["vintages"] if v["BULL_CALM"] is not None]
     bear = [v["BEAR"] for v in primary["vintages"] if v["BEAR"] is not None]
     assert bull and max(bull) < 0, ("BULL_CALM is no longer negative in every "
                                     "vintage — revisit orch#805", bull)
     assert bear and min(bear) > 0.3, bear
-    others = [m for m in result["members"][1:]]
-    assert all(m["n_vintages"] == 0 for m in others), (
-        "a fleet member gained per-regime evidence — update the GOAL-4 record",
+    others = result["members"][1:]
+    assert others and all(m["n_vintages"] == 0 for m in others), (
+        "a PROD blend member gained per-regime evidence — update the GOAL-4 record",
         [(m["member"], m["n_vintages"]) for m in others])
