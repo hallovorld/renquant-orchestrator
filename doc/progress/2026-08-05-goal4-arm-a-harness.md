@@ -55,4 +55,4 @@ predicate named as the reason.
   labels mature ~2026-10-27, and the ≥30 BULL_CALM floor pushes certification to
   roughly 2027.
 
-Suites: 14 new tests · 5649 passed, 2 skipped repo-wide.
+Suites: 14 new tests · 5642 passed, 2 skipped repo-wide `[VERIFIED — measured after the change]`.
