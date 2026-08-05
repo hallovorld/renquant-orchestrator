@@ -10,7 +10,11 @@ surfaces at it. What changed since 15:10 PT, all measured:
   says so instead of describing the retired single-scorer state.
 - **The fleet exists**: Step 5c/5d/5e rails + profiles + broker tags deployed,
   callsigns Rf / RCS / RCf (RC and RSs already serving). RCS is
-  serving-eligible; the fast-leg lanes are dormant until the 08-08 genesis.
+  RAIL/REGISTRY-ready (profile, tag and rail all deployed) but NOT runtime-
+  eligible at this AS-OF: its first execution fail-closed on the clf
+  component's kind and the fix (s104#91, merged `c8bba9c9`) is not in the
+  deployed runtime s104 (`b99101d5`) yet — RCS serves only after the pin
+  advance + deploy. The fast-leg lanes are dormant until the 08-08 genesis.
   3-component support landed via the N≥2 generalization.
 - **Gap #1 is now the gate itself** (orch#799): the measured phantom-config
   incident (same booster, Sharpe 0.6018 vs 0.0524) and the fail-closed repair
