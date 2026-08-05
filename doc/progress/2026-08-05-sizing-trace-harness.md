@@ -47,6 +47,53 @@ at $57.21 is nowhere near the sub-one-share region, and it was oversized anyway.
 And it shows conviction is **not being applied at all** on that path — GOOG, at
 the *same* conv=0.03, got 3.3 %.
 
+## The formula fits one day PERFECTLY and misses the other by 100×
+
+`max_pct = regime_cap(0.12) × confidence(0.57) × conviction × sigma_mult`,
+applied to two consecutive preflight days `[推导 — on VERIFIED log values]`:
+
+**2026-08-05** — calibrated scores **+3.54 / +1.62 / +1.46**, conviction **1.00**:
+
+| name | max_pct | target | intended | ACTUAL |
+|---|---:|---:|---:|---:|
+| APH | 0.0404 | $444 | **2** | **2** ✓ |
+| ROST | 0.0609 | $670 | **2** | **2** ✓ |
+| GRMN | 0.0486 | $534 | **1** | **1** ✓ |
+
+**Three for three.** The sizing stack is correct and reproduces exactly.
+
+**2026-08-03** — calibrated scores **+0.586 / +0.567 / +0.561**, conviction
+**0.37 / 0.11 / 0.03**:
+
+| name | max_pct | target | intended | ACTUAL |
+|---|---:|---:|---:|---:|
+| AMZN | 0.0220 | $237 | **0** | **9** ✗ |
+| MRK | 0.0075 | $81 | **0** | **20** ✗ |
+| PYPL | 0.0018 | $19 | **0** | **47** ✗ |
+
+Same formula, same regime, same confidence. **Zero for three**, off by up to
+**140×** on notional.
+
+### What separates the two days
+
+The candidates. On 08-05 they were **strong** (calibrated ≫ 1 → conviction
+saturates at 1.00) and the sizer worked. On 08-03 they were **weak**
+(calibrated ≈ 0.56 → conviction 0.03–0.37) and the sizer was bypassed, each
+name taking ~25 % of the book.
+
+> **The weaker the candidate, the larger the position it received.**
+
+That is precisely backwards, and it is now demonstrated rather than inferred:
+one formula, two days, three-for-three on one and zero-for-three on the other.
+
+### One correction to my previous reading
+
+I wrote that GOOG (conv = 0.03, 3.3 %) proved conviction was being applied
+somewhere. It does not: `remaining_cash` was **$615** by GOOG's turn — after
+AMZN, MRK and PYPL had taken $8,092 of the $8,350 available. **GOOG was
+cash-starved, not correctly sized.** The four orders spent **97 % of available
+cash**.
+
 ## What lands
 
 `ops/renquant104/trace_sizing_preflight.py` — runs the preflight with every
