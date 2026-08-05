@@ -96,4 +96,4 @@ public/internal split like pipeline's is even the right shape, and separately to
 read down the census's candidate list (the retrain Tasks first, since they sit
 on the model-production path).
 
-Suites: 14 tests · 5638 passed, 2 skipped repo-wide.
+Suites: 17 tests · **5680 passed, 2 skipped** repo-wide `[VERIFIED — measured after the change]`. The kernel-root test now asserts the EXACT map (pipeline `True`, the other six `False`, none unmeasured) and SKIPS LOUDLY off-machine naming what it could not measure — an earlier version filtered `None` away and accepted any three imports, so the table was stronger than its evidence `[codex on orch#814]`.

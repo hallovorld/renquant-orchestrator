@@ -210,14 +210,24 @@ def test_an_UNIMPORTABLE_package_reads_as_NOT_MEASURED_not_as_absent():
     assert got["definitely_not_a_real_package_xyz"] is None
 
 
-def test_pipeline_is_the_only_measured_package_WITH_a_kernel_root():
-    """The record's load-bearing claim, measured rather than asserted. If a
-    second package grows a kernel root, this fails and the record is re-derived."""
-    from scripts.goal3_twin_surface_audit import kernel_root_map
+def test_the_EXACT_kernel_root_map_the_record_states():
+    """[codex on orch#814] The record says none of the seven was unmeasured and
+    every non-pipeline package is False. The earlier test filtered `None` away
+    and accepted any three imports, so the table was stronger than its evidence.
+
+    This asserts the EXACT map where the environment can produce it. Off-machine
+    (CI has no sibling checkouts) it skips loudly, naming what could not be
+    measured — a skip that says which packages are missing is not the same as a
+    pass computed over whichever happened to import.
+    """
+    from scripts.goal3_twin_surface_audit import SURVEYED_PACKAGES, kernel_root_map
 
     got = kernel_root_map()
-    measured = {k: v for k, v in got.items() if v is not None}
-    if len(measured) < 3:
-        pytest.skip(f"only {len(measured)} packages importable here")
-    with_root = sorted(k for k, v in measured.items() if v)
-    assert with_root == ["renquant_pipeline"], with_root
+    unmeasured = sorted(k for k, v in got.items() if v is None)
+    if unmeasured:
+        pytest.skip("cannot verify the record's map here — unmeasured: "
+                    + ", ".join(unmeasured))
+    expected = {p: (p == "renquant_pipeline") for p in SURVEYED_PACKAGES}
+    assert got == expected, (
+        "the live kernel-root map no longer matches the record — re-derive the "
+        "GOAL-3 table rather than inheriting it", got)
