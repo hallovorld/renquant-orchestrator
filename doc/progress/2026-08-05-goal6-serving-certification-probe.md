@@ -65,4 +65,4 @@ with zero. A test asserts the output says so.
 Run against the live serving set: prod `HAS_CHECKABLE_CLAIM`, clf
 `NO_GATE_STAMP`, exit 1.
 
-Suites: 8 new tests, one bound to the live serving set · 5691 passed, 2 skipped.
+Suites: 8 new tests, one bound to the live serving set · 5688 passed, 2 skipped `[VERIFIED — measured]`.
