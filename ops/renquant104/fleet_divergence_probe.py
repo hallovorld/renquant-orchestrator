@@ -53,12 +53,24 @@ The affine-residual ratio is reported as a MAGNITUDE and never converted into a
 verdict: picking a cutoff for it after seeing these numbers is the forking path
 this file is trying to expose, not commit.
 
+THE REFERENCE IS VALIDATED FIRST `[codex on orch#826]`. If prod has no run on
+the date, or too few scored names to define the requested top-K, the whole run
+is REFUSED. Without that the probe kept going, every lane compared against an
+empty prod set, and the summary reported the fleet as producing "no separating
+evidence" — **a missing control published as a finding about the fleet.**
+
+WHAT IT READS IS MUTABLE, so what it compared is hashed. A result that names
+only a run id cannot prove the rows behind that id are the rows compared, so
+each row carries `score_set_sha256` of the scored set actually read, and
+``--out`` persists the bundle a document may cite.
+
 Read-only (immutable sqlite URIs). Usage:
-    python ops/renquant104/fleet_divergence_probe.py [--date YYYY-MM-DD] [--top-k 10]
+    python ops/renquant104/fleet_divergence_probe.py [--date YYYY-MM-DD] [--top-k 10] [--out F]
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -77,6 +89,7 @@ SHADOW_LANES = (
     "alpaca_shadow_blend_rb_fast",
 )
 
+STATE_PROD_UNAVAILABLE = "PROD_BASELINE_UNAVAILABLE"
 STATE_NO_DB = "LANE_DB_ABSENT"
 STATE_NO_RUN = "NO_RUN_ON_THIS_DATE"
 STATE_NO_SCORES = "RAN_AND_SCORED_NOTHING"
@@ -88,6 +101,18 @@ NO_EVIDENCE = (STATE_NO_DB, STATE_NO_RUN, STATE_NO_SCORES, STATE_TOO_FEW,
                STATE_SAME_TOP)
 
 MIN_COMMON = 10
+
+
+class ProdBaselineUnavailable(Exception):
+    """There is no usable prod reference for this date.
+
+    [codex on orch#826] Without this the probe kept going: every shadow lane
+    then compared against an empty prod score set, landed in
+    ``TOO_FEW_COMMON_NAMES``, and the summary line reported the whole fleet as
+    producing "no separating evidence". **A missing control would have been
+    published as a finding about the fleet.** The reference is now the first
+    thing validated, and its absence refuses the run instead of colouring it.
+    """
 
 
 class LaneUnreadable(Exception):
@@ -127,6 +152,19 @@ def lane_scores(lane: str, date: str, data: pathlib.Path = DATA
     finally:
         con.close()
     return run_id, {t: float(s) for t, s in rows}
+
+
+def score_set_sha256(scores: dict[str, float]) -> str:
+    """A content hash of one lane's scored set.
+
+    The probe reads MUTABLE sqlite. A committed result that names only a run id
+    cannot prove the rows behind that id are the rows that were compared, so
+    every persisted row carries the hash of what was actually read
+    `[codex on orch#826]`.
+    """
+    payload = json.dumps(sorted((t, float(s)) for t, s in scores.items()),
+                         separators=(",", ":"), sort_keys=False)
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _spearman(x: list[float], y: list[float]) -> float:
@@ -180,6 +218,18 @@ def compare(prod: dict[str, float], lane: dict[str, float], *, top_k: int) -> di
 
 def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
     prod_run, prod = lane_scores(PROD_LANE, date, data)
+    # The REFERENCE is validated before anything is compared to it.
+    if prod_run is None:
+        raise ProdBaselineUnavailable(
+            f"prod has no completed run on {date} — there is nothing to compare "
+            f"the fleet against, and reporting the lanes as 'no separating "
+            f"evidence' would publish a missing control as a finding")
+    need = max(MIN_COMMON, top_k)
+    if len(prod) < need:
+        raise ProdBaselineUnavailable(
+            f"prod run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
+            f"than the {need} needed to define a top-{top_k} — the reference "
+            f"cannot support the comparison being asked for")
     rows = []
     for lane in SHADOW_LANES:
         try:
@@ -196,11 +246,14 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
                                    "panel_score — the lane produced no evidence"})
             continue
         rows.append({"lane": lane, "run_id": run_id,
+                     "score_set_sha256": score_set_sha256(scores),
                      **compare(prod, scores, top_k=top_k)})
     return {
         "date": date,
+        "top_k": top_k,
         "prod_run_id": prod_run,
         "prod_n_scored": len(prod),
+        "prod_score_set_sha256": score_set_sha256(prod),
         "lanes": rows,
         "n_lanes": len(rows),
         "n_lanes_with_no_separating_evidence": sum(
@@ -246,12 +299,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--date", default=dt.date.today().isoformat())
     ap.add_argument("--top-k", type=int, default=10)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--out", help="persist the result bundle here — the record "
+                                  "a document may cite, since the sqlite it "
+                                  "reads is mutable")
     args = ap.parse_args(argv)
     try:
-        result = probe(args.date, top_k=args.top_k)
+        # Module-global lookup at CALL time, not the def-time default: a test
+        # (and an operator with RENQUANT_REPO_ROOT set) must be able to point
+        # this at another tree without the CLI silently reading the live one.
+        result = probe(args.date, top_k=args.top_k, data=DATA)
+    except ProdBaselineUnavailable as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 3
     except LaneUnreadable as exc:
         print(f"REFUSED: prod lane unreadable — {exc}", file=sys.stderr)
         return 2
+    if args.out:
+        pathlib.Path(args.out).write_text(json.dumps(result, indent=2),
+                                          encoding="utf-8")
     print(json.dumps(result, indent=2) if args.json else render(result))
     return 1 if result["n_lanes_with_no_separating_evidence"] else 0
 

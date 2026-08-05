@@ -50,6 +50,68 @@ def _n(i):
     return f"T{i:03d}"
 
 
+class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
+    """[codex on orch#826] Without this the probe kept going: every lane
+    compared against an EMPTY prod score set, landed in TOO_FEW_COMMON_NAMES,
+    and the summary reported the whole fleet as producing "no separating
+    evidence". A missing control would have been published as a finding."""
+
+    def test_NO_prod_run_refuses_the_whole_probe(self, tmp_path):
+        _lane(tmp_path, "alpaca", "2026-08-03", {_n(i): float(i) for i in range(20)})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04",
+              {_n(i): float(i) for i in range(20)})
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", data=tmp_path)
+        assert "nothing to compare" in str(exc.value)
+
+    def test_a_prod_run_that_scored_NOTHING_refuses_too(self, tmp_path):
+        _lane(tmp_path, "alpaca", "2026-08-04", {})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04",
+              {_n(i): float(i) for i in range(20)})
+        with pytest.raises(F.ProdBaselineUnavailable):
+            F.probe("2026-08-04", data=tmp_path)
+
+    def test_too_few_prod_names_to_define_the_TOP_K_refuses(self, tmp_path):
+        """The reference must be able to support the comparison ASKED FOR —
+        a top-20 cannot be defined from 12 names."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {_n(i): float(i) for i in range(12)})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04",
+              {_n(i): float(i) for i in range(20)})
+        assert F.probe("2026-08-04", top_k=10, data=tmp_path)["lanes"]
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", top_k=20, data=tmp_path)
+        assert "top-20" in str(exc.value)
+
+    def test_the_CLI_exits_3_rather_than_printing_a_fleet_conclusion(
+            self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(F, "DATA", tmp_path)
+        _lane(tmp_path, "alpaca", "2026-08-03", {_n(i): float(i) for i in range(20)})
+        rc = F.main(["--date", "2026-08-04"])
+        assert rc == 3
+        err = capsys.readouterr()
+        assert "REFUSED" in err.err
+        assert "no separating evidence" not in err.out
+
+
+class TestWhatWasComparedIsHashed:
+    """The probe reads MUTABLE sqlite. A record naming only a run id cannot
+    prove the rows behind it are the rows compared [codex on orch#826]."""
+
+    def test_every_row_carries_the_hash_of_what_was_read(self, tmp_path):
+        prod = {_n(i): float(i) for i in range(20)}
+        _lane(tmp_path, "alpaca", "2026-08-04", prod)
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", prod)
+        r = F.probe("2026-08-04", data=tmp_path)
+        assert r["prod_score_set_sha256"].startswith("sha256:")
+        assert r["lanes"][0]["score_set_sha256"] == r["prod_score_set_sha256"]
+
+    def test_the_hash_is_ORDER_independent_but_VALUE_sensitive(self):
+        a = {"AAA": 1.0, "BBB": 2.0}
+        assert F.score_set_sha256(a) == F.score_set_sha256({"BBB": 2.0, "AAA": 1.0})
+        assert F.score_set_sha256(a) != F.score_set_sha256({"AAA": 1.0, "BBB": 2.5})
+        assert F.score_set_sha256(a) != F.score_set_sha256({"AAA": 1.0})
+
+
 class TestTheThreeWaysALaneGivesNoEvidence:
     """They are three different facts and must not collapse into one."""
 
@@ -142,43 +204,86 @@ class TestAgreementIsMeasuredNotThresholded:
         assert "spearman_vs_prod" not in row
 
 
+BUNDLE = (REPO / "doc" / "progress" / "data" /
+          "2026-08-05-fleet-divergence-2026-08-04.json")
+
+
 class TestTheRecordThisProbeStands_On:
-    """Bound to the live evidence. If it moves, the GOAL-4 record must be
-    re-derived rather than inherited."""
+    """Bound to the COMMITTED bundle, not to mutable sqlite.
 
-    def _live(self, top_k=10):
-        if not (F.DATA / "runs.alpaca.db").is_file():
-            pytest.skip("umbrella data absent — the unit tests above still ran")
-        return F.probe("2026-08-04", top_k=top_k)
+    [codex on orch#826] These assertions used to re-query the live DB, so they
+    could pass long after the reported evidence had changed underneath the
+    document citing it. The bundle is the immutable thing the write-up cites;
+    the live check below is a SEPARATE test that fails loudly on divergence
+    rather than quietly re-deriving.
+    """
 
-    def test_the_momentum_lane_picked_prods_entire_top_10(self):
-        r = self._live()
-        row = next(x for x in r["lanes"]
-                   if x["lane"] == "alpaca_shadow_blend_mom")
-        if row["state"] in (F.STATE_NO_RUN, F.STATE_NO_DB):
-            pytest.skip("lane absent on this box")
+    @pytest.fixture(scope="class")
+    def bundle(self):
+        import json as _json
+
+        return _json.loads(BUNDLE.read_text())
+
+    def _row(self, bundle, lane):
+        return next(x for x in bundle["lanes"] if x["lane"] == lane)
+
+    def test_the_bundle_names_what_it_compared(self, bundle):
+        assert bundle["date"] == "2026-08-04" and bundle["top_k"] == 10
+        assert bundle["prod_run_id"] == "2026-08-04-live-a199b993"
+        assert bundle["prod_score_set_sha256"].startswith("sha256:")
+        for row in bundle["lanes"]:
+            if row["state"] not in (F.STATE_NO_RUN, F.STATE_NO_DB):
+                assert row["run_id"], row
+
+    def test_the_momentum_lane_picked_prods_entire_top_10(self, bundle):
+        row = self._row(bundle, "alpaca_shadow_blend_mom")
         assert row["top_k_overlap"] == 10, row
         assert row["state"] == F.STATE_SAME_TOP
         assert row["affine_residual_ratio"] < 0.05, row
 
-    def test_two_lanes_ran_and_scored_nothing(self):
-        r = self._live()
-        silent = sorted(x["lane"] for x in r["lanes"]
+    def test_two_lanes_ran_and_scored_nothing(self, bundle):
+        silent = sorted(x["lane"] for x in bundle["lanes"]
                         if x["state"] == F.STATE_NO_SCORES)
         assert silent == ["alpaca_shadow_blend_mom_fast",
                           "alpaca_shadow_blend_rb_fast"], silent
 
-    def test_the_ONE_lane_with_a_history_diverges(self):
-        """`blend` is the only lane with more than one date. Six dates,
-        never once matching prod's top 10."""
-        overlaps = []
-        for d in ("2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31",
-                  "2026-08-03", "2026-08-04"):
-            if not (F.DATA / "runs.alpaca.db").is_file():
-                pytest.skip("umbrella data absent")
-            row = next(x for x in F.probe(d)["lanes"]
-                       if x["lane"] == "alpaca_shadow_blend")
-            if "top_k_overlap" in row:
-                overlaps.append(row["top_k_overlap"])
-        assert len(overlaps) >= 5, overlaps
-        assert max(overlaps) < 10, overlaps
+    def test_three_of_five_lanes_gave_no_separating_evidence(self, bundle):
+        assert bundle["n_lanes"] == 5
+        assert bundle["n_lanes_with_no_separating_evidence"] == 3
+
+
+def test_the_LIVE_evidence_still_reproduces_the_committed_bundle():
+    """If the DB behind the record moves, this FAILS — it does not skip and it
+    does not silently re-derive. A record that quietly re-computes itself is
+    not a record."""
+    import json as _json
+
+    if not (F.DATA / "runs.alpaca.db").is_file():
+        pytest.skip("umbrella data absent — the bundle tests above still ran")
+    bundle = _json.loads(BUNDLE.read_text())
+    live = F.probe(bundle["date"], top_k=bundle["top_k"])
+    assert live["prod_score_set_sha256"] == bundle["prod_score_set_sha256"], (
+        "prod's scored set changed under the GOAL-4 record — re-derive it "
+        "rather than inheriting it")
+    for want in bundle["lanes"]:
+        got = next(x for x in live["lanes"] if x["lane"] == want["lane"])
+        assert got["state"] == want["state"], (want["lane"], got, want)
+        assert got.get("score_set_sha256") == want.get("score_set_sha256"), (
+            want["lane"], "the lane's scored set changed under the record")
+
+
+def test_the_ONE_lane_with_a_history_diverges():
+    """`blend` is the only lane with more than one date. Six dates, never once
+    matching prod's top 10. Live-bound on purpose: this one is a claim about a
+    RANGE, and the bundle holds a single date."""
+    if not (F.DATA / "runs.alpaca.db").is_file():
+        pytest.skip("umbrella data absent")
+    overlaps = []
+    for d in ("2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31",
+              "2026-08-03", "2026-08-04"):
+        row = next(x for x in F.probe(d)["lanes"]
+                   if x["lane"] == "alpaca_shadow_blend")
+        if "top_k_overlap" in row:
+            overlaps.append(row["top_k_overlap"])
+    assert len(overlaps) >= 5, overlaps
+    assert max(overlaps) < 10, overlaps

@@ -67,12 +67,40 @@ to commit. A test pins that: a lane with a real non-zero residual **below** the
 cut still reads `SAME_TOP_K` — the state answers "would it have bought the same
 names", not "is it identical".
 
+## Two review blockers, both real `[codex on orch#826]`
+
+**1. The reference was not validated.** If prod had no run on the date — or a
+run that scored nothing — `probe()` kept going: every lane compared against an
+**empty** prod score set, landed in `TOO_FEW_COMMON_NAMES`, and the summary
+line reported the whole fleet as producing "no separating evidence".
+**A missing control would have been published as a finding about the fleet.**
+The reference is now the first thing checked, and its absence (or too few names
+to define the requested top-K) **refuses the entire run** with exit 3 rather
+than colouring it.
+
+That is the same shape as the thing this probe was built to catch, arriving
+from the other direction: a number that looks like a measurement of the fleet
+but is actually a measurement of the harness.
+
+**2. The record was not auditable.** The probe reads **mutable** sqlite, and a
+result naming only a run id cannot prove the rows behind that id are the rows
+compared. Every row now carries `score_set_sha256` of the set actually read,
+`--out` persists the bundle, and the committed bundle
+(`doc/progress/data/2026-08-05-fleet-divergence-2026-08-04.json`) is what this
+document cites. The record-bound tests read **the bundle**, not the DB; a
+separate live test asserts the DB still reproduces it and **fails** — does not
+skip, does not silently re-derive — if it does not. A record that quietly
+recomputes itself is not a record.
+
 ## Next
 
 The honest next step is **not** a conclusion about `blend_mom` — it is more
 dates. The probe is read-only and unscheduled; wiring it into the daily fleet
 report is a separate, reviewable step.
 
-Suites: 11 tests, incl. all three no-evidence states kept distinct, the
-ratio-with-its-denominator rule, the no-cutoff case, and three bound to the live
-evidence · full suite green.
+Suites: 20 tests — all three no-evidence states kept distinct, the
+absent/empty/too-few prod-baseline refusals, the CLI exiting 3 instead of
+printing a fleet conclusion, the score-set hash being order-independent but
+value-sensitive, the ratio-with-its-denominator rule, the no-cutoff case, the
+bundle-bound record, and the live-still-reproduces-the-bundle check ·
+full suite green.
