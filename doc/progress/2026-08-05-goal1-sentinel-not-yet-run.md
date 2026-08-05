@@ -73,4 +73,94 @@ record on a day the session ran is an alarm.*
 - `2026-08-04` (a real session): exit **0**, "all 5 lanes accounted for" —
   unchanged.
 
-Suites: 23 in this file · 5611 passed, 2 skipped repo-wide.
+## Review round 2 — the two ways it WAS still a silencer
+
+Codex verified the wrapper's step order against `daily_104.sh` (prod Step 3
+returns before the Step 5 lanes, so the ordering premise holds) and then found
+two real holes:
+
+1. **"Cannot read the evidence" was folded into "there is no evidence."**
+   `_tag_record` returned `None` for any `sqlite3.Error`, so a corrupt or
+   unreadable `runs.alpaca.db` after a REAL session would downgrade a genuinely
+   failed lane from actionable `MISSING` to quiet `NOT_YET_RUN`. The session
+   check is now **three-valued** — `started` / `not_started` / `unknown` — and
+   `unknown` NEVER downgrades: the lane stays `MISSING` and the detail says the
+   prod DB could not be read.
+2. **I erased the pre-session detection case.** A vanished pinned profile is a
+   CONFIG defect that is true whether or not anything ran, and my updated test
+   wrote a prod row first, hiding that. A missing profile now has its own
+   actionable state, `PROFILE_ABSENT`, checked BEFORE the session state and
+   never downgraded by it — asserted against all three session states.
+
+Codex also noted, and this is recorded rather than fixed: the prod row is
+written LATE in `RunnerAdapter.commit()`, after state save and order
+application, so a session that died mid-flight can leave no prod row. That is
+precisely why `unknown` exists and why a lane with its OWN evidence (a record,
+or a fail-closed marker) is judged on that first. And `NOT_YET_RUN` still exits
+0, so Step 6 does not page differently — the wrapper's success branch still
+collapses "not run" and "all accounted for" into one rc, distinguished only in
+the printed line.
+
+## Review round 3 — existence is not enough
+
+Codex re-pushed the edge cases (prod DB with no table, a prod row for a
+different date, an empty prod DB file, an unreadable LANE db while prod ran) and
+confirmed each behaves correctly, then found the last hole:
+
+**An EXISTING but UNPARSEABLE pinned profile was still silenced until the
+session ran.** `profile_absent()` checked only `exists()`; `lane_is_dormant()`
+swallows a JSON error and returns False; so `classify()` fell through to the
+session check and reported the quiet `NOT_YET_RUN`. And it is not hypothetical —
+codex traced it: the wrapper gates these lanes on **file existence alone**
+(`daily_104.sh`) and then hands the path to the runner, whose loader
+**hard-parses** it with `json.loads` (`renquant_strategy_104/config.py`).
+
+`profile_absent` is now `profile_defect`, returning a REASON: absent, unreadable,
+invalid JSON, or not a JSON object. It is checked before dormancy and before the
+session state and is never downgraded by either. The state is renamed
+`PROFILE_DEFECT` to match what it now covers. A test asserts a valid profile —
+including a dormant one — is not a defect, so the check cannot become a
+false-positive generator.
+
+## Review round 4 — dormancy was short-circuiting before evidence
+
+The last hole, and it was in the ORIGINAL sentinel, not in this change:
+`classify()` returned `DORMANT` **before looking at the lane's row or log**.
+But the fast lanes still EXECUTE daily (`daily_104.sh` Steps 5c/5e) — the
+pending-first-artifact marker only declares that the fast artifact is not
+published yet; it does not make every later failure benign. Codex reproduced a
+dormant lane with BOTH a zero-candidate row and a `panel_scorer_load_failed`
+marker reporting as plain quiet `DORMANT`, with no mention of either.
+
+Dormancy is now judged **against** the evidence:
+
+- dormant + no evidence → plainly quiet, unchanged;
+- dormant + fail-closed marker → still quiet (a lane missing its declared-pending
+  component is *expected* to fail closed) but the line **says so**, with the
+  record id. A quiet state that hides its evidence is how a reader stops being
+  able to tell quiet from broken;
+- dormant + a record that actually **SCORED** → **actionable**. Scoring
+  contradicts "the artifact is not published yet", so the declaration is STALE —
+  and a stale dormancy declaration is precisely how a lane goes dark without
+  anyone noticing.
+
+A test pins that the ordinary dormant case stays quiet and silent, so this does
+not become a noise generator.
+
+## Review round 5 — I fixed the fold-in for PROD and left it one function over
+
+`_lane_record` caught `DbUnreadable` and returned `None`, so a corrupt
+`runs.<lane>.db` fell through to the PROD-based decision and could report the
+quiet `NOT_YET_RUN`. That is **the same "cannot read the evidence" → "no
+evidence" error I had just fixed for the prod DB**, still in place for the lane
+— and I had even written a test asserting the wrong behaviour.
+
+An unreadable lane DB is now `EVIDENCE_UNREADABLE`, **actionable regardless of
+dormancy or session state**, with a detail saying no statement about the lane is
+possible until it is repaired. Three tests: no prod row, prod started, and
+dormant — all actionable.
+
+The lesson is the one this file keeps re-teaching: *"cannot say" is never
+"fine"*, and fixing one instance of a pattern is not fixing the pattern.
+
+Suites: 36 in this file · 5624 passed, 2 skipped repo-wide.

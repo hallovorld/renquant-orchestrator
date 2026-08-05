@@ -137,13 +137,20 @@ def test_dormant_lane_is_quiet_and_only_config_can_declare_it(tree):
     assert state == S.STATE_DORMANT and state not in S.ACTIONABLE
 
 
-def test_absent_profile_is_NOT_dormant(tree):
+def test_absent_profile_is_NOT_dormant_and_alarms_BEFORE_any_session(tree):
     """A vanished profile must never read as 'declared dormant' — that is the
-    exact silence this sentinel exists to remove."""
+    exact silence this sentinel exists to remove.
+
+    [codex on orch#811] It must also alarm with NO prod row. A missing profile
+    is a CONFIG defect that is true whether or not anything ran; the wrapper
+    will skip that rail on its next run. My first version of the session check
+    wrote a prod row here, which erased exactly this pre-session detection case.
+    """
     _, data, _ = tree
-    _db(data, S.PROD_TAG, n_candidates=80)   # session ran, so absence is real
-    state, _ = _classify(LANE, tree)
-    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+    assert "will skip this rail" in detail
 
 
 def test_dormancy_cannot_be_declared_by_editing_the_sentinel(tree):
@@ -326,3 +333,163 @@ def test_directories_resolve_at_CALL_time_not_at_import(tree, monkeypatch):
     assert state == S.STATE_NOT_YET_RUN, (
         "classify read a directory bound at import instead of the current one")
     assert S.session_started(DATE) is False
+
+
+# ── [codex on orch#811] "cannot read the evidence" is not "no evidence" ──────
+
+def _corrupt_db(dirpath: Path, tag: str) -> None:
+    dirpath.mkdir(parents=True, exist_ok=True)
+    (dirpath / f"runs.{tag}.db").write_bytes(b"this is not a sqlite file")
+
+
+def test_an_UNREADABLE_prod_db_keeps_the_lane_ACTIONABLE(tree):
+    """The silencer this change could have become: if runs.alpaca.db is
+    corrupt after a REAL session, a lane that also failed before writing its own
+    row must NOT be downgraded to the quiet NOT_YET_RUN."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _corrupt_db(data, S.PROD_TAG)
+    assert S.session_state(DATE, data) == S.SESSION_UNKNOWN
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert "could NOT BE READ" in detail
+
+
+def test_session_state_is_THREE_valued_not_two(tree):
+    _, data, _ = tree
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    _db(data, S.PROD_TAG, n_candidates=80)
+    assert S.session_state(DATE, data) == S.SESSION_STARTED
+    _corrupt_db(data, S.PROD_TAG)
+    assert S.session_state(DATE, data) == S.SESSION_UNKNOWN
+
+
+def test_an_unreadable_LANE_db_is_ACTIONABLE_not_quiet(tree):
+    """[codex on orch#812] I fixed the fold-in for the PROD db and left the SAME
+    error one function over: a corrupt runs.<lane>.db returned None and fell
+    through to the quiet NOT_YET_RUN. An unreadable evidence source is an
+    independently detected fault — "cannot say" is never "fine"."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _corrupt_db(data, LANE.tag)
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+    assert "could not be read" in detail
+
+
+def test_an_unreadable_LANE_db_is_actionable_with_PROD_started_too(tree):
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db(data, S.PROD_TAG, n_candidates=80)
+    _corrupt_db(data, LANE.tag)
+    assert S.session_state(DATE, data) == S.SESSION_STARTED
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+
+
+def test_an_unreadable_LANE_db_is_actionable_even_when_DORMANT(tree):
+    """Dormancy declares a component pending; it says nothing about whether the
+    lane's own evidence can be read."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _corrupt_db(data, LANE.tag)
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+
+
+def test_a_PROFILE_ABSENT_lane_is_never_downgraded_by_the_session_check(tree):
+    cfg, data, _ = tree
+    for prep in (lambda: None,
+                 lambda: _db(data, S.PROD_TAG, n_candidates=80),
+                 lambda: _corrupt_db(data, S.PROD_TAG)):
+        prep()
+        state, _ = _classify(LANE, tree)
+        assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+
+
+def test_an_UNPARSEABLE_profile_alarms_BEFORE_any_session(tree):
+    """[codex on orch#812] Existence is not enough. The wrapper gates these
+    lanes on file existence alone and then hands the path to the runner, whose
+    loader hard-parses it with json.loads — so a malformed profile is a real
+    pre-session failure, and checking only exists() silenced it until the
+    session ran."""
+    cfg, data, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text("{not json at all", encoding="utf-8")
+    assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+    assert "not valid JSON" in detail
+
+
+def test_a_profile_that_is_not_an_OBJECT_also_alarms(tree):
+    cfg, _, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text('["a", "list"]', encoding="utf-8")
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_PROFILE_DEFECT
+    assert "not a JSON object" in detail
+
+
+def test_a_profile_defect_is_never_downgraded_by_ANY_session_state(tree):
+    cfg, data, _ = tree
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / LANE.profile).write_text("{broken", encoding="utf-8")
+    for prep in (lambda: None,
+                 lambda: _db(data, S.PROD_TAG, n_candidates=80),
+                 lambda: _corrupt_db(data, S.PROD_TAG)):
+        prep()
+        state, _ = _classify(LANE, tree)
+        assert state == S.STATE_PROFILE_DEFECT and state in S.ACTIONABLE
+
+
+def test_a_VALID_profile_is_not_a_defect(tree):
+    """Anti-false-positive: the check must not reject healthy profiles."""
+    cfg, _, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    assert S.profile_defect(LANE, cfg) is None
+    _profile(cfg, LANE.profile, pending=True)
+    assert S.profile_defect(LANE, cfg) is None
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT
+
+
+# ── [codex on orch#812] dormancy is checked AGAINST evidence, not before it ──
+
+def test_a_dormant_lane_that_FAIL_CLOSED_says_so_instead_of_hiding_it(tree):
+    """The fast lanes still EXECUTE daily; the pending-artifact marker only says
+    the fast artifact is unpublished. Returning DORMANT before looking at the
+    row or log meant a dormant lane with a fail-closed marker reported quiet
+    with no mention of it — a quiet state that hides its evidence is how the
+    reader stops being able to tell quiet from broken."""
+    cfg, data, logs = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _db_zero(data, LANE.tag)
+    (logs / f"{DATE}_{LANE.log_stem}.log").write_text(
+        "panel_scorer_load_failed", encoding="utf-8")
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT           # still quiet — this IS expected
+    assert "fail-closed" in detail            # ... but it is SAID
+    assert "candidates=0" in detail
+
+
+def test_a_dormant_lane_that_actually_SCORED_is_ACTIONABLE(tree):
+    """A stale dormancy declaration is precisely how a lane goes dark without
+    anyone noticing: it scored, so the profile's 'pending first artifact' is no
+    longer true."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _db(data, LANE.tag, n_candidates=83)      # it SCORED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_MISSING and state in S.ACTIONABLE
+    assert "declaration is STALE" in detail
+
+
+def test_a_dormant_lane_with_no_evidence_is_still_plainly_quiet(tree):
+    """Anti-false-positive: the ordinary dormant case must not become noisy."""
+    cfg, _, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_DORMANT and state not in S.ACTIONABLE
+    assert "fail-closed" not in detail and "STALE" not in detail
