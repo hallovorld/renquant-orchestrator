@@ -62,3 +62,19 @@ re-derives POSITIONS and DIGESTS only, and REFUSES on anything else:
 contract is in sync, so the same failure is now one command away from fixed.
 
 Suites: r6 6 passed · sentinel 31 passed · recapture 6 passed.
+
+## Review round 2 (codex on orch#804)
+
+Codex found the re-capture tool's refusal set incomplete and proved it: with the
+emitter DELETED and only a comment left quoting the template, `if template in ln`
+treated the comment as an emit site and silently re-pinned to it. A vanished
+emitter could re-pin to its own obituary — the exact failure the refusal exists
+to prevent.
+
+Fixed: a line counts as an emit site only if it is not a comment, has no `#`
+before the template, and has an emitter command (`echo`/`printf`/`notify`) ahead
+of it. Five regression tests added, including codex's repro verbatim, a trailing
+`#` comment, a grep PATTERN list quoting the same text (the sentinel-adjacent
+shape — wrappers grep their own logs for these lines), `printf`/`notify` still
+counting, and an anti-regression check that the tightened matcher still resolves
+all nine live contracted lines. 11 passed.

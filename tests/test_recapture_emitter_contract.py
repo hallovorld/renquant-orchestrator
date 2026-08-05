@@ -79,3 +79,59 @@ def test_the_live_contract_is_in_sync_with_the_live_wrappers():
     assert recapture(contract, umbrella) == [], (
         "emitter contract drifted — run "
         "`python -m ops.renquant104.recapture_emitter_contract --note '<why>'`")
+
+
+# ── [codex on orch#804] a template substring is not an emit site ──────────────
+
+def test_a_COMMENT_quoting_the_template_is_not_an_emit_site(tmp_path):
+    """codex's repro verbatim: the emitter is GONE and the only remaining match
+    is a comment. Re-pinning to the obituary is worse than refusing."""
+    c = _fixture(tmp_path,
+                 ["# comment mentions === X === but is not an emitter",
+                  'echo "other"'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:9"}])
+    with pytest.raises(SystemExit) as exc:
+        recapture(c, tmp_path)
+    assert "0 emit site(s)" in str(exc.value)
+    assert c["lines"][0]["source"] == "scripts/w.sh:9", "must not be rewritten"
+
+
+def test_a_TRAILING_comment_quoting_the_template_is_not_an_emit_site(tmp_path):
+    c = _fixture(tmp_path, ['ls    # echo "=== X ===" used to live here'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    with pytest.raises(SystemExit):
+        recapture(c, tmp_path)
+
+
+def test_a_GREP_PATTERN_quoting_the_template_is_not_an_emit_site(tmp_path):
+    """The sentinel-adjacent shape: wrappers grep their own log for these lines.
+    A pattern list must never be mistaken for the emitter."""
+    c = _fixture(tmp_path,
+                 ['PATTERN="=== X ===|=== Y ==="', 'grep -E "$PATTERN" "$LOG"',
+                  'echo "=== X ==="'],
+                 [{"job": "j", "kind": "action", "template": "=== X ===",
+                   "source": "scripts/w.sh:1"}])
+    recapture(c, tmp_path)
+    assert c["lines"][0]["source"] == "scripts/w.sh:3", "must pin the echo, not the pattern"
+
+
+def test_printf_and_notify_also_count_as_emitters(tmp_path):
+    for cmd in ('printf "=== X ===\\n"', 'notify "title" "=== X ==="'):
+        c = _fixture(tmp_path, ["", cmd],
+                     [{"job": "j", "kind": "action", "template": "=== X ===",
+                       "source": "scripts/w.sh:1"}])
+        recapture(c, tmp_path)
+        assert c["lines"][0]["source"] == "scripts/w.sh:2", cmd
+
+
+def test_the_live_contract_still_resolves_under_the_TIGHTER_matcher():
+    """Anti-regression: tightening must not orphan a real contracted line."""
+    umbrella = Path("/Users/renhao/git/github/RenQuant")
+    if not umbrella.exists():
+        pytest.skip("umbrella absent")
+    path = (Path(__file__).resolve().parent.parent / "ops" / "renquant104"
+            / "emitter_contract.json")
+    contract = json.loads(path.read_text())
+    assert recapture(contract, umbrella) == []

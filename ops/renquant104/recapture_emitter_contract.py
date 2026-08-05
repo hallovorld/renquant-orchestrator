@@ -21,12 +21,37 @@ import argparse
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import sys
 from collections import defaultdict
 
+# A contracted line is an EMITTER line — the wrapper actually printing it. Matching
+# on the template substring alone is not enough: a comment, a docstring, or a
+# pattern list that quotes the same text would be silently re-pinned as if it were
+# the emit site, and a template that VANISHED from every echo would then re-pin to
+# its own obituary instead of refusing. [codex on orch#804]
+_EMITTER_CMD = re.compile(r"\b(?:echo|printf|notify)\b")
+
 UMBRELLA = pathlib.Path("/Users/renhao/git/github/RenQuant")
 CONTRACT = pathlib.Path(__file__).resolve().parent / "emitter_contract.json"
+
+
+def _is_emitter_line(line: str, template: str) -> bool:
+    """True only if `line` is a shell statement that EMITS `template`.
+
+    Rejects comments and any occurrence whose prefix is commented out, and
+    requires an emitter command (`echo`/`printf`/`notify`) ahead of the text —
+    so quoting the template in a comment or a grep pattern is not an emit site.
+    """
+    if template not in line:
+        return False
+    if line.lstrip().startswith("#"):
+        return False
+    prefix = line[:line.index(template)]
+    if "#" in prefix:
+        return False
+    return bool(_EMITTER_CMD.search(prefix))
 
 
 def recapture(contract: dict, umbrella: pathlib.Path) -> list[str]:
@@ -42,13 +67,16 @@ def recapture(contract: dict, umbrella: pathlib.Path) -> list[str]:
         if not path.exists():
             raise SystemExit(f"REFUSING: {rel} absent — cannot re-capture off-machine")
         lines = path.read_text(errors="ignore").splitlines()
-        hits = sorted(i + 1 for i, ln in enumerate(lines) if template in ln)
+        hits = sorted(i + 1 for i, ln in enumerate(lines)
+                      if _is_emitter_line(ln, template))
         if len(hits) != len(rows):
             raise SystemExit(
                 f"REFUSING: {rel} has {len(hits)} emit site(s) for {template!r} but "
                 f"the contract records {len(rows)} row(s). That is a real emitter "
                 f"change, not a line shift — re-verify the sentinel's pattern still "
-                f"classifies this lane before touching the contract.")
+                f"classifies this lane before touching the contract. (An emit site "
+                f"is an echo/printf/notify statement; a comment or a pattern list "
+                f"quoting the same text does not count.)")
         for (old, row), new in zip(sorted(rows, key=lambda r: r[0]), hits):
             if old != new:
                 changed.append(f"{rel}:{old} -> :{new}")
