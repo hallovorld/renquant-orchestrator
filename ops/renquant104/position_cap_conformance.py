@@ -104,19 +104,26 @@ def scan(since: str, *, db: pathlib.Path = DB,
         raise EvidenceUnreadable(f"no runs DB at {db}")
     con = sqlite3.connect(f"file://{db}?immutable=1", uri=True)
     try:
+        # The RUN that emitted each buy, and when it was created. A breach is
+        # far easier to read when you can see WHICH cycle produced it — the two
+        # 2026-07-28 breaches came from a run created at 17:45:49, off the
+        # 12-minute grid every other run that day sits on `[VERIFIED]`.
         rows = con.execute(
-            "select trade_date, ticker, regime, target_pct, kelly_target_pct "
-            "from trades where trade_date is not null and trade_date >= ? "
-            "and target_pct is not null "
-            "and (exit_reason is null or exit_reason in ('accepted','pending_new')) "
-            "order by trade_date desc, ticker", (since,)).fetchall()
+            "select t.trade_date, t.ticker, t.regime, t.target_pct, "
+            "       t.kelly_target_pct, t.run_id, p.created_at "
+            "from trades t left join pipeline_runs p on p.run_id = t.run_id "
+            "where t.trade_date is not null and t.trade_date >= ? "
+            "and t.target_pct is not null "
+            "and (t.exit_reason is null or t.exit_reason in ('accepted','pending_new')) "
+            "order by t.trade_date desc, t.ticker", (since,)).fetchall()
     except sqlite3.Error as exc:
         raise EvidenceUnreadable(f"{db}: {exc}") from exc
     finally:
         con.close()
     classified = [classify(
-        {"trade_date": d, "ticker": t, "regime": r,
-         "target_pct": tp, "kelly_target_pct": kt}, caps) for d, t, r, tp, kt in rows]
+        {"trade_date": d, "ticker": t, "regime": r, "target_pct": tp,
+         "kelly_target_pct": kt, "run_id": rid, "run_created_at": ca}, caps)
+        for d, t, r, tp, kt, rid, ca in rows]
     return {
         "since": since,
         "caps": caps,
@@ -139,6 +146,14 @@ def render(r: dict) -> str:
             f"{(b.get('cap') if b.get('cap') is not None else float('nan')):>7.2f}"
             f"{(b['kelly_target_pct'] or 0):>9.4f}"
             f"{(f'{k:.1f}x' if k else '—'):>9}  {b['state']}")
+    out.append("")
+    over = [b for b in r["buys"] if b["state"] == STATE_OVER]
+    if over:
+        out.append("")
+        out.append("  the breaching run(s):")
+        for b in over:
+            out.append(f"    {b['ticker']:6} run {b.get('run_id')}  "
+                       f"created {b.get('run_created_at')}")
     out.append("")
     out.append(f"  {r['n_over_cap']} of {r['n_buys']} live buy(s) sized OVER the "
                f"regime cap the deployed config declares")

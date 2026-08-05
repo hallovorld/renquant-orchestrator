@@ -39,6 +39,26 @@ Every other live buy since 2026-07-01 sized between **0.007 and 0.091** — all
 comfortably under the cap. **2 of 33.** So this is an *event*, not the normal
 path, and an event is exactly the thing that goes unnoticed without a check.
 
+## 3. Both breaches came from ONE run, and it was off the schedule
+
+```
+EME    run 2026-07-28-live-6194047c   created 2026-07-28 17:45:49
+TSLA   run 2026-07-28-live-6194047c   created 2026-07-28 17:45:49
+```
+
+Every other live run on 2026-07-28 sits on a **12-minute grid** — 13:30, 13:42,
+13:54, 14:00 … 17:36, **17:48**, 18:00 … `[VERIFIED]`. **17:45:49 is not on it.**
+So the only two oversized buys this book has taken came from a single cycle that
+was not part of the scheduled cadence.
+
+The probe now names the run and its creation time on every breach row, because
+"which cycle did this" is the first question a reader has and it was not
+answerable from the trade record alone.
+
+**I have not established what triggered that run**, and I am not guessing. What
+is established: it was `run_type=live`, `broker_mode=alpaca`, `BULL_CALM`,
+`buy_blocked=false`, and it placed two orders at ~3.5× the sizing target.
+
 ## Why this matters more than the number
 
 The largest position in the book — **23.5 % of a $10.9k live account** — is one
@@ -76,5 +96,5 @@ I have **not** established *why* the 07-28 sizing overrode both. That is the
 next measurement, and I am not proposing a fix to a mechanism I have not yet
 found.
 
-Suites: 12 tests, incl. the live-bound one pinning 2-of-33 and the ~3.8× ratio ·
+Suites: 13 tests, incl. the live-bound one pinning 2-of-33 and the ~3.8× ratio ·
 full suite green.

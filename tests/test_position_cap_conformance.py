@@ -23,15 +23,19 @@ import position_cap_conformance as P  # noqa: E402
 
 _SCHEMA = """
 CREATE TABLE trades (trade_date TEXT, ticker TEXT, regime TEXT,
-                     target_pct REAL, kelly_target_pct REAL, exit_reason TEXT);
+                     target_pct REAL, kelly_target_pct REAL, exit_reason TEXT,
+                     run_id TEXT);
+CREATE TABLE pipeline_runs (run_id TEXT, created_at TEXT);
 """
 
 
-def _db(tmp_path, *rows):
+def _db(tmp_path, *rows, runs=()):
     p = tmp_path / "runs.alpaca.db"
     con = sqlite3.connect(p)
     con.executescript(_SCHEMA)
-    con.executemany("insert into trades values (?,?,?,?,?,?)", rows)
+    con.executemany("insert into trades values (?,?,?,?,?,?,?)",
+                    [r if len(r) == 7 else (*r, None) for r in rows])
+    con.executemany("insert into pipeline_runs values (?,?)", runs)
     con.commit()
     con.close()
     return p
@@ -129,6 +133,21 @@ class TestOnlyLIVEBuysAreCounted:
         assert P.scan("2026-07-01", db=db, config_path=cfg)["buys"] == []
 
 
+def test_a_breach_names_the_RUN_that_produced_it(tmp_path):
+    """A breach is far easier to read when you can see WHICH cycle produced it
+    — the two live breaches came from a run created off the 12-minute grid."""
+    db = _db(tmp_path,
+             ("2026-07-28", "TSLA", "BULL_CALM", 0.2341, 0.0613, None, "r-odd"),
+             runs=[("r-odd", "2026-07-28 17:45:49")])
+    cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": 0.12}})
+    r = P.scan("2026-07-01", db=db, config_path=cfg)
+    b = r["buys"][0]
+    assert b["run_id"] == "r-odd"
+    assert b["run_created_at"] == "2026-07-28 17:45:49"
+    text = P.render(r)
+    assert "the breaching run(s):" in text and "17:45:49" in text
+
+
 def test_the_LIVE_book_is_what_the_record_describes():
     """Bound to reality: 2 of 33 live buys since 2026-07-01 breached the cap,
     both on 2026-07-28. If that changes, the design record must be re-derived."""
@@ -142,3 +161,6 @@ def test_the_LIVE_book_is_what_the_record_describes():
         assert b["kelly_ratio"] > 3.0, (
             "the breach was ~3.8x the model's own Kelly target — if that has "
             "shrunk, re-derive the record", b)
+    # Both came from ONE run, and it was created off the 12-minute cadence.
+    assert {b["run_id"] for b in over} == {"2026-07-28-live-6194047c"}, over
+    assert all(str(b["run_created_at"]).endswith("17:45:49") for b in over), over
