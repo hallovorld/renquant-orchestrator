@@ -55,7 +55,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -882,17 +882,57 @@ def merge_audit_status(pr: dict) -> dict:
     }
 
 
-def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50) -> dict:
-    """Return a JSON-ready audit of recent merged PR traceability."""
+#: Days of merge history the recurring GATE judges. History outside it is still
+#: measured and reported — it is simply not something a future action can change.
+#:
+#: WHY A WINDOW AT ALL (orch, 2026-08-05, operator-reported). The gate was
+#: `ok = no missing marker in ALL history`, and the marker must predate the merge
+#: (`created_at <= merged_at`). A merged PR can still receive comments but can never
+#: receive a PRE-merge one, so a single violation makes that PR permanently
+#: non-compliant and the gate permanently red — 375 of 454 PRs, failing every 5 minutes
+#: for months no matter how anyone behaves afterwards. A gate that cannot be satisfied
+#: is not a gate; it is a generator of pages nobody can act on, and it trains everyone
+#: to ignore the channel that also carries the real ones.
+#:
+#: A rolling window is satisfiable BY BEHAVIOUR: comply for the window's length and it
+#: goes green on its own. Nothing is hidden — `n_missing_pre_merge_audit` still counts
+#: everything fetched, and the window figures sit beside it.
+GATE_WINDOW_DAYS = 7
+
+
+def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
+                     gate_window_days: int = GATE_WINDOW_DAYS,
+                     now: "datetime | None" = None) -> dict:
+    """Return a JSON-ready audit of recent merged PR traceability.
+
+    `ok` is the GATE and covers only the last `gate_window_days` of merges — the part
+    a future action can still change. The historical totals are reported alongside and
+    deliberately do NOT gate: see `GATE_WINDOW_DAYS`.
+    """
     prs = fetch_merged_prs(repo, token, limit=limit)
     rows = [merge_audit_status(pr) for pr in prs]
     missing = [row for row in rows if not row["has_pre_merge_audit"]]
+
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=int(gate_window_days))
+    in_window = [r for r in rows
+                 if (_parse_github_datetime(r.get("merged_at")) or cutoff) >= cutoff]
+    window_missing = [r for r in in_window if not r["has_pre_merge_audit"]]
+
     return {
         "repo": repo,
         "limit": limit,
         "n_merged_prs": len(rows),
         "n_missing_pre_merge_audit": len(missing),
-        "ok": not missing,
+        "gate_window_days": int(gate_window_days),
+        "n_merged_in_window": len(in_window),
+        "n_missing_in_window": len(window_missing),
+        "missing_in_window": [
+            {"number": r.get("number"), "url": r.get("url"),
+             "merged_by": r.get("merged_by"), "merged_at": r.get("merged_at")}
+            for r in window_missing[:10]
+        ],
+        # the GATE: only the window. Historical misses are recorded, never gating.
+        "ok": not window_missing,
         "prs": rows,
     }
 

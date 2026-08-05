@@ -94,14 +94,21 @@ def test_prs_action_surfaces_agent_author_from_visible_traceability(tmp_path, mo
 
 
 def test_merge_audit_action_summarizes_across_repos(tmp_path, monkeypatch):
+    # 2026-08-05: `ok` is the WINDOW verdict, `n_missing_pre_merge_audit` is the
+    # historical count. A repo can be historically dirty and currently compliant —
+    # that combination is the whole point of the rescope, so the fixture now says
+    # which is which instead of conflating them.
     audits = {
-        "hallovorld/RenQuant": {"ok": False, "n_missing_pre_merge_audit": 2},
-        "hallovorld/renquant-common": {"ok": True, "n_missing_pre_merge_audit": 0},
-        "hallovorld/renquant-pipeline": {"ok": False, "n_missing_pre_merge_audit": 1},
+        "hallovorld/RenQuant": {"ok": False, "n_missing_pre_merge_audit": 2,
+                                "n_missing_in_window": 2, "n_merged_in_window": 3},
+        "hallovorld/renquant-common": {"ok": True, "n_missing_pre_merge_audit": 0,
+                                       "n_missing_in_window": 0, "n_merged_in_window": 1},
+        "hallovorld/renquant-pipeline": {"ok": False, "n_missing_pre_merge_audit": 1,
+                                         "n_missing_in_window": 1, "n_merged_in_window": 2},
     }
     seen = []
 
-    def fake_audit(repo, token, limit=50):
+    def fake_audit(repo, token, limit=50, **kw):
         seen.append((repo, token, limit))
         return {"repo": repo, **audits[repo]}
 
@@ -115,9 +122,11 @@ def test_merge_audit_action_summarizes_across_repos(tmp_path, monkeypatch):
         merge_audit_limit=7,
     )
 
-    assert out["ok"] is False
+    assert out["ok"] is False          # gated by the WINDOW misses, not by history
     assert out["limit"] == 7
-    assert out["n_missing_pre_merge_audit"] == 3
+    assert out["n_missing_pre_merge_audit"] == 3   # history still summed
+    assert out["n_missing_in_window"] == 3
+    assert "merge-audit" in out["summary"]
     assert seen == [
         ("hallovorld/RenQuant", "tok", 7),
         ("hallovorld/renquant-common", "tok", 7),
@@ -126,7 +135,7 @@ def test_merge_audit_action_summarizes_across_repos(tmp_path, monkeypatch):
 
 
 def test_merge_audit_action_isolates_repo_errors(tmp_path, monkeypatch):
-    def fake_audit(repo, token, limit=50):
+    def fake_audit(repo, token, limit=50, **kw):
         if repo == "hallovorld/renquant-common":
             raise RuntimeError("gh failed")
         return {"repo": repo, "ok": True, "n_missing_pre_merge_audit": 0}

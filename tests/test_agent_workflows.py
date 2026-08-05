@@ -974,8 +974,14 @@ def test_audit_merged_prs_summarizes_missing_pre_merge_markers(monkeypatch):
     assert audit["repo"] == "o/r"
     assert audit["limit"] == 25
     assert audit["n_merged_prs"] == 2
+    # the MEASUREMENT is unchanged by the 2026-08-05 gate rescope
     assert audit["n_missing_pre_merge_audit"] == 1
-    assert audit["ok"] is False
+    # ...but `ok` is now the WINDOW, so the gate verdict needs a pinned `now` rather
+    # than the wall clock. Before this the assertion silently depended on how far
+    # 2026-06-09 happened to be from today — it would have started passing on its own.
+    from datetime import datetime, timezone
+    in_window = datetime(2026, 6, 10, tzinfo=timezone.utc)
+    assert audit_merged_prs("o/r", None, limit=25, now=in_window)["ok"] is False
 
 
 # ── fetch_open_prs: a deleted progress doc must not crash the whole repo ────
@@ -1076,3 +1082,81 @@ def test_fetch_open_prs_still_fetches_progress_doc_content_when_present(monkeypa
     prs = fetch_open_prs("o/r", token=None)
 
     assert prs[0]["progressDocContent"] == "STATUS: x\n"
+
+
+# --- the gate must be satisfiable (operator-reported 2026-08-05) ---------------------
+
+def _merged(num, when, *, marked):
+    pr = _pr(num, author="claude", state="MERGED")
+    pr["mergedAt"] = when
+    pr["mergedBy"] = {"login": "hallovorld"}
+    pr["comments"] = ([{"body": "merged by `claude`",
+                        "createdAt": when.replace("T", "T").replace("Z", "Z"),
+                        "author": {"login": "hallovorld"}}] if marked else [])
+    if marked:
+        # the marker must PRE-date the merge to count
+        pr["comments"][0]["createdAt"] = when[:-1] + "0Z" if when.endswith("Z") else when
+        pr["comments"][0]["createdAt"] = "2000-01-01T00:00:00Z"
+    return pr
+
+
+def test_the_gate_ignores_history_it_can_never_change(monkeypatch):
+    """The defect the operator was paged about for months.
+
+    `ok` was "no missing marker in ALL history", and the marker must pre-date the merge.
+    A merged PR can still receive comments but can NEVER receive a pre-merge one, so one
+    violation pinned the gate red permanently — measured 375 of 454 PRs, failing every
+    five minutes regardless of anyone's future behaviour. A gate that cannot be satisfied
+    is not a gate.
+
+    Old history unmarked + the window clean must be GREEN.
+    """
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    prs = [_merged(1, "2026-05-01T00:00:00Z", marked=False),   # ancient, unfixable
+           _merged(2, "2026-05-02T00:00:00Z", marked=False),
+           _merged(3, "2026-08-04T00:00:00Z", marked=True)]    # in-window, compliant
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, now=now)
+
+    assert audit["ok"] is True, audit
+    assert audit["n_missing_pre_merge_audit"] == 2      # history still COUNTED
+    assert audit["n_missing_in_window"] == 0            # ...and not gating
+    assert audit["n_merged_in_window"] == 1
+
+
+def test_a_violation_INSIDE_the_window_still_fails(monkeypatch):
+    """Anti-vacuity: the window must not be a way to stop failing. A recent unmarked
+    merge is a real, current, actionable violation and must go red."""
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    prs = [_merged(1, "2026-05-01T00:00:00Z", marked=False),
+           _merged(9, "2026-08-04T00:00:00Z", marked=False)]
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, now=now)
+
+    assert audit["ok"] is False
+    assert audit["n_missing_in_window"] == 1
+    assert audit["missing_in_window"][0]["number"] == 9
+
+
+def test_the_gate_CAN_go_green_by_behaviour_alone(monkeypatch):
+    """The property the old gate lacked: comply for the window's length and it clears
+    itself, with no retroactive edit to history."""
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    prs = [_merged(1, "2026-07-01T00:00:00Z", marked=False)]   # the only violation
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    day_of = _dt.datetime(2026, 7, 2, tzinfo=_dt.timezone.utc)
+    later = _dt.datetime(2026, 7, 20, tzinfo=_dt.timezone.utc)
+
+    assert AW.audit_merged_prs("o/r", None, now=day_of)["ok"] is False
+    assert AW.audit_merged_prs("o/r", None, now=later)["ok"] is True

@@ -393,7 +393,17 @@ def test_merge_audit_cli_strict_returns_nonzero_on_missing_pre_merge_marker(
     monkeypatch,
     capsys,
 ) -> None:
+    import datetime as _dt
+
     import renquant_orchestrator.agent_workflows as workflows
+
+    # The merge must fall INSIDE the gate window (2026-08-05 rescope): `--strict` now
+    # judges recent merges, because a historical one can never gain a pre-merge marker
+    # and gating on it made the audit permanently red. A fixed past date here would have
+    # tested nothing but the calendar.
+    _recent = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=1))
+    _merged_at = _recent.strftime("%Y-%m-%dT%H:%M:%SZ")
+    _after = (_recent + _dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     monkeypatch.setattr(
         workflows,
@@ -405,11 +415,11 @@ def test_merge_audit_cli_strict_returns_nonzero_on_missing_pre_merge_marker(
             "headRefName": "codex/manual",
             "labels": [{"name": "agent:codex"}],
             "body": "",
-            "mergedAt": "2026-06-09T00:10:00Z",
+            "mergedAt": _merged_at,
             "mergedBy": {"login": "owner"},
             "comments": [{
                 "body": "merged by `codex` post-merge audit marker",
-                "createdAt": "2026-06-09T00:10:01Z",
+                "createdAt": _after,
                 "author": {"login": "owner"},
             }],
         }],
