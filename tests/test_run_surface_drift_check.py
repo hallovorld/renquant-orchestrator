@@ -185,7 +185,17 @@ class TestManifestGeneration:
     #: and these entries left the set in the same change, exactly as the
     #: exact-equality test forces. Empty until a future retirement declares
     #: a pending state by name.
-    PENDING_UNINSTALL: set[str] = set()
+    #: Retired from the reviewed surface but still INSTALLED on the operator's disk,
+    #: awaiting a one-grant `launchctl bootout`. The scheduled drift scan does NOT read
+    #: this set and keeps alarming — that alarm is the designed reminder to finish the
+    #: uninstall (CONTAINMENT PROTOCOL), and the exact-equality assertion below goes red
+    #: the moment the plist is gone, forcing this entry's deletion.
+    #:
+    #: com.renquant.crypto-session: G2 crypto was KILLED 2026-07-18 by its preregistered
+    #: gate. The job kept firing every 900s against a target that exists in NEITHER
+    #: checkout — measured 1,322 runs, all exit 2 (900 when first recorded on
+    #: 2026-08-02, orch#700). Evidence: tests/test_crypto_session_dead_job_evidence.py.
+    PENDING_UNINSTALL: set[str] = {"com.renquant.crypto-session"}
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
