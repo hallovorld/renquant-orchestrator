@@ -148,6 +148,16 @@
       ],
       "program_args_sha256": "3b43716ba5eeb00676263fbcdced45f1505688215d4349bafe66a392fa9d9dff"
     },
+    "com.renquant.rq104-fleet-lane-sentinel": {
+      "_purpose": "GOAL-1 (orch#801): the ONLY watcher of the five GOAL-9 fleet e2e lanes (RC/RSs/Rf/RCS/RCf). Classifies each lane for the session date and pages on FAIL_CLOSED (scorer refused — the measured 2026-08-04 RCS shape, 83 candidates cleared, found only because a human read the log) or MISSING (no record, lane not declared dormant). Dormancy comes ONLY from the pinned profile's pending-first-artifact marker, so no lane can be silenced outside review.",
+      "_schedule_comment": "daily 15:30 PT (StartCalendarInterval Hour=15 Minute=30). WHY THIS SLOT: the daily run starts 13:55 PT and its Step 5-5e fleet legs finished at 21:14 PT on their first full evening (each leg re-scores the panel); 15:30 is chosen to sit AFTER a normal-length run's fleet legs while staying same-session. If a fleet leg is still running the lane reads MISSING and pages — a false alarm this cadence must be re-measured against once the fleet's steady-state wall time is known (first measurement: 2026-08-04, ~55 min from Step 5 to Step 5e under CPU contention from a parallel promote chain).",
+      "_2026_08_04_pending_install": "declared PENDING_INSTALL: the reviewed surface lands first; the launchctl bootstrap is a machine action under the standing landing-grant rule (one grant per batch). Delete this key in the SAME change that installs the plist — the run-surface drift scan alarming on a manifest entry with no installed job is the DESIGNED reminder until then.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/fleet_lane_sentinel_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
+      "program_args": [
+        "/bin/bash",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/fleet_lane_sentinel_daily.sh"
+      ]
+    },
     "com.renquant.rq104-liveness": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
@@ -187,7 +197,7 @@
       "program_args_sha256": "57c92a2e445b009a466522419b2997889609ccebee4846f082e4a8d8eeeda549"
     },
     "com.renquant.rq104-silent-refusal": {
-      "_evidence_glob_why": "A dated file per run. The exit code alone cannot separate 'found a silent refusal' from 'crashed' (#622), and an append-only .out cannot be dated at all (#663) \u2014 0 of 18 lines in the drift scan's .out began with a date.",
+      "_evidence_glob_why": "A dated file per run. The exit code alone cannot separate 'found a silent refusal' from 'crashed' (#622), and an append-only .out cannot be dated at all (#663) — 0 of 18 lines in the drift scan's .out began with a date.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq104/silent_refusal_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
       "program_args": [
         "/bin/bash",
@@ -221,8 +231,8 @@
       "program_args_sha256": "115f3b097e7ea697e08ab61bd8a09d0d46ce1f592063131e661b6eb06390aea0"
     },
     "com.renquant.rq105-quote-logger": {
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
-      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent \u2014 the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
+      "_keep_alive_comment": "GOAL-5 2026-07-22: reviewed intent — the installed plist must carry KeepAlive={SuccessfulExit:false} so a mid-session collector crash auto-restarts. ProgramArguments (the drift-scan-tracked surface) is UNCHANGED, so program_args_sha256 above stays valid and the scan stays green. Installing/reloading the new plist is a separate operator-gated machine-landing (see doc/progress/2026-07-22-rq105-reliability.md).",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/quote_logger_*.log",
       "keep_alive": {
         "SuccessfulExit": false
@@ -234,7 +244,7 @@
       "program_args_sha256": "99c1e4740cfcac61613d65df294e04043e25d91820de3c1209c3a9e8b333b4d8"
     },
     "com.renquant.rq105-session-scheduler": {
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
       "program_args": [
         "/bin/zsh",
@@ -243,7 +253,7 @@
       "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42"
     },
     "com.renquant.rq105-shadow-serving": {
-      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading \u2014 see the 2026-07-30 correction on issue #621",
+      "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/shadow_serving_*.log",
       "program_args": [
         "/bin/bash",

@@ -133,3 +133,54 @@ def test_patrol_partitions_lanes_into_alarms_and_info(tree):
     alarms, info = S.patrol(DATE, configs_dir=cfgd, data_dir=datad, logs_dir=logsd)
     assert len(alarms) == 1 and "RCS" in alarms[0]
     assert len(info) == 4
+
+
+# ── the SCHEDULED surface (codex on orch#801: a checker nobody runs is the
+#    deployed-but-dark gap this sentinel exists to close) ────────────────────
+
+WRAPPER = (Path(__file__).resolve().parent.parent
+           / "ops/renquant104/fleet_lane_sentinel_daily.sh")
+MANIFEST = Path(__file__).resolve().parent.parent / "ops/launchd_manifest.json"
+JOB = "com.renquant.rq104-fleet-lane-sentinel"
+
+
+def test_wrapper_passes_the_session_date_explicitly():
+    """Never left to the checker's own default: a wrapper firing after
+    midnight UTC must still classify the session it was scheduled for."""
+    src = WRAPPER.read_text()
+    assert 'SESSION_DATE="${1:-$(date +%Y-%m-%d)}"' in src
+    assert '"$SENTINEL" --date "$SESSION_DATE"' in src
+
+
+def test_wrapper_propagates_the_actionable_failure_and_pages():
+    src = WRAPPER.read_text()
+    assert 'RC=$?' in src
+    assert 'if [ "$RC" -eq 1 ]; then' in src
+    assert "FLEET-LANE-ALARM" in src
+    assert "exit 1" in src
+    # the alarm carries the offending lane lines, not just a log pointer
+    assert "grep -E '^\\[(FAIL_CLOSED|MISSING)\\]'" in src
+
+
+def test_wrapper_exec_redirects_before_any_work():
+    """The orch#754 evidence contract: a pre-exec death must not vanish."""
+    src = WRAPPER.read_text()
+    idx_exec = src.index('exec >>"$LOG" 2>&1')
+    idx_run = src.index('"$SENTINEL" --date')
+    assert idx_exec < idx_run
+    for marker in ("REFUSED:", "FLEET-SENTINEL-REFUSED", "fleet_lane_sentinel OK",
+                   "fleet_lane_sentinel ALARM", "fleet_lane_sentinel ERROR"):
+        assert marker in src, marker
+
+
+def test_manifest_declares_the_job_with_a_bounded_pending_install():
+    manifest = json.loads(MANIFEST.read_text())
+    jobs = manifest.get("jobs", manifest)
+    assert JOB in jobs, "the scheduled surface must be declared in the reviewed manifest"
+    entry = jobs[JOB]
+    assert entry["program_args"][-1].endswith(
+        "ops/renquant104/fleet_lane_sentinel_daily.sh")
+    assert "fleet_lane_sentinel_" in entry["evidence_glob"]
+    pending = [k for k in entry if k.endswith("_pending_install")]
+    assert len(pending) == 1, "the pending state must be declared by exactly one dated key"
+    assert "same change that installs" in entry[pending[0]].lower()

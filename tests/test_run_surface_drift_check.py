@@ -158,7 +158,13 @@ class TestManifestGeneration:
     #: the 07-31 REVIEWED deploy/ copy (wrapper, daily 16:00); the reviewed
     #: surface won and the twin was deleted. Empty until a future reviewed job
     #: declares a pending state by name.
-    PENDING_INSTALL: set[str] = set()
+    #: 2026-08-04 (orch#801): the fleet-lane sentinel declares one. Its
+    #: reviewed surface (wrapper + manifest entry) lands first; the launchctl
+    #: bootstrap is a machine action under the one-grant-per-batch rule, and
+    #: the manifest entry carries the matching `_2026_08_04_pending_install`
+    #: key that must be deleted in the SAME change that installs the plist.
+    #: Removal path: install → delete both the manifest key and this entry.
+    PENDING_INSTALL: set[str] = {"com.renquant.rq104-fleet-lane-sentinel"}
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
     #: the operator machine, pending the uninstall item of a tracked grant.

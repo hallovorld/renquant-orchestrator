@@ -53,9 +53,35 @@ zero-candidate shape, log-marker-over-normal-record, missing, dormant,
 absent-profile-is-not-dormant, no-mute-list, registry completeness, patrol
 partitioning).
 
-## Not yet scheduled
+## Round 2 (codex): the scheduled surface is part of the claim
 
-This PR lands the checker only. Scheduling (a launchd entry, or a step in the
-daily wrapper after Step 5e) is a separate reviewed change — deploying an
-unscheduled checker is the "deployed but dark" trap, so it is named here as
-the explicit next step rather than assumed.
+The first version landed the checker alone and called scheduling a follow-up.
+Codex refused that correctly: a checker nobody runs IS the deployed-but-dark
+gap this sentinel exists to close, and the PR's own title claims the fleet
+"gets a watcher". So the operational half is here too, on the orchestrator's
+side of the daily-orchestration boundary:
+
+- `ops/renquant104/fleet_lane_sentinel_daily.sh` — the scheduled wrapper,
+  following the `momentum_train_weekly.sh` evidence contract (exec-redirect
+  FIRST so a pre-exec death cannot vanish; every exit path writes a terminal
+  marker). It passes the SESSION DATE explicitly (never the checker's own
+  default — a wrapper firing after midnight UTC must still classify the
+  session it was scheduled for), propagates rc=1 as an alarm, and the page
+  carries the offending `[FAIL_CLOSED]`/`[MISSING]` lines themselves so the
+  operator does not need the log to know which lane and why.
+- `ops/launchd_manifest.json` — the job declared on the REVIEWED surface at
+  daily 15:30 PT, with the schedule rationale recorded honestly: the first
+  measured fleet-leg wall time (2026-08-04, ~55 min Step 5 → Step 5e under CPU
+  contention) is the basis, and the comment says outright that a lane still
+  running reads MISSING and pages, so the cadence must be re-measured against
+  the fleet's steady state.
+- The bootstrap itself is a machine action under the one-grant-per-batch rule,
+  so the entry carries a dated `_pending_install` key and the test suite's
+  `PENDING_INSTALL` named set gains exactly this job — both must be deleted in
+  the SAME change that installs the plist, and until then the drift scan
+  alarming on a declared-but-uninstalled job is the DESIGNED reminder.
+
+Tests for the scheduled surface: session-date passthrough, rc=1 propagation +
+paging with the lane lines, exec-redirect ordering + terminal markers, and the
+manifest declaration with a bounded single pending key. Suite: 31 passed
+(sentinel + run-surface drift together).
