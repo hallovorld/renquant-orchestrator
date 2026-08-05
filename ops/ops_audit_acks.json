@@ -1,0 +1,12 @@
+{
+  "fe979c7c8698acac": {
+    "member": "gate-stamp-parity",
+    "acked_at": "2026-08-05",
+    "expires_at": "2026-09-05",
+    "acked_by": "claude",
+    "numbers_when_acked": ["36", "16", "20", "0", "0", "0", "0"],
+    "reason": "The 16 both-copy artifacts are historical and NONE IS SERVED: all 11 pinned strategy_config*.json under .subrepo_runtime/repos/renquant-strategy-104/configs point ranking.panel_scoring / panel_ltr at artifacts/prod/panel-ltr.alpha158_fund.json, and none names a both-copy file [VERIFIED 2026-08-05]. The one artifact whose two stamps disagree on the VERDICT itself, panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json (canonical passed=False, legacy passed=True), is explained rather than unexplained: the legacy copy carries operator_authorized_override=true with the recorded 2026-07-05 reason, so it holds the post-override verdict while the canonical copy holds the pre-override one [VERIFIED 2026-08-05].",
+    "clears_when": "A both-copy artifact becomes SERVED, or any artifact goes legacy-only. Either moves the counts, which reports ACKED_BUT_CHANGED rather than INFO - this ack covers the SITUATION, not a magnitude. It also expires 2026-09-05 regardless, because 'no config points at it' is a fact about today's configs.",
+    "not_acked_note": "This acks ONLY the parity census. It does not ack booster-identity, whose COLLAPSE line (36 artifacts -> 15 distinct boosters under one identity sha256:cfdd6cb8e950da0f) is a REAL open defect - the WF gate admits on the recipe hash and never scores the candidate's booster. Acking that would be the failure this ledger exists to avoid."
+  }
+}
