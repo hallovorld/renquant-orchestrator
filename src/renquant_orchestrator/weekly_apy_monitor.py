@@ -42,6 +42,9 @@ class WeeklyApyContext:
     summary: str = ""
 
 
+_REPRO_HINT = "python -m renquant_orchestrator.weekly_apy_monitor --json"
+
+
 def _parse_utc_datetime(value: object) -> datetime:
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     if parsed.tzinfo is None:
@@ -155,20 +158,34 @@ class DecideWeeklyAlertTask(Task):
         if not ctx.rows:
             ctx.summary = f"audit log {ctx.audit_log} is empty or missing; no action"
             return True
-        if ctx.apy is not None and ctx.apy < ctx.alert_threshold:
+        apy_breach = ctx.apy is not None and ctx.apy < ctx.alert_threshold
+        dd_breach = ctx.drawdown_streak >= ctx.drawdown_days
+
+        # The title is the only part of an ntfy push that is legible without
+        # opening it, so it must name WHICH condition fired and carry the one
+        # number. Both branches previously shipped the identical title
+        # "RenQuant 104 WATCH", which made the two alarms indistinguishable,
+        # and the APY body restated the number `summary` already carried.
+        if apy_breach:
             ctx.exit_code = 2
-            ctx.alert_title = "RenQuant 104 WATCH"
-            ctx.alert_body = (
-                f"Live rolling {ctx.window_days}d APY {ctx.apy:+.1%} "
-                f"< alert {ctx.alert_threshold:+.1%} ({ctx.summary})"
-            )
-        elif ctx.drawdown_streak >= ctx.drawdown_days:
+            ctx.alert_title = f"104 APY {ctx.apy:+.1%} below floor {ctx.alert_threshold:+.1%}"
+            detail = f"{ctx.window_days}d rolling over {ctx.n_rows} runs"
+            if dd_breach:
+                # A single alert slot used to drop this silently.
+                detail += (
+                    f"; ALSO drawdown >{ctx.drawdown_threshold:.0%} for "
+                    f"{ctx.drawdown_streak}d"
+                )
+        elif dd_breach:
             ctx.exit_code = 3
-            ctx.alert_title = "RenQuant 104 WATCH"
-            ctx.alert_body = (
-                f"Live drawdown > {ctx.drawdown_threshold:.0%} for "
-                f"{ctx.drawdown_streak} days; check HWM ({ctx.summary})"
+            ctx.alert_title = (
+                f"104 drawdown {ctx.drawdown_streak}d above {ctx.drawdown_threshold:.0%}"
             )
+            detail = f"limit is {ctx.drawdown_days}d; check HWM resolution"
+        else:
+            return True
+
+        ctx.alert_body = f"{detail}. Source {ctx.audit_log}. Reproduce: {_REPRO_HINT}"
         return True
 
 
