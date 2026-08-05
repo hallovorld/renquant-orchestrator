@@ -1386,7 +1386,14 @@ class RefreshSigmaHeadRawLabelTask(Task):
                     in_lockstep = True
                     summary["publish"] = {"invoked": False,
                                           "reason": "already in lockstep with the fresh panel"}
-                except Exception as stale_exc:
+                except RawlabelValidationError as stale_exc:
+                    # [codex on orch#803] ONLY the explicit corpus-validation
+                    # exception is evidence of staleness. A read I/O error, a
+                    # broken dependency, or a bug in the verifier says nothing
+                    # about the corpus — catching those here would turn an
+                    # infrastructure failure into a WRITE to the served
+                    # sidecar. Everything else propagates to the existing
+                    # fail-closed receipt path, corpus untouched.
                     trigger = f"out of lockstep with the fresh panel ({stale_exc})"
             else:
                 trigger = f"absent — no {rawlabel_out}"

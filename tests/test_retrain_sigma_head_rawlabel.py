@@ -1022,3 +1022,46 @@ def test_a_FAILED_republish_names_BOTH_the_defect_and_the_repair_failure(
     # still fail-closed: the durable receipt blocks downstream admission
     final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
     assert mod.rawlabel_receipt_path(final).exists()
+
+
+def test_an_UNEXPECTED_verifier_failure_never_triggers_a_write(tmp_path, monkeypatch) -> None:
+    """[codex on orch#803] A read I/O error, a broken dependency or a verifier
+    bug says NOTHING about the corpus. Treating it as staleness would turn an
+    infrastructure failure into a WRITE to the served sidecar — the fail-open
+    shape this whole task exists to avoid."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    canonical = _write_canonical(repo, b"SERVED-BYTES-THAT-MUST-SURVIVE")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    def exploding_verify(rawlabel, panel, horizon):
+        raise OSError(5, "Input/output error")
+
+    ctx = _ctx(repo, rawlabel_verify_fn=exploding_verify)
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    assert ctx.rawlabel_refresh_summary["status"] == "failed"
+    assert "Input/output error" in ctx.rawlabel_refresh_summary["error"]
+    assert calls == [], "the sole writer must NOT be invoked on an unexpected failure"
+    assert canonical.read_bytes() == b"SERVED-BYTES-THAT-MUST-SURVIVE"
+    # still fail-closed: the receipt blocks downstream admission
+    assert mod.rawlabel_receipt_path(canonical).exists()
+
+
+def test_a_verifier_BUG_is_not_mistaken_for_staleness(tmp_path, monkeypatch) -> None:
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    _write_canonical(repo, b"SERVED")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    def buggy(rawlabel, panel, horizon):
+        raise AttributeError("'NoneType' object has no attribute 'columns'")
+
+    ctx = _ctx(repo, rawlabel_verify_fn=buggy)
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+    assert calls == []
+    assert "NoneType" in ctx.rawlabel_refresh_summary["error"]

@@ -89,3 +89,18 @@ writer; a failed republish names both and still writes the invalidation receipt.
 39 passed in this file, 60 across both retrain files.
 
 Codex's two round-1 findings (finally-cleanup, repo env) are also in this branch.
+
+## Review round 3 (codex on orch#803)
+
+The repair-only path caught EVERY exception from the initial verification and
+read it as staleness — which would let a read I/O error, a broken dependency or
+a bug in the verifier trigger a WRITE to the served corpus. Those previously
+stayed in the fail-closed receipt path without touching anything.
+
+Only `RawlabelValidationError` — the explicit corpus-validation exception — now
+triggers a republish. Everything else propagates to the existing failure path,
+corpus untouched. Two regression tests: an `OSError` from the verifier and an
+`AttributeError` (a verifier bug) each leave the served bytes byte-identical,
+invoke the writer ZERO times, and still write the invalidation receipt.
+
+66 passed across both retrain test files.
