@@ -163,4 +163,4 @@ dormant — all actionable.
 The lesson is the one this file keeps re-teaching: *"cannot say" is never
 "fine"*, and fixing one instance of a pattern is not fixing the pattern.
 
-Suites: 36 in this file · 5625 passed, 2 skipped repo-wide.
+Suites: 36 in this file · 5624 passed, 2 skipped repo-wide.
