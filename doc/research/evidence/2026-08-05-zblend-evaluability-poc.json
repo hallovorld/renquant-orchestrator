@@ -1,0 +1,92 @@
+{
+  "audit_kind": "zblend_daily_evaluability",
+  "evaluation_status": "NOT_EVALUABLE",
+  "not_evaluable_reasons": [
+    "production_arm_is_not_an_independent_panel_baseline",
+    "requested_forward_outcome_is_not_mature"
+  ],
+  "outcome_readiness": {
+    "finite_value_count": 0,
+    "outcome_column": "fwd_60d",
+    "status": "UNMATURED"
+  },
+  "production": {
+    "active_scorer_missing_score_count": 83,
+    "active_scorer_observed_counts": {
+      "blend": 5
+    },
+    "active_scorers": [
+      "blend"
+    ],
+    "db_name": "runs.alpaca.zblend-poc.db",
+    "db_sha256": "58f7a69104b6b9b0302b99f285a43fd244a3fc86f1227d4c3a2d693c81399e1e",
+    "run": {
+      "created_at": "2026-08-05 03:18:39",
+      "run_date": "2026-08-04",
+      "run_id": "2026-08-04-live-a199b993"
+    }
+  },
+  "score_comparison": {
+    "blend_candidate_count": 88,
+    "common_candidate_count": 87,
+    "mean_absolute_score_delta": 0.019607155751,
+    "prod_candidate_count": 88,
+    "rank_correlation_spearman": 0.999744842167,
+    "top_k": 10,
+    "top_k_blend": [
+      "MRVL",
+      "LRCX",
+      "CRWD",
+      "FTNT",
+      "APH",
+      "PANW",
+      "SPG",
+      "CAT",
+      "NEM",
+      "ASML"
+    ],
+    "top_k_intersection_count": 10,
+    "top_k_jaccard": 1.0,
+    "top_k_overlap": [
+      "APH",
+      "ASML",
+      "CAT",
+      "CRWD",
+      "FTNT",
+      "LRCX",
+      "MRVL",
+      "NEM",
+      "PANW",
+      "SPG"
+    ],
+    "top_k_prod": [
+      "MRVL",
+      "LRCX",
+      "FTNT",
+      "CRWD",
+      "APH",
+      "PANW",
+      "SPG",
+      "CAT",
+      "NEM",
+      "ASML"
+    ],
+    "universe_jaccard": 0.977528089888
+  },
+  "shadow": {
+    "active_scorer_missing_score_count": 83,
+    "active_scorer_observed_counts": {
+      "blend": 5
+    },
+    "active_scorers": [
+      "blend"
+    ],
+    "db_name": "runs.alpaca_shadow_blend_mom.zblend-poc.db",
+    "db_sha256": "0642de2d554a9c837664b1a39e8d32dca767679cb9da4d25073dacc61791cd1b",
+    "run": {
+      "created_at": "2026-08-05 03:39:10",
+      "run_date": "2026-08-04",
+      "run_id": "2026-08-04-live-2b1feb08"
+    }
+  }
+}
