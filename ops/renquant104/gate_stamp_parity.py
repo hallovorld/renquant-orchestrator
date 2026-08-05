@@ -141,9 +141,72 @@ def compare(canon: dict, legacy: dict) -> list[str]:
                                                len(rank)), s))
 
 
+class ConfigsUnreadable(Exception):
+    """The pinned configs could not be read, so reachability is UNKNOWN."""
+
+
+def served_artifact_basenames(configs_root: str | None = None) -> set[str]:
+    """Every `artifacts/...json` basename any PINNED strategy config selects.
+
+    WHY THIS BELONGS IN THE SUMMARY `[codex on orch#829]`. The parity finding's
+    severity is entirely a question of reachability — a both-copy artifact no
+    config names is a historical curiosity; one a config selects means a reader
+    can get a verdict the canonical copy never gave. The census counts could not
+    tell those apart, so an ack taken while nothing was served kept holding
+    after a config started serving one. The count is now IN the summary line,
+    which is what the ack ledger fingerprints, so that change breaks the ack.
+
+    Raises ``ConfigsUnreadable`` rather than returning an empty set: "I could
+    not read the configs" must not report as "nothing is served".
+    """
+    root = configs_root or _default_configs_root()
+    if not root or not os.path.isdir(root):
+        raise ConfigsUnreadable(f"no pinned strategy configs at {root!r}")
+    paths = sorted(glob.glob(os.path.join(root, "strategy_config*.json")))
+    if not paths:
+        raise ConfigsUnreadable(f"no strategy_config*.json under {root}")
+    names: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+        elif isinstance(node, str) and node.endswith(".json") and "artifacts/" in node:
+            names.add(os.path.basename(node))
+
+    for path in paths:
+        try:
+            with open(path, "rb") as fh:
+                walk(json.loads(fh.read()))
+        except Exception as exc:  # noqa: BLE001
+            raise ConfigsUnreadable(f"{os.path.basename(path)}: {exc}") from exc
+    return names
+
+
+def _default_configs_root() -> str:
+    """The PINNED strategy-104 configs — the ones the daily run actually loads."""
+    env = os.environ.get("RENQUANT_DATA_ROOT")
+    bases = [env] if env else []
+    here = os.path.abspath(__file__)
+    repo = here
+    for _ in range(4):
+        repo = os.path.dirname(repo)
+        bases.append(os.path.join(os.path.dirname(repo), "RenQuant"))
+    for base in bases:
+        cand = os.path.join(base, ".subrepo_runtime", "repos",
+                            "renquant-strategy-104", "configs")
+        if os.path.isdir(cand):
+            return cand
+    return ""
+
+
 def scan(root: str, query: str) -> tuple[list[str], list[str]]:
     problems: list[str] = []
     both = canon_only = legacy_only = neither = unreadable = malformed = 0
+    both_names: list[str] = []
 
     paths = sorted(glob.glob(os.path.join(root, query)))
     if not paths:
@@ -202,6 +265,7 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
                     f"stamps that disagree on {len(diffs)} path(s) — {shown}{more}. A "
                     f"reader taking the legacy copy gets a different answer from one "
                     f"taking the canonical copy; the artifact itself holds both.")
+            both_names.append(os.path.basename(path))
         elif canon is not None:
             canon_only += 1
         elif legacy is not None:
@@ -209,9 +273,26 @@ def scan(root: str, query: str) -> tuple[list[str], list[str]]:
         else:
             neither += 1
 
+    # Reachability, IN the summary line — see served_artifact_basenames().
+    try:
+        served = served_artifact_basenames()
+        n_served_both = sum(1 for n in both_names if n in served)
+        reach = f"{n_served_both} of them SERVED by a pinned config"
+        if n_served_both:
+            problems.append(
+                f"gate-stamp parity: {n_served_both} artifact(s) carrying TWO gate "
+                f"stamps are SELECTED BY A PINNED CONFIG: "
+                f"{', '.join(sorted(n for n in both_names if n in served))} — a "
+                f"disagreeing verdict is reachable by the daily run")
+    except ConfigsUnreadable as exc:
+        reach = "reachability UNKNOWN (pinned configs unreadable)"
+        problems.append(
+            f"gate-stamp parity: could not read the pinned strategy configs "
+            f"({exc}) — whether a both-copy artifact is SERVED is unknown, which "
+            f"is not the same as none being served")
     infos = [
         f"gate-stamp parity: {len(paths)} artifact(s) scanned — {both} carry BOTH "
-        f"copies, {canon_only} canonical-only, {legacy_only} legacy-only, "
+        f"copies ({reach}), {canon_only} canonical-only, {legacy_only} legacy-only, "
         f"{neither} no stamp, {malformed} malformed, {unreadable} unreadable",
     ]
     # The denominator is stated so a shrinking scan cannot read as a clean one.

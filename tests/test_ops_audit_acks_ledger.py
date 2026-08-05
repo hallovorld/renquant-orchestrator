@@ -22,7 +22,13 @@ from audit_finding_disposition import (  # noqa: E402
     ACKED, CHANGED, EXPIRED, NEW, classify, fingerprint, numbers)
 
 LEDGER = REPO / "ops" / "ops_audit_acks.json"
-ACK_FP = "fe979c7c8698acac"
+ACK_FP = "e3ecdd6587cdaf4e"
+
+
+#: The exact line the live detector emits — reachability included.
+LIVE_TEXT = ("gate-stamp parity: 36 artifact(s) scanned — 16 carry BOTH copies "
+             "(0 of them SERVED by a pinned config), 20 canonical-only, "
+             "0 legacy-only, 0 no stamp, 0 malformed, 0 unreadable")
 
 
 @pytest.fixture(scope="module")
@@ -59,18 +65,12 @@ class TestTheAckIsBoundToARealFinding:
 
     def test_the_fingerprint_is_the_one_the_live_detector_produces(self, ledger):
         ack = ledger[ACK_FP]
-        text = ("gate-stamp parity: 36 artifact(s) scanned — 16 carry BOTH "
-                "copies, 20 canonical-only, 0 legacy-only, 0 no stamp, "
-                "0 malformed, 0 unreadable")
+        text = LIVE_TEXT
         assert fingerprint(ack["member"], text) == ACK_FP
         assert numbers(text) == ack["numbers_when_acked"]
 
     def test_it_classifies_as_ACKED_today(self, ledger):
-        d = classify("gate-stamp-parity",
-                     "gate-stamp parity: 36 artifact(s) scanned — 16 carry BOTH "
-                     "copies, 20 canonical-only, 0 legacy-only, 0 no stamp, "
-                     "0 malformed, 0 unreadable",
-                     ledger, dt.date(2026, 8, 5))
+        d = classify("gate-stamp-parity", LIVE_TEXT, ledger, dt.date(2026, 8, 5))
         assert d["state"] == ACKED, d
 
 
@@ -78,30 +78,40 @@ class TestTheAckCoversASituationNotAMagnitude:
     def _classify(self, ledger, text, day=dt.date(2026, 8, 5)):
         return classify("gate-stamp-parity", text, ledger, day)["state"]
 
+    def test_a_CONFIG_CHANGE_ALONE_breaks_the_ack(self, ledger):
+        """[codex on orch#829] THE blocker. The ack says it clears when a
+        both-copy artifact becomes SERVED — but if the fingerprint carried only
+        census counts, pointing a pinned config at one of the existing 16 would
+        leave 36/16/20/0/0/0/0 unchanged and the ack would keep holding over a
+        now-reachable conflicting verdict. The served count is IN the summary,
+        so this alone breaks it."""
+        s = self._classify(ledger, LIVE_TEXT.replace(
+            "(0 of them SERVED", "(1 of them SERVED"))
+        assert s == CHANGED, s
+
+    def test_reachability_becoming_UNKNOWN_breaks_the_ack(self, ledger):
+        """'I could not read the configs' must not inherit an ack taken when
+        the answer was known."""
+        s = self._classify(ledger, LIVE_TEXT.replace(
+            "(0 of them SERVED by a pinned config)",
+            "(reachability UNKNOWN (pinned configs unreadable))"))
+        assert s in (CHANGED, NEW), s
+
     def test_a_LEGACY_ONLY_artifact_appearing_breaks_the_ack(self, ledger):
-        """The exact escalation the ack is scoped to exclude: a legacy-only
-        stamp means a reader can get a verdict the canonical copy never gave."""
-        s = self._classify(ledger,
-                           "gate-stamp parity: 36 artifact(s) scanned — 16 carry "
-                           "BOTH copies, 19 canonical-only, 1 legacy-only, 0 no "
-                           "stamp, 0 malformed, 0 unreadable")
+        """A legacy-only stamp means a reader can get a verdict the canonical
+        copy never gave."""
+        s = self._classify(ledger, LIVE_TEXT.replace(
+            "20 canonical-only, 0 legacy-only", "19 canonical-only, 1 legacy-only"))
         assert s == CHANGED, s
 
     def test_MORE_both_copy_artifacts_breaks_the_ack(self, ledger):
-        s = self._classify(ledger,
-                           "gate-stamp parity: 40 artifact(s) scanned — 20 carry "
-                           "BOTH copies, 20 canonical-only, 0 legacy-only, 0 no "
-                           "stamp, 0 malformed, 0 unreadable")
+        s = self._classify(ledger, LIVE_TEXT.replace(
+            "36 artifact(s) scanned — 16 carry", "40 artifact(s) scanned — 20 carry"))
         assert s == CHANGED, s
 
     def test_it_EXPIRES_on_its_own(self, ledger):
         """'No config points at it' is a fact about today's configs."""
-        s = self._classify(ledger,
-                           "gate-stamp parity: 36 artifact(s) scanned — 16 carry "
-                           "BOTH copies, 20 canonical-only, 0 legacy-only, 0 no "
-                           "stamp, 0 malformed, 0 unreadable",
-                           day=dt.date(2026, 9, 6))
-        assert s == EXPIRED, s
+        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 6)) == EXPIRED
 
 
 class TestWhatWasDELIBERATELYNotAcked:

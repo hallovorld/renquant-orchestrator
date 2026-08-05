@@ -52,6 +52,33 @@ as `ACKED_BUT_CHANGED` rather than INFO. It also **expires 2026-09-05**
 regardless, because "no config points at it" is a fact about *today's* configs.
 Both are asserted by tests, not merely intended.
 
+## The review found the ack claiming a property it could not enforce `[codex on orch#829]`
+
+The `clears_when` said the ack lifts when a both-copy artifact becomes
+**served** — but the fingerprint carried only census counts. Point a pinned
+config at one of the existing 16 and the counts stay `36/16/20/0/0/0/0`, so the
+ack would keep holding **over a now-reachable conflicting verdict.** The safety
+condition was in the prose, where nothing could act on it.
+
+Fixed at the source rather than by weakening the wording: `gate_stamp_parity`
+now **measures reachability itself** and puts it in the summary line the ledger
+fingerprints —
+
+```
+16 carry BOTH copies (0 of them SERVED by a pinned config)
+```
+
+`served_artifact_basenames()` reads every `strategy_config*.json` under the
+pinned `renquant-strategy-104/configs` and intersects the selected artifact
+basenames with the both-copy set. **A config change alone now moves a
+fingerprinted number**, so it reports `ACKED_BUT_CHANGED` with every census
+count unchanged — and a test asserts exactly that. If a served both-copy
+artifact is found, the detector raises it as a **problem**, not an info line.
+
+Unreadable configs are their own state (`reachability UNKNOWN`) and also break
+the ack: *"I could not read the configs"* must not inherit an ack taken when the
+answer was known.
+
 ## What was DELIBERATELY not acked
 
 **`booster-identity` stays loud.** 36 artifacts collapsing to 15 distinct
@@ -64,7 +91,7 @@ Eight findings remain loud. One ledger entry is not a cleanup; the value of an
 ack ledger is destroyed by a single dishonest entry, so the first one is the one
 I could fully evidence.
 
-Suites: 12 tests — the ledger's shape, the fingerprint bound to what the live
+Suites: 14 tests — the ledger's shape, the fingerprint bound to what the live
 detector actually emits, three escalations that break the ack, its expiry, the
 deliberate omission, and an end-to-end check that the report really changed ·
 full suite green.
