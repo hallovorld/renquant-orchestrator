@@ -24,10 +24,15 @@ So the tracking exists, it is committed, and it is scheduled. **The thing I
 There really are **two** deploy surfaces, and they advance by **different
 mechanisms**:
 
-| surface | governs | correct state | how it advances |
-|---|---|---|---|
-| `subrepos.lock.json` runtime repos | the libraries the pipeline imports | each repo **at its pinned commit** | a reviewed PR editing the lockfile |
-| `renquant-orchestrator-run` | every `ops/` tool the 21 launchd jobs execute | **`origin/main`** | `git pull --ff-only` on the checkout |
+| surface | governs | correct state | review gate | what actually ADVANCES it |
+|---|---|---|---|---|
+| `.subrepo_runtime/repos/*` | the libraries the pipeline imports | each repo **at its pinned commit** | a reviewed PR editing `subrepos.lock.json` | **`preflight_pin_align.sh`**, sourced by `daily_104.sh:234-239`, syncing the runtime repos to the current lockfile `[codex on orch#819]` |
+| `renquant-orchestrator-run` | every `ops/` tool the 21 launchd jobs execute | **`origin/main`** | merging to `main` | `git pull --ff-only` on the checkout |
+
+An earlier version of this table put "a reviewed PR editing the lockfile" in the
+advance column. That is the **gate**, not the step: editing the lockfile changes
+nothing on disk until the daily wrapper's pin-align runs. Gate and advance are
+different events and the row now separates them.
 
 Both are watched by the same scan. But note what the second row means: for the
 run checkout, **"correct" is `main`, not a pin.** Merging to `main` *is* the
@@ -38,9 +43,14 @@ review gate for it; the checkout only has to catch up.
 **orch#808 asked for the lockfile pins only.** Granting it would have advanced
 the libraries and left every `ops/` tool — the fleet sentinel, the rq105 probe,
 the ack-ledger audit — untouched, because the lockfile does not govern them.
-Measured before today's sync: that checkout carried **0** occurrences of
-`NOT_YET_RUN` / `EvidenceUnreadable` / `PROFILE_DEFECT`, while `main` carried
-**14** — i.e. the whole sentinel hardening was merged and not running.
+Measured before today's sync `[VERIFIED — both figures re-derived]`: at
+`3b65befc` that checkout carried **0** matches; at `7f7b759c` (`main`) there are
+**14 matching LINES in `ops/renquant104/fleet_lane_sentinel.py`** and **16
+literal occurrences across `ops/` excluding `doc/`**
+(`git grep -onE 'NOT_YET_RUN|EvidenceUnreadable|PROFILE_DEFECT' -- ops ':!doc'`).
+The earlier draft quoted 14 without saying which of the two it was
+`[codex on orch#819]`. Either way the point stands: the whole sentinel hardening
+was merged and not running.
 
 That gap is real and orch#808 is corrected to name both surfaces. It is a gap in
 **my grant request**, not in the project's tracking.
