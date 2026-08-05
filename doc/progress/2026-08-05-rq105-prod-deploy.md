@@ -42,15 +42,29 @@ git -C /Users/renhao/git/github/renquant-orchestrator-run pull --ff-only
 
 Tomorrow's 06:15 export will be the first scheduled run on the new source.
 
-## Literal revert
+## Rollback
+
+**Preferred — narrow, and it touches no checkout.** Set
+`RQ105_SCORE_SOURCE=blend` in the job's environment; the env override wins over
+the wrapper default. This reverts *only* the score source and leaves the other
+19 files deployed.
+
+**Full revert, if the whole sync must come back out.** Use `checkout -B`, not a
+bare `checkout <sha>`:
 
 ```
-git -C /Users/renhao/git/github/renquant-orchestrator-run checkout 7f7b759cd9acd6e0a92c12d59456b9e177ad6a13
+git -C /Users/renhao/git/github/renquant-orchestrator-run checkout -B main 7f7b759cd9acd6e0a92c12d59456b9e177ad6a13
 ```
 
-That returns rq105 to `blend` **and** reverts the other 19 files. To revert only
-the source without moving the checkout, set `RQ105_SCORE_SOURCE=blend` in the
-job's environment — the env override wins over the wrapper default.
+`git checkout <sha>` would leave the runtime checkout **detached**, and the next
+deployment — `git pull --ff-only` — then fails because it is no longer on a
+branch `[codex on orch#828]`. `checkout -B main <sha>` keeps the checkout **on
+`main`** and leaves local `main` an ancestor of `origin/main`, so the ordinary
+`pull --ff-only` still redeploys with no recovery step.
+
+Note what this deliberately does *not* silence: with local `main` behind
+`origin/main`, the run-surface drift scan will report the checkout as in drift.
+That alarm is the designed reminder that a rollback is in force.
 
 ## This settles orch#818
 
@@ -66,7 +80,8 @@ compound command, and I now use `git -C <path>` unconditionally.
 
 ## Still not deployed
 
-**orch#827** — the `rq105_status.py` bundle-root validation — is open and not in
-this sync. It affects the **dashboard**, not the export path, so the deployed
-exporter is unaffected; the dashboard can still crash on a malformed bundle
-until #827 lands and the next sync happens.
+**orch#827** — the `rq105_status.py` bundle-root validation — is **not part of
+the sync recorded here**, whatever its merge state at the time you read this
+`[codex on orch#828]`. It affects the **dashboard**, not the export path, so the
+deployed exporter is unaffected; the deployed dashboard can still crash on a
+malformed bundle until a later sync carries it.
