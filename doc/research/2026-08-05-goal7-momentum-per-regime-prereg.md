@@ -119,11 +119,17 @@ Any other outcome is **NOT CERTIFIED**. There is no third bucket.
 
 - **CERTIFIED** → the momentum member has evidence on the axis that decides, and
   GOAL-4 step 1 is satisfied for this member.
-- **NOT CERTIFIED** → the PROD blend has **two** members and **neither** has
-  positive evidence in the regime carrying its trading. That is a finding about
-  the blend and it is **reported to the operator as one, in the loop briefing of
-  the session the result lands**, with the four numbers above. It is not absorbed
-  into a re-weighting, and "not certified" is never reported as "inconclusive,
+- **NOT CERTIFIED** → **the member did not meet this preregistered evidence
+  standard.** That is a statement about the evidence, NOT a finding that the
+  signal is absent `[codex on orch#810]`: the predicate is deliberately
+  conservative (worst-of-5 shuffles), so a member can have `E1(BULL_CALM) > 0`
+  and still fail it. Writing NOT CERTIFIED up as "neither member has positive
+  evidence" would be a null claim the design cannot support — the same
+  absence-of-evidence-as-evidence-of-absence error the ledger already warns
+  about.
+  It is **reported to the operator in the loop briefing of the session the
+  result lands**, with all four numbers and with which condition failed. It is
+  not absorbed into a re-weighting, and it is never reported as "inconclusive,
   pending more data" — the sample floor is part of the predicate, so failing it
   is a stated outcome, not a reason to defer the report.
 - Arm A alone changes **nothing**. It can only justify running Arm B or

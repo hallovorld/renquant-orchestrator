@@ -53,8 +53,13 @@ A claim that does not name its arm is inadmissible.
   `n_dates(BULL_CALM) ≥ 30`, `E1 > 0`, `E1 > max_k shuffle_ic_k` (the WORST of
   the 5 replications, not their mean — a mean lets one lucky draw hide a leak),
   and `E1 > placebo_shift`. Anything else is NOT CERTIFIED; there is no third
-  bucket, and a null is reported to the operator in the session it lands, with
-  the four numbers, never as "inconclusive, pending more data".
+  bucket. **NOT CERTIFIED means the member did not meet this evidence standard,
+  not that the signal is absent** — the predicate is deliberately conservative,
+  so `E1 > 0` can still fail it, and writing that up as "neither member has
+  positive evidence" would be a null claim the design cannot support
+  `[codex on orch#810]`. It is reported to the operator in the session it lands,
+  with the four numbers and which condition failed, never as "inconclusive,
+  pending more data".
 - **A corrected what-would-change-my-mind clause.** My first draft had it exactly
   backwards: I wrote that STABILITY under an alternative regime definition would
   weaken the premise. It would strengthen it. The premise is damaged if the
@@ -70,5 +75,10 @@ is that the deployed member has no regime-conditioned evidence.
 
 ## NEXT
 
-Arm A can be run under this registration as soon as it is merged. Arm B is
-calendar-blocked to ~2026-10-27 and that is stated, not worked around.
+Arm A can be run under this registration as soon as it is merged.
+
+Arm B has **two** dates and an earlier version of this section conflated them
+`[codex on orch#810]`: the served artifact's first labels **mature ~2026-10-27**,
+but **certification cannot occur until the ≥30 BULL_CALM floor is met, roughly
+2027** at about one scored date per week. Both are stated; neither is worked
+around.
