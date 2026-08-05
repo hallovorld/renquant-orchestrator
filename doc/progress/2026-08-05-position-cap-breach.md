@@ -92,12 +92,48 @@ and eight and three shares were emitted.
 - **not** the QP path — `qp_target_w` / `qp_delta_w` / `qp_status` all NULL;
 - **not** the Deployment Governor — `enabled=false` in the pinned config.
 
-### What would settle it
+## 5. Reproduced: the sizing function CANNOT emit those orders
 
-Re-running `SizeAndEmitTask` against that run's recorded inputs
-(`portfolio_value`, `available_cash`, `max_pct`, `price`) and seeing whether it
-reproduces 8 shares. **I have not done that, and I am not proposing a fix to a
-mechanism I have not reproduced.**
+I said the settling test was to re-run the sizing against the recorded inputs.
+Done, against the **pinned** pipeline's own `compute_position_size`:
+
+```
+max_pct = 0.06125511 × 0.5753494 × 0.6591158 = 0.02322928
+PV = $10,565.46 (stamped)   → TSLA 0 shares, EME 0 shares
+```
+
+**Zero, at every cash level tried ($2.5k / $5k / $6.9k / $10.6k), integer and
+fractional.** It is arithmetically impossible for this path, with these factors
+and this portfolio value, to emit 8 and 3 shares.
+
+### Solving for the portfolio value that DOES explain them
+
+Integer flooring turns each order into a band on `portfolio_value`
+`[推导 — exact arithmetic on the VERIFIED stamps]`:
+
+| order | PV that floors to exactly that many shares |
+|---|---|
+| TSLA 8 shares | `[$106,493, $119,805)` |
+| EME 3 shares | `[$95,922, $127,895)` |
+| **both** | **`[$106,493, $119,805)`** |
+
+A single portfolio value in that band explains **both orders exactly**. The
+stamped PV is **$10,565.46** — the band is **10.1× to 11.3×** it.
+
+**And the tidy story is wrong**: the config carries `initial_cash = 100000`,
+which would be the obvious culprit — but **$100,000 is NOT in the band**
+(it gives TSLA **7** shares, not 8; EME 3, which matches). So `initial_cash`
+alone does not explain it, and I am not rounding a near-miss into a match.
+
+### What this establishes, and what it does not
+
+**Established:** the emitted sizes are consistent with a portfolio value about
+**10–11× the one stamped on the same rows** — i.e. two different values for one
+quantity inside a single run. That is the shape this repo keeps a registry of.
+
+**Not established:** where that value came from. I have not found the code path
+that supplies it, and I am not proposing a fix to a mechanism I have not
+located. The next step is that path, not a patch.
 
 ## Why this matters more than the number
 
