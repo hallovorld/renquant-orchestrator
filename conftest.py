@@ -15,10 +15,12 @@ not page the operator.** Every test module, fixture, and subprocess is covered;
 a `-p` plugin's own import time is not.
 
 Setting the environment variable here (rather than only patching in-process)
-also means every subprocess a test spawns INHERITS suppression, which was the
-other reported escape. A child that deliberately scrubs `RENQUANT_NO_NOTIFY` is
-outside anything an in-process guard can reach; that is recorded, not papered
-over.
+means a subprocess a test spawns inherits suppression **for senders that honour
+it** — i.e. anything going through `renquant_common.notify.send`. A child does
+NOT inherit the transport backstop: it is a separate interpreter, so a child
+calling `urllib.request.urlopen` at an ntfy URL directly, or scrubbing
+`RENQUANT_NO_NOTIFY`, is outside anything an in-process guard can reach. Both
+are recorded as residuals, not papered over.
 """
 from __future__ import annotations
 

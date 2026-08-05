@@ -100,17 +100,20 @@ still page the operator, both reproduced from that head:
    idempotent `install_notification_guard()` rather than carrying a second copy
    — but the claim it was added to support was wrong and is withdrawn.
 
-2. **A subprocess that SCRUBS `RENQUANT_NO_NOTIFY`** gets an unguarded
-   interpreter (`send True`). **NOT CLOSED, and not closeable in-process.**
-   What IS fixed is the ordinary case: the guard now sets the variable in
-   `os.environ`, so every child a test spawns INHERITS suppression — a test
-   asserts a real subprocess reports `suppressed True` / `sent False`. A child
-   that deliberately removes the variable is outside anything an in-process
-   guard can reach.
+2. **Subprocesses.** Partially closed, and the first version of this note
+   overclaimed it. The guard sets `RENQUANT_NO_NOTIFY` in `os.environ`, so a
+   child inherits suppression **for senders that honour it** — anything going
+   through `renquant_common.notify.send`; a test asserts a real subprocess
+   reports `suppressed True` / `sent False`. A child does **NOT** inherit the
+   transport backstop (it is a separate interpreter), so a child that calls
+   `urllib.request.urlopen` at an ntfy URL **directly**, or that scrubs the
+   variable, can still page. Codex reproduced the direct-transport case
+   (`env 1`, `suppressed True`, `urlopen urlopen`). **NOT CLOSED**, and not
+   closeable from inside the parent process.
 
 **The claim is scoped, in the PR title and in the root conftest's docstring, to
 what is actually true: from conftest import onward, tests do not page the
-operator.** Every test module, fixture and subprocess is covered; a `-p`
+operator through `notify.send`.** Every test module, fixture and subprocess is covered; a `-p`
 plugin's own import time is not. The earlier scoping ("any path pytest controls
 in-process") was still an overclaim — a `-p` plugin IS pytest-controlled
 in-process code — and codex was right to reject it.
@@ -121,7 +124,9 @@ A test now fails if either the root conftest or this document stops naming the
 ### Residual, recorded not fixed
 
 - a pytest plugin loaded with `-p`, at its own import time (reproduced by codex);
-- a subprocess that deliberately scrubs `RENQUANT_NO_NOTIFY`;
+- a subprocess that scrubs `RENQUANT_NO_NOTIFY`, or that calls the ntfy
+  transport DIRECTLY rather than through `notify.send` (a child does not inherit
+  the in-process urlopen backstop);
 - other production surfaces a test can still reach by accident: the broker API,
   the real runs/decision-ledger SQLite databases, live state files under the
   umbrella. The 2026-07-13 decision-ledger incident was the DB case; each

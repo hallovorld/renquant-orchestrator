@@ -47,11 +47,10 @@ def test_the_transport_backstop_was_installed_during_collection(monkeypatch):
 
 # ── [codex on orch#806] the two reported escapes: one closed, one recorded ──
 
-def test_a_SUBPROCESS_inherits_suppression(tmp_path):
-    """`os.environ[...] = "1"` (not just an in-process patch) means every child
-    a test spawns starts suppressed. The reported escape needed the child to
-    DELIBERATELY scrub the variable — which no in-process guard can prevent, and
-    which is recorded as residual rather than papered over."""
+def test_a_SUBPROCESS_inherits_suppression_for_senders_that_honour_it(tmp_path):
+    """`os.environ[...] = "1"` (not just an in-process patch) means a child
+    inherits suppression for anything going through `notify.send`. A child does
+    NOT inherit the transport backstop — see the residual test below."""
     import subprocess
     import sys
 
@@ -113,3 +112,32 @@ def test_the_KNOWN_RESIDUAL_is_stated_where_the_claim_is_made():
     doc = (root / "doc" / "progress"
            / "2026-08-05-tests-must-not-page-the-operator.md").read_text()
     assert "-p" in doc and "NOT CLOSED" in doc
+
+
+
+def test_the_CHILD_TRANSPORT_residual_is_stated_where_the_claim_is_made():
+    """[codex on orch#806] A child is a separate interpreter: it inherits the
+    ENV VAR but not the in-process urlopen backstop, so a child that calls the
+    ntfy transport DIRECTLY can still page even with suppression set. Codex
+    reproduced it (`env 1`, `suppressed True`, `urlopen urlopen`).
+
+    Not closeable from inside the parent. Pinned here so the prose cannot
+    silently widen back to "every subprocess is covered".
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    # Prose is line-wrapped, so compare on collapsed whitespace — a guard that
+    # depends on where a sentence happens to break is a guard that will red for
+    # the wrong reason later.
+    def flat(s: str) -> str:
+        return " ".join(s.split())
+
+    conftest = flat((root / "conftest.py").read_text())
+    assert "does NOT inherit the transport backstop" in conftest
+    assert "for senders that honour it" in conftest, (
+        "the subprocess claim must say WHICH senders inherit suppression")
+
+    doc = flat((root / "doc" / "progress"
+                / "2026-08-05-tests-must-not-page-the-operator.md").read_text())
+    assert "DIRECTLY rather than through" in doc and "NOT CLOSED" in doc
