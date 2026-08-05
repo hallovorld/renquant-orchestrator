@@ -41,6 +41,7 @@ reason this list looks hopeless and stays that way.
 | **rq104-silent-refusal** | 1 | `retrain-panel104` has **11 non-acting runs** (2026-08-02, 07-26, 07-19, 07-12, 07-05, 06-28 …; 2 CRASHED, 9 self-reported FAIL) | `launchd_silent_refusal.out`, 2026-08-04 |
 | **rq105-liveness** | 1 | `paired_is.jsonl` last complete row 2026-08-03 while today is 2026-08-04 (stale); post-close completion bound exceeded | `launchd_liveness.out` |
 | **run-surface-drift** | 1 | PYTHONPATH **fallback is firing for exactly 5 jobs**, all `rq105-*` (batch-scores-export, postclose, quote-logger, session-scheduler, shadow-serving): their wrappers use the `[ -d X-run/src ] \|\| X/src` idiom and `renquant-common-run/src` does not exist, so they resolve to the dev checkout. **21 other jobs declare a deterministic root and are clean.** | `launchd_run_surface_drift.out`, 2026-08-05T07:00 |
+| **agent-pr-loop** | 1 | `merge audit failed`. **Not a blockage and not a stale checkout** — see the addendum: the audit is the loop's LAST step, so every review/fix/merge already ran, and orch#830's fix is present in the checkout the loop uses. The gate is red **on merit**: 264/358 in-window merges carry no pre-merge `Merged by` comment. It clears when merges start carrying the marker, not when a pin advances. |
 | **ops-audit** | 1 | 4 NEW findings (launchd-liveness, ack-ledger, gate-stamp-parity, booster-identity). Also reports its ledger at `renquant-orchestrator-run/ops/ops_audit_acks.json` with **0 acks** while the dev checkout has 1 — merged-but-not-deployed | `launchd_ops-audit.out`, 2026-08-05T05:50 |
 
 **rq104-silent-refusal is the instrument this fleet already has** for "did the job
@@ -60,7 +61,6 @@ undispositioned, and reporting correctly — its alarm is being lost with the re
 
 | job | exit | state |
 |---|---|---|
-| **agent-pr-loop** | 1 | `merge audit failed` — the unsatisfiable gate. **Fixed and merged as orch#830**; clears when the run checkout advances its pin. |
 | **crypto-session** | 2 | G2 crypto KILLED 2026-07-18; removed from the reviewed manifest in orch#832. Awaiting one operator grant: `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.renquant.crypto-session.plist && rm …` |
 | **weekly-apy104** | 2 | APY below the alert floor — the alarm doing its job. Its unreadable *text* is fixed in orch#837. |
 
@@ -132,3 +132,53 @@ Also verified while checking the dev checkouts, since it bears on the same quest
 they carry no code main does not — and pipeline's one "dirty" entry is an *untracked*
 `persistence_backup_check.py` at the repo root, not on any `src` path. Benign today;
 unreviewed as a mechanism.
+
+## Addendum 2: agent-pr-loop was mis-filed, and the correction matters
+
+I put `agent-pr-loop` in category C ("already fixed; clears when the run checkout
+advances its pin"). **Both halves were wrong**, and the row now sits in category A.
+
+Measured on the live job:
+
+| | |
+|---|---|
+| stdout lines | 9,152, of which **only the first three** are not `cleared stale lock and resumed` |
+| stderr, last 300 | **299 × `merge audit failed`** + 1 × `agent identity preflight failed` |
+| `status.json` | `"ok": false` |
+
+That reads like a loop doing nothing, and my first reading was exactly that: the review
+queue had seven unreviewed PRs, the loop looked livelocked on its own lock file, and the
+inference — *the merge-audit gate is aborting the loop before it works* — fit perfectly.
+
+It is wrong. `scripts/agent_pr_loop.py:417` runs the audit as the **last** step:
+
+```python
+merge_audit = _orch(["repos", "merge-audit", "--repo", "all", "--strict"])
+status["steps"].append({"name": "merge-audit", "result": merge_audit})
+if merge_audit["rc"] != 0:
+    raise RuntimeError("merge audit failed")
+```
+
+Everything above it — review, fix, merge — has already run. A red audit costs the exit
+code and `status.ok`, not the work. The quiet stdout is a loop with nothing to do, not a
+loop that cannot start.
+
+And the checkout is current: `renquant-orchestrator` (the dev clone the loop uses via
+`RENQUANT_ORCHESTRATOR_ROOT`) has `GATE_WINDOW_DAYS` and the `exhausted = len(rows)`
+coverage rule from orch#830 **in its working tree already**
+[VERIFIED — `grep` on the live path, 2026-08-05]. So no pin advance is pending; the gate
+is simply red **on merit** — 264/358 in-window merges lack a pre-merge `Merged by`
+comment, which is a behaviour, not a bug.
+
+**What this changes:** `agent-pr-loop` is the fleet's single loudest failing job (it fires
+every 5 minutes) and it is a **category-A monitor reporting a real, clearable finding**.
+Nothing about it needs debugging. It clears when the agent that merges starts posting the
+marker before merging — orch#830 is what made that possible, and the marker cannot be
+added afterwards.
+
+**The reasoning error, since it is the third of this shape today:** every observation was
+real and the story built from them was wrong, because I inferred the *ordering* of the
+loop's steps from the shape of its output instead of reading the file. The same shape
+produced "27 jobs use the fallback" (it was 5) and "the daily run executes dev checkouts"
+(it does not). Reading the source costs one command; the inference cost three
+retractions.
