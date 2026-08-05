@@ -161,12 +161,51 @@ is the same sub-one-share arithmetic already logged as a deployment blocker
 (orch#608 / pipeline#224), but with the opposite sign: there it silently
 dropped names, here it silently multiplied two of them by ~10.
 
-### What is still NOT established
+## 7. Bounded exactly: two names were sized with 10× the position cap
 
-Which branch does it — the deferred one-share rescue, or something else. I have
-narrowed it from "the whole sizing path" to "the sub-one-share branch, on a run
-where a same-cycle control sized correctly", and I am **still not proposing a
-fix**, because naming the branch is one grep away and guessing it is not.
+Integer flooring bounds the **effective** `max_pct` each order must have used
+`[推导 — exact arithmetic on VERIFIED fills]`:
+
+| name | shares | effective `max_pct` must lie in |
+|---|---:|---|
+| SPG | 1 | `[0.0225, 0.0450)` |
+| TSLA | 8 | `[0.2321, 0.2611)` |
+| EME | 3 | `[0.2000, 0.2666)` |
+
+The computed value is `max_pct = 0.06126 × 0.5753 × 0.6591 = 0.02323`.
+
+- **SPG's band contains 0.02323** → it used the correct value.
+- **TSLA's and EME's bands both contain 0.2323 = 10 × 0.02323** — and nothing
+  else nearby.
+
+Stated the other way: TSLA's fill implies `conviction × sigma_mult = 3.79`,
+while the row stamps **0.379**. **Exactly ten times**, on two of three names, in
+one cycle.
+
+### Every branch in `task_selection.py` is now excluded
+
+| branch | why it cannot be it |
+|---|---|
+| normal Kelly path | returns **0 shares** at these inputs (reproduced) |
+| one-share floor rescue | `sizing.one_share_floor_enabled = **false**` in the pinned config — and it emits literally `1` share |
+| bear defensive sleeve | `bear_only = false` |
+| legacy non-Kelly branch | `0.12 × conv × σ = 0.0455` → TSLA **1** share |
+
+And the deployed file is the one I read: the pinned runtime's
+`task_selection.py` is **byte-identical** to my checkout's `[VERIFIED — diff]`.
+
+### So the provenance stamp is not identifying the sizer
+
+The rows say `source_task = SizeAndEmitTask`, and **no branch of
+`SizeAndEmitTask` can produce those two orders**. Either the stamp is wrong, or
+another emitter writes that stamp. Either way, **the attribution on a live order
+does not currently identify the code that sized it** — which is the same class
+of defect as the twin `validate_order_attribution` finding in orch#833, arriving
+on the money path.
+
+**Still not proposing a fix.** What is now cheap and decisive: instrument
+`max_pct` at the emit site, or find the second writer of that `source_task`
+string. Both are reads, neither is a guess.
 
 ## Why this matters more than the number
 
