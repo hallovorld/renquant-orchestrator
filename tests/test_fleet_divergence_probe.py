@@ -90,7 +90,9 @@ class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
                   run_id=f"r{i}", created_at=f"2026-08-04T1{i}:00:00")
         with pytest.raises(F.ProdBaselineUnavailable) as exc:
             F.probe("2026-08-04", data=tmp_path)
-        assert "3 prod run(s) recorded" in str(exc.value)
+        # The message now names the BASELINE LANE rather than the word "prod",
+        # because the baseline is choosable.
+        assert "3 alpaca run(s) recorded" in str(exc.value)
         assert "stale baseline" in str(exc.value)
 
     def test_the_refusal_DIAGNOSES_NOTHING(self, tmp_path):
@@ -355,3 +357,50 @@ class TestTheRangeClaimHasItsOwnRecord:
         assert [r["date"] for r in out["runs"]] == ["2026-08-03", "2026-08-04"]
         assert out["runs"][0]["state"] == F.STATE_PROD_UNAVAILABLE
         assert out["runs"][0]["lanes"] == []
+
+
+class TestTheBaselineIsChoosableButStillValidated:
+    """[measured 2026-08-05] prod scores its buy funnel ONCE a day. Before that
+    the reference does not exist and the probe refuses — but the fleet may
+    already have run, and "do the candidates disagree with EACH OTHER" is the
+    ensemble question regardless. A choosable reference must not become an
+    unchecked one."""
+
+    def _fleet(self, tmp_path):
+        prod = {_n(i): float(i) for i in range(20)}
+        _lane(tmp_path, "alpaca", "2026-08-04", prod)
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", prod)
+        _lane(tmp_path, "alpaca_shadow_blend_mom", "2026-08-04",
+              {t: -v for t, v in prod.items()})
+        return prod
+
+    def test_a_NON_PROD_baseline_compares_the_others_to_it(self, tmp_path):
+        self._fleet(tmp_path)
+        r = F.probe("2026-08-04", data=tmp_path,
+                    baseline="alpaca_shadow_blend")
+        assert r["baseline_lane"] == "alpaca_shadow_blend"
+        lanes = {x["lane"]: x for x in r["lanes"]}
+        # PROD is now one of the compared lanes, and the baseline is not.
+        assert "alpaca" in lanes and "alpaca_shadow_blend" not in lanes
+        assert lanes["alpaca"]["state"] == F.STATE_SAME_TOP
+        assert lanes["alpaca_shadow_blend_mom"]["top_k_overlap"] == 0
+
+    def test_a_CHOSEN_baseline_that_scored_nothing_still_REFUSES(self, tmp_path):
+        """The validation is on the baseline, whichever lane it is."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {_n(i): float(i) for i in range(20)})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", {})
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", data=tmp_path, baseline="alpaca_shadow_blend")
+        assert "alpaca_shadow_blend" in str(exc.value)
+
+    def test_the_default_baseline_is_still_PROD(self, tmp_path):
+        self._fleet(tmp_path)
+        r = F.probe("2026-08-04", data=tmp_path)
+        assert r["baseline_lane"] == "alpaca"
+        assert all(x["lane"] != "alpaca" for x in r["lanes"])
+
+    def test_the_render_names_which_baseline_was_used(self, tmp_path):
+        self._fleet(tmp_path)
+        text = F.render(F.probe("2026-08-04", data=tmp_path,
+                                baseline="alpaca_shadow_blend"))
+        assert "vs alpaca_shadow_blend" in text
