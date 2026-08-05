@@ -91,11 +91,14 @@ still page the operator, both reproduced from that head:
 
 1. **A pytest plugin loaded with `-p` runs before `tests/conftest.py`**
    (`plugin_send True`, attempted `https://ntfy.sh/renquant-plugin-probe`).
-   **CLOSED**: a ROOT `conftest.py` is imported before any conftest under
-   `testpaths`. It delegates to `install_notification_guard()` rather than
-   carrying a second copy — two copies would drift — and the installer is
-   idempotent so both call sites are safe. A test asserts the root file exists,
-   delegates, and does not duplicate the guard.
+   **NOT CLOSED.** I first added a ROOT `conftest.py` and claimed this fixed it.
+   Codex re-ran the repro against that head and it still printed
+   `PLUGIN_IMPORT env None` before collection: a `-p` plugin is imported before
+   ANY conftest, root included. **Nothing committed to this repo can run before
+   a plugin the invoker names on the command line.** The root conftest stays —
+   it is the earliest hook a repository *can* install, and it delegates to the
+   idempotent `install_notification_guard()` rather than carrying a second copy
+   — but the claim it was added to support was wrong and is withdrawn.
 
 2. **A subprocess that SCRUBS `RENQUANT_NO_NOTIFY`** gets an unguarded
    interpreter (`send True`). **NOT CLOSED, and not closeable in-process.**
@@ -105,12 +108,19 @@ still page the operator, both reproduced from that head:
    that deliberately removes the variable is outside anything an in-process
    guard can reach.
 
-**The claim is therefore scoped, in the PR title and in the root conftest's
-docstring, to what is true:** tests do not page the operator on any path pytest
-controls in-process.
+**The claim is scoped, in the PR title and in the root conftest's docstring, to
+what is actually true: from conftest import onward, tests do not page the
+operator.** Every test module, fixture and subprocess is covered; a `-p`
+plugin's own import time is not. The earlier scoping ("any path pytest controls
+in-process") was still an overclaim — a `-p` plugin IS pytest-controlled
+in-process code — and codex was right to reject it.
+
+A test now fails if either the root conftest or this document stops naming the
+`-p` residual. It does not close the gap; it makes the gap un-forgettable.
 
 ### Residual, recorded not fixed
 
+- a pytest plugin loaded with `-p`, at its own import time (reproduced by codex);
 - a subprocess that deliberately scrubs `RENQUANT_NO_NOTIFY`;
 - other production surfaces a test can still reach by accident: the broker API,
   the real runs/decision-ledger SQLite databases, live state files under the

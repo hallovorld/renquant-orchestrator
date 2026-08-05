@@ -66,10 +66,9 @@ def test_a_SUBPROCESS_inherits_suppression(tmp_path):
 
 
 def test_the_ROOT_conftest_installs_the_same_guard():
-    """A plugin loaded with `-p` beats tests/conftest.py; a ROOT conftest is
-    imported before any conftest under testpaths, so it closes the ordinary
-    ordering gap. This asserts the root file exists and delegates rather than
-    duplicating — two copies would drift."""
+    """A ROOT conftest is imported before any conftest under testpaths — the
+    earliest hook a REPOSITORY can install. This asserts the root file exists
+    and DELEGATES rather than duplicating; two copies would drift."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent / "conftest.py"
@@ -90,3 +89,27 @@ def test_installing_twice_is_a_no_op_not_a_double_wrap():
     install_notification_guard()
     install_notification_guard()
     assert urllib.request.urlopen is _guarded_urlopen
+
+
+
+def test_the_KNOWN_RESIDUAL_is_stated_where_the_claim_is_made():
+    """[codex on orch#806] A `-p` plugin is imported before ANY conftest, so
+    nothing committed here can guard its import time. Codex reproduced it. That
+    is a residual, and the way a residual stops being quietly re-claimed is that
+    a test fails if the documents stop naming it.
+
+    This test does not close the gap. It makes the gap un-forgettable.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    conftest = (root / "conftest.py").read_text()
+    assert "-p" in conftest and "residual" in conftest.lower(), (
+        "the root conftest must name the `-p` plugin residual where it makes "
+        "its ordering claim")
+    assert "from conftest import onward" in conftest, (
+        "the scoped claim must be stated next to the code that implements it")
+
+    doc = (root / "doc" / "progress"
+           / "2026-08-05-tests-must-not-page-the-operator.md").read_text()
+    assert "-p" in doc and "NOT CLOSED" in doc

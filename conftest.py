@@ -1,13 +1,18 @@
 """Root conftest — the notification guard, installed as EARLY as pytest allows.
 
-`tests/conftest.py` runs late enough that a plugin loaded with `-p` beats it
-(codex on orch#806, reproduced: a minimal plugin printed `plugin_send True` and
-attempted a real POST). A ROOT conftest is imported before any conftest under
-`testpaths`, so it closes the ordinary ordering gap. It is not a complete
-answer — see the residual list in
-`doc/progress/2026-08-05-tests-must-not-page-the-operator.md` — and the claim in
-this repo is scoped accordingly: **tests do not page the operator on any path
-pytest controls in-process.**
+A ROOT conftest is imported before any conftest under `testpaths`, which is the
+earliest hook a REPOSITORY can install. It is NOT the earliest hook that exists:
+a plugin named on the command line with `-p` is imported before any conftest at
+all, and codex reproduced exactly that against this file
+(`PLUGIN_IMPORT env None`, `PLUGIN_IMPORT guarded urlopen` printed before
+collection). **Nothing committed to this repo can run before a `-p` plugin the
+invoker chooses to load**, so that is a residual, recorded in
+`doc/progress/2026-08-05-tests-must-not-page-the-operator.md` and pinned by a
+test — not a gap this docstring will pretend is closed.
+
+The honest claim is therefore narrow: **from conftest import onward, tests do
+not page the operator.** Every test module, fixture, and subprocess is covered;
+a `-p` plugin's own import time is not.
 
 Setting the environment variable here (rather than only patching in-process)
 also means every subprocess a test spawns INHERITS suppression, which was the
