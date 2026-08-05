@@ -158,6 +158,11 @@ class TestManifestGeneration:
     #: the 07-31 REVIEWED deploy/ copy (wrapper, daily 16:00); the reviewed
     #: surface won and the twin was deleted. Empty until a future reviewed job
     #: declares a pending state by name.
+    #: 2026-08-04 (orch#801 round 3): the fleet-lane sentinel needs NO launchd
+    #: job — it runs as the daily wrapper's last step, after the Step-5e fleet
+    #: legs it inspects. That removes the cadence guess entirely (codex: a
+    #: 15:30 slot chosen from a manual run's clock would have paged MISSING on
+    #: a still-running fleet) and it removes the pending-install state with it.
     PENDING_INSTALL: set[str] = set()
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
