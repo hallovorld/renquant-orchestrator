@@ -66,5 +66,5 @@ No launchd change of any kind. `paired_is.jsonl` being one session stale is a
 real fault with an open owner (the liveness job already alarms on it), and
 touching a scheduled job is a landing action under the containment protocol.
 
-Suites: 8 new tests, incl. one bound to the live 2026-08-04 logs · 5646 passed,
-2 skipped repo-wide.
+Suites: 8 new tests, incl. one bound to the live 2026-08-04 logs · 5636 passed,
+2 skipped repo-wide `[VERIFIED — measured after the change]`.
