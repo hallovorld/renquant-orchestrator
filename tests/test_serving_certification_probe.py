@@ -54,11 +54,21 @@ class TestTheThreeShapesOrch726Found:
         r = P.probe_one("x", "shadow/panel-clf.top-decile.fwd60.json", tmp_path)
         assert r["state"] == P.STATE_NO_STAMP and r["state"] in P.ACTIONABLE
 
-    def test_the_LEGACY_top_level_key_still_counts_as_a_claim(self, tmp_path):
-        """An artifact with only the legacy key DOES make a claim; calling it
-        stampless would be the wrong-object error one level in."""
+    def test_the_LEGACY_top_level_key_is_READ_but_a_pathless_stamp_is_not_checkable(self, tmp_path):
+        """[codex on orch#820] An artifact with only the legacy key DOES make a
+        claim — calling it stampless would be the wrong-object error one level
+        in — but a stamp naming NO path cannot be checked, so it is not
+        HAS_CHECKABLE_CLAIM either. An earlier version blessed it."""
         _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
                   {"wf_gate_metadata": {"recipe_id": "r"}})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_NOTHING_TO_CHECK and r["state"] in P.ACTIONABLE
+
+    def test_the_LEGACY_key_WITH_a_resolving_path_is_checkable(self, tmp_path):
+        man = tmp_path / "legacy.json"
+        man.write_text("{}", encoding="utf-8")
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"wf_gate_metadata": {"sanity_manifest_path": str(man)}})
         r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
         assert r["state"] == P.STATE_CLAIM
 
@@ -97,6 +107,66 @@ def test_the_LIVE_serving_set_is_what_the_record_describes():
     rows = {r["artifact"]: r for r in P.probe()}
     prod = next(v for k, v in rows.items() if k.startswith("prod"))
     clf = next(v for k, v in rows.items() if k.startswith("clf"))
-    assert prod["state"] == P.STATE_CLAIM, prod
+    # MEASURED 2026-08-05: prod's claim references a staging artifact that does
+    # not exist (`config_parity.candidate_artifact`), so it is DANGLING — the
+    # first version of this probe reported it as checkable because it only
+    # looked at `/tmp` strings and two manifest keys [codex on orch#820].
+    assert prod["state"] == P.STATE_DANGLING, prod
+    assert any("weekly_" in d for d in prod.get("dangling", [])), prod
     assert clf["state"] == P.STATE_NO_STAMP, (
         "the clf lane's stamp state changed — re-derive orch#726/#788", clf)
+
+
+# ── [codex on orch#820] enumerating keys was the bug ─────────────────────────
+
+class TestEveryReferencedPathIsChecked:
+    def test_a_dangling_ref_that_is_NOT_under_tmp_is_caught(self, tmp_path):
+        """The live prod artifact's `config_parity.candidate_artifact` points at
+        a staging file that does not exist. The first version regexed `/tmp`
+        strings plus two manifest keys and reported HAS_CHECKABLE_CLAIM."""
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": {"wf_gate_metadata": {"config_parity": {
+                      "candidate_artifact": "/nowhere/real/staging.json"}}}})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_DANGLING
+        assert "/nowhere/real/staging.json" in r["detail"]
+
+    def test_a_path_nested_in_a_LIST_is_checked(self, tmp_path):
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": {"wf_gate_metadata": {
+                      "inputs": [{"read": ["/nowhere/deep.parquet"]}]}}})
+        assert P.probe_one("x", "prod/panel-ltr.alpha158_fund.json",
+                           tmp_path)["state"] == P.STATE_DANGLING
+
+    def test_a_NON_path_string_is_not_mistaken_for_a_reference(self, tmp_path):
+        """Anti-false-positive: a recipe id or a sha is not a path."""
+        man = tmp_path / "m.json"
+        man.write_text("{}", encoding="utf-8")
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": {"wf_gate_metadata": {
+                      "recipe_id": "sha256:cfdd6cb8e950da0f",
+                      "note": "walkforward_manifest.json",   # bare name, not a path
+                      "sanity_manifest_path": str(man)}}})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_CLAIM, r
+        assert r["referenced"] == [str(man)]
+
+
+class TestMalformedIsNotAbsent:
+    def test_a_non_object_metadata_is_MALFORMED(self, tmp_path):
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": "not-an-object"})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_MALFORMED and r["state"] in P.ACTIONABLE
+
+    def test_a_non_object_wf_gate_metadata_is_MALFORMED(self, tmp_path):
+        for payload in ({"metadata": {"wf_gate_metadata": []}},
+                        {"wf_gate_metadata": "yes"}):
+            _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json", payload)
+            r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+            assert r["state"] == P.STATE_MALFORMED, payload
+
+    def test_a_truly_absent_stamp_is_still_NO_GATE_STAMP(self, tmp_path):
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json", {"kind": "x"})
+        assert P.probe_one("x", "prod/panel-ltr.alpha158_fund.json",
+                           tmp_path)["state"] == P.STATE_NO_STAMP

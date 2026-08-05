@@ -44,22 +44,70 @@ SERVING = (
 STATE_CLAIM = "HAS_CHECKABLE_CLAIM"
 STATE_NO_STAMP = "NO_GATE_STAMP"
 STATE_DANGLING = "CLAIM_POINTS_AT_A_MISSING_PATH"
+STATE_NOTHING_TO_CHECK = "CLAIM_REFERENCES_NO_PATH"
+STATE_MALFORMED = "STAMP_MALFORMED"
 STATE_UNREADABLE = "ARTIFACT_UNREADABLE"
 STATE_ABSENT = "ARTIFACT_ABSENT"
-ACTIONABLE = (STATE_NO_STAMP, STATE_DANGLING, STATE_UNREADABLE, STATE_ABSENT)
+ACTIONABLE = (STATE_NO_STAMP, STATE_DANGLING, STATE_NOTHING_TO_CHECK,
+              STATE_MALFORMED, STATE_UNREADABLE, STATE_ABSENT)
 
-_TMPISH = re.compile(r'"(/tmp/[^"]{0,120})"')
+# [codex on orch#820] ENUMERATING keys was the bug. The first version checked
+# `/tmp` strings plus two manifest keys, and therefore reported
+# HAS_CHECKABLE_CLAIM for the live prod artifact whose
+# `config_parity.candidate_artifact` points at a staging file that does not
+# exist. Invert the default: walk EVERY string in the stamp and treat anything
+# path-shaped as a reference that must resolve.
+_PATHISH = re.compile(r"^(?:/|\./|\.\./).*\.(?:json|parquet|jsonl|csv|txt|pkl)$")
+
+
+class StampMalformed(Exception):
+    """A stamp container exists but is not a mapping. NOT the same as absent —
+    fail closed, the way wf_corpus_coverage.py and gate_stamp_parity.py do
+    [codex on orch#820]."""
 
 
 def _gate_stamp(payload: dict) -> dict | None:
     """The canonical location, then the legacy one. Both, because an artifact
-    that only has the legacy key still makes a claim."""
+    that only has the legacy key still makes a claim.
+
+    Raises ``StampMalformed`` when a container is PRESENT but the wrong shape:
+    collapsing that to "no stamp" reports a broken artifact as an honestly
+    uncertified one.
+    """
     meta = payload.get("metadata")
-    if isinstance(meta, dict) and isinstance(meta.get("wf_gate_metadata"), dict):
-        return meta["wf_gate_metadata"]
-    if isinstance(payload.get("wf_gate_metadata"), dict):
-        return payload["wf_gate_metadata"]
+    if meta is not None and not isinstance(meta, dict):
+        raise StampMalformed(f"`metadata` is {type(meta).__name__}, not an object")
+    if isinstance(meta, dict) and "wf_gate_metadata" in meta:
+        stamp = meta["wf_gate_metadata"]
+        if not isinstance(stamp, dict):
+            raise StampMalformed("`metadata.wf_gate_metadata` is "
+                                 f"{type(stamp).__name__}, not an object")
+        return stamp
+    if "wf_gate_metadata" in payload:
+        stamp = payload["wf_gate_metadata"]
+        if not isinstance(stamp, dict):
+            raise StampMalformed("top-level `wf_gate_metadata` is "
+                                 f"{type(stamp).__name__}, not an object")
+        return stamp
     return None
+
+
+def referenced_paths(stamp: dict) -> list[str]:
+    """Every path-shaped string ANYWHERE in the stamp, deduplicated and sorted."""
+    found: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+        elif isinstance(node, str) and _PATHISH.match(node):
+            found.add(node)
+
+    walk(stamp)
+    return sorted(found)
 
 
 def probe_one(label: str, rel: str, artifacts: pathlib.Path = ARTIFACTS) -> dict:
@@ -75,29 +123,34 @@ def probe_one(label: str, rel: str, artifacts: pathlib.Path = ARTIFACTS) -> dict
         return {**row, "state": STATE_UNREADABLE,
                 "detail": f"could not be read/parsed ({exc}) — an unreadable "
                           f"artifact is not an absent claim"}
-    stamp = _gate_stamp(payload)
+    try:
+        stamp = _gate_stamp(payload)
+    except StampMalformed as exc:
+        return {**row, "state": STATE_MALFORMED,
+                "detail": f"a gate-stamp container is present but malformed "
+                          f"({exc}) — a broken stamp is not an absent one"}
     if stamp is None:
         return {**row, "state": STATE_NO_STAMP,
                 "detail": "no wf_gate_metadata in either the canonical "
                           "metadata.wf_gate_metadata or the legacy top-level key "
                           "— this artifact makes NO claim that could be checked"}
-    # A claim that points at a path which no longer exists is worse than none:
-    # it reads as certified. orch#726's first two halves were exactly this.
-    dangling = [p for p in sorted(set(_TMPISH.findall(raw)))
-                if not pathlib.Path(p).exists()]
-    manifest = stamp.get("sanity_manifest_path") or stamp.get("wf_manifest_path")
-    if manifest and not pathlib.Path(str(manifest)).exists():
-        dangling.append(str(manifest))
+    refs = referenced_paths(stamp)
+    if not refs:
+        # A claim naming nothing cannot be checked, whatever else it says.
+        return {**row, "state": STATE_NOTHING_TO_CHECK,
+                "detail": "the stamp references no path at all — there is "
+                          "nothing to resolve, so the claim cannot be checked"}
+    dangling = [p for p in refs if not pathlib.Path(p).exists()]
     if dangling:
         return {**row, "state": STATE_DANGLING,
-                "detail": "the claim references path(s) that do not exist: "
-                          + ", ".join(dangling[:3]),
-                "dangling": dangling}
+                "detail": f"{len(dangling)} of {len(refs)} referenced path(s) do "
+                          f"not exist: " + ", ".join(dangling[:3]),
+                "dangling": dangling, "referenced": refs}
     return {**row, "state": STATE_CLAIM,
-            "detail": "carries a wf_gate_metadata claim whose referenced paths "
-                      "resolve — the claim can be CHECKED (this says nothing "
-                      "about whether it is a good claim)",
-            "manifest_path": str(manifest) if manifest else None}
+            "detail": f"all {len(refs)} referenced path(s) resolve — the claim "
+                      f"can be CHECKED (this says nothing about whether it is a "
+                      f"good claim)",
+            "referenced": refs}
 
 
 def probe(artifacts: pathlib.Path = ARTIFACTS) -> list[dict]:

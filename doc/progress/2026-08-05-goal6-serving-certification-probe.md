@@ -8,18 +8,28 @@ prod artifact and the pinned config]`:
 
 | claim (08-01) | today |
 |---|---|
-| the prod scorer's WF manifest points at `/tmp` (gone) | **RESOLVED** |
-| its override rollback points at `/tmp` (gone) | **RESOLVED / not present** |
+| the prod scorer's WF manifest points at `/tmp` (gone) | **RESOLVED** — the manifest resolves, 43 folds |
+| its override rollback points at `/tmp` (gone) | **RESOLVED** — no `/tmp` path survives anywhere in the artifact |
 | the clf lane has no gate stamp at all | **UNCHANGED** |
 
+### But the prod artifact is NOT clean — my first version of this probe said it was
+
+`[codex on orch#820, reproduced by the corrected probe]` The prod stamp
+references **59** paths. **One does not exist**:
+
 ```
-COVERED        panel-ltr.alpha158_fund.json: 43 fold(s)
-               manifest_path: …/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json
-NO_GATE_STAMP  panel-clf.top-decile.fwd60.json
+metadata.wf_gate_metadata.config_parity.candidate_artifact
+  → …/artifacts/prod/panel-ltr.alpha158_fund.weekly_20260802T170002Z.staging.json
 ```
 
-A regex sweep for `"/tmp/…"` over the whole prod artifact returns **NONE**, and
-the pinned `strategy_config.json` has no `/tmp` path either.
+So the *dangling-reference* condition orch#726 is about **is still present on the
+prod artifact** — just not under `/tmp`. My first probe enumerated `/tmp` strings
+plus two manifest keys and therefore reported `HAS_CHECKABLE_CLAIM`, which is
+exactly the enumerate-instead-of-invert error this project keeps catching. It now
+walks **every** path-shaped string in the stamp.
+
+Corrected reading of orch#726: the two `/tmp` pointers are gone; the class of
+defect they were instances of is not.
 
 **Nobody noticed for four days**, because checking meant reading two artifacts by
 hand. A three-claim P0 sitting two-thirds fixed is exactly how a reader learns to
@@ -62,7 +72,17 @@ rows and say nothing about leakage or quality; conflating "a claim exists" with
 "the claim is good" is what let one lane's 43 folds read as coverage for a lane
 with zero. A test asserts the output says so.
 
-Run against the live serving set: prod `HAS_CHECKABLE_CLAIM`, clf
-`NO_GATE_STAMP`, exit 1.
+Two more states, added in review because the first version blessed things it
+should not have `[codex on orch#820]`:
 
-Suites: 8 new tests, one bound to the live serving set · 5688 passed, 2 skipped `[VERIFIED — measured]`.
+- `CLAIM_REFERENCES_NO_PATH` — a stamp naming nothing cannot be checked, whatever
+  else it says. The first version returned `HAS_CHECKABLE_CLAIM` for a legacy-key
+  stamp with no paths at all;
+- `STAMP_MALFORMED` — a container that is present but the wrong shape. Collapsing
+  that to "no stamp" reports a broken artifact as an honestly uncertified one,
+  and `wf_corpus_coverage.py` / `gate_stamp_parity.py` already fail closed here.
+
+Run against the live serving set: prod **`CLAIM_POINTS_AT_A_MISSING_PATH`**
+(1 of 59 referenced paths), clf `NO_GATE_STAMP`, exit 1.
+
+Suites: 15 tests, one bound to the live serving set · 5688 passed, 2 skipped `[VERIFIED — measured]`.
