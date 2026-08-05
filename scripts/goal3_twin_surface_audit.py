@@ -41,6 +41,29 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
+def import_sources(root: pathlib.Path, names: set[str]) -> dict[str, list[str]]:
+    """{name: [modules it is imported FROM]} across the package.
+
+    WHY (GOAL-3, measured 2026-08-05): the census's 42 duplicate names are a
+    work list, not findings. What separates a candidate from a readability risk
+    is whether a caller ever refers to the name at all, and from how many
+    places. A name defined twice but never imported by name is instantiated in
+    its own module and cannot be confused for the other definition.
+    """
+    out: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    if alias.name in names:
+                        out.setdefault(alias.name, set()).add(node.module)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def audit(package: str) -> dict:
     module = importlib.import_module(package)
     exported = set(getattr(module, "__all__", []) or [])
@@ -83,6 +106,13 @@ def audit(package: str) -> dict:
             "sites": sorted(where, key=lambda w: w["file"]),
         }
 
+    sources = import_sources(root, set(duplicates))
+    for name, cell in duplicates.items():
+        cell["imported_from"] = sources.get(name, [])
+        cell["reachability"] = (
+            "never-imported-by-name" if not cell["imported_from"] else
+            "one-source" if len(cell["imported_from"]) == 1 else
+            "MULTI-SOURCE")
     return {
         "package": package,
         "all_size": len(exported),
@@ -100,6 +130,10 @@ def audit(package: str) -> dict:
             n for n, d in duplicates.items() if not d["exported"]),
         "has_kernel_counterpart_root": (root / "kernel").is_dir(),
         "duplicates": duplicates,
+        "reachability_counts": {
+            k: sum(1 for c in duplicates.values() if c["reachability"] == k)
+            for k in ("never-imported-by-name", "one-source", "MULTI-SOURCE")
+        },
     }
 
 
@@ -117,6 +151,12 @@ def render(result: dict) -> str:
         f"  __all__ ...................... {result['all_size']}",
         f"  unique public def NAMES ...... {result['unique_public_def_names']}",
         f"  duplicate-definition names ... {result['n_duplicate_names']}",
+        f"    never imported by name ... "
+        f"{result['reachability_counts']['never-imported-by-name']}"
+        f"  (module-local; cannot be confused for the other definition)",
+        f"    one source module ........ {result['reachability_counts']['one-source']}",
+        f"    MULTI-SOURCE ............. {result['reachability_counts']['MULTI-SOURCE']}"
+        f"  (a reader could expect one and get the other)",
         f"    also exported ............ {len(result['duplicates_that_are_exported'])}",
         f"    not exported ............. {len(result['duplicates_not_exported'])}",
         f"  kernel/ counterpart root ..... {_root_note(result)}",

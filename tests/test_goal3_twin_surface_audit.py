@@ -231,3 +231,66 @@ def test_the_EXACT_kernel_root_map_the_record_states():
     assert got == expected, (
         "the live kernel-root map no longer matches the record — re-derive the "
         "GOAL-3 table rather than inheriting it", got)
+
+
+# ── GOAL-3: which duplicates can a caller actually CONFUSE? ──────────────────
+#
+# The 42 duplicate names are a work list, not findings. Measured 2026-08-05:
+# 29 are never imported by name at all — module-local Tasks/Jobs instantiated
+# in their own module — 8 come from exactly one source, and only 5 are imported
+# from MORE THAN ONE module, which is the only shape where a reader could expect
+# one implementation and get another.
+
+class TestReachability:
+    def test_a_name_never_imported_is_classified_module_local(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_reach1",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["reachability"] == "never-imported-by-name"
+        assert d["imported_from"] == []
+
+    def test_one_importing_module_is_one_source(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_reach2",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "c.py": "from a import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["reachability"] == "one-source" and d["imported_from"] == ["a"]
+
+    def test_two_source_modules_is_MULTI_SOURCE(self, tmp_path):
+        """The only shape where a reader could expect one and get the other."""
+        pkg = _pkg(tmp_path, "p_reach3",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "c.py": "from a import J\n", "d.py": "from b import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["reachability"] == "MULTI-SOURCE"
+        assert d["imported_from"] == ["a", "b"]
+
+    def test_the_counts_reconcile_with_the_duplicate_total(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_reach4",
+                   {"a.py": "class J:\n    x = 1\n\n\nclass K:\n    y = 1\n",
+                    "b.py": "class J:\n    x = 2\n\n\nclass K:\n    y = 2\n",
+                    "c.py": "from a import J\n"})
+        r = audit(pkg)
+        assert sum(r["reachability_counts"].values()) == r["n_duplicate_names"]
+
+    def test_the_render_explains_why_module_local_is_not_a_finding(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_reach5",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n"})
+        text = render(audit(pkg))
+        assert "cannot be confused for the other definition" in text
+        assert "a reader could expect one and get the other" in text
+
+
+def test_the_LIVE_reachability_breakdown_the_record_states():
+    """Bound to reality: 42 duplicates, 29 never imported, 5 multi-source. If
+    this moves, the GOAL-3 work list must be re-derived rather than inherited."""
+    r = audit("renquant_orchestrator")
+    c = r["reachability_counts"]
+    assert r["n_duplicate_names"] >= 30, r["n_duplicate_names"]
+    assert c["never-imported-by-name"] > c["MULTI-SOURCE"], c
+    assert sum(c.values()) == r["n_duplicate_names"]
+    multi = sorted(k for k, v in r["duplicates"].items()
+                   if v["reachability"] == "MULTI-SOURCE")
+    assert "main" in multi, ("`main` is defined in dozens of CLI modules and "
+                             "imported from each — it must show as multi-source "
+                             "or the classifier is not working", multi)
