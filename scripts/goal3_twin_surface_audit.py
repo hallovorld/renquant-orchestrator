@@ -86,7 +86,10 @@ def audit(package: str) -> dict:
     return {
         "package": package,
         "all_size": len(exported),
-        "public_module_level_defs": len(public_defs),
+        # UNIQUE NAMES, not sites [codex on orch#814]: `public_defs` is a
+        # set, and `__all__` is also a name set, so a name-to-name
+        # comparison is the coherent one — but the field must SAY name.
+        "unique_public_def_names": len(public_defs),
         "n_duplicate_names": len(duplicates),
         # Whether a duplicate name is also EXPORTED is worth recording, but it
         # is NOT "visible to the guard": the guard's relation is a same-named
@@ -112,7 +115,7 @@ def render(result: dict) -> str:
         f"GOAL-3 duplicate-definition census — {result['package']}",
         "",
         f"  __all__ ...................... {result['all_size']}",
-        f"  module-level public defs ..... {result['public_module_level_defs']}",
+        f"  unique public def NAMES ...... {result['unique_public_def_names']}",
         f"  duplicate-definition names ... {result['n_duplicate_names']}",
         f"    also exported ............ {len(result['duplicates_that_are_exported'])}",
         f"    not exported ............. {len(result['duplicates_not_exported'])}",
@@ -133,11 +136,44 @@ def render(result: dict) -> str:
     return "\n".join(lines)
 
 
+# The exact packages the record's table lists. A claim about "every repo" has to
+# name them and be measurable over them, or it is a claim about the two I ran.
+# [codex on orch#814]
+SURVEYED_PACKAGES = (
+    "renquant_pipeline", "renquant_orchestrator", "renquant_backtesting",
+    "renquant_common", "renquant_execution", "renquant_base_data",
+    "renquant_strategy_104",
+)
+
+
+def kernel_root_map(packages=SURVEYED_PACKAGES) -> dict:
+    """{package: True | False | None} — has a `kernel/` counterpart root.
+
+    `None` means NOT MEASURED (the package could not be imported here), never
+    False: an unimportable package is not evidence of an absent root.
+    """
+    out = {}
+    for name in packages:
+        try:
+            module = importlib.import_module(name)
+        except Exception:                        # noqa: BLE001
+            out[name] = None
+            continue
+        out[name] = (pathlib.Path(module.__file__).parent / "kernel").is_dir()
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("package")
+    ap.add_argument("package", nargs="?", default="renquant_orchestrator")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--kernel-root-map", action="store_true",
+                    help="print the has-a-kernel-root map over the surveyed "
+                         "packages and exit")
     args = ap.parse_args(argv)
+    if args.kernel_root_map:
+        print(json.dumps(kernel_root_map(), indent=2))
+        return 0
     result = audit(args.package)
     print(json.dumps(result, indent=2) if args.json else render(result))
     return 0

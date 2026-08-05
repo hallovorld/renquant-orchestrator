@@ -57,8 +57,8 @@ class TestTheSubjectMeasurement:
                    {"a.py": "class A:\n    pass\n\n\nclass B:\n    pass\n"},
                    all_names=["A"])
         r = audit(pkg)
-        assert r["all_size"] == 1 and r["public_module_level_defs"] == 2
-        assert "public defs ..... 2" in render(r)
+        assert r["all_size"] == 1 and r["unique_public_def_names"] == 2
+        assert "def NAMES ...... 2" in render(r)
 
     def test_an_UNEXPORTED_duplicate_is_reported_as_INVISIBLE(self, tmp_path):
         """The load-bearing distinction: a duplicate outside `__all__` is exactly
@@ -86,7 +86,7 @@ class TestTheSubjectMeasurement:
                    {"a.py": "def _priv():\n    pass\n\n\n"
                             "def outer():\n    def inner():\n        pass\n    return inner\n"})
         r = audit(pkg)
-        assert r["public_module_level_defs"] == 1        # outer only
+        assert r["unique_public_def_names"] == 1        # outer only
         assert r["duplicates"] == {}
 
 
@@ -111,7 +111,7 @@ def test_the_LIVE_orchestrator_measurement_behind_the_GOAL3_claim():
     to be re-derived rather than inherited."""
     r = audit("renquant_orchestrator")
     assert r["all_size"] <= 10, r["all_size"]
-    assert r["public_module_level_defs"] > 500, r["public_module_level_defs"]
+    assert r["unique_public_def_names"] > 500, r["unique_public_def_names"]
     assert r["n_duplicate_names"] >= 30, r["n_duplicate_names"]
     assert r["duplicates_that_are_exported"] == [], (
         "an __all__-scoped guard would now see something here — re-derive the "
@@ -173,3 +173,42 @@ def test_an_ABSENT_kernel_root_reads_as_UNDEFINED_not_as_clean():
     assert r["has_kernel_counterpart_root"] is False
     text = render(r)
     assert "UNDEFINED here, not 'clean'" in text
+
+
+# ── [codex on orch#814] the seven-repo claim must be MEASURED, not asserted ──
+
+def test_the_kernel_root_map_covers_every_package_the_record_lists():
+    from scripts.goal3_twin_surface_audit import SURVEYED_PACKAGES, kernel_root_map
+
+    doc = " ".join((Path(__file__).resolve().parent.parent / "doc" / "progress"
+                    / "2026-08-05-goal3-twin-guard-subject-audit.md")
+                   .read_text().split())
+    for pkg in SURVEYED_PACKAGES:
+        repo = pkg.replace("_", "-").replace("renquant-strategy-104",
+                                             "renquant-strategy-104")
+        assert repo in doc, ("the record's table names a repo the survey does "
+                             "not cover, or vice versa", repo)
+    got = kernel_root_map()
+    assert set(got) == set(SURVEYED_PACKAGES)
+
+
+def test_an_UNIMPORTABLE_package_reads_as_NOT_MEASURED_not_as_absent():
+    """`None`, never `False`: an unimportable package is not evidence of an
+    absent root — that would turn a missing measurement into a finding."""
+    from scripts.goal3_twin_surface_audit import kernel_root_map
+
+    got = kernel_root_map(("definitely_not_a_real_package_xyz",))
+    assert got["definitely_not_a_real_package_xyz"] is None
+
+
+def test_pipeline_is_the_only_measured_package_WITH_a_kernel_root():
+    """The record's load-bearing claim, measured rather than asserted. If a
+    second package grows a kernel root, this fails and the record is re-derived."""
+    from scripts.goal3_twin_surface_audit import kernel_root_map
+
+    got = kernel_root_map()
+    measured = {k: v for k, v in got.items() if v is not None}
+    if len(measured) < 3:
+        pytest.skip(f"only {len(measured)} packages importable here")
+    with_root = sorted(k for k, v in measured.items() if v)
+    assert with_root == ["renquant_pipeline"], with_root

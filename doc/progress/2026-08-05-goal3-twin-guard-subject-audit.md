@@ -34,7 +34,7 @@ test keeps them removed.
 
 ## The census, measured `[VERIFIED — this session]`
 
-| repo | `__all__` | public defs | duplicate names | also exported | `kernel/` root |
+| repo | `__all__` | unique public def NAMES | duplicate names | also exported | `kernel/` root |
 |---|---|---|---|---|---|
 | renquant-pipeline | 56 | 836 | 24 | 20 | **present** |
 | renquant-orchestrator | 3 | 949 | **42** | 0 | absent |
@@ -43,6 +43,21 @@ test keeps them removed.
 | renquant-execution | 125 | 132 | 1 | 0 | absent |
 | renquant-common | 53 | 152 | 0 | 0 | absent |
 | renquant-strategy-104 | 2 | 13 | 0 | 0 | absent |
+
+**Two labelling corrections** `[codex on orch#814]`:
+
+1. The middle column counts **unique public definition NAMES**, not definitions
+   or sites — `public_defs` is a set. That is the coherent comparand, because
+   `__all__` is a name set too; but the field said "defs" and now says names.
+   Counting sites instead would make the orchestrator/backtesting figures
+   *smaller*, not larger.
+2. The `kernel/` column is now **measured over all seven packages**, not
+   inferred from the two I ran: `--kernel-root-map` imports each and reports
+   `True` / `False` / **`None` for NOT MEASURED** — never `False` for a package
+   that would not import, because a missing measurement must not become a
+   finding. Measured this session: `renquant_pipeline` **true**, the other six
+   **false**, none unmeasured. A test asserts pipeline is the only one, so a
+   second kernel root re-derives the record instead of inheriting it.
 
 ## The candidates, and the negative result
 
