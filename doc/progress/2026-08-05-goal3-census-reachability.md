@@ -11,28 +11,37 @@ Reading four of them (in review) found **zero** twins — each Task is instantia
 only by its own module-local job. That is a result about four names. This
 measures the property behind it, for all 42.
 
-## The measurement `[VERIFIED — this session]`
+## The measurement `[VERIFIED — this session, corrected in review]`
 
-For each duplicate name, how many modules import it **by name**:
+For each duplicate name, how many modules import it **by name**, scanning
+`src/`, `tests/`, `scripts/` and `ops/`:
 
 | reachability | count | what it means |
 |---|---|---|
-| never imported by name | **29** | module-local; nothing refers to the name, so no caller can reach the "other" definition |
-| exactly one source module | **8** | unambiguous at every import site |
-| **MULTI-SOURCE** | **5** | a reader could expect one implementation and get another |
+| no import site found | **17** | no `from X import NAME` anywhere this scan can see |
+| exactly one source module | **10** | unambiguous at every import site |
+| **MULTI-SOURCE** | **15** | a reader could expect one implementation and get another |
 
-The five:
+The fifteen: `AdmittedName`, `IllegalTransition`, `append_records`,
+`build_report`, `collect`, `connect`, `default_pilot_path`,
+`default_shadow_log_path`, `default_tick_feed_path`, `emit_alert`,
+`evaluate_session`, `main`, `render_markdown`, `session_date`, `summarize`.
 
-| name | imported from |
-|---|---|
-| `main` | 33 CLI modules — each importing its own; the degenerate case |
-| `connect` | `decision_ledger`, `decision_pnl_attribution`, `renquant_common.decision_ledger`, `attribution.ledger`, `risk_budget.budget` |
-| `render_markdown` | `attribution.report`, `risk_budget.report` |
-| `emit_alert` | `outage_monitor`, `weekly_promote_monitor` |
-| `default_tick_feed_path` | `realtime_data_plane`, `intraday_quote_logger` |
+### The correction that produced these numbers
 
-**So the work list is 4 names, not 42** (`main` is noise). That is a 90 %
-reduction in what a human has to read, and it is derived rather than asserted.
+My first version scanned **only `src/renquant_orchestrator`** and reported
+**29 / 8 / 5**, with the 29 labelled *"module-local; cannot be confused"*. Codex
+produced counterexamples from this very repo `[codex on orch#821]`:
+`tests/test_entry_timing_shadow.py` imports `AdmittedName`, `append_records`,
+`collect`, `evaluate_session`, `existing_keys`, `record_key` and `summarize`;
+`tests/test_execution_reconciler.py` imports `IllegalTransition`;
+`tests/test_expkit_prereg.py` imports `sha256_file`.
+
+A reachability figure computed over the package alone is not a reachability
+figure. Scanning the repository **triples the multi-source count, 5 → 15**, and
+my headline — *"the work list is 4 names, not 42"* — was wrong. It is **14**
+(excluding `main`), which is still a two-thirds reduction, but it is not the
+number I published.
 
 ## What this does NOT say
 
@@ -41,10 +50,12 @@ reduction in what a human has to read, and it is derived rather than asserted.
   interpreter resolving wrongly. None of these five is a twin in the pipeline
   sense (one implementation shadowing another behind a shared export) — the
   orchestrator exports 3 names and none of the 42 is among them.
-- **29 "never imported" is not a clean bill.** It means nothing refers to those
-  names *inside this package*; a script or a test could still import a module
-  path directly. It removes them from the confusion work list, not from
-  existence.
+- **"No import site found" is NOT "unreachable".** The scan sees
+  `from X import NAME` under `src/tests/scripts/ops`. It does **not** see
+  `import X` + `X.NAME` attribute access, star imports, `importlib`, lazy
+  `__getattr__` re-exports, or callers in **other repositories** — and this
+  project is seven repositories. The bucket is named `no-import-site-found`
+  rather than anything stronger, and the renderer says so on the same line.
 - Nothing here judges whether any duplicate should be de-duplicated. Two
   implementations of `emit_alert` may be perfectly reasonable.
 
@@ -54,5 +65,7 @@ The census already prints a work list. A work list that does not say which items
 a caller can actually confuse invites the next reader to do all 42 — which is how
 the four already-read ones got read in review rather than by design.
 
-Suites: 23 tests in this file (5 new), incl. one bound to the live breakdown ·
-5686 passed, 2 skipped `[VERIFIED — measured]`.
+Suites: 25 tests in this file, incl. one that PINS the exact 17/10/15 split
+and the 15-name multi-source set — the first version asserted only `>=30` and
+would have passed straight through the drift that tripled the count
+`[codex on orch#821]`.

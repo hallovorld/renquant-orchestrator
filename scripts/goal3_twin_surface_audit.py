@@ -41,17 +41,49 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
-def import_sources(root: pathlib.Path, names: set[str]) -> dict[str, list[str]]:
-    """{name: [modules it is imported FROM]} across the package.
+# Where to look for callers. [codex on orch#821] Scanning only the package was
+# wrong: `tests/test_entry_timing_shadow.py` imports `AdmittedName`, and several
+# other names I had classified as "never imported" are imported from tests. A
+# reachability figure computed over the package alone is not a reachability
+# figure.
+SCAN_ROOTS = ("src", "tests", "scripts", "ops")
+
+
+def _scan_paths(repo: pathlib.Path, package_root: pathlib.Path) -> list[pathlib.Path]:
+    """Files to search for callers.
+
+    Falls back to the package itself when none of the SCAN_ROOTS exist beside
+    it — a synthetic or vendored package has nothing else to scan, and silently
+    scanning NOTHING would report every name as having no import site, which is
+    the vacuous pass this whole file exists to avoid.
+    """
+    out: list[pathlib.Path] = []
+    for rel in SCAN_ROOTS:
+        d = repo / rel
+        if d.is_dir():
+            out.extend(sorted(d.rglob("*.py")))
+    return out or sorted(package_root.rglob("*.py"))
+
+
+def import_sources(root: pathlib.Path, names: set[str],
+                   repo: pathlib.Path | None = None) -> dict[str, list[str]]:
+    """{name: [modules it is imported FROM]} across the REPOSITORY.
 
     WHY (GOAL-3, measured 2026-08-05): the census's 42 duplicate names are a
     work list, not findings. What separates a candidate from a readability risk
     is whether a caller ever refers to the name at all, and from how many
-    places. A name defined twice but never imported by name is instantiated in
-    its own module and cannot be confused for the other definition.
+    places.
+
+    SCOPE, stated because the first version overclaimed `[codex on orch#821]`:
+    this counts `from X import NAME` sites under src/, tests/, scripts/ and
+    ops/. It does **not** see `import X` + `X.NAME` attribute access, star
+    imports, `importlib`, lazy `__getattr__` re-exports, or callers in OTHER
+    repositories. So a name reported with no importers is "not imported BY NAME
+    anywhere this scan can see" — a narrower statement than "unreachable".
     """
+    repo = repo if repo is not None else pathlib.Path.cwd()
     out: dict[str, set[str]] = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in _scan_paths(repo, root):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
@@ -106,11 +138,12 @@ def audit(package: str) -> dict:
             "sites": sorted(where, key=lambda w: w["file"]),
         }
 
-    sources = import_sources(root, set(duplicates))
+    # repo root = three levels up from <repo>/src/<package>
+    sources = import_sources(root, set(duplicates), repo=root.parent.parent)
     for name, cell in duplicates.items():
         cell["imported_from"] = sources.get(name, [])
         cell["reachability"] = (
-            "never-imported-by-name" if not cell["imported_from"] else
+            "no-import-site-found" if not cell["imported_from"] else
             "one-source" if len(cell["imported_from"]) == 1 else
             "MULTI-SOURCE")
     return {
@@ -132,7 +165,7 @@ def audit(package: str) -> dict:
         "duplicates": duplicates,
         "reachability_counts": {
             k: sum(1 for c in duplicates.values() if c["reachability"] == k)
-            for k in ("never-imported-by-name", "one-source", "MULTI-SOURCE")
+            for k in ("no-import-site-found", "one-source", "MULTI-SOURCE")
         },
     }
 
@@ -151,9 +184,10 @@ def render(result: dict) -> str:
         f"  __all__ ...................... {result['all_size']}",
         f"  unique public def NAMES ...... {result['unique_public_def_names']}",
         f"  duplicate-definition names ... {result['n_duplicate_names']}",
-        f"    never imported by name ... "
-        f"{result['reachability_counts']['never-imported-by-name']}"
-        f"  (module-local; cannot be confused for the other definition)",
+        f"    no import site found ..... "
+        f"{result['reachability_counts']['no-import-site-found']}"
+        f"  (no `from X import NAME` under src/tests/scripts/ops — NOT proof of "
+        f"unreachability)",
         f"    one source module ........ {result['reachability_counts']['one-source']}",
         f"    MULTI-SOURCE ............. {result['reachability_counts']['MULTI-SOURCE']}"
         f"  (a reader could expect one and get the other)",

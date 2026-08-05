@@ -242,11 +242,11 @@ def test_the_EXACT_kernel_root_map_the_record_states():
 # one implementation and get another.
 
 class TestReachability:
-    def test_a_name_never_imported_is_classified_module_local(self, tmp_path):
+    def test_a_name_with_no_import_site_is_classified_as_such(self, tmp_path):
         pkg = _pkg(tmp_path, "p_reach1",
                    {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n"})
         d = audit(pkg)["duplicates"]["J"]
-        assert d["reachability"] == "never-imported-by-name"
+        assert d["reachability"] == "no-import-site-found"
         assert d["imported_from"] == []
 
     def test_one_importing_module_is_one_source(self, tmp_path):
@@ -273,24 +273,54 @@ class TestReachability:
         r = audit(pkg)
         assert sum(r["reachability_counts"].values()) == r["n_duplicate_names"]
 
-    def test_the_render_explains_why_module_local_is_not_a_finding(self, tmp_path):
+    def test_the_render_REFUSES_to_call_no_import_site_unreachable(self, tmp_path):
+        """[codex on orch#821] The first version said "module-local; cannot be
+        confused". Tests import several of those names, so that was false."""
         pkg = _pkg(tmp_path, "p_reach5",
                    {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n"})
         text = render(audit(pkg))
-        assert "cannot be confused for the other definition" in text
+        assert "NOT proof of unreachability" in text
+        assert "cannot be confused" not in text
         assert "a reader could expect one and get the other" in text
 
 
-def test_the_LIVE_reachability_breakdown_the_record_states():
-    """Bound to reality: 42 duplicates, 29 never imported, 5 multi-source. If
-    this moves, the GOAL-3 work list must be re-derived rather than inherited."""
+def test_the_LIVE_reachability_breakdown_is_PINNED_exactly():
+    """[codex on orch#821] The first version asserted only `>=30`, `never>multi`
+    and `main in multi` — it would have kept passing through the very drift that
+    tripled the multi-source count. Pin the numbers the record states."""
     r = audit("renquant_orchestrator")
-    c = r["reachability_counts"]
-    assert r["n_duplicate_names"] >= 30, r["n_duplicate_names"]
-    assert c["never-imported-by-name"] > c["MULTI-SOURCE"], c
-    assert sum(c.values()) == r["n_duplicate_names"]
+    assert r["reachability_counts"] == {
+        "no-import-site-found": 17, "one-source": 10, "MULTI-SOURCE": 15}, (
+        "the reachability breakdown moved — re-derive the GOAL-3 work list "
+        "rather than inheriting it", r["reachability_counts"])
     multi = sorted(k for k, v in r["duplicates"].items()
                    if v["reachability"] == "MULTI-SOURCE")
-    assert "main" in multi, ("`main` is defined in dozens of CLI modules and "
-                             "imported from each — it must show as multi-source "
-                             "or the classifier is not working", multi)
+    assert multi == [
+        "AdmittedName", "IllegalTransition", "append_records", "build_report",
+        "collect", "connect", "default_pilot_path", "default_shadow_log_path",
+        "default_tick_feed_path", "emit_alert", "evaluate_session", "main",
+        "render_markdown", "session_date", "summarize"], multi
+
+
+def test_the_scan_covers_TESTS_not_only_the_package():
+    """The counterexample that broke the first version: tests/ imports several
+    names the package never does."""
+    from scripts.goal3_twin_surface_audit import SCAN_ROOTS
+
+    assert "tests" in SCAN_ROOTS and "src" in SCAN_ROOTS
+    r = audit("renquant_orchestrator")
+    admitted = r["duplicates"]["AdmittedName"]
+    assert admitted["reachability"] == "MULTI-SOURCE", admitted
+    assert admitted["imported_from"], "AdmittedName is imported by tests/"
+
+
+def test_a_package_with_no_sibling_scan_roots_scans_ITSELF_not_nothing(tmp_path):
+    """Scanning nothing would report every name as having no import site — the
+    vacuous pass this file exists to avoid."""
+    from scripts.goal3_twin_surface_audit import _scan_paths
+
+    pkg = tmp_path / "lonely"
+    pkg.mkdir()
+    (pkg / "a.py").write_text("x = 1\n", encoding="utf-8")
+    got = _scan_paths(tmp_path / "no-such-repo", pkg)
+    assert [p.name for p in got] == ["a.py"]
