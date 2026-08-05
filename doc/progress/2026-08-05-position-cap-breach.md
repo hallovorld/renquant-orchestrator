@@ -194,18 +194,38 @@ one cycle.
 And the deployed file is the one I read: the pinned runtime's
 `task_selection.py` is **byte-identical** to my checkout's `[VERIFIED — diff]`.
 
-### So the provenance stamp is not identifying the sizer
+### The provenance stamp is provably NOT unique
 
-The rows say `source_task = SizeAndEmitTask`, and **no branch of
-`SizeAndEmitTask` can produce those two orders**. Either the stamp is wrong, or
-another emitter writes that stamp. Either way, **the attribution on a live order
-does not currently identify the code that sized it** — which is the same class
-of defect as the twin `validate_order_attribution` finding in orch#833, arriving
-on the money path.
+The rows say `source_task = SizeAndEmitTask`, and no branch of
+`SizeAndEmitTask` can produce those two orders. So I looked for a second writer
+of that string, and there is one `[VERIFIED]`:
 
-**Still not proposing a fix.** What is now cheap and decisive: instrument
-`max_pct` at the emit site, or find the second writer of that `source_task`
-string. Both are reads, neither is a guess.
+```
+kernel/pipeline/governor_sizing.py:548        source_task="SizeAndEmitTask",
+```
+
+A **different module**, with a **different sizing rule** (allocator target
+weight, `max_step_per_session`, no `sigma_mult`), stamps the **same**
+`source_task`. So the attribution on a live order **cannot** identify the code
+that sized it — it is a string two sizers share. That is the same class of
+defect as the twin `validate_order_attribution` finding in orch#833, arriving on
+the money path.
+
+### …and the governor is excluded too
+
+`governor_sizing` stamps `"sigma_mult": None`. The TSLA and EME rows carry
+`sigma_mult = 0.6591157812733786` `[VERIFIED]`. So the rows were **not** written
+by the governor either — consistent with `deployment_governor.enabled = false`
+in the pinned config.
+
+So: **every emitter I can find is excluded, and the stamp that should have told
+me which one it was is shared by two of them.** That is the honest state.
+
+**Still not proposing a fix.** The remaining decisive step is runtime
+instrumentation — record the effective `max_pct` and the emitting module on
+every order — because static reading has now excluded every candidate and the
+existing stamp cannot disambiguate them. **Making the stamp unique is itself the
+first fix**, and it is a smaller, safer change than touching sizing arithmetic.
 
 ## Why this matters more than the number
 
