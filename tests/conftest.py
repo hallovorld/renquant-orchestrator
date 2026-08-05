@@ -21,9 +21,34 @@ surface by accident, and the guard belongs at the surface, not in each test.
 """
 from __future__ import annotations
 
+import os
 import urllib.request
 
 import pytest
+
+_REAL_URLOPEN = urllib.request.urlopen
+
+
+def _guarded_urlopen(request, *args, **kwargs):
+    url = getattr(request, "full_url", None) or str(request)
+    if "ntfy" in str(url).lower():
+        raise AssertionError(
+            f"a test attempted a REAL notification POST to {url!r}. "
+            "Notifications are suppressed under pytest (RENQUANT_NO_NOTIFY=1); "
+            "reaching the transport means something bypassed that check. "
+            "Inject or monkeypatch the sender in the test instead."
+        )
+    return _REAL_URLOPEN(request, *args, **kwargs)
+
+
+# INSTALLED AT IMPORT TIME, not only in the fixture. [codex on orch#806]
+# An autouse fixture does not exist yet while pytest COLLECTS — it imports every
+# test module first, and a module-level call into an alert path would fire before
+# any fixture runs. conftest.py is imported before the modules it collects, so
+# installing here closes that window. The fixture below still runs per test, so a
+# test that mutates either one gets it back afterwards.
+os.environ["RENQUANT_NO_NOTIFY"] = "1"
+urllib.request.urlopen = _guarded_urlopen
 
 
 @pytest.fixture(autouse=True)
@@ -37,18 +62,4 @@ def _no_real_notifications(monkeypatch):
     instead of a human's phone ringing.
     """
     monkeypatch.setenv("RENQUANT_NO_NOTIFY", "1")
-
-    real_urlopen = urllib.request.urlopen
-
-    def guarded_urlopen(request, *args, **kwargs):
-        url = getattr(request, "full_url", None) or str(request)
-        if "ntfy" in str(url).lower():
-            raise AssertionError(
-                f"a test attempted a REAL notification POST to {url!r}. "
-                "Notifications are suppressed under pytest (RENQUANT_NO_NOTIFY=1); "
-                "reaching the transport means something bypassed that check. "
-                "Inject or monkeypatch the sender in the test instead."
-            )
-        return real_urlopen(request, *args, **kwargs)
-
-    monkeypatch.setattr(urllib.request, "urlopen", guarded_urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", _guarded_urlopen)

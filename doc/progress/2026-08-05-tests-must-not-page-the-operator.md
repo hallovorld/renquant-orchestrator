@@ -55,3 +55,31 @@ loudly; non-ntfy URLs are untouched.
 Full suite: 5553 passed, 2 skipped, 2 pre-existing failures unrelated to this
 change (the drift detectors fixed on orch#804). No test tripped the backstop —
 so nothing in the repo was relying on a real send.
+
+## Review round 2 (codex on orch#806)
+
+The guard was installed only in the autouse fixture, which **does not run while
+pytest COLLECTS** — it imports every test module first, and a module-level call
+into an alert path would fire before any fixture exists. Nothing about the
+mechanism that paged the operator required the send to be inside a test BODY, so
+that window was real.
+
+Both layers now install at `conftest.py` IMPORT time, which happens before the
+modules it collects. The autouse fixture stays, so a test that mutates either one
+gets it back afterwards.
+
+`tests/test_import_time_notification_guard.py` closes the window with a test
+rather than a comment: it calls `notify.send(...)` at MODULE level and asserts,
+in the test bodies, that suppression was already on during collection and that
+the call returned `False` (a `True` would mean a real POST). A third test proves
+the import-time `urlopen` swap is the guarded one, not merely that the env var
+happened to be set.
+
+## Other production surfaces a test could still reach (named, NOT fixed here)
+
+Codex was asked to enumerate; recording so the next pass has a list:
+the broker API, the real runs/decision-ledger SQLite databases, and live state
+files under the umbrella. The 2026-07-13 decision-ledger incident was exactly the
+DB case. Each deserves the same surface-level guard; none is in scope for this PR.
+
+7 guard tests · 5555 passed, 2 skipped.
