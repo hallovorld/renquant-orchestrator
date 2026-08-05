@@ -46,7 +46,24 @@ fallback to an older run if that exact session has no qualifying run. The
 run's actual `run_date` is persisted as `source_run_date` in the meta, and
 verified again on the replay side (batch_scores_bundle.verify_bundle).
 
-2026-07-28 (operator directive — "105 直接换成 blend 模型"): the exporter can
+2026-08-05 (operator directive — "105 应该用 104 prod 的模型"): the wrapper's
+default is back to ``prod`` — rq105's frozen vector comes from the run that
+placed the day's real orders. The blend lane keeps running; rq105 just stops
+sourcing from it. Two things changed with it, and both are consequences of prod
+becoming the LOAD-BEARING path rather than the unused branch:
+
+  * ``REQUIRED_BROKER_MODE`` mapped ``prod -> None``, i.e. NO lane check: a
+    mispointed DB would have exported a shadow lane's vector stamped
+    ``score_source="prod"`` with nothing to say so. It is now ``LANE_EVIDENCE``
+    and every source names a required ``broker_mode``. Safe and MEASURED, not
+    assumed: ``broker_mode`` is ``'alpaca'`` on 40 of the last 40 live prod
+    runs `[VERIFIED — 2026-08-05]`.
+  * "prod" no longer means "the single-artifact model". Since the z-blend
+    fullbook went live, PROD itself scores with a two-component composite
+    `[VERIFIED — 17 of those 40 runs carry two resolved component pins]`. The
+    word names the LANE whose vector rq105 replays.
+
+2026-07-28 (superseded operator directive — "105 直接换成 blend 模型"): the exporter can
 now source the frozen vector from the BLEND composite lane instead of prod.
 ``RQ105_SCORE_SOURCE`` selects the source (``prod`` default / ``blend``);
 ``blend`` reads ``runs.alpaca_shadow_blend.db`` — the isolated read-only lane
@@ -91,9 +108,26 @@ OUT_DIR = os.path.join(RQ, "data", "rq105")
 #: to today's working prod export. blend ENFORCES the lane tag: pointing the
 #: exporter at the wrong DB is exactly the new failure class this switch
 #: introduces, so it fails closed.
-REQUIRED_BROKER_MODE: dict[str, str | None] = {
-    "prod": None,
-    "blend": "alpaca_shadow_blend",
+#: Per-source LANE EVIDENCE. Every source names a required ``broker_mode`` —
+#: none may be ``None``.
+#:
+#: `prod` carried ``None`` from 2026-07-28 to 2026-08-05, i.e. NO lane check at
+#: all: a mispointed DB would have exported a shadow lane's vector stamped
+#: `score_source="prod"` and nothing would have said so. That was tolerable
+#: only while prod was the unused branch. The 2026-08-05 directive makes prod
+#: the LOAD-BEARING path, so it gets the same evidence the blend path has had.
+#: Enforcing it is safe here and MEASURED, not assumed: `broker_mode` is
+#: `'alpaca'` on 40 of the last 40 live prod runs
+#: `[VERIFIED — 2026-08-05, runs.alpaca.db]`.
+#:
+#: `min_blend_components` stays 0 for prod DELIBERATELY. Prod does score with a
+#: two-component composite today, but that is a fact about the current pinned
+#: profile, not about the lane's identity — gating the exporter on it would
+#: fail-close rq105 the day prod's profile changes, which is the wrong object
+#: to check.
+LANE_EVIDENCE: dict[str, dict[str, object]] = {
+    "prod": {"broker_mode": "alpaca", "min_blend_components": 0},
+    "blend": {"broker_mode": "alpaca_shadow_blend", "min_blend_components": 2},
 }
 
 
@@ -261,27 +295,42 @@ def _health_gaps(run_bundle: dict) -> list[str]:
     return gaps
 
 
-def _blend_lane_gaps(run_bundle: dict, required_broker_mode: str) -> list[str]:
-    """Blend-mode fail-closed guards (2026-07-28 operator directive; see the
-    module docstring). Both checks are evidence the vector really is the
-    composite: (a) the run came from the isolated shadow-blend lane, and
-    (b) the pipeline resolved + hashed BOTH pinned blend components."""
+def _lane_gaps(run_bundle: dict, evidence: dict) -> list[str]:
+    """Fail-closed lane guards for EITHER source — the evidence that the DB
+    really is the lane the caller named.
+
+    (a) the run's ``broker_mode`` is the lane's own tag, and
+    (b) for a composite lane, the pipeline resolved + hashed enough component
+        pins to prove the composite actually loaded.
+    """
     gaps = []
+    required_broker_mode = evidence["broker_mode"]
     broker_mode = run_bundle.get("broker_mode")
     if broker_mode != required_broker_mode:
         gaps.append(
             f"broker_mode={broker_mode!r} (require {required_broker_mode!r})"
         )
-    if len(_blend_component_hashes(run_bundle)) < 2:
-        gaps.append("artifact_hashes(<2 resolved blend component pins)")
+    min_components = int(evidence["min_blend_components"])
+    n_components = len(_blend_component_hashes(run_bundle))
+    if n_components < min_components:
+        gaps.append(
+            f"artifact_hashes({n_components} resolved blend component pin(s), "
+            f"require >= {min_components})")
     return gaps
 
 
 def _blend_component_hashes(run_bundle: dict) -> dict[str, str]:
     """The resolved blend component artifact hashes, e.g.
     ``ranking.panel_scoring.components[0].artifact_path`` — present iff the
-    run's config carried a composite panel_scoring block whose components
-    the artifact resolver actually resolved. Empty for prod runs."""
+    run's config carried a composite panel_scoring block whose components the
+    artifact resolver actually resolved.
+
+    This docstring used to end "Empty for prod runs." That is NO LONGER TRUE
+    and was load-bearing: since the z-blend fullbook went live, PROD scores
+    with a two-component composite too `[VERIFIED 2026-08-05 — 17 of the last
+    40 live prod runs carry two component pins]`. A composite panel is not a
+    lane identity, which is why :data:`LANE_EVIDENCE` distinguishes them.
+    """
     artifact_hashes = run_bundle.get("artifact_hashes") or {}
     return {
         k: v
@@ -318,10 +367,10 @@ def main(
         if score_source is not None
         else os.environ.get("RQ105_SCORE_SOURCE", "prod")
     ).strip().lower()
-    if score_source not in REQUIRED_BROKER_MODE:
+    if score_source not in LANE_EVIDENCE:
         print(
             f"unknown RQ105_SCORE_SOURCE={score_source!r} — refusing to guess "
-            f"(valid: {', '.join(sorted(REQUIRED_BROKER_MODE))})",
+            f"(valid: {', '.join(sorted(LANE_EVIDENCE))})",
             file=sys.stderr,
         )
         return 1
@@ -370,18 +419,16 @@ def main(
         )
         return 1
 
-    required_broker_mode = REQUIRED_BROKER_MODE[score_source]
-    if required_broker_mode is not None:
-        lane_gaps = _blend_lane_gaps(run_bundle, required_broker_mode)
-        if lane_gaps:
-            print(
-                f"run {run_id} fails {score_source} lane evidence: "
-                f"{', '.join(lane_gaps)} — the DB at {db_path} is not the "
-                "shadow-blend lane, or the run did not score with the "
-                "resolved two-component composite; refusing to export",
-                file=sys.stderr,
-            )
-            return 1
+    lane_gaps = _lane_gaps(run_bundle, LANE_EVIDENCE[score_source])
+    if lane_gaps:
+        print(
+            f"run {run_id} fails {score_source} lane evidence: "
+            f"{', '.join(lane_gaps)} — the DB at {db_path} is not the "
+            f"{score_source} lane, or the run did not score with the "
+            "components that lane requires; refusing to export",
+            file=sys.stderr,
+        )
+        return 1
 
     roster = con.execute(
         "select ticker, panel_score from candidate_scores "

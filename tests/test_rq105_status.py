@@ -101,7 +101,8 @@ class TestDbRunSelectionUsesCanonicalExporterContract:
             dashboard, "expected_previous_session", return_value="2026-07-06"
         ) as mocked_session, mock.patch.object(
             dashboard, "_select_source_run",
-            return_value=("run-abc-live-1", "2026-07-06", {}),
+            return_value=("run-abc-live-1", "2026-07-06",
+                          {"broker_mode": "alpaca"}),
         ) as mocked_select:
             result = dashboard._db_latest_run(tmp_path)
 
@@ -180,3 +181,39 @@ class TestDbRunSelectionUsesCanonicalExporterContract:
         assert result["icon"] == dashboard.FAIL
         assert "lane evidence" in result["status"]
         assert "run-blend-1" in result["status"]
+
+
+class TestTheDashboardAppliesTheLaneGuardToPRODToo:
+    """2026-08-05: the guard used to run only for blend (`prod -> None`), so
+    the dashboard could report a run READY that the exporter would refuse."""
+
+    def _run(self, tmp_path, bundle):
+        db_path = tmp_path / "data" / "runs.alpaca.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.touch()
+        with mock.patch.object(dashboard, "expected_previous_session",
+                               return_value="2026-07-06"), \
+             mock.patch.object(dashboard, "_select_source_run",
+                               return_value=("run-abc-live-1", "2026-07-06", bundle)):
+            return dashboard._db_latest_run(tmp_path)
+
+    def test_a_blend_lane_run_read_as_prod_is_FAILED_not_reported_ready(
+            self, tmp_path):
+        r = self._run(tmp_path, {"broker_mode": "alpaca_shadow_blend"})
+        assert r["icon"] == dashboard.FAIL
+        assert "lane evidence" in r["status"]
+
+    def test_an_UNSTAMPED_run_is_FAILED_not_reported_ready(self, tmp_path):
+        r = self._run(tmp_path, {})
+        assert r["icon"] == dashboard.FAIL
+        assert "broker_mode=None" in r["status"]
+
+    def test_the_fallback_table_carries_NO_local_copy_of_the_lane_rules(self):
+        """A stale duplicate is a second answer to a one-answer question. The
+        fallback is empty, so an unimportable exporter reads as unknown-source
+        rather than as `prod -> check nothing`."""
+        import inspect
+
+        src = inspect.getsource(dashboard)
+        assert "LANE_EVIDENCE = {}" in src
+        assert '"prod": None' not in src
