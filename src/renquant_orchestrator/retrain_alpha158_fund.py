@@ -1206,8 +1206,9 @@ class MergeFundFeaturesTask(Task):
         return True
 
 
-def _publish_rawlabel_via_sole_writer(panel_in: Path, rawlabel_out: Path,
-                                     horizon: int, *, ohlcv_dir: Path) -> dict:
+def _publish_rawlabel_via_sole_writer(ctx: RetrainContext, panel_in: Path,
+                                      rawlabel_out: Path, horizon: int, *,
+                                      ohlcv_dir: Path) -> dict:
     """Publish the canonical sidecar by INVOKING the sole writer.
 
     WHY THIS EXISTS (measured 2026-08-04, orch#798): base-data#48 correctly
@@ -1230,29 +1231,47 @@ def _publish_rawlabel_via_sole_writer(panel_in: Path, rawlabel_out: Path,
     """
     import os as _os
     import subprocess as _subprocess
-    import sys as _sys
 
     staging = rawlabel_out.with_name(rawlabel_out.name + ".incoming")
     cmd = [
-        _sys.executable, "-m", "renquant_base_data.rawlabel_sidecar",
+        ctx.python, "-m", "renquant_base_data.rawlabel_sidecar",
         "--fund-panel", str(panel_in),
         "--ohlcv-dir", str(ohlcv_dir),
         "--output", str(staging),
         "--horizon-trading-days", str(horizon),
     ]
+    ctx.commands.append(cmd)
+    if ctx.dry_run:
+        return {"writer": "renquant_base_data.rawlabel_sidecar", "dry_run": True}
     log.info("σ-head _rawlabel: invoking the SOLE writer -> %s", staging)
-    proc = _subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
+    # Same env/cwd contract every other subprocess in this module gets
+    # (`_run` -> `run_subprocess`): the multirepo PYTHONPATH is resolved from
+    # ctx.repo_dir, never inherited from whatever shell happened to launch us.
+    # [codex on orch#803] the wrapper scripts export it today; a helper that
+    # depended on that would work only under those wrappers.
+    try:
+        proc = _subprocess.run(
+            cmd, cwd=str(ctx.repo_dir), capture_output=True, text=True,
+            env=subrepo_pythonpath(ctx.repo_dir,
+                                   strategy_config=_fund_strategy_config()),
+        )
+        if proc.returncode != 0:
+            raise RawlabelValidationError(
+                "the sole base-data writer failed to publish the canonical "
+                f"_rawlabel (rc={proc.returncode}): "
+                f"{(proc.stderr or proc.stdout)[-400:]}"
+            )
+        if not staging.exists():
+            raise RawlabelValidationError(
+                f"the sole writer exited 0 but produced no output at {staging}"
+            )
+        _os.replace(staging, rawlabel_out)
+    finally:
+        # [codex on orch#803] EVERY failure branch, not just a non-zero exit —
+        # a successful build whose os.replace() raises would otherwise strand
+        # full-size new bytes next to the served file, where the next run's
+        # staging write silently inherits them.
         staging.unlink(missing_ok=True)
-        raise RawlabelValidationError(
-            "the sole base-data writer failed to publish the canonical "
-            f"_rawlabel (rc={proc.returncode}): {(proc.stderr or proc.stdout)[-400:]}"
-        )
-    if not staging.exists():
-        raise RawlabelValidationError(
-            f"the sole writer exited 0 but produced no output at {staging}"
-        )
-    _os.replace(staging, rawlabel_out)
     log.info("σ-head _rawlabel: published in-lockstep with %s", panel_in)
     return {"writer": "renquant_base_data.rawlabel_sidecar", "staged_via": str(staging)}
 
@@ -1359,7 +1378,7 @@ class RefreshSigmaHeadRawLabelTask(Task):
             # that can guarantee lockstep: right after the panel rebuild,
             # before anything reads the sidecar.
             summary["publish"] = _publish_rawlabel_via_sole_writer(
-                panel_in, rawlabel_out, ctx.rawlabel_horizon,
+                ctx, panel_in, rawlabel_out, ctx.rawlabel_horizon,
                 ohlcv_dir=ctx.ohlcv_dir,
             )
             if not rawlabel_out.exists():

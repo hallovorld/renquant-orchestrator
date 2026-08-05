@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -429,6 +430,14 @@ class TestRawlabelSoleWriterInvocation:
     (panel-only=288) and σ-head training was blocked with no living path back.
     """
 
+    class _Ctx:
+        dry_run = False
+
+        def __init__(self, repo_dir):
+            self.repo_dir = Path(repo_dir)
+            self.python = "/usr/bin/python3"
+            self.commands = []
+
     def _helper(self):
         from renquant_orchestrator.retrain_alpha158_fund import (
             _publish_rawlabel_via_sole_writer,
@@ -439,8 +448,6 @@ class TestRawlabelSoleWriterInvocation:
         self, tmp_path, monkeypatch
     ):
         """The amendment is honoured by CALLING the writer, not copying it."""
-        import renquant_orchestrator.retrain_alpha158_fund as M
-
         seen = {}
 
         class _Proc:
@@ -448,20 +455,71 @@ class TestRawlabelSoleWriterInvocation:
             stdout = stderr = ""
 
         def fake_run(cmd, **kw):
-            seen["cmd"] = cmd
-            out = Path(cmd[cmd.index("--output") + 1])
-            out.write_text("built", encoding="utf-8")
+            seen["cmd"], seen["kw"] = cmd, kw
+            Path(cmd[cmd.index("--output") + 1]).write_text("built", encoding="utf-8")
             return _Proc()
 
         monkeypatch.setattr("subprocess.run", fake_run)
         panel = tmp_path / "panel.parquet"
         panel.write_text("p", encoding="utf-8")
         out = tmp_path / "rawlabel.parquet"
-        info = self._helper()(panel, out, 60, ohlcv_dir=tmp_path / "ohlcv")
+        ctx = self._Ctx(tmp_path)
+        info = self._helper()(ctx, panel, out, 60, ohlcv_dir=tmp_path / "ohlcv")
 
         assert "renquant_base_data.rawlabel_sidecar" in seen["cmd"]
         assert info["writer"] == "renquant_base_data.rawlabel_sidecar"
         assert out.exists() and out.read_text() == "built"
+        assert ctx.commands == [seen["cmd"]], "the command must be recorded like _run's"
+
+    def test_it_uses_the_repos_multirepo_env_not_the_ambient_shell(
+        self, tmp_path, monkeypatch
+    ):
+        """[codex on orch#803] every other subprocess here goes through
+        `run_subprocess` -> `subrepo_pythonpath`. A helper that inherited the
+        launching shell's PYTHONPATH would work only under the wrapper scripts
+        that happen to export it."""
+        seen = {}
+
+        class _Proc:
+            returncode = 0
+            stdout = stderr = ""
+
+        def fake_run(cmd, **kw):
+            seen["kw"] = kw
+            Path(cmd[cmd.index("--output") + 1]).write_text("b", encoding="utf-8")
+            return _Proc()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        self._helper()(self._Ctx(tmp_path), panel, tmp_path / "r.parquet", 60,
+                       ohlcv_dir=tmp_path / "o")
+        env = seen["kw"]["env"]
+        assert env is not None and "PYTHONPATH" in env
+        assert "renquant-base-data" in env["PYTHONPATH"], env["PYTHONPATH"]
+        assert seen["kw"]["cwd"] == str(tmp_path), "cwd must be the repo root"
+
+    def test_the_env_it_builds_can_actually_import_the_writer(self):
+        """Anti-vacuity for the test above: the mocked env is only meaningful if
+        the REAL one imports the REAL module. Skips loudly off-machine."""
+        import subprocess as sp
+
+        from renquant_orchestrator.retrain_common import subrepo_pythonpath
+
+        repo = Path("/Users/renhao/git/github/RenQuant")
+        if not (Path("/Users/renhao/git/github/renquant-base-data") / "src"
+                / "renquant_base_data" / "rawlabel_sidecar.py").exists():
+            pytest.skip("renquant-base-data checkout absent — env check not "
+                        "verifiable here")
+        proc = sp.run(
+            [sys.executable, "-c",
+             "import renquant_base_data.rawlabel_sidecar as m; print(m.__file__)"],
+            cwd=str(repo), env=subrepo_pythonpath(repo),
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr[-600:]
+        assert "renquant_base_data/rawlabel_sidecar" in proc.stdout
 
     def test_it_stages_and_atomically_replaces_never_writes_in_place(
         self, tmp_path, monkeypatch
@@ -486,9 +544,43 @@ class TestRawlabelSoleWriterInvocation:
         panel = tmp_path / "panel.parquet"
         panel.write_text("p", encoding="utf-8")
         with pytest.raises(M.RawlabelValidationError) as exc:
-            self._helper()(panel, out, 60, ohlcv_dir=tmp_path / "ohlcv")
+            self._helper()(self._Ctx(tmp_path), panel, out, 60,
+                           ohlcv_dir=tmp_path / "ohlcv")
         assert "sole base-data writer failed" in str(exc.value)
         # the served file is untouched and the staging file is cleaned up
+        assert out.read_text() == "PREVIOUS-GOOD-BYTES"
+        assert not out.with_name(out.name + ".incoming").exists()
+
+    def test_a_FAILED_replace_after_a_GOOD_build_still_leaves_no_staging_file(
+        self, tmp_path, monkeypatch
+    ):
+        """[codex on orch#803] the branch a non-zero-exit-only cleanup missed:
+        the writer SUCCEEDS, os.replace raises (permissions, cross-device), and
+        full-size new bytes are stranded where the next run's staging write
+        would silently inherit them."""
+        import renquant_orchestrator.retrain_alpha158_fund as M
+
+        out = tmp_path / "rawlabel.parquet"
+        out.write_text("PREVIOUS-GOOD-BYTES", encoding="utf-8")
+
+        class _Proc:
+            returncode = 0
+            stdout = stderr = ""
+
+        def fake_run(cmd, **kw):
+            Path(cmd[cmd.index("--output") + 1]).write_text("NEW", encoding="utf-8")
+            return _Proc()
+
+        def boom(*a, **k):
+            raise OSError(18, "Cross-device link")
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(os, "replace", boom)
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        with pytest.raises(OSError):
+            self._helper()(self._Ctx(tmp_path), panel, out, 60,
+                           ohlcv_dir=tmp_path / "ohlcv")
         assert out.read_text() == "PREVIOUS-GOOD-BYTES"
         assert not out.with_name(out.name + ".incoming").exists()
 
@@ -503,8 +595,8 @@ class TestRawlabelSoleWriterInvocation:
         panel = tmp_path / "panel.parquet"
         panel.write_text("p", encoding="utf-8")
         with pytest.raises(M.RawlabelValidationError) as exc:
-            self._helper()(panel, tmp_path / "rawlabel.parquet", 60,
-                           ohlcv_dir=tmp_path / "ohlcv")
+            self._helper()(self._Ctx(tmp_path), panel, tmp_path / "rawlabel.parquet",
+                           60, ohlcv_dir=tmp_path / "ohlcv")
         assert "exited 0 but produced no output" in str(exc.value)
 
     def test_the_horizon_is_passed_through_not_defaulted(self, tmp_path, monkeypatch):
@@ -522,6 +614,19 @@ class TestRawlabelSoleWriterInvocation:
         monkeypatch.setattr("subprocess.run", fake_run)
         panel = tmp_path / "panel.parquet"
         panel.write_text("p", encoding="utf-8")
-        self._helper()(panel, tmp_path / "raw.parquet", 20, ohlcv_dir=tmp_path / "o")
+        self._helper()(self._Ctx(tmp_path), panel, tmp_path / "raw.parquet", 20,
+                       ohlcv_dir=tmp_path / "o")
         i = seen["cmd"].index("--horizon-trading-days")
         assert seen["cmd"][i + 1] == "20"
+
+    def test_a_dry_run_records_the_command_and_writes_nothing(self, tmp_path):
+        ctx = self._Ctx(tmp_path)
+        ctx.dry_run = True
+        panel = tmp_path / "panel.parquet"
+        panel.write_text("p", encoding="utf-8")
+        out = tmp_path / "rawlabel.parquet"
+        info = self._helper()(ctx, panel, out, 60, ohlcv_dir=tmp_path / "o")
+        assert info["dry_run"] is True
+        assert not out.exists()
+        assert not out.with_name(out.name + ".incoming").exists()
+        assert ctx.commands and "renquant_base_data.rawlabel_sidecar" in ctx.commands[0]
