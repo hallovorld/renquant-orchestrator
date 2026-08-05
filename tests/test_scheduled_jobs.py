@@ -167,8 +167,24 @@ def test_live_bridge_jobs_expose_native_cutover_candidate_commands() -> None:
     assert "/tmp/renquant-live-rehearsal/live-native-inference.json" in live_command
 
 
-def test_inventory_localizes_repo_root_paths(monkeypatch) -> None:
-    repo_root = "/private/tmp/RenQuant"
+def test_inventory_localizes_repo_root_paths(monkeypatch, tmp_path) -> None:
+    # The fixture root is a REAL temp directory, not the fixed literal
+    # "/private/tmp/RenQuant". `default_repo_root()` calls `.resolve()`, so a
+    # stray `/tmp/RenQuant -> <live umbrella>` symlink on the machine silently
+    # turned this isolated root INTO the live umbrella and the assertion below
+    # failed for a reason that has nothing to do with localisation
+    # `[VERIFIED — 2026-08-05: such a symlink existed, created 11:56]`.
+    # The hazard itself is pinned by its own test in
+    # tests/test_runtime_paths_symlink_redirect.py — this one is about the
+    # inventory, and should fail only when the inventory is wrong.
+    # CREATED, not just named [codex on orch#835]. `Path.resolve()` is
+    # non-strict, so a merely-named root still "works" — and the record claimed
+    # a real temp directory while this one was a string. A test that passes
+    # without establishing its stated isolation condition is the same green-
+    # over-nothing this branch exists to close.
+    root = tmp_path / "RenQuant"
+    root.mkdir()
+    repo_root = str(root)
     monkeypatch.setenv("RENQUANT_REPO_ROOT", repo_root)
 
     payload = inventory_payload()
