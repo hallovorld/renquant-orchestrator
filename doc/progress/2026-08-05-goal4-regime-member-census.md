@@ -130,10 +130,15 @@ BULL_CALM does not stop being so by being averaged.
 2. Explain the BULL_CALM buy concentration (orch#805 item 2).
 3. Only then: any ensemble weighting proposal, preregistered, per-arm placebo.
 
-Suite: 22 tests (the count is asserted against the file, so it cannot drift from
-this sentence). Four are bound to reality: one fails if the pinned PROD blend's
-MEMBERSHIP changes (the earlier test only re-ran the census over its own
-hardcoded rows, so membership drift could not fail it); one fails if BULL_CALM
-stops being negative in every reading or if a PROD member gains evidence; one
-fails if a withdrawn claim is reintroduced; one derives the member COUNT from the
-pinned config so prose cannot contradict it again.
+Two tests bind EXTERNAL state and are the ones that keep this record honest:
+one fails if the pinned PROD blend's MEMBERSHIP changes (the first version only
+re-ran the census over its own hardcoded rows, so membership drift could not fail
+it), and one fails if BULL_CALM stops being negative in every reading or if a PROD
+member gains evidence. The rest are repository-source checks — including guards
+that a withdrawn claim is not reintroduced and that a member count in prose
+matches the config.
+
+No test count is quoted here on purpose: an earlier revision stated one, got it
+wrong, and was then "fixed" by adding a nested `pytest --collect-only` call to
+maintain it. Deleting a number that need not exist beats building machinery to
+keep it true `[codex on orch#809]`.

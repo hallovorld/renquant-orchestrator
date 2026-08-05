@@ -260,32 +260,6 @@ def test_the_record_never_states_a_member_count_the_config_contradicts():
         assert contradiction not in doc, contradiction
 
 
-def test_the_docs_stated_TEST_COUNT_matches_the_file():
-    """[codex on orch#807] The doc said 14 while the file held 20. A count in a
-    document that nothing checks is an assertion, not a measurement — and this
-    doc is the surviving record."""
-    import re
-    import subprocess
-    import sys
-
-    here = Path(__file__).resolve()
-    doc = " ".join((here.parent.parent / "doc" / "progress"
-                    / "2026-08-05-goal4-regime-member-census.md").read_text().split())
-    stated = re.search(r"Suite: (\d+) tests", doc)
-    assert stated, "the record must state a test count"
-    # COLLECTED, not def-counted: parametrised cases and helpers make the two
-    # differ, and the doc quotes what pytest reports.
-    out = subprocess.run([sys.executable, "-m", "pytest", "-q", "--collect-only",
-                          str(here)], capture_output=True, text=True,
-                         cwd=str(here.parent.parent)).stdout
-    collected = re.search(r"(\d+) tests collected", out)
-    assert collected, out[-400:]
-    assert int(stated.group(1)) == int(collected.group(1)), (
-        f"the record says {stated.group(1)} tests, pytest collects "
-        f"{collected.group(1)} — a count nothing checks is an assertion, not a "
-        f"measurement")
-
-
 def test_the_record_claims_NO_shadow_ensemble_result():
     """This PR derives, tests and asserts PROD only. The shadow profiles are
     censusable with --config, but nothing here binds a shadow result, so the
