@@ -87,11 +87,60 @@ i.e. **port `6de6219` into the twin** — or better, delete the twin and import
 the pipeline's. The twin is the disease; the missing clamp is only this
 instance of it.
 
+## SCOPING — which runs reach the broken twin, and one thing I have NOT established
+
+Checked before letting this claim stand `[VERIFIED]`:
+
+- **The multirepo bridge aliases `kernel.<stem>` → `renquant_pipeline.kernel.<stem>`**
+  (`live_bridge.py:298-305`). So every job that goes through
+  `-m renquant_orchestrator daily-bridge` / `live-bridge` executes the
+  **PINNED** copy — the one *with* the clamp. `daily_104.sh` and
+  `intraday_sell_104.sh` both take that path by default
+  (`RQ_DAILY_RUNNER=multirepo`).
+- **`dawn_funnel_preflight.sh` calls `-m live.runner` DIRECTLY**, with no
+  bridge. That run imports the **umbrella** kernel — which is why the preflight
+  reproduces the oversizing every day, and why it is a safe place to observe it.
+
+**What I have NOT established: which of the two surfaces the run that actually
+placed the 2026-07-28 orders was using.** The umbrella twin reproduces those
+orders 7/7 and the pinned twin refuses them, which is strong evidence — but
+"strong evidence" is not the same as having identified the process, and the
+`source_task` stamp cannot disambiguate it because two sizers share the string
+(§ above).
+
+So the honest statement is: **the divergence is proven, the mechanism is proven,
+and the attribution of the live orders to a specific surface is not.** I am not
+closing that gap by inference.
+
 ## The wider finding
 
-This is the **twin-implementation** defect (GOAL-3, orch#833) landing on the
-money path. A fix reviewed and merged in one copy simply did not reach the copy
-that trades. Every guard in this repo that reasons about "the pinned code" was
-reasoning about a file the live runner does not import.
+This is the **twin-implementation** defect (GOAL-3, orch#833), and `sizing.py`
+is not an outlier — it is one of **120**.
+
+Comparing every file under `RenQuant/backtesting/renquant_104/kernel/` with its
+pinned counterpart `[VERIFIED — this session]`:
+
+| | count |
+|---|---:|
+| umbrella kernel `.py` files | 218 |
+| …with a pinned counterpart | 169 |
+| **byte-identical** | **49** |
+| **DIVERGED** | **120** |
+| umbrella-only (no counterpart) | 49 |
+
+The gaps are not cosmetic:
+
+```
+pipeline/task_selection.py    umbrella  341L   pinned 1002L   (-661)
+kernel/sizing.py              umbrella  187L   pinned  468L   (-281)
+panel_pipeline/job_panel_scoring.py
+                              umbrella 1099L   pinned 4350L   (-3251)
+portfolio_qp/allocator_replay.py
+                              umbrella  307L   pinned 1296L   (-989)
+```
+
+**Only 49 of 169 shared files agree.** The sizing clamp is one missing fix among
+a systematically stale copy — and any job that bypasses the bridge runs all of
+it.
 
 Suites: 11 tests · full suite green.
