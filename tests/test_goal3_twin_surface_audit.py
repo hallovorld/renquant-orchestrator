@@ -252,24 +252,27 @@ class TestReachability:
     def test_one_importing_module_is_one_source(self, tmp_path):
         pkg = _pkg(tmp_path, "p_reach2",
                    {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
-                    "c.py": "from a import J\n"})
+                    "c.py": "from p_reach2.a import J\n"})
         d = audit(pkg)["duplicates"]["J"]
-        assert d["reachability"] == "one-source" and d["imported_from"] == ["a"]
+        assert d["reachability"] == "one-source"
+        assert d["imported_from"] == ["p_reach2.a"]
+        assert d["sites_reached"] == ["a.py"]
 
     def test_two_source_modules_is_MULTI_SOURCE(self, tmp_path):
         """The only shape where a reader could expect one and get the other."""
         pkg = _pkg(tmp_path, "p_reach3",
                    {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
-                    "c.py": "from a import J\n", "d.py": "from b import J\n"})
+                    "c.py": "from p_reach3.a import J\n",
+                    "d.py": "from p_reach3.b import J\n"})
         d = audit(pkg)["duplicates"]["J"]
         assert d["reachability"] == "MULTI-SOURCE"
-        assert d["imported_from"] == ["a", "b"]
+        assert d["sites_reached"] == ["a.py", "b.py"]
 
     def test_the_counts_reconcile_with_the_duplicate_total(self, tmp_path):
         pkg = _pkg(tmp_path, "p_reach4",
                    {"a.py": "class J:\n    x = 1\n\n\nclass K:\n    y = 1\n",
                     "b.py": "class J:\n    x = 2\n\n\nclass K:\n    y = 2\n",
-                    "c.py": "from a import J\n"})
+                    "c.py": "from p_reach4.a import J\n"})
         r = audit(pkg)
         assert sum(r["reachability_counts"].values()) == r["n_duplicate_names"]
 
@@ -284,22 +287,104 @@ class TestReachability:
         assert "a reader could expect one and get the other" in text
 
 
+class TestAnImportIsCreditedOnlyToTHISNamesOwnSites:
+    """[codex on orch#821, round 2] Counting `from MODULE import NAME` by NAME
+    alone lets an unrelated module make a duplicate look reachable — and two of
+    them make it look MULTI-SOURCE. Measured on the live packages, four such
+    credits existed: `arch.bootstrap` (a third-party library) for
+    `optimal_block_length`, `renquant_common.metrics.{deflated_sharpe,
+    perf_summary}` (a DIFFERENT repo) for two more, and a script module for
+    `analyze` `[VERIFIED — this session]`."""
+
+    def test_an_UNRELATED_module_exporting_the_same_name_is_NOT_credited(
+            self, tmp_path):
+        pkg = _pkg(tmp_path, "p_ident1",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "c.py": "from third_party import J\n",
+                    "d.py": "from another_vendor import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["reachability"] == "no-import-site-found", d
+        assert d["sites_reached"] == []
+        assert d["foreign_import_sources"] == ["another_vendor", "third_party"]
+
+    def test_a_foreign_credit_is_RECORDED_not_dropped(self, tmp_path):
+        """It is not evidence about this name, but it is evidence — a same-named
+        export elsewhere is exactly what makes the census ambiguous to read."""
+        pkg = _pkg(tmp_path, "p_ident2",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "c.py": "from p_ident2.a import J\nfrom arch.bootstrap import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["reachability"] == "one-source", d
+        assert d["foreign_import_sources"] == ["arch.bootstrap"]
+
+    def test_two_ALIASES_of_ONE_definition_are_not_MULTI_SOURCE(self, tmp_path):
+        """Reachability counts SITES reached, not import strings. A package that
+        re-exports its own definition has not created a second definition."""
+        pkg = _pkg(tmp_path, "p_ident3",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "shim.py": "from p_ident3.a import J\n",
+                    "c.py": "from p_ident3.a import J\n",
+                    "d.py": "from p_ident3.shim import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["sites_reached"] == ["a.py"], d
+        assert d["reachability"] == "one-source", d
+
+    def test_a_RELATIVE_import_is_normalised_before_it_is_matched(self, tmp_path):
+        pkg = _pkg(tmp_path, "p_ident4",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n",
+                    "c.py": "from .b import J\n"})
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["sites_reached"] == ["b.py"], d
+
+    def test_a_relative_import_in_an___init___stays_INSIDE_its_package(
+            self, tmp_path):
+        """REGRESSION: `from .x import y` in `pkg/sub/__init__.py` is relative to
+        `pkg.sub`, not to `pkg`. Resolving it one level too high sent every such
+        importer to `foreign_import_sources` — it is how
+        `renquant_backtesting.metrics.deflated_sharpe` was read as the
+        non-existent `renquant_backtesting.deflated_sharpe`."""
+        pkg = _pkg(tmp_path, "p_ident5",
+                   {"a.py": "class J:\n    x = 1\n", "b.py": "class J:\n    x = 2\n"})
+        sub = tmp_path / pkg / "sub"
+        sub.mkdir()
+        (sub / "__init__.py").write_text("from .inner import J\n", encoding="utf-8")
+        (sub / "inner.py").write_text("class J:\n    x = 3\n", encoding="utf-8")
+        d = audit(pkg)["duplicates"]["J"]
+        assert d["sites_reached"] == ["sub/inner.py"], d
+        assert d["foreign_import_sources"] == [], d
+
+    def test_a_relative_import_from_OUTSIDE_the_package_is_not_guessed(
+            self, tmp_path):
+        """A test or script has no package to be relative to. Unresolvable is
+        recorded as unresolvable, never matched on the bare name."""
+        from scripts.goal3_twin_surface_audit import _importer_package
+
+        assert _importer_package(tmp_path / "tests" / "t.py", tmp_path / "src") is None
+
+
 def test_the_LIVE_reachability_breakdown_is_PINNED_exactly():
     """[codex on orch#821] The first version asserted only `>=30`, `never>multi`
     and `main in multi` — it would have kept passing through the very drift that
     tripled the multi-source count. Pin the numbers the record states."""
     r = audit("renquant_orchestrator")
     assert r["reachability_counts"] == {
-        "no-import-site-found": 17, "one-source": 10, "MULTI-SOURCE": 15}, (
+        "no-import-site-found": 17, "one-source": 11, "MULTI-SOURCE": 14}, (
         "the reachability breakdown moved — re-derive the GOAL-3 work list "
         "rather than inheriting it", r["reachability_counts"])
     multi = sorted(k for k, v in r["duplicates"].items()
                    if v["reachability"] == "MULTI-SOURCE")
     assert multi == [
-        "AdmittedName", "IllegalTransition", "append_records", "build_report",
+        "AdmittedName", "IllegalTransition", "append_records",
         "collect", "connect", "default_pilot_path", "default_shadow_log_path",
         "default_tick_feed_path", "emit_alert", "evaluate_session", "main",
         "render_markdown", "session_date", "summarize"], multi
+    # `build_report` LEFT this list under source identity: its two "sources"
+    # were `renquant_orchestrator.attribution` and
+    # `renquant_orchestrator.attribution.report` — the package re-exporting its
+    # own single definition. Two aliases of one definition are not a fork
+    # [VERIFIED — this session].
+    assert r["duplicates"]["build_report"]["sites_reached"] == [
+        "attribution/report.py"]
 
 
 def test_the_scan_covers_TESTS_not_only_the_package():

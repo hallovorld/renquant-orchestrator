@@ -65,14 +65,112 @@ def _scan_paths(repo: pathlib.Path, package_root: pathlib.Path) -> list[pathlib.
     return out or sorted(package_root.rglob("*.py"))
 
 
-def import_sources(root: pathlib.Path, names: set[str],
-                   repo: pathlib.Path | None = None) -> dict[str, list[str]]:
-    """{name: [modules it is imported FROM]} across the REPOSITORY.
+def _module_name(package: str, site_file: str) -> str:
+    """`kernel/panel_pipeline/foo.py` → `pkg.kernel.panel_pipeline.foo`."""
+    rel = pathlib.PurePosixPath(site_file).with_suffix("")
+    parts = [p for p in rel.parts if p != "__init__"]
+    return ".".join([package, *parts])
+
+
+def _importer_package(path: pathlib.Path, src_root: pathlib.Path) -> str | None:
+    """The package a relative import inside ``path`` is relative TO.
+
+    For `pkg/mod.py` that is `pkg`; for `pkg/__init__.py` it is `pkg` itself —
+    a package's `__init__` is relative to the package, not to its parent.
+    Getting this wrong sends every `from .x import y` in an `__init__` one level
+    too high, which is how `renquant_backtesting.metrics.deflated_sharpe` was
+    read as the non-existent `renquant_backtesting.deflated_sharpe` and its
+    importer scored as foreign.
+    """
+    try:
+        rel = path.relative_to(src_root)
+    except ValueError:
+        return None                # outside src/ — relative imports unresolvable
+    parts = list(rel.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    else:
+        parts = parts[:-1]
+    return ".".join(parts) or None
+
+
+def _resolve_module(node: ast.ImportFrom, importer_package: str | None) -> str | None:
+    """The absolute module a `from … import` names, or None if unresolvable.
+
+    Relative imports are normalised against the importing file's own package, so
+    `from .b import Foo` inside `pkg/a/x.py` resolves to `pkg.a.b` and can be
+    compared with a defining site. A relative import from a file with no known
+    package (a test, a script) is UNRESOLVABLE and returns None rather than
+    being matched on the bare name.
+    """
+    if not node.level:
+        return node.module
+    if importer_package is None:
+        return None
+    parts = importer_package.split(".")
+    base = parts[:len(parts) - (node.level - 1)]
+    if not base:
+        return None
+    return ".".join(base + ([node.module] if node.module else []))
+
+
+def _reexport_aliases(package: str, root: pathlib.Path, names: set[str],
+                      site_modules: dict[str, dict[str, str]]
+                      ) -> dict[str, dict[str, str]]:
+    """Modules that re-export a duplicate name FROM one of its defining sites.
+
+    Checked, not assumed: `from pkg.a import Foo` reaches `pkg.a.b.Foo` only if
+    `pkg/a/__init__.py` actually imports it. Permitting every ancestor — or
+    every same-named module — would re-open the over-count this exists to close.
+    Shim modules are covered too, not just `__init__.py`: a package here
+    re-exports through both.
+
+    LIMIT, stated: ONE hop. A re-export chained through two modules is not
+    followed, so such a caller lands in `foreign_import_sources` rather than
+    being silently credited.
+    """
+    aliases: dict[str, dict[str, str]] = {n: {} for n in names}
+    src_root = root.parent
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            continue
+        here = _importer_package(path, src_root)
+        rel = path.relative_to(src_root).with_suffix("")
+        parts = [p for p in rel.parts if p != "__init__"]
+        module_here = ".".join(parts)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            target = _resolve_module(node, here)
+            if target is None:
+                continue
+            for alias in node.names:
+                site = site_modules.get(alias.name, {}).get(target)
+                if site is not None and module_here != target:
+                    aliases[alias.name][module_here] = site
+    return aliases
+
+
+def import_sources(root: pathlib.Path, duplicates: dict, package: str,
+                   repo: pathlib.Path | None = None) -> dict[str, dict]:
+    """Per duplicate name: which of ITS OWN defining sites a caller imports it
+    from, and which same-named imports came from somewhere else entirely.
 
     WHY (GOAL-3, measured 2026-08-05): the census's 42 duplicate names are a
     work list, not findings. What separates a candidate from a readability risk
-    is whether a caller ever refers to the name at all, and from how many
-    places.
+    is whether a caller ever refers to the name at all, and — the actual
+    question — whether different callers reach DIFFERENT definitions.
+
+    SOURCE IDENTITY, and this is the second thing the first version got wrong
+    `[codex on orch#821]`: counting every `from MODULE import NAME` by NAME
+    alone means an unrelated `from third_party import J` makes a duplicated `J`
+    look reachable, and two such imports make it look MULTI-SOURCE. The
+    permitted modules are now derived from each name's own `sites` (plus
+    ancestor packages VERIFIED to re-export it), relative imports are
+    normalised against the importing file's module, and anything else is
+    recorded as `foreign_import_sources` — reported, never credited.
 
     SCOPE, stated because the first version overclaimed `[codex on orch#821]`:
     this counts `from X import NAME` sites under src/, tests/, scripts/ and
@@ -82,18 +180,42 @@ def import_sources(root: pathlib.Path, names: set[str],
     anywhere this scan can see" — a narrower statement than "unreachable".
     """
     repo = repo if repo is not None else pathlib.Path.cwd()
-    out: dict[str, set[str]] = {}
+    permitted: dict[str, dict[str, str]] = {
+        name: {_module_name(package, w["file"]): w["file"] for w in cell["sites"]}
+        for name, cell in duplicates.items()}
+    for name, extra in _reexport_aliases(
+            package, root, set(duplicates), permitted).items():
+        permitted[name].update(extra)
+
+    out: dict[str, dict] = {n: {"sites_reached": set(), "modules": set(),
+                                "foreign": set()} for n in duplicates}
+    # The directory CONTAINING the package: module names are relative to it,
+    # and for a real repo that is `<repo>/src`.
+    src_root = root.parent
     for path in _scan_paths(repo, root):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
             continue
+        importer_package = _importer_package(path, src_root)
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                for alias in node.names:
-                    if alias.name in names:
-                        out.setdefault(alias.name, set()).add(node.module)
-    return {k: sorted(v) for k, v in out.items()}
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = _resolve_module(node, importer_package)
+            for alias in node.names:
+                if alias.name not in out:
+                    continue
+                site = permitted[alias.name].get(module) if module else None
+                if site is None:
+                    out[alias.name]["foreign"].add(module or
+                                                   f"<relative level={node.level}>")
+                else:
+                    out[alias.name]["sites_reached"].add(site)
+                    out[alias.name]["modules"].add(module)
+    return {n: {"imported_from": sorted(v["modules"]),
+                "sites_reached": sorted(v["sites_reached"]),
+                "foreign_import_sources": sorted(v["foreign"])}
+            for n, v in out.items()}
 
 
 def audit(package: str) -> dict:
@@ -139,12 +261,21 @@ def audit(package: str) -> dict:
         }
 
     # repo root = three levels up from <repo>/src/<package>
-    sources = import_sources(root, set(duplicates), repo=root.parent.parent)
+    sources = import_sources(root, duplicates, package, repo=root.parent.parent)
     for name, cell in duplicates.items():
-        cell["imported_from"] = sources.get(name, [])
+        found = sources.get(name, {})
+        cell["imported_from"] = found.get("imported_from", [])
+        cell["sites_reached"] = found.get("sites_reached", [])
+        # Recorded, never credited: a same-named import from a module that is
+        # NOT one of this name's definition sites says nothing about which
+        # definition a caller reaches.
+        cell["foreign_import_sources"] = found.get("foreign_import_sources", [])
+        # Counted over SITES REACHED, not import strings. MULTI-SOURCE is the
+        # question "could a reader expect one definition and get the other?",
+        # and two aliases of the SAME definition do not raise it.
         cell["reachability"] = (
-            "no-import-site-found" if not cell["imported_from"] else
-            "one-source" if len(cell["imported_from"]) == 1 else
+            "no-import-site-found" if not cell["sites_reached"] else
+            "one-source" if len(cell["sites_reached"]) == 1 else
             "MULTI-SOURCE")
     return {
         "package": package,

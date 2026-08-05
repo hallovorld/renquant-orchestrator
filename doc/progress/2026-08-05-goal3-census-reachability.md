@@ -1,71 +1,82 @@
-# 2026-08-05 — GOAL-3: the 42-candidate work list is really a 5-candidate work list
+# 2026-08-05 — GOAL-3: which duplicate definitions can a caller actually reach, and from where?
 
-## What the census left open
+## Why
 
-orch#814 landed a duplicate-definition census: 42 names in
-`renquant_orchestrator` defined in more than one file, none exported, and its own
-output insisted a duplicate is **a candidate, not a verdict**. Its NEXT said:
-read down the list, retrain Tasks first.
+The census's duplicate names are a **work list, not findings**. What separates a
+harmless internal candidate from a readability risk is whether a caller refers
+to the name at all, and — the actual question — whether different callers reach
+**different definitions**.
 
-Reading four of them (in review) found **zero** twins — each Task is instantiated
-only by its own module-local job. That is a result about four names. This
-measures the property behind it, for all 42.
+## Two review rounds, and the second one moved the numbers
 
-## The measurement `[VERIFIED — this session, corrected in review]`
+**Round 1 — the scan only covered `src/`.** `tests/` imports several names I had
+classified as never imported (`AdmittedName` among them). A reachability figure
+computed over the package alone is not a reachability figure. Scan roots became
+`src/`, `tests/`, `scripts/`, `ops/`. `[codex]`
 
-For each duplicate name, how many modules import it **by name**, scanning
-`src/`, `tests/`, `scripts/` and `ops/`:
+**Round 2 — source identity.** The scan still counted every
+`from MODULE import NAME` **by name alone**, so an unrelated module exporting
+the same name made a duplicate look reachable, and two of them made it look
+MULTI-SOURCE. `[codex]`
 
-| reachability | count | what it means |
+That is not hypothetical. Four such credits existed in the live packages
+`[VERIFIED — this session]`:
+
+| duplicate name | was credited to | what that module actually is |
 |---|---|---|
-| no import site found | **17** | no `from X import NAME` anywhere this scan can see |
-| exactly one source module | **10** | unambiguous at every import site |
-| **MULTI-SOURCE** | **15** | a reader could expect one implementation and get another |
+| `optimal_block_length` | `arch.bootstrap` | a **third-party library** |
+| `expected_max_sharpe` | `renquant_common.metrics.deflated_sharpe` | a **different repo** |
+| `compute_perf_triple` | `renquant_common.metrics.perf_summary` | a **different repo** |
+| `analyze` | `scripts.analyze_trade_decision_attribution` | an unrelated script |
 
-The fifteen: `AdmittedName`, `IllegalTransition`, `append_records`,
-`build_report`, `collect`, `connect`, `default_pilot_path`,
-`default_shadow_log_path`, `default_tick_feed_path`, `emit_alert`,
-`evaluate_session`, `main`, `render_markdown`, `session_date`, `summarize`.
+## What changed, both directions
 
-### The correction that produced these numbers
+Permitted modules are now derived from each name's **own `sites`**, plus
+ancestor packages and shim modules **verified** to re-export it (one hop, and
+the limit is stated rather than left to be found). Relative imports are
+normalised against the importing file's package. Anything else is recorded in
+`foreign_import_sources` — **reported, never credited**. And reachability now
+counts **distinct sites reached**, not import strings, because that is the
+question being asked: could a reader expect one definition and get the other?
 
-My first version scanned **only `src/renquant_orchestrator`** and reported
-**29 / 8 / 5**, with the 29 labelled *"module-local; cannot be confused"*. Codex
-produced counterexamples from this very repo `[codex on orch#821]`:
-`tests/test_entry_timing_shadow.py` imports `AdmittedName`, `append_records`,
-`collect`, `evaluate_session`, `existing_keys`, `record_key` and `summarize`;
-`tests/test_execution_reconciler.py` imports `IllegalTransition`;
-`tests/test_expkit_prereg.py` imports `sha256_file`.
+`[VERIFIED — this session]`, `no-import / one-source / MULTI-SOURCE`:
 
-A reachability figure computed over the package alone is not a reachability
-figure. Scanning the repository **triples the multi-source count, 5 → 15**, and
-my headline — *"the work list is 4 names, not 42"* — was wrong. It is **14**
-(excluding `main`), which is still a two-thirds reduction, but it is not the
-number I published.
+| package | duplicates | before | after |
+|---|---|---|---|
+| `renquant_pipeline` | 24 | 1 / 2 / 21 | **1 / 8 / 15** |
+| `renquant_backtesting` | 34 | 18 / 13 / 3 | **20 / 7 / 7** |
+| `renquant_orchestrator` | 42 | 17 / 10 / 15 | **17 / 11 / 14** |
 
-## What this does NOT say
+It corrects in **both** directions, which is the sign it is measuring identity
+rather than just tightening:
 
-- **Multi-source is not a defect.** `from a import J` and `from b import J` are
-  each unambiguous; the risk is a *reader* assuming the wrong one, not the
-  interpreter resolving wrongly. None of these five is a twin in the pipeline
-  sense (one implementation shadowing another behind a shared export) — the
-  orchestrator exports 3 names and none of the 42 is among them.
-- **"No import site found" is NOT "unreachable".** The scan sees
-  `from X import NAME` under `src/tests/scripts/ops`. It does **not** see
-  `import X` + `X.NAME` attribute access, star imports, `importlib`, lazy
-  `__getattr__` re-exports, or callers in **other repositories** — and this
-  project is seven repositories. The bucket is named `no-import-site-found`
-  rather than anything stronger, and the renderer says so on the same line.
-- Nothing here judges whether any duplicate should be de-duplicated. Two
-  implementations of `emit_alert` may be perfectly reasonable.
+- **False MULTI-SOURCE removed.** `build_report`'s two "sources" were
+  `renquant_orchestrator.attribution` and `…attribution.report` — the package
+  re-exporting its own single definition. Two aliases of one definition are not
+  a fork.
+- **False one-source revealed as a real fork.** `annualized_sharpe` and
+  `probability_of_backtest_overfitting` looked single-sourced only because two
+  *different* files both appeared as the bare relative string
+  `deflated_sharpe` / `pbo`. They genuinely reach
+  `metrics/…` and `forensics/metrics/…` — a real twin the old counting hid.
 
-## Why it belongs in the tool rather than a comment
+A latent bug fell out of the same work: `from .x import y` inside
+`pkg/sub/__init__.py` is relative to `pkg.sub`, not `pkg`. Resolving it one
+level too high is how `renquant_backtesting.metrics.deflated_sharpe` was read as
+the non-existent `renquant_backtesting.deflated_sharpe` and its importers scored
+as foreign. Regression test added.
 
-The census already prints a work list. A work list that does not say which items
-a caller can actually confuse invites the next reader to do all 42 — which is how
-the four already-read ones got read in review rather than by design.
+## Scope, stated because the first version overclaimed
 
-Suites: 25 tests in this file, incl. one that PINS the exact 17/10/15 split
-and the 15-name multi-source set — the first version asserted only `>=30` and
-would have passed straight through the drift that tripled the count
-`[codex on orch#821]`.
+This counts `from X import NAME` sites. It does **not** see `import X` +
+`X.NAME` attribute access, star imports, `importlib`, lazy `__getattr__`
+re-exports, or callers in other repositories. A name with no importers means
+**"not imported by name anywhere this scan can see"** — narrower than
+"unreachable", and the renderer says so on the line itself.
+
+It is also still NOT the pipeline guard's relation (`__all__` export ↔ same-named
+definition under `kernel/`). The two counts must not be compared.
+
+Suites: 31 tests, incl. the unrelated-same-name regression, the alias-vs-fork
+case, the `__init__` relative-resolution regression, and the live breakdown
+pinned exactly · full suite green.
