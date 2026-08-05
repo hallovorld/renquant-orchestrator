@@ -28,8 +28,13 @@ reconstruction for the real thing:
 
 - **Arm A (reconstruction)** — recompute from the historical panel with the
   served params. Exploratory. Can motivate, cannot certify.
-- **Arm B (served)** — the accumulating ledger, ≥20 matured dates, not runnable
-  before ~2026-10-27. **Only Arm B certifies.**
+- **Arm B (served)** — the accumulating ledger. Eligible only when the PRIMARY
+  regime has **≥30** matured dates, the same floor §5 applies to every regime.
+  My first draft said "≥20 evaluation dates" here, which contradicted §5 and
+  would have let the primary certify on a sample §5 bars from supporting
+  anything `[codex on orch#810]`. At roughly one scored date per week that is
+  **not before ~2027** — the honest cost of certifying on the served artifact,
+  stated rather than worked around. **Only Arm B certifies.**
 
 A claim that does not name its arm is inadmissible.
 
@@ -44,10 +49,18 @@ A claim that does not name its arm is inadmissible.
 - **A regime with <30 dates supports no conclusion in either direction.** Frozen
   because the census found BULL_VOLATILE at n_dates 11–16, where an earlier draft
   of mine described a "trend" the sample could not support.
-- **A what-would-change-my-mind clause**: if E1(R) is stable under an alternative
-  regime definition, the "pooled is a regime mix" argument itself is weaker than
-  tonight's evidence suggests, and the premise — not just the result — must be
-  reported as damaged.
+- **A FROZEN certification predicate**, four conditions, no discretion:
+  `n_dates(BULL_CALM) ≥ 30`, `E1 > 0`, `E1 > max_k shuffle_ic_k` (the WORST of
+  the 5 replications, not their mean — a mean lets one lucky draw hide a leak),
+  and `E1 > placebo_shift`. Anything else is NOT CERTIFIED; there is no third
+  bucket, and a null is reported to the operator in the session it lands, with
+  the four numbers, never as "inconclusive, pending more data".
+- **A corrected what-would-change-my-mind clause.** My first draft had it exactly
+  backwards: I wrote that STABILITY under an alternative regime definition would
+  weaken the premise. It would strengthen it. The premise is damaged if the
+  BULL_CALM/BEAR gap **collapses** under the alternative — that is the artifact
+  case `[codex on orch#810]`. A falsification clause that cannot be failed in the
+  direction it names is not a falsification clause.
 
 ## Anchor correction
 

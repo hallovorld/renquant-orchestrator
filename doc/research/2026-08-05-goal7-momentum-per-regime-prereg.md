@@ -64,8 +64,14 @@ Two arms, and the distinction is frozen here so it cannot be blurred later:
   historical OHLCV panel using the served params, and measure E1(R) on matured
   labels. This is **not the served artifact** — it is what the recipe would have
   produced. It can motivate; it cannot certify.
-- **Arm B (SERVED, confirmatory).** E1(R) on the accumulating ledger once
-  ≥ 20 evaluation dates have matured labels. Not runnable before ~2026-10-27.
+- **Arm B (SERVED, confirmatory).** E1(R) on the accumulating ledger. Arm B is
+  **eligible only when the PRIMARY regime (BULL_CALM) has ≥ 30 evaluation dates
+  with matured labels** — the same floor §5 applies to every regime, stated here
+  so the two cannot be read apart `[codex on orch#810]`. An earlier draft said
+  "≥ 20 evaluation dates" in this section, which contradicted §5 and would have
+  let the primary certify on a sample §5 bars from supporting anything. At one
+  scored date per week, ≥30 BULL_CALM dates is **not before ~2027**; that is the
+  honest cost of certifying on the served artifact, and it is not worked around.
   **Only Arm B can certify.**
 
 Any claim that does not name its arm is inadmissible.
@@ -73,13 +79,23 @@ Any claim that does not name its arm is inadmissible.
 ## 4. FROZEN placebo, per arm and per regime
 
 Each arm carries, **within each regime separately**:
-- a within-date label shuffle (5 replications), and
-- the same 2× horizon label shift the WF gate's enforced leg uses,
+- a within-date label shuffle, **exactly 5 replications**, and
+- the same 2× horizon label shift the WF gate's enforced leg uses.
 
-and reports `genuine_ic(R) = IC(R) − placebo_ic(R)` beside the raw. A regime's
-raw IC is reported **only** with its own matched placebo. This is the discipline
-the existing embargo-leakage floor note already requires: trust placebo-clean
-DIFFERENCES, not absolute IC.
+**FROZEN aggregation** (an earlier draft left this to the reader, so two readers
+could reach two Arm-B outcomes `[codex on orch#810]`):
+
+- `shuffle_ic_k(R)`, k = 1..5 = the mean per-date IC over regime `R`'s dates for
+  replication k, using seeds `k` (1,2,3,4,5) — fixed here, not chosen later.
+- **`placebo_shuffle(R) := max_k shuffle_ic_k(R)`** — the WORST case, not the
+  mean. A mean would let one lucky replication hide a leak.
+- `placebo_shift(R)` = the mean per-date IC over `R`'s dates using the 2×-shifted
+  label.
+- `genuine_shuffle(R) := E1(R) − placebo_shuffle(R)`;
+  `genuine_shift(R) := E1(R) − placebo_shift(R)`.
+
+A regime's raw IC is reported **only** with both of its matched placebos. Trust
+placebo-clean DIFFERENCES, not absolute IC.
 
 ## 5. FROZEN: sample-size floor and what a small regime may say
 
@@ -91,24 +107,48 @@ not support.
 
 ## 6. FROZEN decision rule — what this changes
 
-- If **Arm B** shows `genuine_ic(BULL_CALM) > 0` with its matched placebo clean:
-  the momentum member has evidence on the axis that decides, and GOAL-4 step 1
-  is satisfied for this member.
-- If **Arm B** shows `genuine_ic(BULL_CALM) ≤ 0`: the PROD blend has **two**
-  members and **neither** has positive evidence in the regime carrying its
-  trading. That is a finding about the blend, and it goes to the operator as
-  one — not as a silent re-weighting.
+**FROZEN certification predicate.** Arm B CERTIFIES the momentum member on the
+deciding axis **iff ALL FOUR** hold — no discretion, no "clean enough":
+
+1. `n_dates(BULL_CALM) ≥ 30` with matured labels;
+2. `E1(BULL_CALM) > 0`;
+3. `genuine_shuffle(BULL_CALM) > 0`  (i.e. `E1 > max_k shuffle_ic_k`);
+4. `genuine_shift(BULL_CALM) > 0`.
+
+Any other outcome is **NOT CERTIFIED**. There is no third bucket.
+
+- **CERTIFIED** → the momentum member has evidence on the axis that decides, and
+  GOAL-4 step 1 is satisfied for this member.
+- **NOT CERTIFIED** → the PROD blend has **two** members and **neither** has
+  positive evidence in the regime carrying its trading. That is a finding about
+  the blend and it is **reported to the operator as one, in the loop briefing of
+  the session the result lands**, with the four numbers above. It is not absorbed
+  into a re-weighting, and "not certified" is never reported as "inconclusive,
+  pending more data" — the sample floor is part of the predicate, so failing it
+  is a stated outcome, not a reason to defer the report.
 - Arm A alone changes **nothing**. It can only justify running Arm B or
   designing a different candidate.
 
 ## 7. FROZEN: what would change my mind
 
-If the per-regime split turns out to be an artifact of the regime LABEL rather
-than of the signal — e.g. E1(R) is stable under a reasonable alternative regime
-definition, or the BULL_CALM/BEAR gap collapses when regimes are defined on a
-different volatility axis — then the whole "pooled is a regime mix" line of
-argument is weaker than tonight's evidence suggests, and this registration's
-premise, not just its result, should be reported as damaged.
+`[corrected on codex's review of orch#810 — the first version had this exactly
+backwards]`
+
+The premise of this registration is that **regime conditioning carries real
+information about this signal**. Therefore:
+
+- If the BULL_CALM/BEAR **gap COLLAPSES** under a reasonable alternative regime
+  definition (regimes cut on a different volatility axis, or a different
+  estimator of the same one), the split is an artifact of the LABEL rather than
+  of the signal. **That weakens the premise**, and this registration's premise —
+  not just its result — must be reported as damaged.
+- If the gap **PERSISTS** under the alternative definition, that **strengthens**
+  the premise. My first draft claimed the opposite, which would have let a
+  robustness check be read as damage — a falsification clause that cannot be
+  failed in the direction it names is not a falsification clause.
+
+The alternative definition is to be chosen and named **before** it is computed,
+in the same way as everything else here.
 
 ## 8. Not covered
 
