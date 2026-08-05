@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from renquant_orchestrator.cli import main
 from renquant_orchestrator.live_rehearsal_plan import build_live_rehearsal_plan
 
+#: A root INSIDE pytest's tmp tree. A fixed /private/tmp path used to be
+#: hardcoded here; `default_repo_root()` resolves symlinks, so a stray
+#: /tmp/RenQuant -> <live umbrella> link silently redirected these assertions
+#: onto the live tree `[VERIFIED — 2026-08-05, orch#834]`.
 
-def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
+
+@pytest.fixture
+def repo_root(monkeypatch, tmp_path):
+    root = tmp_path / "RenQuant"
+    root.mkdir()
+    monkeypatch.setenv("RENQUANT_REPO_ROOT", str(root))
+    return str(root)
+
+
+def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch, repo_root) -> None:
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
-    monkeypatch.setenv("RENQUANT_REPO_ROOT", "/private/tmp/RenQuant")
 
     plan = build_live_rehearsal_plan(output_dir="/tmp/rehearsal")
 
@@ -56,7 +70,7 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "native_live_context_fixture",
         "--",
         "--strategy-config-json",
-        "/private/tmp/RenQuant/backtesting/renquant_104/strategy_config.json",
+        f"{repo_root}/backtesting/renquant_104/strategy_config.json",
         "--market-snapshot-json",
         "/tmp/rehearsal/live-market-snapshot.json",
         "--account-snapshot-json",
@@ -98,9 +112,9 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--broker-name",
         "readonly-alpaca",
         "--strategy-dir",
-        "/private/tmp/RenQuant/backtesting/renquant_104",
+        f"{repo_root}/backtesting/renquant_104",
         "--runs-db",
-        "/private/tmp/RenQuant/data/runs.alpaca.db",
+        f"{repo_root}/data/runs.alpaca.db",
         "--live-state-broker-name",
         "alpaca",
         "--live-state-contract-output-json",
@@ -120,16 +134,16 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "/tmp/rehearsal/live-native-live-commit-plan.json"
     )
     assert plan["persistence_targets"] == {
-        "live_state": "/private/tmp/RenQuant/backtesting/renquant_104/live_state.alpaca.json",
+        "live_state": f"{repo_root}/backtesting/renquant_104/live_state.alpaca.json",
         "trade_journal": (
-            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            f"{repo_root}/live/logs/renquant-104/"
             "native-trade-journal.alpaca.jsonl"
         ),
         "lifecycle_journal": (
-            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            f"{repo_root}/live/logs/renquant-104/"
             "native-order-lifecycle.alpaca.jsonl"
         ),
-        "runs_db": "/private/tmp/RenQuant/data/runs.alpaca.db",
+        "runs_db": f"{repo_root}/data/runs.alpaca.db",
     }
     assert plan["required_operator_inputs"] == [
         {
@@ -167,21 +181,21 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
         "--execute-live",
         "--commit-persistence",
         "--live-state-output-json",
-        "/private/tmp/RenQuant/backtesting/renquant_104/live_state.alpaca.json",
+        f"{repo_root}/backtesting/renquant_104/live_state.alpaca.json",
         "--trade-journal-output-json",
         (
-            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            f"{repo_root}/live/logs/renquant-104/"
             "native-trade-journal.alpaca.jsonl"
         ),
         "--lifecycle-journal-output-json",
         (
-            "/private/tmp/RenQuant/live/logs/renquant-104/"
+            f"{repo_root}/live/logs/renquant-104/"
             "native-order-lifecycle.alpaca.jsonl"
         ),
         "--strategy-dir",
-        "/private/tmp/RenQuant/backtesting/renquant_104",
+        f"{repo_root}/backtesting/renquant_104",
         "--runs-db",
-        "/private/tmp/RenQuant/data/runs.alpaca.db",
+        f"{repo_root}/data/runs.alpaca.db",
         "--live-state-broker-name",
         "alpaca",
         "--live-state-strategy",
@@ -205,7 +219,7 @@ def test_live_rehearsal_plan_reports_missing_alpaca_env(monkeypatch) -> None:
     assert "--fail-on-diff" in plan["commands"]["native_payload_parity"]
 
 
-def test_daily_rehearsal_plan_uses_daily_bridge_job(monkeypatch) -> None:
+def test_daily_rehearsal_plan_uses_daily_bridge_job(monkeypatch, repo_root) -> None:
     monkeypatch.setenv("ALPACA_API_KEY", "key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "secret")
 
