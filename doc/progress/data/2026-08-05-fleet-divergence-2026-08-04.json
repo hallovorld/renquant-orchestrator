@@ -1,0 +1,71 @@
+{
+  "date": "2026-08-04",
+  "top_k": 10,
+  "prod_run_id": "2026-08-04-live-a199b993",
+  "prod_n_scored": 83,
+  "prod_score_set_sha256": "sha256:5bd24f0339ef8bf98c0368e1c71cca6cbff1d3ff46c0c71163ff07324876e955",
+  "lanes": [
+    {
+      "lane": "alpaca_shadow_blend",
+      "run_id": "2026-08-04-live-de57b5a7",
+      "score_set_sha256": "sha256:8bea16cd091313df8c77fda1d6aab752083d07d13ecdb15a1378ef2beb493fa9",
+      "n_common": 81,
+      "prod_score_sd": 1.344801250994554,
+      "spearman_vs_prod": 0.6058491418247516,
+      "top_k": 10,
+      "top_k_overlap": 5,
+      "affine_residual_ratio": 0.9185912444253557,
+      "top_k_only_in_lane": [
+        "AFRM",
+        "AMZN",
+        "GM",
+        "MCHP",
+        "META"
+      ],
+      "state": "DIVERGED"
+    },
+    {
+      "lane": "alpaca_shadow_blend_mom",
+      "run_id": "2026-08-04-live-2b1feb08",
+      "score_set_sha256": "sha256:7f4ae369ce8b215207c1f5566dfbd0180df9b420ec4f69263da06d7dbcef7493",
+      "n_common": 82,
+      "prod_score_sd": 1.3394401801849771,
+      "spearman_vs_prod": 0.9997170252827027,
+      "top_k": 10,
+      "top_k_overlap": 10,
+      "affine_residual_ratio": 0.011470041023918118,
+      "top_k_only_in_lane": [],
+      "state": "SAME_TOP_K_AS_PROD"
+    },
+    {
+      "lane": "alpaca_shadow_blend_mom_fast",
+      "run_id": "2026-08-04-live-cd1c23b2",
+      "state": "RAN_AND_SCORED_NOTHING",
+      "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+    },
+    {
+      "lane": "alpaca_shadow_blend_rb_mom",
+      "run_id": "2026-08-04-live-46d9f612",
+      "score_set_sha256": "sha256:40e5b1591b6dc00d6cccadc2504a91bd95982ddf9e2c3a75c1e4047a820e4c2b",
+      "n_common": 82,
+      "prod_score_sd": 1.3394401801849771,
+      "spearman_vs_prod": 0.9271884285107912,
+      "top_k": 10,
+      "top_k_overlap": 8,
+      "affine_residual_ratio": 0.4944650942409893,
+      "top_k_only_in_lane": [
+        "GRMN",
+        "MCHP"
+      ],
+      "state": "DIVERGED"
+    },
+    {
+      "lane": "alpaca_shadow_blend_rb_fast",
+      "run_id": "2026-08-04-live-6a5db792",
+      "state": "RAN_AND_SCORED_NOTHING",
+      "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+    }
+  ],
+  "n_lanes": 5,
+  "n_lanes_with_no_separating_evidence": 3
+}
