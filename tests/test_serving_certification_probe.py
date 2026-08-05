@@ -113,6 +113,8 @@ def test_the_LIVE_serving_set_is_what_the_record_describes():
     # looked at `/tmp` strings and two manifest keys [codex on orch#820].
     assert prod["state"] == P.STATE_DANGLING, prod
     assert any("weekly_" in d for d in prod.get("dangling", [])), prod
+    # MEASURED 2026-08-05: 64 references, of which the v2 matcher could see 59.
+    assert len(prod["referenced"]) + len(prod["unresolvable"]) >= 60, prod
     assert clf["state"] == P.STATE_NO_STAMP, (
         "the clf lane's stamp state changed — re-derive orch#726/#788", clf)
 
@@ -139,17 +141,80 @@ class TestEveryReferencedPathIsChecked:
                            tmp_path)["state"] == P.STATE_DANGLING
 
     def test_a_NON_path_string_is_not_mistaken_for_a_reference(self, tmp_path):
-        """Anti-false-positive: a recipe id or a sha is not a path."""
+        """Anti-false-positive: a sha, a regime, a ratio, a date are not paths."""
         man = tmp_path / "m.json"
         man.write_text("{}", encoding="utf-8")
         _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
                   {"metadata": {"wf_gate_metadata": {
                       "recipe_id": "sha256:cfdd6cb8e950da0f",
-                      "note": "walkforward_manifest.json",   # bare name, not a path
+                      "regime": "BULL_CALM", "shifts": "1x/2x/3x",
+                      "coverage": "n/a", "as_of": "2026/08/05",
                       "sanity_manifest_path": str(man)}}})
         r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
         assert r["state"] == P.STATE_CLAIM, r
         assert r["referenced"] == [str(man)]
+
+
+# ── [codex on orch#820, round 2] the matcher must MEAN what the doc says ─────
+
+class TestTheReferenceContractIsExactlyWhatIsWritten:
+    """v2 claimed to walk "every path-shaped string" while taking only POSIX
+    absolute / dot-relative strings with a fixed extension set. On the LIVE prod
+    stamp that silently dropped 5 of 64 references — an extensionless trace
+    directory, three `.md` reports, and one bare relative config path
+    [VERIFIED — this session]. Each case below is one codex named, and each is
+    now classified out loud rather than dropped."""
+
+    @pytest.mark.parametrize("value,kind", [
+        ("/tmp/x.json", P.RESOLVABLE),
+        ("file:///tmp/x.json", P.RESOLVABLE),
+        ("/tmp/traces/20260802T170340Z", P.RESOLVABLE),      # extensionless
+        ("/tmp/x.report.md", P.RESOLVABLE),                  # extension not on the list
+        ("relative/file.json", "relative to an unstated base"),
+        ("./a.json", "relative to an unstated base"),        # v2 stat'ed this vs CWD
+        ("panel.json", "relative to an unstated base"),
+        ("/tmp/*.json", "glob pattern, not a single path"),
+        ("C:/tmp/file.json", "Windows path, not resolvable on this box"),
+        ("C:\\tmp\\file.json", "Windows path, not resolvable on this box"),
+        ("https://host/y.json", "remote URL scheme"),
+        ("s3://bucket/y.parquet", "remote URL scheme"),
+    ])
+    def test_each_named_case_is_classified(self, value, kind):
+        hit = P.classify_reference(value)
+        assert hit is not None, f"{value!r} was DROPPED"
+        assert hit[0] == kind, hit
+
+    @pytest.mark.parametrize("value", [
+        "relative/noext", "n/a", "1x/2x/3x", "2026/08/05", "BULL_CALM",
+        "sha256:cfdd6cb8", "", "   ",
+    ])
+    def test_the_declared_NON_references_stay_non_references(self, value):
+        """The contract's stated limit. A separator-bearing string with no
+        extension is indistinguishable from an identifier; treating it as a
+        dangling path is the false positive that discredits the probe."""
+        assert P.classify_reference(value) is None, value
+
+    def test_an_UNRESOLVABLE_reference_does_not_read_as_checkable(self, tmp_path):
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": {"wf_gate_metadata": {
+                      "config": "artifacts/prod/semantic.json"}}})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_UNRESOLVABLE, r
+        assert r["state"] in P.ACTIONABLE
+
+    def test_a_DANGLING_path_outranks_but_never_erases_an_unresolvable_one(
+            self, tmp_path):
+        """A worse finding taking the state must not delete the weaker one from
+        the record — that is how two-thirds-fixed P0s stay invisible."""
+        _artifact(tmp_path, "prod/panel-ltr.alpha158_fund.json",
+                  {"metadata": {"wf_gate_metadata": {
+                      "a": "/nowhere/real/staging.json",
+                      "b": "artifacts/prod/semantic.json"}}})
+        r = P.probe_one("x", "prod/panel-ltr.alpha158_fund.json", tmp_path)
+        assert r["state"] == P.STATE_DANGLING, r
+        assert r["unresolvable"] == [["relative to an unstated base",
+                                      "artifacts/prod/semantic.json"]], r
+        assert "a further 1 reference(s)" in r["detail"]
 
 
 class TestMalformedIsNotAbsent:

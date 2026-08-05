@@ -42,6 +42,7 @@ SERVING = (
 )
 
 STATE_CLAIM = "HAS_CHECKABLE_CLAIM"
+STATE_UNRESOLVABLE = "CLAIM_REFERENCE_NOT_RESOLVABLE"
 STATE_NO_STAMP = "NO_GATE_STAMP"
 STATE_DANGLING = "CLAIM_POINTS_AT_A_MISSING_PATH"
 STATE_NOTHING_TO_CHECK = "CLAIM_REFERENCES_NO_PATH"
@@ -49,15 +50,86 @@ STATE_MALFORMED = "STAMP_MALFORMED"
 STATE_UNREADABLE = "ARTIFACT_UNREADABLE"
 STATE_ABSENT = "ARTIFACT_ABSENT"
 ACTIONABLE = (STATE_NO_STAMP, STATE_DANGLING, STATE_NOTHING_TO_CHECK,
-              STATE_MALFORMED, STATE_UNREADABLE, STATE_ABSENT)
+              STATE_MALFORMED, STATE_UNREADABLE, STATE_ABSENT,
+              STATE_UNRESOLVABLE)
 
-# [codex on orch#820] ENUMERATING keys was the bug. The first version checked
-# `/tmp` strings plus two manifest keys, and therefore reported
-# HAS_CHECKABLE_CLAIM for the live prod artifact whose
-# `config_parity.candidate_artifact` points at a staging file that does not
-# exist. Invert the default: walk EVERY string in the stamp and treat anything
-# path-shaped as a reference that must resolve.
-_PATHISH = re.compile(r"^(?:/|\./|\.\./).*\.(?:json|parquet|jsonl|csv|txt|pkl)$")
+# [codex on orch#820, twice] ENUMERATING keys was the first bug: v1 checked
+# `/tmp` strings plus two manifest keys, so the live prod artifact passed while
+# `config_parity.candidate_artifact` dangled. Inverting the default fixed that.
+#
+# The SECOND bug was the wording. v2 said it walked "every path-shaped string",
+# but the matcher took only POSIX absolute / dot-relative strings with a fixed
+# extension set — missing bare relatives, Windows paths and file:// URLs, while
+# accepting globs it cannot resolve. A recogniser that silently drops a
+# reference is the same fail-open the inversion was meant to close.
+#
+# So the contract is now stated exactly, and nothing path-shaped is dropped in
+# silence. A string is a REFERENCE iff, stripped and non-empty, it is:
+#   * a `file://` URL, or
+#   * rooted — `/…`, `./…`, `../…`, `~/…`, a Windows drive (`C:\…`, `C:/…`) or
+#     a UNC share (`\\host\share`), or
+#   * separator-bearing with an extension on its last segment
+#     (`artifacts/prod/panel.json`), or
+#   * bare but carrying one of the artifact extensions (`panel.json`).
+# and every reference is then classified three ways, never two:
+#   RESOLVABLE     — an absolute POSIX path (or file:// URL) this box can stat;
+#   UNRESOLVABLE   — path-shaped but not checkable HERE, with the reason named:
+#                    relative to an unstated base (resolving it against CWD is
+#                    the probe's own guess, not the artifact's claim); a glob;
+#                    a Windows path; a remote URL scheme;
+#   not a reference — everything else.
+# UNRESOLVABLE is ACTIONABLE. An unresolvable reference is a claim this probe
+# cannot check, and reporting that as a checkable claim is exactly the failure
+# the inversion exists to prevent.
+#
+# DELIBERATELY NOT a reference: a separator-bearing string with no extension on
+# its last segment (`relative/noext`, `n/a`, `1x/2x/3x`). It is indistinguishable
+# from an ordinary identifier, and treating identifiers as dangling paths would
+# be the false positive that discredits the probe. Named here so the limit is
+# read, not discovered.
+_ARTIFACT_EXTS = ("json", "parquet", "jsonl", "csv", "txt", "pkl", "pt", "joblib")
+_EXT_TAIL = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+_ARTIFACT_TAIL = re.compile(r"\.(?:%s)$" % "|".join(_ARTIFACT_EXTS), re.I)
+_SCHEME = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*)://")
+_WINDOWS = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\)")
+_GLOB_CHARS = "*?["
+
+RESOLVABLE = "resolvable"
+
+
+def classify_reference(value: str) -> tuple[str, str] | None:
+    """``(kind, detail)`` for one string, or ``None`` when it is not a reference.
+
+    ``kind`` is ``RESOLVABLE`` (detail = the concrete POSIX path to stat) or a
+    short reason this box cannot resolve it. See the contract above; every
+    branch is covered by a named test.
+    """
+    s = value.strip()
+    if not s:
+        return None
+    scheme = _SCHEME.match(s)
+    if scheme:
+        if scheme.group("scheme").lower() != "file":
+            return ("remote URL scheme", s)
+        s = s[len(scheme.group(0)):]
+        if s.startswith("localhost/"):
+            s = s[len("localhost"):]
+        elif not s.startswith("/"):
+            return ("file:// URL with a host component", value)
+        s = s if s.startswith("/") else "/" + s
+    elif _WINDOWS.match(s):
+        return ("Windows path, not resolvable on this box", s)
+    sep = "/" in s or "\\" in s
+    rooted = s.startswith(("/", "./", "../", "~/"))
+    tail = s.rsplit("/", 1)[-1]
+    if not (rooted or (sep and _EXT_TAIL.search(tail)) or
+            (not sep and _ARTIFACT_TAIL.search(s))):
+        return None
+    if any(c in s for c in _GLOB_CHARS):
+        return ("glob pattern, not a single path", s)
+    if not s.startswith("/"):
+        return ("relative to an unstated base", s)
+    return (RESOLVABLE, s)
 
 
 class StampMalformed(Exception):
@@ -92,9 +164,14 @@ def _gate_stamp(payload: dict) -> dict | None:
     return None
 
 
-def referenced_paths(stamp: dict) -> list[str]:
-    """Every path-shaped string ANYWHERE in the stamp, deduplicated and sorted."""
-    found: set[str] = set()
+def references(stamp: dict) -> tuple[list[str], list[tuple[str, str]]]:
+    """``(resolvable_paths, unresolvable)`` for every reference in the stamp.
+
+    Both halves are returned because dropping the second one is how a probe
+    reports "checkable" over a claim it never checked.
+    """
+    ok: set[str] = set()
+    bad: set[tuple[str, str]] = set()
 
     def walk(node):
         if isinstance(node, dict):
@@ -103,11 +180,21 @@ def referenced_paths(stamp: dict) -> list[str]:
         elif isinstance(node, (list, tuple)):
             for v in node:
                 walk(v)
-        elif isinstance(node, str) and _PATHISH.match(node):
-            found.add(node)
+        elif isinstance(node, str):
+            hit = classify_reference(node)
+            if hit is None:
+                return
+            kind, detail = hit
+            (ok.add(detail) if kind == RESOLVABLE else bad.add((kind, detail)))
 
     walk(stamp)
-    return sorted(found)
+    return sorted(ok), sorted(bad, key=lambda kv: (kv[1], kv[0]))
+
+
+def referenced_paths(stamp: dict) -> list[str]:
+    """The resolvable references only. Callers that need the whole picture must
+    use :func:`references` — this name exists for the resolve-and-stat step."""
+    return references(stamp)[0]
 
 
 def probe_one(label: str, rel: str, artifacts: pathlib.Path = ARTIFACTS) -> dict:
@@ -134,23 +221,36 @@ def probe_one(label: str, rel: str, artifacts: pathlib.Path = ARTIFACTS) -> dict
                 "detail": "no wf_gate_metadata in either the canonical "
                           "metadata.wf_gate_metadata or the legacy top-level key "
                           "— this artifact makes NO claim that could be checked"}
-    refs = referenced_paths(stamp)
-    if not refs:
+    refs, unresolvable = references(stamp)
+    if not refs and not unresolvable:
         # A claim naming nothing cannot be checked, whatever else it says.
         return {**row, "state": STATE_NOTHING_TO_CHECK,
                 "detail": "the stamp references no path at all — there is "
                           "nothing to resolve, so the claim cannot be checked"}
+    total = len(refs) + len(unresolvable)
     dangling = [p for p in refs if not pathlib.Path(p).exists()]
+    # Both lists ride on every row. A missing path is the stronger statement so
+    # it names the state, but an unresolvable reference is never dropped from
+    # the record just because a worse finding outranked it.
+    row = {**row, "referenced": refs,
+           "unresolvable": [list(u) for u in unresolvable]}
+    tail = (f"; a further {len(unresolvable)} reference(s) are path-shaped but "
+            f"unresolvable here" if unresolvable else "")
     if dangling:
         return {**row, "state": STATE_DANGLING,
-                "detail": f"{len(dangling)} of {len(refs)} referenced path(s) do "
-                          f"not exist: " + ", ".join(dangling[:3]),
-                "dangling": dangling, "referenced": refs}
+                "detail": f"{len(dangling)} of {total} referenced path(s) do "
+                          f"not exist: " + ", ".join(dangling[:3]) + tail,
+                "dangling": dangling}
+    if unresolvable:
+        why = "; ".join(f"{d} ({k})" for k, d in unresolvable[:3])
+        return {**row, "state": STATE_UNRESOLVABLE,
+                "detail": f"{len(unresolvable)} of {total} reference(s) are "
+                          f"path-shaped but cannot be resolved here: {why} — a "
+                          f"reference this probe cannot check is not a checked one"}
     return {**row, "state": STATE_CLAIM,
-            "detail": f"all {len(refs)} referenced path(s) resolve — the claim "
+            "detail": f"all {total} referenced path(s) resolve — the claim "
                       f"can be CHECKED (this says nothing about whether it is a "
-                      f"good claim)",
-            "referenced": refs}
+                      f"good claim)"}
 
 
 def probe(artifacts: pathlib.Path = ARTIFACTS) -> list[dict]:

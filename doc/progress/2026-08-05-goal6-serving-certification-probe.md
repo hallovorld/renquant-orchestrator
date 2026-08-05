@@ -1,88 +1,88 @@
-# 2026-08-05 — GOAL-6: two thirds of a P0 was already fixed and nobody knew
+# 2026-08-05 — GOAL-6: does each serving artifact make a claim that can be CHECKED?
 
-## Re-measuring orch#726, four days on
+## Why
 
 orch#726 filed three defects against the serving artifacts on 2026-08-01.
-Re-measured today `[VERIFIED — `wf_corpus_coverage.py` plus a direct read of the
-prod artifact and the pinned config]`:
+Re-measuring today `[VERIFIED — this session]`: **two were already fixed** (the
+prod manifest and the override rollback no longer point at a vanished `/tmp`
+path) and **one was unchanged** (the clf lane carries no `wf_gate_metadata` at
+all, in either the canonical or the legacy location).
 
-| claim (08-01) | today |
+Nobody noticed either fact for four days, because checking meant reading two
+artifacts by hand. **A three-claim P0 sitting two-thirds fixed is how a reader
+learns to discount P0s.**
+
+## What the probe answers
+
+One question per serving artifact: **does it make a walk-forward claim that can
+be checked at all?** It deliberately does NOT judge the claim — fold counts are
+counts of manifest rows and say nothing about leakage or quality. Establishing
+that a claim EXISTS is a different, prior question, and conflating them is what
+let one lane's 43 folds read as coverage for a lane with zero.
+
+## Live result `[VERIFIED — this session]`
+
+| artifact | state |
 |---|---|
-| the prod scorer's WF manifest points at `/tmp` (gone) | **RESOLVED** — the manifest resolves, 43 folds |
-| its override rollback points at `/tmp` (gone) | **RESOLVED** — no `/tmp` path survives anywhere in the artifact |
-| the clf lane has no gate stamp at all | **UNCHANGED** |
+| prod panel (XGB recipe) | **CLAIM_POINTS_AT_A_MISSING_PATH** — 1 of 64 refs: `config_parity.candidate_artifact` → `…weekly_20260802T170002Z.staging.json`; a further 1 ref is path-shaped but unresolvable |
+| clf top-decile fwd60 (shadow member) | **NO_GATE_STAMP** |
 
-### But the prod artifact is NOT clean — my first version of this probe said it was
+## Two review rounds, and the second is the interesting one
 
-`[codex on orch#820, reproduced by the corrected probe]` The prod stamp
-references **59** paths. **One does not exist**:
+**Round 1 — enumerating keys was the bug.** v1 checked `/tmp` strings plus two
+manifest keys, and therefore reported the live prod artifact as *checkable* while
+`config_parity.candidate_artifact` dangled. Fixed by inverting the default:
+walk the whole stamp, treat anything path-shaped as a reference that must
+resolve. `[codex]`
 
-```
-metadata.wf_gate_metadata.config_parity.candidate_artifact
-  → …/artifacts/prod/panel-ltr.alpha158_fund.weekly_20260802T170002Z.staging.json
-```
+**Round 2 — the wording outran the matcher.** v2 said it walked "every
+path-shaped string". It did not: the regex took only POSIX absolute or
+dot-relative strings ending in one of six extensions. It missed bare relatives,
+extensionless paths, other extensions, Windows paths and `file://` URLs, and it
+*accepted* globs it cannot resolve. **A recogniser that silently drops a
+reference is the same fail-open the inversion was meant to close** — the state
+depends on it, so this was never only wording. `[codex]`
 
-So the *dangling-reference* condition orch#726 is about **is still present on the
-prod artifact** — just not under `/tmp`. My first probe enumerated `/tmp` strings
-plus two manifest keys and therefore reported `HAS_CHECKABLE_CLAIM`, which is
-exactly the enumerate-instead-of-invert error this project keeps catching. It now
-walks **every** path-shaped string in the stamp.
+Measured on the live prod stamp: the v2 matcher saw **59 of 64** references.
+The 5 it dropped `[VERIFIED — this session]`:
 
-Corrected reading of orch#726: the two `/tmp` pointers are gone; the class of
-defect they were instances of is not.
+- an extensionless trace directory `…/wf_trade_traces/20260802T170340Z`
+- three `.md` fold reports under it
+- one bare relative config path
+  `artifacts/diagnostics/wf_eval_configs/…prod_semantic.json`
 
-**Nobody noticed for four days**, because checking meant reading two artifacts by
-hand. A three-claim P0 sitting two-thirds fixed is exactly how a reader learns to
-discount P0s.
+## The contract now, stated exactly
 
-## What also moved, and reframes orch#788
+A string is a **reference** iff, stripped and non-empty, it is a `file://` URL,
+or rooted (`/…`, `./…`, `../…`, `~/…`, `C:\…`, `\\host\share`), or
+separator-bearing with an extension on its last segment, or bare but carrying an
+artifact extension. Each reference is classified **three** ways, never two:
 
-The clf corpus is no longer absent `[VERIFIED — read from disk]`:
+- **RESOLVABLE** — an absolute POSIX path this box can stat;
+- **UNRESOLVABLE** — path-shaped but not checkable *here*, with the reason
+  named: relative to an unstated base, a glob, a Windows path, a remote scheme;
+- **not a reference** — everything else.
 
-```
-artifacts/walkforward_clf_top_decile_fwd60_v1/
-  corpus_manifest.json   n_windows = 43   recipe_id = walkforward_only_v1
-  RUN_CLAIM.json         status = built_unscored
-                         manifest_sha256 = a8a41ff4021e8535…
-```
+`UNRESOLVABLE` is **actionable**. A reference this probe cannot check is not a
+checked one, and reporting it as a checkable claim is exactly the failure the
+inversion exists to prevent. Note this also closes a latent v2 bug: `./x.json`
+was stat'ed against the process CWD, so the answer depended on where you stood.
 
-So the blocker chain is now explicit: **score the 43 built windows → produce a
-stamp → only then say anything about the clf lane's OOS behaviour.** orch#788's
-title ("has no OOS corpus") is a generation out of date; both issues have been
-commented with the measurement.
+**The declared limit, named so it is read rather than discovered:** a
+separator-bearing string with no extension on its last segment (`relative/noext`,
+`n/a`, `1x/2x/3x`, `2026/08/05`) is NOT treated as a reference. It is
+indistinguishable from an ordinary identifier, and turning identifiers into
+dangling paths is the false positive that discredits the probe. Twelve
+classified cases and eight declared non-references are pinned by name in the
+suite.
 
-## What lands
+A dangling path outranks an unresolvable one for the row's state, but **never
+erases it** — the weaker finding stays on the record, because a worse finding
+swallowing a lesser one is how two-thirds-fixed P0s stay invisible.
 
-`ops/renquant104/serving_certification_probe.py` — one question per serving
-artifact: **does it make a walk-forward claim that can be checked at all?**
+## Not claimed
 
-Four states, and the distinctions are the point:
+Read-only. No schedule, no artifact touched, and no judgement of any claim's
+quality — only whether it exists and resolves.
 
-- `HAS_CHECKABLE_CLAIM` — a stamp whose referenced paths resolve;
-- `CLAIM_POINTS_AT_A_MISSING_PATH` — **worse than no claim**, because it reads as
-  certified. That was orch#726's first two halves;
-- `NO_GATE_STAMP` — absent from **both** the canonical
-  `metadata.wf_gate_metadata` and the legacy top-level key (an artifact carrying
-  only the legacy key *does* make a claim, and calling it stampless would be the
-  wrong-object error one level in — tested);
-- `ARTIFACT_UNREADABLE` — **not** an absent claim, its own state.
-
-**It deliberately does not judge the claim.** Fold counts are counts of manifest
-rows and say nothing about leakage or quality; conflating "a claim exists" with
-"the claim is good" is what let one lane's 43 folds read as coverage for a lane
-with zero. A test asserts the output says so.
-
-Two more states, added in review because the first version blessed things it
-should not have `[codex on orch#820]`:
-
-- `CLAIM_REFERENCES_NO_PATH` — a stamp naming nothing cannot be checked, whatever
-  else it says. The first version returned `HAS_CHECKABLE_CLAIM` for a legacy-key
-  stamp with no paths at all;
-- `STAMP_MALFORMED` — a container that is present but the wrong shape. Collapsing
-  that to "no stamp" reports a broken artifact as an honestly uncertified one,
-  and `wf_corpus_coverage.py` / `gate_stamp_parity.py` already fail closed here.
-
-Run against the live serving set: prod **`CLAIM_POINTS_AT_A_MISSING_PATH`**
-(1 of 59 referenced paths), clf `NO_GATE_STAMP`, exit 1.
-
-Suites: 15 tests, one bound to the live serving set · 5688 passed, 2 skipped `[VERIFIED — measured]`.
+Suites: 37 tests · full suite green.
