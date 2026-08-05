@@ -49,10 +49,18 @@ FAIL_CLOSED_MARKERS = (
     "panel_scoring_fail_closed",
 )
 
+# The PROD lane runs FIRST in the daily wrapper; every fleet lane is a later
+# step. So prod's own runs-DB row is the evidence that the SESSION happened at
+# all, and it is what separates "this lane failed to record" from "nobody has
+# run yet". [GOAL-1, measured 2026-08-05 03:45 PT: nine hours before the daily
+# run, this sentinel reported 3 ACTIONABLE lanes on a day nothing had run.]
+PROD_TAG = "alpaca"
+
 STATE_RECORDED = "RECORDED"
 STATE_FAIL_CLOSED = "FAIL_CLOSED"
 STATE_MISSING = "MISSING"
 STATE_DORMANT = "DORMANT"
+STATE_NOT_YET_RUN = "NOT_YET_RUN"
 ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING)
 
 
@@ -98,9 +106,9 @@ def lane_is_dormant(lane: FleetLane, configs_dir: Path = PINNED_CONFIGS) -> bool
     return False
 
 
-def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | None:
-    """The lane's own runs-DB row for ``date``, or None. Read-only, immutable."""
-    db = data_dir / f"runs.{lane.tag}.db"
+def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
+    """A broker tag's runs-DB row for ``date``, or None. Read-only, immutable."""
+    db = data_dir / f"runs.{tag}.db"
     if not db.exists():
         return None
     try:
@@ -118,6 +126,26 @@ def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | No
             "n_buys": row[2] or 0, "n_exits": row[3] or 0}
 
 
+def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | None:
+    return _tag_record(lane.tag, date, data_dir)
+
+
+def session_started(date: str, data_dir: Path | None = None) -> bool:
+    """Did the daily session run at all on ``date``?
+
+    Evidence: the PROD lane's own runs-DB row. Prod runs first in the wrapper
+    and every fleet lane is a later step, so no prod row means no session — and
+    a lane that has not been asked to run has not failed.
+
+    This is deliberately NOT a silencer. When it returns False the lanes report
+    ``NOT_YET_RUN`` and the sentinel says so on its own line; the operator sees
+    "the session has not run", not an empty screen. And it can only fire when
+    PROD is also absent — if prod ran and a lane did not, that lane is still
+    MISSING and still actionable.
+    """
+    return _tag_record(PROD_TAG, date, data_dir or DATA) is not None
+
+
 def _log_says_fail_closed(lane: FleetLane, date: str, logs_dir: Path = LOGS) -> bool:
     log = logs_dir / f"{date}_{lane.log_stem}.log"
     if not log.exists():
@@ -129,9 +157,19 @@ def _log_says_fail_closed(lane: FleetLane, date: str, logs_dir: Path = LOGS) -> 
     return any(m in text for m in FAIL_CLOSED_MARKERS)
 
 
-def classify(lane: FleetLane, date: str, *, configs_dir: Path = PINNED_CONFIGS,
-             data_dir: Path = DATA, logs_dir: Path = LOGS) -> tuple[str, str]:
-    """(state, human detail). Dormancy is checked FIRST and only from config."""
+def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
+             data_dir: Path | None = None,
+             logs_dir: Path | None = None) -> tuple[str, str]:
+    """(state, human detail). Dormancy is checked FIRST and only from config.
+
+    Directories resolve at CALL time, not at import: binding them as parameter
+    defaults meant `main()` always read the real tree, so a redirected run (an
+    env override, a test) silently measured production instead. Found while
+    writing the NOT_YET_RUN test, which passed against the live data dir.
+    """
+    configs_dir = configs_dir or PINNED_CONFIGS
+    data_dir = data_dir or DATA
+    logs_dir = logs_dir or LOGS
     if lane_is_dormant(lane, configs_dir):
         return STATE_DORMANT, "pinned profile declares a pending-first-artifact component"
     rec = _lane_record(lane, date, data_dir)
@@ -165,6 +203,10 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path = PINNED_CONFIGS,
             "lane log carries a scorer fail-closed marker and NO record exists "
             "— the lane refused before it could write one"
         )
+    if not session_started(date, data_dir):
+        return STATE_NOT_YET_RUN, (
+            "the daily session has not run yet on this date (no PROD runs-DB "
+            "row either) — a lane that was never asked to run has not failed")
     return STATE_MISSING, "no runs-DB record for this session and the lane is not dormant"
 
 
@@ -191,6 +233,12 @@ def main(argv: list[str] | None = None) -> int:
     if alarms:
         print(f"\nFLEET SENTINEL: {len(alarms)} actionable lane state(s) on {args.date}")
         return 1
+    if not session_started(args.date):
+        # Say it out loud. A silent all-clear on a date nothing ran is the same
+        # ambiguity this state was added to remove, one level up.
+        print(f"\nFLEET SENTINEL: the daily session has NOT RUN on {args.date} "
+              f"(no PROD runs-DB row) — nothing to account for yet")
+        return 0
     print(f"\nFLEET SENTINEL: all {len(FLEET)} lanes accounted for on {args.date}")
     return 0
 
