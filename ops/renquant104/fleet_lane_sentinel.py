@@ -62,7 +62,9 @@ STATE_MISSING = "MISSING"
 STATE_DORMANT = "DORMANT"
 STATE_NOT_YET_RUN = "NOT_YET_RUN"
 STATE_PROFILE_DEFECT = "PROFILE_DEFECT"
-ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING, STATE_PROFILE_DEFECT)
+STATE_EVIDENCE_UNREADABLE = "EVIDENCE_UNREADABLE"
+ACTIONABLE = (STATE_FAIL_CLOSED, STATE_MISSING, STATE_PROFILE_DEFECT,
+              STATE_EVIDENCE_UNREADABLE)
 
 SESSION_STARTED = "started"
 SESSION_NOT_STARTED = "not_started"
@@ -141,13 +143,15 @@ def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
 
 
 def _lane_record(lane: FleetLane, date: str, data_dir: Path = DATA) -> dict | None:
-    """A lane's row, or None. An unreadable lane DB is treated as NO record —
-    the lane then falls through to the MISSING/NOT_YET_RUN decision, which is
-    made on PROD evidence, never on this one."""
-    try:
-        return _tag_record(lane.tag, date, data_dir)
-    except DbUnreadable:
-        return None
+    """A lane's row, or None. Propagates ``DbUnreadable``.
+
+    [codex on orch#812] An earlier version swallowed it and returned None, so a
+    corrupt ``runs.<lane>.db`` fell through to the PROD-based decision and could
+    report the quiet NOT_YET_RUN. That is the SAME fold-in error this PR fixed
+    for the prod DB, left in place one function over: an unreadable evidence
+    source is an independently detected, actionable fault, not an absence.
+    """
+    return _tag_record(lane.tag, date, data_dir)
 
 
 def profile_defect(lane: FleetLane, configs_dir: Path | None = None) -> str | None:
@@ -243,7 +247,14 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
         # checked BEFORE dormancy and BEFORE the session state, and is never
         # downgraded by either.
         return STATE_PROFILE_DEFECT, defect
-    rec = _lane_record(lane, date, data_dir)
+    try:
+        rec = _lane_record(lane, date, data_dir)
+    except DbUnreadable as exc:
+        # Actionable regardless of dormancy or session state: we cannot say
+        # anything about this lane, and "cannot say" is never "fine".
+        return STATE_EVIDENCE_UNREADABLE, (
+            f"the lane's own runs-DB could not be read ({exc}) — no statement "
+            f"about this lane is possible until that is repaired")
     marker = _log_says_fail_closed(lane, date, logs_dir)
 
     # DORMANCY IS CHECKED AGAINST EVIDENCE, not before it [codex on orch#812].

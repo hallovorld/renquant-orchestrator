@@ -364,15 +364,38 @@ def test_session_state_is_THREE_valued_not_two(tree):
     assert S.session_state(DATE, data) == S.SESSION_UNKNOWN
 
 
-def test_an_unreadable_LANE_db_does_not_decide_anything(tree):
-    """A lane's own DB being unreadable must not be mistaken for a session
-    verdict — the started/not-started call is made on PROD evidence only."""
+def test_an_unreadable_LANE_db_is_ACTIONABLE_not_quiet(tree):
+    """[codex on orch#812] I fixed the fold-in for the PROD db and left the SAME
+    error one function over: a corrupt runs.<lane>.db returned None and fell
+    through to the quiet NOT_YET_RUN. An unreadable evidence source is an
+    independently detected fault — "cannot say" is never "fine"."""
     cfg, data, _ = tree
     _profile(cfg, LANE.profile, pending=False)
     _corrupt_db(data, LANE.tag)
     assert S.session_state(DATE, data) == S.SESSION_NOT_STARTED
+    state, detail = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+    assert "could not be read" in detail
+
+
+def test_an_unreadable_LANE_db_is_actionable_with_PROD_started_too(tree):
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=False)
+    _db(data, S.PROD_TAG, n_candidates=80)
+    _corrupt_db(data, LANE.tag)
+    assert S.session_state(DATE, data) == S.SESSION_STARTED
     state, _ = _classify(LANE, tree)
-    assert state == S.STATE_NOT_YET_RUN
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
+
+
+def test_an_unreadable_LANE_db_is_actionable_even_when_DORMANT(tree):
+    """Dormancy declares a component pending; it says nothing about whether the
+    lane's own evidence can be read."""
+    cfg, data, _ = tree
+    _profile(cfg, LANE.profile, pending=True)
+    _corrupt_db(data, LANE.tag)
+    state, _ = _classify(LANE, tree)
+    assert state == S.STATE_EVIDENCE_UNREADABLE and state in S.ACTIONABLE
 
 
 def test_a_PROFILE_ABSENT_lane_is_never_downgraded_by_the_session_check(tree):

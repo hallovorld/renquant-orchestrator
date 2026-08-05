@@ -147,4 +147,20 @@ Dormancy is now judged **against** the evidence:
 A test pins that the ordinary dormant case stays quiet and silent, so this does
 not become a noise generator.
 
-Suites: 34 in this file · 5622 passed, 2 skipped repo-wide.
+## Review round 5 — I fixed the fold-in for PROD and left it one function over
+
+`_lane_record` caught `DbUnreadable` and returned `None`, so a corrupt
+`runs.<lane>.db` fell through to the PROD-based decision and could report the
+quiet `NOT_YET_RUN`. That is **the same "cannot read the evidence" → "no
+evidence" error I had just fixed for the prod DB**, still in place for the lane
+— and I had even written a test asserting the wrong behaviour.
+
+An unreadable lane DB is now `EVIDENCE_UNREADABLE`, **actionable regardless of
+dormancy or session state**, with a detail saying no statement about the lane is
+possible until it is repaired. Three tests: no prod row, prod started, and
+dormant — all actionable.
+
+The lesson is the one this file keeps re-teaching: *"cannot say" is never
+"fine"*, and fixing one instance of a pattern is not fixing the pattern.
+
+Suites: 36 in this file · 5625 passed, 2 skipped repo-wide.
