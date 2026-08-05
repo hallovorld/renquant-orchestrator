@@ -115,8 +115,10 @@ def test_pipeline_alerts_on_low_apy(tmp_path: Path) -> None:
 
     assert result.ok is True
     assert ctx.exit_code == 2
-    assert ctx.alert_title == "RenQuant 104 WATCH"
-    assert "APY" in ctx.alert_body
+    # The title alone has to identify the condition: it is the only part of an
+    # ntfy push that is legible without opening it.
+    assert "APY" in ctx.alert_title
+    assert "drawdown" not in ctx.alert_title.lower()
 
 
 def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
@@ -141,7 +143,63 @@ def test_pipeline_alerts_on_persistent_drawdown(tmp_path: Path) -> None:
     mod.build_pipeline().run(ctx)
 
     assert ctx.exit_code == 3
-    assert "drawdown" in ctx.alert_body
+    assert "drawdown" in ctx.alert_title.lower()
+
+
+def test_the_two_alarms_do_not_share_a_title(tmp_path: Path) -> None:
+    """Operator report 2026-08-05: the page 'does not convey any sense to me'.
+
+    Both conditions used to ship the identical title `RenQuant 104 WATCH`, so a
+    push could not be triaged without opening it and reading a body that
+    restated the number `summary` already carried.
+    """
+    def _title(**overrides: object) -> str:
+        audit = tmp_path / f"audit_{len(list(tmp_path.iterdir()))}.jsonl"
+        _write_audit(audit, [
+            {"date": f"2026-05-2{i + 1}", "equity": 100.0 + i, "drawdown_pct": 0.25}
+            for i in range(5)
+        ])
+        ctx = mod.WeeklyApyContext(
+            repo_root=tmp_path,
+            audit_log=audit,
+            quiet=True,
+            now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            **overrides,  # type: ignore[arg-type]
+        )
+        mod.build_pipeline().run(ctx)
+        return ctx.alert_title or ""
+
+    apy_only = _title(alert_threshold=1e12, drawdown_days=99)
+    dd_only = _title(alert_threshold=-9.99, drawdown_days=5)
+
+    assert apy_only and dd_only
+    assert apy_only != dd_only
+
+
+def test_a_drawdown_breach_is_not_dropped_when_apy_also_breaches(tmp_path: Path) -> None:
+    """The context carries a single alert slot, so an `if/elif` silently lost
+    the second condition. Measured on the live log: APY-only 51, both 0 — the
+    loss was latent, never observed, and would have surfaced as a missing page.
+    """
+    audit = tmp_path / "audit.jsonl"
+    _write_audit(audit, [
+        {"date": f"2026-05-2{i + 1}", "equity": 100.0 - i, "drawdown_pct": 0.25}
+        for i in range(5)
+    ])
+    ctx = mod.WeeklyApyContext(
+        repo_root=tmp_path,
+        audit_log=audit,
+        alert_threshold=1e12,
+        drawdown_days=5,
+        quiet=True,
+        now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+
+    mod.build_pipeline().run(ctx)
+
+    assert ctx.exit_code == 2
+    assert "APY" in ctx.alert_title
+    assert "drawdown" in ctx.alert_body.lower()
 
 
 def test_latest_sharpe_reads_newest_live_row(tmp_path: Path) -> None:
