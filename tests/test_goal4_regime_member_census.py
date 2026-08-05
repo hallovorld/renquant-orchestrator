@@ -262,8 +262,25 @@ def test_the_record_never_states_a_member_count_the_config_contradicts():
 
 def test_the_record_claims_NO_shadow_ensemble_result():
     """This PR derives, tests and asserts PROD only. The shadow profiles are
-    censusable with --config, but nothing here binds a shadow result, so the
-    record must not state one."""
+    censusable with --config, but nothing here BINDS a shadow result, so the
+    record must not state one.
+
+    [codex on orch#809] Requiring the disclaimer to be PRESENT is not the same
+    as forbidding the claim: a contradicting sentence survived three rounds in
+    `## THE STATEMENT` while the disclaimer sat in `## NEXT`. This checks the
+    prose OUTSIDE the disclaimer sentence for any shadow finding.
+    """
     doc = " ".join((Path(__file__).resolve().parent.parent / "doc" / "progress"
                     / "2026-08-05-goal4-regime-member-census.md").read_text().split())
     assert "does not bind or claim a shadow-ensemble result" in doc
+
+    disclaimer_start = doc.index("The shadow profiles can be censused today")
+    disclaimer_end = doc.index("separately scoped.", disclaimer_start) + len("separately scoped.")
+    outside = doc[:disclaimer_start] + doc[disclaimer_end:]
+    for claim in ("shadow blends add", "shadow ensembles are unmeasured",
+                  "shadow blends are", "two thirds of the shadow",
+                  "the clf leg appears and is also unmeasured",
+                  "clf leg appears and is likewise"):
+        assert claim not in outside, (
+            f"{claim!r} states a shadow-ensemble finding outside the disclaimer; "
+            f"this PR binds PROD only")

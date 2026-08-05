@@ -90,14 +90,13 @@ census exists to find: a claim about a configuration that has moved. The member
 list is now **derived from the pinned config** at run time, `--config` selects a
 shadow profile, an unrecognised component becomes a labelled ROW rather than a
 silent drop, and a config with no components REFUSES instead of returning an
-empty census. Run against the RCS shadow profile, the clf leg appears and is
-also unmeasured.
+empty census.
 
 ## THE STATEMENT
 
 The PROD blend is **one member measured on the decisive axis and one unmeasured**,
 and the measured one is negatively informative in the regime that carries 88% of
-the book's buys. (The shadow blends add a clf leg that is likewise unmeasured.)
+the book's buys.
 
 That does not say the blend is bad. It says **GOAL-4 cannot be evaluated on the
 pooled number**, and for PROD no ensemble weighting can be justified until **the
