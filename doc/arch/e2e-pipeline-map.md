@@ -89,7 +89,7 @@ papered over.
   v1 hash is a different schema, not a contradiction (triple-impl class,
   occurrence #5).
 
-## Honest gaps as of 2026-08-05T04:05Z (21:05 PT)
+## Honest gaps as of 2026-08-05T04:19Z (21:19 PT) — the header AS-OF, one boundary
 
 1. **THE WF GATE IS BLOCKED AND THAT IS THE HONEST STATE (orch#799).**
    Measured 2026-08-04: two runs, byte-identical booster, Sharpe 0.6018 vs

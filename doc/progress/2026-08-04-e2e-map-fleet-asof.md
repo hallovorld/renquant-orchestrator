@@ -1,7 +1,9 @@
-# 2026-08-04 (21:05 PT) — e2e map refresh: the fleet, the override, and the blocked gate
+# 2026-08-04 (final AS-OF 21:19 PT / 2026-08-05T04:19Z) — e2e map refresh: the fleet, the override, and the blocked gate
 
-Second AS-OF refresh of the day (the map's own discipline). What changed since
-15:10 PT, all measured:
+Second AS-OF refresh of the day (the map's own discipline). The document's ONE
+as-of boundary is 2026-08-05T04:19Z (21:19 PT) — header and gaps section
+carry the same stamp, and every cell was verified against the deployed
+surfaces at it. What changed since 15:10 PT, all measured:
 
 - **PROD is the z-blend on the full book** (operator override; audit manifest,
   single-commit rollback, review condition on record). The map's PROD row now
