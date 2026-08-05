@@ -117,7 +117,18 @@ def test_the_re_dispositioned_ack_expires_by_its_OWN_explicit_date():
     e, w = sent.ack_expiry(row)
     assert e == D("2026-08-14")
     assert w == "expires_at", w
-    assert row["acked_at"] == "2026-07-31"
+    # The PROPERTY, not the stamp. This asserted `acked_at == "2026-07-31"`,
+    # which pinned a value that legitimately moves on every re-review — and it
+    # broke the moment the row was honestly re-reviewed (2026-08-05). What the
+    # test is about is that the explicit date WINS over the blanket window, so
+    # what it must pin is that the two genuinely differ.
+    acked = D(row["acked_at"])
+    assert e != acked + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS), (
+        "expires_at coincides with acked_at+14, so this row cannot demonstrate "
+        "that an explicit date beats the blanket window")
+    assert e < acked + dt.timedelta(days=sent.ACK_MAX_AGE_DAYS), (
+        "a re-review must never BUY TIME: the explicit deadline has to be no "
+        "later than the window it replaces")
 
 
 def test_the_re_dispositioned_ack_names_a_FALSIFIABLE_clearing_condition():
