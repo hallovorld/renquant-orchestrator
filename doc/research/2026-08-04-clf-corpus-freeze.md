@@ -6,12 +6,17 @@ measurement, scratchpad-only, 2026-08-04) are not part of the corpus.
 
 ## 1. Panel vintage — a PRESERVED dated copy, not a sha of a mutable path
 
-- Vintage id: **2026-08-04**. Procedure (execution step 0, before any
-  training): copy `data/alpha158_291_fundamental_dataset.parquet` →
+- Vintage id: **2026-08-04**. The vintage is ALREADY MATERIALIZED (codex
+  round 1: a freeze that copies later from a mutable path can silently drift):
   `data/research/alpha158_291_fundamental_dataset.vintage-2026-08-04.parquet`
-  and record the sha256 of the COPY in the RUN_CLAIM (the live-path sha at
-  freeze time, read back: `870f68ebad5d2d87…`; the claim must re-hash the
-  copy).
+  exists as of 2026-08-04 19:02 PT with full sha256
+  `870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e`
+  (read back from the COPY, not the live path). FAIL-CLOSED RULE: build step 0
+  re-hashes the copy and REFUSES on any mismatch with this digest — the
+  corpus is impossible to build against different bytes while carrying this
+  label. (The copy is a local data artifact, ~797 MB, deliberately not in
+  git; this recorded digest is its immutable identity, and the RUN_CLAIM
+  re-records the re-hash at build time.)
 - WHY A COPY IS MANDATORY (measured today): Job B's `2026-08-01-rebuild`
   vintage recorded only `sha256_at_read_time=55811f63…` of the LIVE path; the
   daily retrain has since rewritten it (today: `870f68eb…`) — the Job-B
@@ -25,11 +30,26 @@ measurement, scratchpad-only, 2026-08-04) are not part of the corpus.
 
 ## 2. Window grid — the post-seam ladder, verbatim
 
-The 43 post-seam cutoffs exactly as the Stage-2 lineage stamp enumerates them
-(2023-10-02 … 2026-03-02, 3-week spacing — source: today's first
-`lineage_stage2` stamp, post_seam segment). No pre-seam windows in v1: the
-pre-seam panel vintage question is the same unpreserved-bytes problem and is
-out of scope until a preserved pre-seam vintage exists.
+The exact ordered 43-cutoff list, frozen HERE (extracted from the first
+`lineage_stage2` stamp's post_seam segment, staging artifact
+`panel-ltr.alpha158_fund.weekly_20260804T200020Z.staging.json`, and now
+independent of that mutable source):
+
+```
+2023-10-02, 2023-10-23, 2023-11-13, 2023-12-04, 2023-12-25,
+2024-01-15, 2024-02-05, 2024-02-26, 2024-03-18, 2024-04-08,
+2024-04-29, 2024-05-20, 2024-06-10, 2024-07-01, 2024-07-22,
+2024-08-12, 2024-09-02, 2024-09-23, 2024-10-14, 2024-11-04,
+2024-11-25, 2024-12-16, 2025-01-06, 2025-01-27, 2025-02-17,
+2025-03-10, 2025-03-31, 2025-04-21, 2025-05-12, 2025-06-02,
+2025-06-23, 2025-07-14, 2025-08-04, 2025-08-25, 2025-09-15,
+2025-10-06, 2025-10-27, 2025-11-17, 2025-12-08, 2025-12-29,
+2026-01-19, 2026-02-09, 2026-03-02
+```
+
+No pre-seam windows in v1: the pre-seam panel vintage question is the same
+unpreserved-bytes problem and is out of scope until a preserved pre-seam
+vintage exists.
 
 ## 3. Trainer invocation — frozen verbatim
 
@@ -65,6 +85,22 @@ horizon). Acceptance: corpus admitted by the lineage path with n_scored ≥
 Verdict vocabulary: the readout reports per-window IC + placebo per segment;
 NO promotion interest is licensed by this corpus alone — it makes the clf
 lane's serving record interpretable (honest negative included).
+
+## 5b. Immutable source revisions (read back at freeze)
+
+Every executable input is pinned to a commit; the build refuses to run from
+any other revision (step-0 check alongside the vintage re-hash):
+
+- trainer: renquant-model `810646198e9e0896c615aee29454c705cae2f520`
+  (`scripts/train_topdecile_clf_shadow.py` with the `--train-cutoff` handle)
+- Stage-2 scoring lane: renquant-backtesting `8c2c445649570a79b292c22fd988a7becae0e612`
+  (the deployed gate runner with `_attempt_stage2_stamp`)
+- pipeline (loader/identity contracts incl. `momentum_identity`):
+  `ab5db5ab831237705c9de78960bdd92df0a79101`
+- umbrella at freeze: `514b6c4a5bc6728bb9b4b9a215b87de7f1b18268`
+
+A revision bump for any of these is a REVISION of this preregistration (new
+PR), not an execution-time discretion.
 
 ## 6. Cost basis (measured 2026-08-04)
 
