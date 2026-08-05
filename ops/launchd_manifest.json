@@ -21,14 +21,6 @@
       ],
       "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c"
     },
-    "com.renquant.crypto-session": {
-      "program_args": [
-        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
-        "/Users/renhao/git/github/renquant-orchestrator/scripts/crypto_session_runner.py",
-        "--once"
-      ],
-      "program_args_sha256": "24c408a9161fcdcf407f483f71f6b4201341a47caaf97dd425e674dd16638da9"
-    },
     "com.renquant.daily-iv-snapshot": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_iv_snapshot.sh"
