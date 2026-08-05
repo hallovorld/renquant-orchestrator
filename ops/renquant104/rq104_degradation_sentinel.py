@@ -45,6 +45,7 @@ import datetime as dt
 import json
 import math
 import os
+import plistlib
 import re
 import sqlite3
 import subprocess
@@ -546,7 +547,78 @@ def ack_expiry(ack: dict, name: str = "") -> tuple[dt.date | None, str]:
     return (expiry, why)
 
 
-def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[str]]:
+LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
+
+#: A failure older than this is reported as a FOSSIL rather than an event. Chosen as
+#: one week because the least frequent schedule in the manifest that still fires
+#: regularly is weekly: below 7 days "no output" is just a job between runs, above it
+#: the job has skipped at least one of its own slots.
+FOSSIL_AFTER_DAYS = 7
+
+
+def evidence_age_days(label: str, today: dt.date,
+                      plist_dir: Path | None = None) -> tuple[int | None, str | None]:
+    """(days since the job last wrote ANYTHING, the date it last wrote).
+
+    `launchctl` retains a job's last exit code until its NEXT run, so a job that
+    stops firing keeps re-alarming with a code from the run that last happened —
+    forever, with no way to tell that from a failure that happened last night.
+    Measured 2026-08-05 across the 14 undispositioned failing jobs: the last write
+    was **101, 80, 65, 34 and 33 days old** for five of them, and each of those last
+    writes lands exactly on that job's own scheduled slot (retrain-panel104 is
+    weekly Sun 10:00 and last wrote Sun 2026-04-26 10:00). That is the operator
+    report "the issue has been repeatedly showing up for months", as a number.
+
+    Returns `(None, None)` when the age cannot be established — an unreadable plist
+    is NOT a fresh failure, and the caller must say so rather than imply recency.
+    """
+    plist = (plist_dir or LAUNCH_AGENTS) / f"{label}.plist"
+    try:
+        with open(plist, "rb") as fh:
+            spec = plistlib.load(fh)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return (None, None)
+
+    newest = None
+    for key in ("StandardOutPath", "StandardErrorPath"):
+        p = spec.get(key)
+        if not p:
+            continue
+        try:
+            mtime = os.stat(p).st_mtime
+        except OSError:
+            continue
+        newest = mtime if newest is None else max(newest, mtime)
+    if newest is None:
+        return (None, None)
+
+    last = dt.date.fromtimestamp(newest)
+    return ((today - last).days, last.isoformat())
+
+
+def annotate_with_evidence_age(job: str, today: dt.date,
+                               plist_dir: Path | None = None) -> str:
+    """Append the age of the evidence to a failing job's row.
+
+    An exit code with no age is undifferentiated: it reads the same on day 1 and on
+    day 101, so nothing in the alarm ever tells the reader that the SCHEDULE died
+    rather than the check. This is the number that was missing.
+    """
+    label = job.split(" ")[0]
+    age, last = evidence_age_days(label, today, plist_dir)
+    if age is None:
+        return f"{job} [evidence age UNKNOWN: no readable stdout/stderr path for {label}]"
+    if age >= FOSSIL_AFTER_DAYS:
+        return (
+            f"{job} [FOSSIL: no output on either stream for {age}d (since {last}) — "
+            f"this exit code is from a run that old and has been alarming every day "
+            f"since. Check whether the job still FIRES before debugging the check]"
+        )
+    return f"{job} [last wrote {age}d ago, {last}]"
+
+
+def check_launchd_exits(today: dt.date | None = None,
+                        plist_dir: Path | None = None) -> tuple[str | None, list[str]]:
     try:
         out = subprocess.run(
             ["launchctl", "list"], capture_output=True, text=True, timeout=30,
@@ -608,6 +680,7 @@ def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[
                 f"(clears: {ack.get('clears_when', '?')}; "
                 f"ack expires {expiry.isoformat()} by {why})"
             )
+    loud = [annotate_with_evidence_age(j, today, plist_dir) for j in loud]
     alarm = ("launchd job(s) with nonzero last exit: " + ", ".join(loud)) if loud else None
     return (alarm, infos)
 
