@@ -1,0 +1,106 @@
+# 2026-08-04 — the σ-head sidecar gets a living host: invoke the sole writer in lockstep (orch#798)
+
+## The orphan, measured tonight
+
+base-data#48 correctly made `renquant_base_data.rawlabel_sidecar` the SOLE
+writer of the canonical σ-head `_rawlabel` sidecar and retired
+`RefreshSigmaHeadRawLabelTask`'s self-build (two writers with contradictory
+recipes had deadlocked the weekly corpus refresh). But the writer's only
+SCHEDULED invocation lived inside `weekly_retrain_patchtst.sh` — retired
+2026-08-02/03. The side-product was orphaned: its last write was Sat 08-01
+05:30, three panel refreshes later the consume check correctly refused
+(`panel-only=288`, invalidation receipt written), and with RenQuant#427 merged
+σ-head training was BLOCKED with no living path back. Tonight's republish was
+by hand.
+
+## The fix
+
+`RefreshSigmaHeadRawLabelTask` already sits in the right place — immediately
+after the fund-panel merge, before anything consumes the sidecar. It now
+INVOKES the sole writer there:
+
+```
+panel rebuild → fund merge → [publish via sole writer] → verify lockstep →
+certify (provenance stamp + receipt clear) → GBDT retrain → calibrator
+```
+
+Calling the writer is not a second implementation — it is the amendment's own
+contract, invoked from the one place that can guarantee lockstep: same
+process, immediately after the panel it must match was rebuilt. The daily
+retrain is also the correct CADENCE: the panel refreshes daily, so a weekly
+sidecar host would leave it out of lockstep six days out of seven.
+
+Safety: staging path + `os.replace`, so the served sidecar is never opened for
+write in place and a failed build cannot leave torn bytes; a non-zero writer
+exit, or an exit-0 that produced no file, raises `RawlabelValidationError` and
+falls to the existing except-path that writes the invalidation receipt —
+fail-closed exactly as before.
+
+## Tests
+
+- the sole writer MODULE is invoked (never a reimplementation) and its info is
+  recorded in the task summary;
+- a writer that half-writes then fails leaves the PREVIOUS served bytes intact
+  and cleans up the staging file;
+- exit 0 with no output is still a failure;
+- the horizon is passed through, not defaulted.
+
+Suite: 21 passed.
+
+## Not covered here
+
+The one-off republish already done tonight (grants-logged) and the Saturday
+playbook's obligation F remain as they are until this deploys; after deploy,
+obligation F becomes automatic and #795 should drop it.
+
+## Review round 2 — CI caught a real regression, and the fix is a better design
+
+The first implementation invoked the writer UNCONDITIONALLY on every run. CI
+(where `renquant_base_data` is not importable) went red on four pre-existing
+tests: a sidecar already in lockstep was being republished, and the absent-file
+error stopped saying "absent".
+
+Those tests were right. base-data#48's consume-only semantics are the correct
+FAST PATH — if the served sidecar already matches the freshly-rebuilt panel,
+this task should read and certify it and invoke nothing. Republishing a good
+corpus is a pointless rebuild and a write this task does not need to make.
+
+So the task is now **repair-only**:
+
+```
+verify the served sidecar against the fresh panel
+  ├── in lockstep  → consume + certify, writer NEVER invoked   (unchanged)
+  └── absent / out of lockstep → invoke the SOLE writer, then VERIFY AGAIN
+```
+
+The second verify is load-bearing: a republish that still fails the lockstep
+check must not be certified.
+
+A failed repair now names BOTH the corpus defect and the repair failure —
+"canonical σ-head _rawlabel is absent — no <path>, and the sole base-data writer
+could not republish it: <why>". What blocks σ-head training is the corpus state;
+what the operator must fix is the writer. The 08-04 orphan stayed open three days
+partly because the message named only one of them.
+
+Four more tests: a lockstep corpus is never republished (and its bytes are
+unchanged); an orphaned corpus is republished and RE-verified, with the
+republished bytes — not the stale ones — deciding; an absent corpus triggers the
+writer; a failed republish names both and still writes the invalidation receipt.
+39 passed in this file, 60 across both retrain files.
+
+Codex's two round-1 findings (finally-cleanup, repo env) are also in this branch.
+
+## Review round 3 (codex on orch#803)
+
+The repair-only path caught EVERY exception from the initial verification and
+read it as staleness — which would let a read I/O error, a broken dependency or
+a bug in the verifier trigger a WRITE to the served corpus. Those previously
+stayed in the fail-closed receipt path without touching anything.
+
+Only `RawlabelValidationError` — the explicit corpus-validation exception — now
+triggers a republish. Everything else propagates to the existing failure path,
+corpus untouched. Two regression tests: an `OSError` from the verifier and an
+`AttributeError` (a verifier bug) each leave the served bytes byte-identical,
+invoke the writer ZERO times, and still write the invalidation receipt.
+
+66 passed across both retrain test files.

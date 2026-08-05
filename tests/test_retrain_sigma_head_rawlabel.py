@@ -909,3 +909,159 @@ def test_provenance_sidecar_write_is_atomic_no_torn_file(tmp_path) -> None:
     assert payload["n_rows"] == 5
     assert payload["rawlabel_sha256"] == report["rawlabel_sha256"]
     assert payload["schema_version"] == mod.RAWLABEL_PROVENANCE_SCHEMA_VERSION
+
+
+# ── orch#798: repair-only republish via the SOLE writer ──────────────────────
+#
+# MEASURED 2026-08-04: base-data#48 correctly made the base-data module the sole
+# writer, but the writer's only SCHEDULED invocation lived in
+# `weekly_retrain_patchtst.sh`, retired 08-02/03. Three panel refreshes later the
+# lockstep check refused (panel-only=288) and σ-head training was blocked with no
+# living path back. This task is the only place that can republish in lockstep —
+# same process, right after the panel it must match was rebuilt.
+
+
+def _no_writer(monkeypatch, calls: list):
+    """Record any sole-writer invocation instead of shelling out."""
+    def fake(ctx, panel_in, rawlabel_out, horizon, *, ohlcv_dir):
+        calls.append((panel_in, rawlabel_out, horizon))
+        rawlabel_out.write_bytes(b"REPUBLISHED")
+        return {"writer": "renquant_base_data.rawlabel_sidecar"}
+    monkeypatch.setattr(mod, "_publish_rawlabel_via_sole_writer", fake)
+    return calls
+
+
+def test_a_sidecar_ALREADY_in_lockstep_is_consumed_and_NEVER_republished(
+    tmp_path, monkeypatch
+) -> None:
+    """The amendment's consume-only semantics stay the fast path. Republishing a
+    good corpus would be a pointless rebuild AND a write this task must not make
+    when it does not have to."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    canonical = _write_canonical(repo, b"GOOD-CANONICAL")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+
+    ctx = _ctx(repo, rawlabel_verify_fn=_passthru_verify())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    assert ctx.rawlabel_refresh_summary["status"] == "verified"
+    assert calls == [], "the sole writer must NOT be invoked on a lockstep corpus"
+    assert canonical.read_bytes() == b"GOOD-CANONICAL"
+    assert ctx.rawlabel_refresh_summary["publish"]["invoked"] is False
+
+
+def test_an_ORPHANED_sidecar_is_republished_then_verified(tmp_path, monkeypatch) -> None:
+    """The measured failure: a sidecar left behind by an earlier panel. The
+    lockstep check refuses it, the writer republishes, and the SECOND verify
+    decides — a republish that still fails must not be certified."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    _write_canonical(repo, b"STALE-FROM-AN-OLDER-PANEL")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+
+    seen: list = []
+
+    def verify(rawlabel, panel, horizon):
+        seen.append(rawlabel.read_bytes())
+        if seen[-1] != b"REPUBLISHED":
+            raise mod.RawlabelValidationError(
+                "canonical _rawlabel (ticker,date) coverage != source panel "
+                "(corpus-only=0, panel-only=288)")
+        return {"n_rows": 3, "n_tickers": 2, "finite_fraction": 0.9, "horizon": 60}
+
+    ctx = _ctx(repo, rawlabel_verify_fn=verify)
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    assert ctx.rawlabel_refresh_summary["status"] == "verified"
+    assert len(calls) == 1, "the writer must be invoked exactly once"
+    assert seen == [b"STALE-FROM-AN-OLDER-PANEL", b"REPUBLISHED"], (
+        "the republished bytes must be verified again, not assumed good")
+    assert "panel-only=288" in ctx.rawlabel_refresh_summary["republish_trigger"]
+
+
+def test_an_ABSENT_sidecar_triggers_the_writer(tmp_path, monkeypatch) -> None:
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+
+    ctx = _ctx(repo, rawlabel_verify_fn=_passthru_verify())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+    assert ctx.rawlabel_refresh_summary["status"] == "verified"
+    assert len(calls) == 1
+    assert "absent" in ctx.rawlabel_refresh_summary["republish_trigger"]
+
+
+def test_a_FAILED_republish_names_BOTH_the_defect_and_the_repair_failure(
+    tmp_path, monkeypatch
+) -> None:
+    """What blocks σ-head training is the corpus state; what the operator must
+    fix is the writer. A message naming only one of them sends them to the wrong
+    place — which is how the 08-04 orphan stayed open for three days."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+
+    def boom(ctx, panel_in, rawlabel_out, horizon, *, ohlcv_dir):
+        raise mod.RawlabelValidationError(
+            "the sole base-data writer failed to publish the canonical "
+            "_rawlabel (rc=1): No module named 'renquant_base_data'")
+    monkeypatch.setattr(mod, "_publish_rawlabel_via_sole_writer", boom)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    ctx = _ctx(repo, rawlabel_verify_fn=_passthru_verify())
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    err = ctx.rawlabel_refresh_summary["error"]
+    assert ctx.rawlabel_refresh_summary["status"] == "failed"
+    assert "absent" in err, "must still name the corpus defect"
+    assert "could not republish it" in err and "renquant_base_data" in err, (
+        "must also name why the repair failed")
+    # still fail-closed: the durable receipt blocks downstream admission
+    final = repo / "data" / mod.DEFAULT_RAWLABEL_FILENAME
+    assert mod.rawlabel_receipt_path(final).exists()
+
+
+def test_an_UNEXPECTED_verifier_failure_never_triggers_a_write(tmp_path, monkeypatch) -> None:
+    """[codex on orch#803] A read I/O error, a broken dependency or a verifier
+    bug says NOTHING about the corpus. Treating it as staleness would turn an
+    infrastructure failure into a WRITE to the served sidecar — the fail-open
+    shape this whole task exists to avoid."""
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    canonical = _write_canonical(repo, b"SERVED-BYTES-THAT-MUST-SURVIVE")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    def exploding_verify(rawlabel, panel, horizon):
+        raise OSError(5, "Input/output error")
+
+    ctx = _ctx(repo, rawlabel_verify_fn=exploding_verify)
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+
+    assert ctx.rawlabel_refresh_summary["status"] == "failed"
+    assert "Input/output error" in ctx.rawlabel_refresh_summary["error"]
+    assert calls == [], "the sole writer must NOT be invoked on an unexpected failure"
+    assert canonical.read_bytes() == b"SERVED-BYTES-THAT-MUST-SURVIVE"
+    # still fail-closed: the receipt blocks downstream admission
+    assert mod.rawlabel_receipt_path(canonical).exists()
+
+
+def test_a_verifier_BUG_is_not_mistaken_for_staleness(tmp_path, monkeypatch) -> None:
+    repo = _repo(tmp_path)
+    _write_panel(repo)
+    _write_canonical(repo, b"SERVED")
+    calls: list = []
+    _no_writer(monkeypatch, calls)
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: None)
+
+    def buggy(rawlabel, panel, horizon):
+        raise AttributeError("'NoneType' object has no attribute 'columns'")
+
+    ctx = _ctx(repo, rawlabel_verify_fn=buggy)
+    assert mod.RefreshSigmaHeadRawLabelTask().run(ctx) is True
+    assert calls == []
+    assert "NoneType" in ctx.rawlabel_refresh_summary["error"]
