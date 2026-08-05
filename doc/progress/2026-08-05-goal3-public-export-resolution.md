@@ -18,8 +18,14 @@ installed wheel `[codex on orch#833]`:
 
 ```
 /Users/renhao/git/github/renquant-pipeline/src/renquant_pipeline
-repo revision 5d41b31249df…
+repo revision 5d41b31249df
 ```
+
+A test parses that revision back out of **this file** and asserts it is the one
+the measurement actually ran against `[codex on orch#833]`. Asserting only that
+the revision is 40 characters proved nothing: the pipeline checkout could
+advance while the aggregate stayed 20/19/0, and CI would have stayed green over
+a provenance claim that had quietly gone stale.
 
 `renquant_pipeline` at that revision, over its **20** duplicated `__all__`
 exports:

@@ -139,3 +139,31 @@ def test_the_LIVE_pipeline_measurement_behind_the_GOAL3_record():
     assert r["package_repo"] is not None and \
         r["package_repo"].endswith("renquant-pipeline"), r["package_repo"]
     assert r["package_repo_revision"] and len(r["package_repo_revision"]) == 40
+
+
+RECORD = (Path(__file__).resolve().parent.parent / "doc" / "progress" /
+          "2026-08-05-goal3-public-export-resolution.md")
+
+
+def test_the_RECORD_names_the_revision_that_was_actually_measured():
+    """[codex on orch#833] Asserting the revision is 40 characters proves
+    nothing about the record: the pipeline checkout could advance while the
+    aggregate counts stayed 20/19/0, and CI would stay green over a provenance
+    claim that had gone stale. The recorded prefix must BE the measured one, so
+    a source change forces the result to be re-derived rather than inherited."""
+    import re
+
+    try:
+        r = resolve_exports("renquant_pipeline")
+    except ModuleNotFoundError:
+        pytest.skip("renquant_pipeline not importable here")
+    text = RECORD.read_text(encoding="utf-8")
+    recorded = re.findall(r"repo revision ([0-9a-f]{7,40})", text)
+    assert recorded, ("the progress record must state the revision it measured; "
+                      "found none in " + str(RECORD))
+    measured = r["package_repo_revision"]
+    for rev in recorded:
+        assert measured.startswith(rev), (
+            f"the record cites pipeline revision {rev}, but the measured "
+            f"checkout is at {measured[:12]} — re-derive the 20/19/0 result "
+            f"against the current source rather than inheriting it")
