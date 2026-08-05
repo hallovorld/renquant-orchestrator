@@ -163,4 +163,21 @@ dormant — all actionable.
 The lesson is the one this file keeps re-teaching: *"cannot say" is never
 "fine"*, and fixing one instance of a pattern is not fixing the pattern.
 
-Suites: 36 in this file · 5624 passed, 2 skipped repo-wide.
+## Review round 6 — stop fixing instances, close the pattern
+
+`_log_says_fail_closed` caught `OSError` and returned `False`, folding an
+unreadable log back into "no marker". **That is the same fold-in a third time** —
+prod DB, lane DB, session log — each found and fixed on its own before the next
+surfaced. Fixing one instance of a pattern is not fixing the pattern.
+
+So it is closed as a pattern: a single `EvidenceUnreadable` base (with
+`DbUnreadable` under it), **every** evidence reader either returns a value or
+raises it, and `classify` turns any of them into one actionable
+`EVIDENCE_UNREADABLE`. A structural test asserts each reader raises rather than
+returning a default, so a fourth instance cannot be added quietly — invert the
+default, do not enumerate.
+
+An ABSENT log is still a legitimate "no marker"; only an unreadable one is a
+fault. Pinned by a test, so this does not become a noise generator.
+
+Suites: 40 in this file · 5628 passed, 2 skipped repo-wide.

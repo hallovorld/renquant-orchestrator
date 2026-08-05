@@ -113,8 +113,20 @@ def lane_is_dormant(lane: FleetLane, configs_dir: Path = PINNED_CONFIGS) -> bool
     return False
 
 
-class DbUnreadable(Exception):
-    """The DB exists but could not be read. NOT the same as 'no row'."""
+class EvidenceUnreadable(Exception):
+    """An evidence source EXISTS but could not be read. NOT the same as absence.
+
+    THE PATTERN, not one instance [codex on orch#812, three rounds]. This module
+    folded "cannot read the evidence" into "there is no evidence" three separate
+    times — the prod DB, the lane DB, and the session log — and each was fixed
+    on its own before the next was found. Every reader here now either returns a
+    value or raises this, and `classify` turns it into one ACTIONABLE state.
+    "Cannot say" is never "fine".
+    """
+
+
+class DbUnreadable(EvidenceUnreadable):
+    """A runs-DB exists but could not be queried."""
 
 
 def _tag_record(tag: str, date: str, data_dir: Path = DATA) -> dict | None:
@@ -218,13 +230,19 @@ def session_started(date: str, data_dir: Path | None = None) -> bool:
 
 
 def _log_says_fail_closed(lane: FleetLane, date: str, logs_dir: Path = LOGS) -> bool:
+    """Whether the session log carries a fail-closed marker.
+
+    Raises ``EvidenceUnreadable`` when the log EXISTS but cannot be read. An
+    absent log is a legitimate "no marker"; an unreadable one is not
+    [codex on orch#812, the THIRD instance of this fold-in].
+    """
     log = logs_dir / f"{date}_{lane.log_stem}.log"
     if not log.exists():
         return False
     try:
         text = log.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return False
+    except OSError as exc:
+        raise EvidenceUnreadable(f"{log.name}: {exc}") from exc
     return any(m in text for m in FAIL_CLOSED_MARKERS)
 
 
@@ -249,13 +267,18 @@ def classify(lane: FleetLane, date: str, *, configs_dir: Path | None = None,
         return STATE_PROFILE_DEFECT, defect
     try:
         rec = _lane_record(lane, date, data_dir)
-    except DbUnreadable as exc:
+    except EvidenceUnreadable as exc:
         # Actionable regardless of dormancy or session state: we cannot say
         # anything about this lane, and "cannot say" is never "fine".
         return STATE_EVIDENCE_UNREADABLE, (
             f"the lane's own runs-DB could not be read ({exc}) — no statement "
             f"about this lane is possible until that is repaired")
-    marker = _log_says_fail_closed(lane, date, logs_dir)
+    try:
+        marker = _log_says_fail_closed(lane, date, logs_dir)
+    except EvidenceUnreadable as exc:
+        return STATE_EVIDENCE_UNREADABLE, (
+            f"the lane's session log could not be read ({exc}) — no statement "
+            f"about this lane is possible until that is repaired")
 
     # DORMANCY IS CHECKED AGAINST EVIDENCE, not before it [codex on orch#812].
     # The fast lanes still EXECUTE daily (`daily_104.sh` Steps 5c/5e); the
