@@ -1208,3 +1208,66 @@ def test_a_window_that_IS_fully_covered_reports_clean(monkeypatch):
     assert audit["window_fully_covered"] is True
     assert audit["ok"] is True
     assert audit["n_missing_pre_merge_audit"] == 1   # the old one is still counted
+
+
+def test_an_EXHAUSTED_fetch_is_covered_even_when_every_merge_is_recent(monkeypatch):
+    """Review round 2/3: my first coverage rules were fail-closed but UNATTAINABLE.
+
+    `covered = oldest < cutoff` asks the wrong question. Only TRUNCATION can hide an
+    in-window merge, and a response shorter than `limit` is proof of exhaustion — there
+    is nothing older to fetch, whatever the dates say. Requiring an older merge made
+    every low-volume repo permanently red, which is the same defect (an unclearable
+    gate) that this whole change exists to remove.
+    """
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    # 2 merges returned against a limit of 200: the list was NOT capped, and both are
+    # recent — under the old rule this read "uncovered" and gated red forever.
+    prs = [_merged(1, "2026-08-04T00:00:00Z", marked=True),
+           _merged(2, "2026-08-03T00:00:00Z", marked=True)]
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, limit=200, now=now)
+
+    assert audit["window_fully_covered"] is True
+    assert audit["coverage_note"] is None
+    assert audit["ok"] is True
+
+
+def test_a_repo_with_NO_merges_is_fully_observed_not_uncovered(monkeypatch):
+    """Zero rows is an exhausted response, so the window was seen and it is clean.
+    `bool(rows)` made emptiness indistinguishable from truncation."""
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: [])
+
+    audit = AW.audit_merged_prs("o/r", None, limit=200, now=now)
+
+    assert audit["n_merged_prs"] == 0
+    assert audit["window_fully_covered"] is True
+    assert audit["ok"] is True
+
+
+def test_a_merge_exactly_ON_the_cutoff_counts_as_reaching_back_past_it(monkeypatch):
+    """The window is inclusive of the cutoff (`merged_at >= cutoff` selects in-window),
+    so a merge landing exactly on it HAS been observed. A strict `<` called that
+    uncovered — the boundary was classified two different ways in one function."""
+    import datetime as _dt
+    from renquant_orchestrator import agent_workflows as AW
+
+    now = _dt.datetime(2026, 8, 5, tzinfo=_dt.timezone.utc)
+    cutoff = now - _dt.timedelta(days=AW.GATE_WINDOW_DAYS)   # 2026-07-29T00:00:00Z
+    # capped list (len == limit), so coverage rests entirely on the boundary merge
+    prs = [_merged(1, "2026-08-04T00:00:00Z", marked=True),
+           _merged(2, cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"), marked=True)]
+    monkeypatch.setattr(AW, "fetch_merged_prs", lambda *a, **k: prs)
+
+    audit = AW.audit_merged_prs("o/r", None, limit=2, now=now)
+
+    assert audit["n_merged_in_window"] == 2     # the boundary merge IS in the window…
+    assert audit["window_fully_covered"] is True   # …and therefore was observed
+    assert audit["ok"] is True

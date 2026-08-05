@@ -928,13 +928,23 @@ def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
     # Coverage is therefore measured, and an uncovered window FAILS CLOSED with its own
     # reason. "I could not see the whole window" is a third state, never folded into
     # "the window is clean".
+    #
+    # Truncation is the ONLY thing that can hide an in-window merge, so that is what
+    # the test asks about (review round 2/3 on the rescope: my first two rules were
+    # fail-closed but not attainable, and turned every quiet repo permanently red).
+    #   * `len(rows) < limit` — the response was EXHAUSTED. Nothing older exists to
+    #     fetch, whatever the dates say. This also covers a repo with zero merges.
+    #   * otherwise the list was capped, and coverage holds only if the fetch reached
+    #     back past the cutoff. `<=` because the window is inclusive of the cutoff, so
+    #     a merge landing exactly on it is in-window and observed, not unseen.
     dates = [_parse_github_datetime(r.get("merged_at")) for r in rows]
     oldest = min([d for d in dates if d], default=None)
-    covered = bool(rows) and oldest is not None and oldest < cutoff
+    exhausted = len(rows) < int(limit)
+    covered = exhausted or (oldest is not None and oldest <= cutoff)
     coverage_note = None if covered else (
-        f"window NOT fully covered: fetched {len(rows)} merge(s) and none predates the "
-        f"{int(gate_window_days)}d cutoff, so older in-window merges were never "
-        f"examined — raise --limit above {len(rows)}")
+        f"window NOT fully covered: fetched the {len(rows)}-merge limit and the oldest "
+        f"of them still postdates the {int(gate_window_days)}d cutoff, so older "
+        f"in-window merges were never examined — raise --limit above {len(rows)}")
 
     return {
         "repo": repo,

@@ -113,3 +113,45 @@ silently become wrong.
 
 The `--strict` help text now defines the bounded gate, the non-gating historical
 measurement, and the coverage failure, instead of claiming every audited miss fails.
+
+## Review rounds 2 and 3: the coverage rule was fail-closed but UNATTAINABLE
+
+Both follow-ups flagged the same defect from different angles, and both are right.
+`covered = bool(rows) and oldest < cutoff` asks whether a merge older than the cutoff
+was seen. That is not the question. **Only truncation can hide an in-window merge**,
+so truncation is what the test must ask about. The old rule called three fully
+observed situations "uncovered" and gated them red with no action that could clear it
+— reintroducing, in the coverage check, exactly the unclearable gate this change
+exists to remove:
+
+| situation | old rule | correct |
+|---|---|---|
+| fewer rows returned than `limit` (response exhausted) | uncovered | **covered** — nothing older exists to fetch |
+| repo with zero merged PRs | uncovered (`bool(rows)`) | **covered** — and clean |
+| a merge landing exactly ON the cutoff | uncovered (`<`) | **covered** — the window is inclusive, so it was observed |
+
+That last one had the boundary classified two different ways inside one function:
+`merged_at >= cutoff` put the merge *in* the window while `oldest < cutoff` said the
+window had not been reached. Now:
+
+```python
+exhausted = len(rows) < int(limit)
+covered   = exhausted or (oldest is not None and oldest <= cutoff)
+```
+
+Three regression tests added — exhausted-but-all-recent, zero-merge repo, and the
+cutoff boundary. All three fail against the previous rule [VERIFIED — `git stash push
+src/…`, re-run: 3 failed]; the suite is 64 passed.
+
+Live after the fix: `uncovered_windows: []` — every repo is now correctly observed,
+and the gate is red on merit rather than on blindness.
+
+```
+merge-audit: 264/358 merges in the last 7d lack a pre-merge 'Merged by' comment
+(e.g. RenQuant#582 by haorensjtu-dev). Post it BEFORE merging; it cannot be added
+afterwards. [793 historical, not gating]
+```
+
+[VERIFIED — `repos merge-audit --repo all --strict`, 2026-08-05 12:5x PDT, rc=1 read
+without a pipe]. These counts drift upward as merges land; the 261/356 and 790 quoted
+above were the same measurement taken earlier the same day.
