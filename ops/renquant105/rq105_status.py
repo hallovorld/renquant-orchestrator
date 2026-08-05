@@ -48,14 +48,20 @@ from renquant_orchestrator.scheduled_jobs import scheduled_jobs  # noqa: E402
 
 try:
     from export_batch_scores import MIN_ROWS as BATCH_MIN_ROWS  # noqa: E402
-    from export_batch_scores import REQUIRED_BROKER_MODE  # noqa: E402
-    from export_batch_scores import _blend_lane_gaps  # noqa: E402
+    from export_batch_scores import LANE_EVIDENCE  # noqa: E402
+    from export_batch_scores import _lane_gaps  # noqa: E402
     from export_batch_scores import _select_source_run  # noqa: E402
     from batch_scores_bundle import expected_previous_session  # noqa: E402
 except ImportError:
     BATCH_MIN_ROWS = 25
-    REQUIRED_BROKER_MODE = {"prod": None, "blend": "alpaca_shadow_blend"}
-    _blend_lane_gaps = None
+    # No local copy of the lane table. The fallback used to carry one, and it
+    # went stale the moment the real table changed — a dashboard asserting
+    # `prod -> None` while the exporter enforced `alpaca` is a second answer to
+    # a question that has one. Empty means every source lands in the "unknown
+    # source, refusing to guess a DB" branch, which is the honest state when
+    # the exporter cannot be imported at all.
+    LANE_EVIDENCE = {}
+    _lane_gaps = None
     _select_source_run = None
     expected_previous_session = None
 
@@ -187,7 +193,7 @@ def _db_latest_run(rq_root: Path) -> dict:
     before export — so this row can't report a run as ready when the real
     exporter would refuse it as a malformed or incomplete blend run."""
     source = _active_score_source()
-    if source not in REQUIRED_BROKER_MODE:
+    if source not in LANE_EVIDENCE:
         return {
             "status": f"unknown score source ({source!r}) — refusing to guess a DB",
             "icon": FAIL,
@@ -202,7 +208,7 @@ def _db_latest_run(rq_root: Path) -> dict:
     if (
         _select_source_run is None
         or expected_previous_session is None
-        or _blend_lane_gaps is None
+        or _lane_gaps is None
     ):
         return {"status": "export_batch_scores unavailable", "icon": FAIL, "detail": ""}
     import sqlite3 as _sqlite3  # noqa: PLC0415 — keep top-level import list free of DB-only need
@@ -220,15 +226,13 @@ def _db_latest_run(rq_root: Path) -> dict:
             "detail": "",
         }
     run_id, run_date, run_bundle = result
-    required_broker_mode = REQUIRED_BROKER_MODE[source]
-    if required_broker_mode is not None:
-        lane_gaps = _blend_lane_gaps(run_bundle, required_broker_mode)
-        if lane_gaps:
-            return {
-                "status": f"run {run_id} fails {source} lane evidence: {', '.join(lane_gaps)}",
-                "icon": FAIL,
-                "detail": run_id,
-            }
+    lane_gaps = _lane_gaps(run_bundle, LANE_EVIDENCE[source])
+    if lane_gaps:
+        return {
+            "status": f"run {run_id} fails {source} lane evidence: {', '.join(lane_gaps)}",
+            "icon": FAIL,
+            "detail": run_id,
+        }
     return {
         "status": f"date={run_date} (source={source})",
         "icon": OK,

@@ -49,6 +49,12 @@ CREATE TABLE candidate_scores (
 """
 
 _GOOD_BUNDLE = {
+    # 2026-08-05: prod's lane evidence. The fixture carried NO broker_mode
+    # while `REQUIRED_BROKER_MODE["prod"]` was None, so every prod test here
+    # was passing through a guard that did not exist. Safe to require, and
+    # MEASURED not assumed: `broker_mode` is 'alpaca' on 1701 of 1701 live
+    # runs in runs.alpaca.db (2026-05-21 … 2026-08-05) [VERIFIED].
+    "broker_mode": "alpaca",
     "config_hash": "sha256:cfg",
     "artifact_hashes": {
         "panel": "sha256:art1",
@@ -851,12 +857,10 @@ def test_blend_refuses_run_without_both_component_pins(tmp_path, capsys):
     assert "component" in capsys.readouterr().err
 
 
-def test_prod_remains_default_and_stamps_identity(tmp_path):
-    """With no env and no arg the exporter behaves exactly as before the
-    switch (prod DB semantics, no broker_mode enforcement) and now also
-    stamps the identity block so prod vectors are attributable too."""
+def test_prod_is_the_default_and_stamps_identity(tmp_path):
+    """2026-08-05 operator directive: prod is the default again."""
     db = _make_db(tmp_path)
-    _insert_run(db, "2026-07-01-live-prod1")  # _GOOD_BUNDLE: no broker_mode
+    _insert_run(db, "2026-07-01-live-prod1")
     out = tmp_path / "out"
     rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02")
     assert rc == 0
@@ -864,6 +868,82 @@ def test_prod_remains_default_and_stamps_identity(tmp_path):
     assert meta["score_source"] == "prod"
     assert meta["scorer_identity"]["blend_component_sha256s"] == {}
     assert meta["scorer_identity"]["panel_artifact_sha256"] == "sha256:art1"
+
+
+def test_the_WRAPPER_default_is_prod(tmp_path):
+    """The switch the operator actually flips is the launchd wrapper's export
+    line, not this module's fallback. A test on `main()`'s default alone would
+    have stayed green through the whole 2026-07-28 → 08-05 blend period."""
+    line = [ln for ln in (OPS_DIR / "run_batch_scores_export.sh").read_text().splitlines()
+            if ln.startswith("export RQ105_SCORE_SOURCE=")]
+    assert line == ['export RQ105_SCORE_SOURCE="${RQ105_SCORE_SOURCE:-prod}"'], line
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-05: prod is LOAD-BEARING now, so it carries lane evidence too
+# ---------------------------------------------------------------------------
+# `REQUIRED_BROKER_MODE` mapped `prod -> None` — an enumerated table whose
+# default branch was "check nothing". While prod was the unused branch that
+# was merely untidy; the moment rq105 sources from it, it means a mispointed
+# DB exports a shadow lane's vector stamped `score_source="prod"`.
+
+def test_NO_source_may_declare_an_absent_lane_check(tmp_path):
+    """The invariant, not the instance: any future source added with a None
+    (or missing) broker_mode re-opens the same hole."""
+    assert exporter.LANE_EVIDENCE, "an empty table would check nothing at all"
+    for source, evidence in exporter.LANE_EVIDENCE.items():
+        assert evidence.get("broker_mode"), (source, evidence)
+        assert isinstance(evidence.get("min_blend_components"), int), (source, evidence)
+
+
+def test_prod_refuses_a_run_from_the_BLEND_lane(tmp_path, capsys):
+    """The mirror of test_blend_refuses_prod_lane_db, which existed from day
+    one while its prod twin did not."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "2026-07-01-live-blendrun", run_bundle=_BLEND_BUNDLE)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"),
+                       today="2026-07-02", score_source="prod")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "lane evidence" in err and "alpaca_shadow_blend" in err
+    assert not (tmp_path / "out").exists()
+
+
+def test_prod_refuses_a_run_with_NO_broker_mode(tmp_path, capsys):
+    """Absent is not 'fine'. An unstamped run cannot prove which lane it is."""
+    db = _make_db(tmp_path)
+    unstamped = {k: v for k, v in _GOOD_BUNDLE.items() if k != "broker_mode"}
+    _insert_run(db, "2026-07-01-live-unstamped", run_bundle=unstamped)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"),
+                       today="2026-07-02", score_source="prod")
+    assert rc == 1
+    assert "broker_mode=None" in capsys.readouterr().err
+
+
+def test_prod_ACCEPTS_a_run_whose_panel_is_a_composite(tmp_path):
+    """Since the z-blend fullbook went live PROD itself scores with a
+    two-component composite [VERIFIED 2026-08-05 — 17 of the last 40 live prod
+    runs]. A composite panel is not a lane identity, and gating on it would
+    fail-close rq105 the day prod's profile changes."""
+    db = _make_db(tmp_path)
+    prod_composite = {
+        **_GOOD_BUNDLE,
+        "artifact_hashes": {
+            **_GOOD_BUNDLE["artifact_hashes"],
+            "ranking.panel_scoring.components[0].artifact_path": "sha256:c0",
+            "ranking.panel_scoring.components[1].artifact_path": "sha256:c1",
+        },
+    }
+    _insert_run(db, "2026-07-01-live-prodblend", run_bundle=prod_composite)
+    out = tmp_path / "out"
+    rc = exporter.main(db_path=db, out_dir=str(out), today="2026-07-02",
+                       score_source="prod")
+    assert rc == 0
+    meta = json.loads((out / "batch_scores_2026-07-02.meta.json").read_text())
+    assert meta["scorer_identity"]["blend_component_sha256s"] == {
+        "ranking.panel_scoring.components[0].artifact_path": "sha256:c0",
+        "ranking.panel_scoring.components[1].artifact_path": "sha256:c1",
+    }
 
 
 def test_unknown_score_source_is_refused_loudly(tmp_path, capsys):
