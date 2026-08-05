@@ -4,7 +4,11 @@ STATUS: measurement only. Read-only over the job's own logs. **No gate, threshol
 model, config or live surface is touched, and none should be on the strength of this
 alone.**
 
-WHY: `com.renquant.weekly-wf-promote` and `com.renquant.retrain-panel104` are two of
+WHAT: parses every `VERDICT:` line in the 48 dated logs that
+`weekly_wf_promote` writes, and reports the verdict series plus the placebo/real IC ratio the
+enforced sub-gate actually tests. Measurement only — no code path changes.
+
+WHY/DIR: `com.renquant.weekly-wf-promote` and `com.renquant.retrain-panel104` are two of
 the 14 undispositioned failing jobs (see
 `2026-08-05-triage-the-14-undispositioned-failing-jobs.md`). `retrain-panel104` is a
 mirror — it delegates and reports whatever weekly-wf-promote returns — so both rows
@@ -98,7 +102,23 @@ EVIDENCE:
 | newest run's own exit | **0**, "governance nominal" | [VERIFIED — `logs/weekly_wf_promote/2026-08-04.log`] |
 | retrain-panel104 is a mirror | delegates, reports the delegate's result | [VERIFIED — `logs/retrain_panel/2026-08-02.log`] |
 
-NEXT: this is a research question, not an ops fix, so it does not get an ack that
-would quiet it. The two rows stay loud until someone decides whether a lane producing
-`genuine_ic ≈ +0.002` weekly is worth continuing to run — which is a decision, and it
-is recorded here so it can be made against numbers instead of against an exit code.
+artifact: none. Nothing is produced, staged or promoted; the WF gate, its thresholds
+  and the candidate artifacts are untouched.
+prod or exp: neither. A read-only parse of logs the job already wrote. No run was
+  triggered, no model scored, no configuration read into a decision.
+existing data: yes, entirely — the 48 dated logs in `RenQuant/logs/weekly_wf_promote/`,
+  written by the job itself between 2026-05-17 and 2026-08-04. Nothing was regenerated,
+  and no gate was re-executed to produce these numbers.
+best-known?: for the question asked ("is the promote job broken, or refusing
+  correctly?"), yes — the job's own verdict lines are the primary record, and the two
+  criteria it prints (the enforced placebo ratio and the shadow genuine-IC difference)
+  agree. It is explicitly NOT a best-known answer to *why* the candidates carry no edge;
+  that requires opening a model and is out of scope here.
+scope: documentation only. One progress doc; no source file, test, config, schedule or
+  ack is touched.
+
+NEXT: a decision, not a fix. The gate is right and the two launchd rows it drives stay
+loud; what is owed is whether a lane producing `genuine_ic ≈ +0.002` weekly is worth
+continuing to run. Recorded so that decision is made against the series rather than
+against an exit code. Deliberately NOT acked — an ack here would quiet the one signal
+carrying the question.
