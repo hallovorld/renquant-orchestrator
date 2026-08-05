@@ -1,81 +1,84 @@
-# 2026-08-05 — GOAL-3: the twin guard exists in one repo, and its subject is nearly empty in the others
+# 2026-08-05 — GOAL-3: an internal duplicate-definition census, and the guard's missing root
 
-## The question I started with, and the better one underneath it
+## What this is, after review
 
-`renquant-pipeline` has a twin-implementation guard (`tools/twin_pairs.py` +
-`twin_pairs.json` + a one-sided-repin exception file). **No other repo has one**
-`[VERIFIED — 2026-08-05, file presence across all seven]`. The obvious next step
-is "install it everywhere". The prior question is: **would it see anything?**
+**Two separate things, kept separate** `[codex on orch#814]`:
 
-The guard's SUBJECT is `__all__`. Measured `[VERIFIED — this session,
-`scripts/goal3_twin_surface_audit.py`]`:
+**(a) A duplicate-definition CENSUS.** Per package: which module-level public
+names are defined in more than one file, and whether the bodies are identical
+(a copy — divergence risk) or differ (the twin shape — which one does a caller
+reach?).
 
-| repo | `__all__` | module-level public defs | subject coverage | duplicate names | visible to an `__all__` guard |
+**(b) One contract-faithful fact about the guard**, needing no new machinery
+`[VERIFIED — 2026-08-05]`: **`renquant-pipeline` is the only repo with a
+`kernel/` root at all.** Its guard's relation is *export ↔ same-named definition
+under `kernel/`*. Everywhere else that relation is **UNDEFINED — not "passes",
+not "clean", undefined** — so "install the guard there" is not yet a well-formed
+proposal.
+
+### What I had to withdraw
+
+My first version reported a **"guard subject coverage"** percentage (`__all__`
+over all module-level public defs: 3/949 = 0.3% for the orchestrator) and framed
+the census's duplicates as what the guard "cannot see". Both are wrong, and
+codex was right to block them:
+
+- the census's all-files same-name scan is **not the guard's relation**, so its
+  20 pipeline collisions are **not** a positive control for the guard, and its
+  counts must never be compared with the guard's;
+- the coverage percentage compared **the documented API against unrelated
+  internal names** — a ratio of two things that are not about each other.
+
+Both are removed from the tool, its output, this document and the tests, and a
+test keeps them removed.
+
+## The census, measured `[VERIFIED — this session]`
+
+| repo | `__all__` | public defs | duplicate names | also exported | `kernel/` root |
 |---|---|---|---|---|---|
-| renquant-pipeline | 56 | 836 | 6.7% | 24 | **20** |
-| renquant-orchestrator | **3** | 949 | **0.3%** | **42** | **0** |
-| renquant-backtesting | 2 | 348 | 0.6% | 34 | 0 |
-| renquant-base-data | 7 | 261 | 2.7% | 30 | 0 |
-| renquant-execution | 125 | 132 | 94.7% | 1 | 0 |
-| renquant-common | 53 | 152 | 34.9% | 0 | 0 |
-| renquant-strategy-104 | 2 | 13 | 15.4% | 0 | 0 |
+| renquant-pipeline | 56 | 836 | 24 | 20 | **present** |
+| renquant-orchestrator | 3 | 949 | **42** | 0 | absent |
+| renquant-backtesting | 2 | 348 | 34 | 0 | absent |
+| renquant-base-data | 7 | 261 | 30 | 0 | absent |
+| renquant-execution | 125 | 132 | 1 | 0 | absent |
+| renquant-common | 53 | 152 | 0 | 0 | absent |
+| renquant-strategy-104 | 2 | 13 | 0 | 0 | absent |
 
-**Installing the pipeline guard in the orchestrator today would report clean
-forever** — not because the repo is clean, but because its subject covers 3 of
-949 definitions. That is the registry's own defect class (a check whose subject
-is not the object you assume), one level up from the sites it records.
+## The candidates, and the negative result
 
-## What is actually there
+Shapes in the orchestrator `[VERIFIED — body digests]`: `BuildAlpha158PanelTask`
+(fund 13 L vs linear 15 L, different bodies), `RefitCalibratorTask` (fund 18 L vs
+patchtst 23 L), `RetrainJob` in four files, `EmitJob` identical
+(`21f0b25f6e90`) in two manifest builders.
 
-The orchestrator's 42 duplicate-definition names are **not** `main()` noise.
-Verified examples `[VERIFIED — body digests read this session]`:
+**None of them is a twin.** `[VERIFIED — codex on orch#814, reading the call
+sites]` Each is instantiated only by its own module-local job
+(`retrain_alpha158_linear.py:146-153`, `retrain_alpha158_fund.py:1581-1593`,
+`retrain_patchtst.py:322-330`) — no caller shadowing, no "which copy runs"
+ambiguity. Same-named Tasks in separate retrain modules.
 
-- `BuildAlpha158PanelTask` — `retrain_alpha158_fund.py` (13 L) vs
-  `retrain_alpha158_linear.py` (15 L), **different bodies**
-- `RefitCalibratorTask` — `retrain_alpha158_fund.py` (18 L) vs
-  `retrain_patchtst.py` (23 L), **different bodies**
-- `RetrainJob` — **four** files
-- `EmitJob` — `build_patchtst_wf_manifest.py` vs `build_wf_manifest.py`,
-  **identical digest** `21f0b25f6e90` (a copy, i.e. a divergence risk rather
-  than a which-one-runs risk)
-
-Tasks and Jobs in retrain and manifest chains — exactly the class of object the
-twin problem is about.
-
-## What this does NOT claim
-
-**A duplicate is a candidate, not a verdict.** Same-name-in-two-files is where
-you start reading, not a finding: confirming a twin means reading both bodies
-and deciding which one the callers reach. This produces the work list and says
-so in its own output. No count here should be quoted as "42 twins".
+**Of the four candidates actually read, zero are twins.** A duplicate is where
+you start reading, not a finding, and the tool says so in its own output.
 
 ## The near-miss worth recording
 
-My first version of this measurement parsed `__all__` with `ast.literal_eval`
-and reported **zero duplicates in every repo, including pipeline**. It looked
-like a clean bill of health. The positive control caught it: pipeline is *known*
-to have ~19, so a method that finds none there is broken — `__all__` is built
-dynamically in that package, `literal_eval` failed, and the `if not names:
-continue` skipped the repo silently. **A silent skip is a vacuous pass.** The
-tool now imports the package and reads `__all__` off the module, the way the
-pipeline guard does.
+My first measurement parsed `__all__` with `ast.literal_eval` and reported
+**zero duplicates in every repo, including pipeline** — a clean bill of health.
+The positive control caught it: pipeline is *known* to have ~20, so a method
+finding none there is broken. `__all__` is built dynamically in that package,
+`literal_eval` returned `[]`, and `if not names: continue` skipped the repo
+silently. **A silent skip is a vacuous pass.**
 
-And the control is now **in the suite, not only in this paragraph**
-`[codex on orch#814]`: I had described it in prose while the tests only checked
-loose thresholds on this repo, so a regression to the dynamic-`__all__` failure
-would still have passed.
-`test_the_POSITIVE_CONTROL_is_in_the_SUITE_not_only_in_the_prose` calls
-`audit("renquant_pipeline")` and requires its known exported duplicates to be
-found; a companion test states the dependency plainly — *"orchestrator has no
-exported duplicates" means something only because the same call finds
-pipeline's*.
+And the control is now **in the suite, not only in this paragraph**: I had
+described it in prose while the tests checked only loose thresholds on this
+repo, so a regression to the dynamic-`__all__` failure would still have passed.
 
 ## NEXT
 
-1. Decide per repo whether the answer is "widen `__all__`" or "scope the guard
-   to something other than `__all__`" — they are different fixes and this
-   measurement does not choose between them.
-2. Read the orchestrator's top candidates (the retrain Tasks first — they sit on
-   the model-production path) and record which ones are real twins.
+The useful next step is **not** "install the guard elsewhere" — that proposal
+does not parse without a counterpart root. It is to decide, per repo, whether a
+public/internal split like pipeline's is even the right shape, and separately to
+read down the census's candidate list (the retrain Tasks first, since they sit
+on the model-production path).
 
-Suites: 10 new tests · 5634 passed, 2 skipped repo-wide.
+Suites: 14 tests · 5638 passed, 2 skipped repo-wide.
