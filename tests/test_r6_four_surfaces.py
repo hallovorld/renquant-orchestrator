@@ -23,9 +23,15 @@ REGISTRY = (pathlib.Path(__file__).resolve().parent.parent / "doc" / "arch"
 PINNED = "/Users/renhao/git/github/renquant-strategy-104/configs"
 UMBRELLA = "/Users/renhao/git/github/RenQuant/backtesting/renquant_104"
 
+# Re-measured 2026-08-04 after the operator-directed full-book z-blend switch
+# (s104#88): the PINNED pair moved xgb -> blend TOGETHER, so the shape this file
+# exists to record — two internally-consistent pairs that disagree ACROSS the
+# pinned/umbrella boundary — survives the change; only the pinned pair's value
+# moved. That is the point of pinning the values: the switch had to re-declare
+# them here rather than inherit the old row.
 SURFACES = (
-    ("pinned", f"{PINNED}/strategy_config.json", "xgb"),
-    ("pinned_golden", f"{PINNED}/strategy_config.golden.json", "xgb"),
+    ("pinned", f"{PINNED}/strategy_config.json", "blend"),
+    ("pinned_golden", f"{PINNED}/strategy_config.golden.json", "blend"),
     ("umbrella", f"{UMBRELLA}/strategy_config.json", "hf_patchtst"),
     ("umbrella_golden", f"{UMBRELLA}/strategy_config.golden.json", "hf_patchtst"),
 )
