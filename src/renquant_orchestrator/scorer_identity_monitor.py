@@ -229,6 +229,32 @@ class LaneIdentity:
 _ABSENT = "(lane not stamped)"
 
 
+def _shadow_lane_name(index_key: str, artifact_path: str | None) -> str:
+    """Name a shadow lane by WHAT it serves, not by WHERE it sits in the list.
+
+    `shadow_models[i]` is a POSITION, and the lineup's membership changes: when
+    PatchTST was retired on 2026-08-02 and the momentum lanes activated, the list
+    went `[patchtst, clf]` → `[clf, momentum]` → `[clf, momentum, momentum_fast]`.
+    Keyed by index that reads as three "silent scorer swaps", and the clf leg —
+    whose artifact never changed — is counted TWICE, once as lane 0's new value and
+    once as lane 1's old value. Measured on the real bundles for
+    2026-07-31-live-381747dd → 2026-08-03-live-2499e454 → 2026-08-04-live-df731314.
+
+    Keyed by artifact path the same three boundaries read as what happened: one lane
+    retired, one added, one third slot stamped with no hash, and the clf leg silent.
+
+    The full path, not the basename: 2026-08-04 stamps
+    `artifacts/momentum/momentum_artifact_ledger.jsonl` and
+    `artifacts/momentum_fast/momentum_artifact_ledger.jsonl` in two different slots.
+    Basenames collide and one lane would silently overwrite the other.
+
+    A lane with no stamped path keeps its positional name — that is a real gap in the
+    bundle, and inventing a stable identity for it would hide it.
+    """
+    path = (artifact_path or "").strip()
+    return f"shadow:{path}" if path else f"shadow:{index_key}(no stamped path)"
+
+
 def _absent_lane(lane: str) -> LaneIdentity:
     return LaneIdentity(lane=lane, artifact_sha=_ABSENT)
 
@@ -362,11 +388,12 @@ def extract_identity(
         match = _SHADOW_KEY_RE.search(key)
         if match is None:
             continue
-        lane_name = match.group(0)
+        lane_path = str(paths.get(key) or "") or None
+        lane_name = _shadow_lane_name(match.group(0), lane_path)
         lanes[lane_name] = LaneIdentity(
             lane=lane_name,
             artifact_sha=_norm_sha(hashes.get(key)),
-            artifact_path=str(paths.get(key) or "") or None,
+            artifact_path=lane_path,
         )
 
     return RunIdentity(run_id, run_date, created_at, lanes, usable=True)
