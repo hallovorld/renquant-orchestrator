@@ -48,17 +48,31 @@ JOBS = (
      PILOT / "entry_timing_shadow.jsonl", "post-close entry-timing shadow"),
     ("rq105-postclose-pairing", "intraday_pairing_logger",
      PILOT / "paired_is.jsonl", "paired implementation-shortfall rows"),
+    # A DATED product: the path depends on the session, so it is a template.
+    # [codex on orch#815] This entry used to be `None`, so the probe reported
+    # RAN off the log alone while the PR body cited the json file as evidence —
+    # a claim the probe did not encode.
     ("rq105-batch-scores-export", "batch_scores_export",
-     None, "dated batch_scores_<date>.json (checked per date)"),
+     "batch_scores_{date}.json", "dated batch_scores_<date>.json"),
     ("rq105-session-scheduler", "session_scheduler", None, "drives the loop"),
     ("rq105-shadow-serving", "shadow_serving", None,
      "SKIPs by design until the Stage-3 producer exists (#221)"),
 )
 
-STATE_RAN = "RAN"
+STATE_RAN = "WROTE_OUTPUT"
 STATE_NO_LOG = "NO_LOG_FOR_SESSION"
+STATE_LOG_EMPTY = "LOG_EMPTY"
 STATE_STALE_PRODUCT = "PRODUCT_STALE"
-ACTIONABLE = (STATE_NO_LOG, STATE_STALE_PRODUCT)
+ACTIONABLE = (STATE_NO_LOG, STATE_LOG_EMPTY, STATE_STALE_PRODUCT)
+
+
+def _resolve_product(product, date: str):
+    """A product entry is a Path, a dated template string, or None."""
+    if product is None:
+        return None
+    if isinstance(product, str):
+        return DATA / product.format(date=date)
+    return product
 
 
 def _mtime(path: pathlib.Path):
@@ -73,6 +87,7 @@ def probe(date: str) -> list[dict]:
     for job, stem, product, description in JOBS:
         log = LOGS / f"{stem}_{date}.log"
         log_at = _mtime(log)
+        product = _resolve_product(product, date)
         row = {"job": job, "log": log.name, "log_written_at": None,
                "product": str(product) if product else None,
                "product_description": description,
@@ -83,7 +98,23 @@ def probe(date: str) -> list[dict]:
             out.append(row)
             continue
         row["log_written_at"] = log_at.strftime("%Y-%m-%d %H:%M")
-        row["state"], row["detail"] = STATE_RAN, "dated log written for this session"
+        # A 0-BYTE dated log is a redirection artefact, not a run. [codex on
+        # orch#815] `session_scheduler_2026-08-04.log` is exactly this: 0 bytes,
+        # birth == mtime, which is what `>> file` creates before the program
+        # emits anything. Reporting that as RAN is the same wrong-object error
+        # this probe exists to correct, one level in.
+        try:
+            empty = log.stat().st_size == 0
+        except OSError:
+            empty = True
+        if empty:
+            row["state"] = STATE_LOG_EMPTY
+            row["detail"] = (f"{log.name} exists but is EMPTY — shell redirection "
+                             f"creates the file before the program writes, so this "
+                             f"is not evidence the job ran")
+            out.append(row)
+            continue
+        row["state"], row["detail"] = STATE_RAN, "wrote output during this session"
         if product is not None:
             p_at = _mtime(product)
             row["product_fresh_at"] = p_at.strftime("%Y-%m-%d %H:%M") if p_at else None
@@ -115,6 +146,10 @@ def render(rows: list[dict], date: str) -> str:
     lines.append("NOTE: StandardOutPath is NOT the object — these wrappers "
                  "redirect to a dated log,\n      so a 0-byte StandardOutPath "
                  "says nothing about whether the job ran.")
+    lines.append("SCOPE: this measures whether the job WROTE OUTPUT during the "
+                 "session. It does\n       NOT establish that a SCHEDULED "
+                 "firing produced it — a manual invocation\n       on the same "
+                 "day is indistinguishable here. [codex on orch#815]")
     return "\n".join(lines)
 
 
