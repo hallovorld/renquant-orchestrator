@@ -177,9 +177,34 @@ def test_the_LIVE_2026_08_04_session_refutes_the_stdout_reading():
     for job in ("rq105-quote-logger", "rq105-shadow-serving",
                 "rq105-batch-scores-export"):
         assert rows[job]["state"] == P.STATE_RAN, (job, rows[job])
-    # and the probe must still be SAYING the two open ones are open
-    assert rows["rq105-session-scheduler"]["state"] == P.STATE_LOG_EMPTY
-    assert rows["rq105-postclose-pairing"]["state"] == P.STATE_STALE_PRODUCT
+
+    # NOT asserted: that session-scheduler is still LOG_EMPTY and that
+    # postclose-pairing is still PRODUCT_STALE.
+    #
+    # Those two lines were here, and on 2026-08-05 the second one went RED —
+    # because the pairing product CAUGHT UP. `rq105-postclose-pairing` now reads
+    # WROTE_OUTPUT. A test that fails when production gets BETTER is measuring the
+    # wrong thing: it had pinned a transient degraded reading as though it were
+    # fixed evidence, so the only way to keep it green was for the loop to stay
+    # broken.
+    #
+    # What this test is for survives untouched: #621 claimed these jobs had been
+    # silent ~28 days, and four of six writing non-empty dated logs refutes that.
+    # That evidence only ever gets stronger. The narrowing the review asked for —
+    # "it does NOT claim the loop is healthy" — is carried by the docstring and by
+    # NOT asserting health, which is different from asserting ill health.
+    #
+    # The invariant that does hold either way: every job gets a state the probe
+    # actually defines. Silence dressed up as an unrecognised value is the failure
+    # mode a liveness probe cannot have.
+    # Derived from the module, not hand-listed: a hand-list silently accepts
+    # nothing new and silently rejects every state added later, which turns this
+    # into a rename detector instead of a contract check.
+    known = {v for k, v in vars(P).items()
+             if k.startswith("STATE_") and isinstance(v, str)}
+    assert known, "the probe declares no STATE_* constants — read the contract again"
+    for job, row in rows.items():
+        assert row["state"] in known, (job, row, sorted(known))
 
 
 def test_the_live_batch_export_entry_actually_has_a_product():
