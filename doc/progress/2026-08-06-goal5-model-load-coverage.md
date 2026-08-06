@@ -66,9 +66,17 @@ absolute floor still applies to it, so the state is not a hole. Requiring **both
 pinned by test, including the twin case where a uniformly low fleet drags the
 trailing median down so only the absolute floor can fire.
 
-**`UNREADABLE` exits 2, not 1.** A session that could not be checked outranks one
-that was checked and found bad — the same rule the aggregator uses, and the reason
-`2` is not declared as a finding exit in `MEMBERS`.
+**A collapse outranks an unreadable neighbor, not the reverse.** `UNREADABLE`
+exits 2 when it is the ONLY problem in the window — `2` is not declared as a
+finding exit in `MEMBERS`, so an unreadable-only window lands on HARNESS. But
+exit 1 fires whenever `n_collapsed` is nonzero, even alongside unreadable
+sessions: the live logs carry three unreadable historical sessions in the same
+30-day window as the six collapsed ones this detector exists to catch, and an
+earlier revision let UNREADABLE's exit 2 win that race — `ops_audit` reads exit
+2 as `unusable`, silently discarding the collapse finding on the one path this
+detector is wired into (codex on this PR). `render()`'s first line now names the
+collapsed dates too, so the truncated `detail` the aggregate surface prints is
+no longer the generic `model-load coverage — N session(s)` header.
 
 **First match wins** when reading the log: shadow lanes replay the same bar and log
 their own counts, so reading the last match would report a shadow lane's fleet as

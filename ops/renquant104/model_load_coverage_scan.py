@@ -41,8 +41,15 @@ A day that fails EITHER is a finding. This is deliberately not an
 mean each can veto the other.
 
 REFUSALS. A missing log, or a log with no `Loaded models` line, is
-`UNREADABLE` -> exit 2, never "coverage fine". A checker that cannot see is not a
-checker that saw nothing wrong -- and this whole defect class is invisibility.
+`UNREADABLE`, never "coverage fine". Exit 2 when that is the ONLY problem in the
+window -- a checker that cannot see is not a checker that saw nothing wrong. But
+a collapse outranks an unreadable neighbor: exit 1 fires whenever `n_collapsed`
+is nonzero, even alongside unreadable sessions. The live logs have three
+unreadable historical sessions sitting in the same 30-day window as the six
+collapsed ones this detector exists to catch (codex on orch#878) -- an earlier
+revision let UNREADABLE's exit 2 win that race, which `ops_audit` reads as
+`unusable` (2 is not a declared finding exit), silently discarding the collapse
+finding on the one path this detector is actually wired into.
 
 Read-only. Usage:
     python ops/renquant104/model_load_coverage_scan.py [--days 30] [--json]
@@ -182,7 +189,12 @@ def scan(log_dir: pathlib.Path = LOG_DIR, days: int = 30,
 
 
 def render(r: dict) -> str:
-    out = [f"model-load coverage — {r['n_sessions']} session(s)", ""]
+    if r["n_collapsed"]:
+        dates = ", ".join(x["date"] for x in r["collapsed"])
+        out = [f"{r['n_collapsed']} session(s) decided on a skeleton model "
+               f"fleet: {dates}", ""]
+    else:
+        out = [f"model-load coverage — {r['n_sessions']} session(s)", ""]
     out.append(f"  trailing median coverage : "
                f"{'—' if r['trailing_median_frac'] is None else f'{100*r[chr(116)+chr(114)+chr(97)+chr(105)+chr(108)+chr(105)+chr(110)+chr(103)+chr(95)+chr(109)+chr(101)+chr(100)+chr(105)+chr(97)+chr(110)+chr(95)+chr(102)+chr(114)+chr(97)+chr(99)]:.1f}%'}")
     out.append(f"  absolute floor           : {100*r['min_frac']:.0f}%")
@@ -196,7 +208,6 @@ def render(r: dict) -> str:
                        f"({100*x['frac']:>5.1f}%)  {x['state']}")
     out.append("")
     if r["n_collapsed"]:
-        out.append(f"  {r['n_collapsed']} session(s) decided on a skeleton model fleet.")
         out.append("  A run that scores every candidate against a missing artifact")
         out.append("  reports a clean no-trade. That is the defect, not the no-trade.")
     else:
@@ -223,9 +234,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSING: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(r, indent=2) if a.json else render(r))
+    # A collapse outranks an unreadable neighbor: never let UNREADABLE's exit 2
+    # mask a COLLAPSED_VS_TRAILING / BELOW_ABSOLUTE_FLOOR finding (orch#878).
+    if r["n_collapsed"]:
+        return 1
     if r["n_unreadable"]:
         return 2
-    return 1 if r["n_collapsed"] else 0
+    return 0
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from ops.renquant104.model_load_coverage_scan import (  # noqa: E402
     BELOW_ABSOLUTE, BELOW_TRAILING, INSUFFICIENT, NoSessions, OK, UNREADABLE,
-    dated_logs, main, read_coverage, scan,
+    dated_logs, main, read_coverage, render, scan,
 )
 
 
@@ -90,9 +90,9 @@ def test_a_log_with_no_loaded_line_is_UNREADABLE_not_OK(tmp_path):
     assert r["n_unreadable"] == 1
 
 
-def test_unreadable_forces_exit_2_not_1(tmp_path):
-    """A session that could not be checked outranks one that was checked and
-    found bad — same rule the ops-audit aggregator uses."""
+def test_unreadable_alone_exits_2_not_0(tmp_path):
+    """No collapse in this window, but a session that could not be checked must
+    not read as a clean pass either."""
     _log(tmp_path, "2026-07-10", 120)
     _log(tmp_path, "2026-07-11", None)
     assert main(["--log-dir", str(tmp_path)]) == 2
@@ -103,6 +103,23 @@ def test_collapse_alone_exits_1(tmp_path):
         _log(tmp_path, f"2026-07-{10+i:02d}", 120)
     _log(tmp_path, "2026-07-20", 4)
     assert main(["--log-dir", str(tmp_path)]) == 1
+
+
+def test_collapse_outranks_a_coexisting_unreadable_session(tmp_path):
+    """codex on orch#878: on the live logs, three unreadable historical sessions
+    sit in the same window as six collapsed ones. An earlier revision let the
+    unreadable session's exit 2 win, which `ops_audit` reads as `unusable` (2 is
+    not a declared finding exit) — silently discarding the collapse finding on
+    the one path this detector is wired into. The collapse must win the exit
+    code, never the unreadable neighbor."""
+    for i in range(4):
+        _log(tmp_path, f"2026-07-{10+i:02d}", 120)
+    _log(tmp_path, "2026-07-20", 4)          # the collapse
+    _log(tmp_path, "2026-07-21", None)       # the unreadable neighbor
+    r = scan(tmp_path, days=30)
+    assert r["n_collapsed"] == 1 and r["n_unreadable"] == 1
+    assert main(["--log-dir", str(tmp_path)]) == 1
+    assert "2026-07-20" in render(r)         # the detail line names the date
 
 
 def test_all_healthy_exits_0(tmp_path):

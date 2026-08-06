@@ -173,10 +173,16 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     # ORDERS. Every one reported a clean no-trade or nothing at all, and zero
     # alerts fired on any of them.
     #
-    # Exit contract read from source: `return 2` on NoSessions and on any
-    # UNREADABLE session; `return 1` on a collapse; 0 otherwise. Only 1 is
-    # declared, so an unreadable session lands on HARNESS by the default rule --
-    # which is the intent, since invisibility is the defect class itself.
+    # Exit contract read from source: `return 2` on NoSessions and on an
+    # unreadable-only window; `return 1` whenever a collapse is present, even
+    # alongside unreadable sessions; 0 otherwise. Only 1 is declared, so an
+    # unreadable-only window lands on HARNESS by the default rule -- the intent,
+    # since invisibility is the defect class itself. Collapse outranking a
+    # coexisting unreadable session (not the reverse) is load-bearing: the live
+    # logs have unreadable historical sessions sitting in the same window as the
+    # collapsed ones this member exists to catch, and an earlier revision let
+    # the unreadable code win, which read as HARNESS here and silently dropped
+    # the collapse finding (codex on orch#878).
     ("model-load-coverage", "renquant104/model_load_coverage_scan.py", [], (1,)),
 )
 
