@@ -90,7 +90,7 @@ def compare(prod_ps: dict, lane_ps: dict) -> dict:
 def scan(configs: pathlib.Path = DEFAULT_CONFIGS) -> dict:
     try:
         prod_ps = scoring_block(json.loads((configs / PROD).read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ProdConfigUnreadable(
             f"{configs / PROD}: {exc} — without prod there is no baseline, and "
             "reporting every lane as a control would publish a missing "

@@ -95,6 +95,13 @@ def test_missing_prod_refuses_rather_than_calling_every_lane_a_control(tmp_path)
         scan(tmp_path)
 
 
+def test_non_utf8_prod_config_raises_ProdConfigUnreadable(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "strategy_config.json").write_bytes(b"\xff\xfe\x00\x01")
+    with pytest.raises(ProdConfigUnreadable):
+        scan(tmp_path)
+
+
 def test_prod_with_empty_panel_scoring_refuses(tmp_path):
     _cfg(tmp_path, "strategy_config.json", {})
     with pytest.raises(ProdConfigUnreadable):
@@ -122,6 +129,16 @@ def test_unreadable_lane_makes_the_cli_exit_nonzero(tmp_path):
     _cfg(tmp_path, "strategy_config.json", BASE)
     (tmp_path / "strategy_config.shadow_bad.json").write_text("{nope", encoding="utf-8")
     assert main(["--configs", str(tmp_path)]) == 1
+
+
+def test_non_utf8_prod_config_refuses_rather_than_crashing(tmp_path):
+    """A UnicodeDecodeError on the PRIMARY read must land in REFUSING (exit 2),
+    not propagate uncaught — an uncaught exception exits 1, which ops_audit
+    reads as a finding, misclassifying a corrupted baseline as a clean fleet."""
+    from ops.renquant104.shadow_lane_control_probe import main
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "strategy_config.json").write_bytes(b"\xff\xfe\x00\x01")
+    assert main(["--configs", str(tmp_path)]) == 2
 
 
 # --- it must not overclaim ------------------------------------------------

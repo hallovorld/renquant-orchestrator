@@ -61,7 +61,7 @@ def identity(entry: dict) -> tuple:
 def scan(config: pathlib.Path = DEFAULT_CONFIG) -> dict:
     try:
         payload = json.loads(config.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ConfigUnreadable(f"{config}: {exc}") from exc
     ps = ((payload.get("ranking") or {}).get("panel_scoring") or {})
     if not isinstance(ps, dict) or not ps:
