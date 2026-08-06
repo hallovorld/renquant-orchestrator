@@ -15,6 +15,11 @@ EVIDENCE: `logs/daily_104/2026-08-04.log` shows 3 runs each reporting `held=5`, 
           (not the `trades` table, which contained 45/63 `buy_pending` rows that never reached the
           broker) matches the live book exactly. `[VERIFIED — this session, Alpaca API +
           logs/daily_104/2026-08-04.log + selection.py/task_selection.py read this session]`
+          artifact:      Alpaca live account API + `logs/daily_104/2026-08-04.log`
+          prod or exp:   prod — live account holdings and the live daily runner's own logs
+          existing data: the `trades` DB table, shown here to be unreliable (45/63 buy_pending rows never reached the broker)
+          best-known?:   n/a — this is a live-account reconciliation, not a model-variant comparison
+          scope:         "this is the live book's own holdings count, prod, vs. the config's max_concurrent_positions — no model skill claim is made"
 NEXT:     `open_slots` must subtract in-flight buy intents, not just filled holdings —
           `effective_held = filled_positions ∪ accepted_unfilled_buy_orders`, using the broker's
           open-orders list (not `ctx.holdings`) as the authoritative source. Not yet implemented
