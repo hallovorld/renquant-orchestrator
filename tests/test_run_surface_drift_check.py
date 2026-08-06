@@ -190,12 +190,16 @@ class TestManifestGeneration:
     #: this set and keeps alarming — that alarm is the designed reminder to finish the
     #: uninstall (CONTAINMENT PROTOCOL), and the exact-equality assertion below goes red
     #: the moment the plist is gone, forcing this entry's deletion.
-    #:
-    #: com.renquant.crypto-session: G2 crypto was KILLED 2026-07-18 by its preregistered
-    #: gate. The job kept firing every 900s against a target that exists in NEITHER
-    #: checkout — measured 1,322 runs, all exit 2 (900 when first recorded on
-    #: 2026-08-02, orch#700). Evidence: tests/test_crypto_session_dead_job_evidence.py.
-    PENDING_UNINSTALL: set[str] = {"com.renquant.crypto-session"}
+    #: 2026-08-06: `com.renquant.crypto-session` was booted out and its plist removed
+    #: from the machine, so `retiring` lost the label and the exact-equality test went
+    #: red with `resolved=['com.renquant.crypto-session']` — exactly the designed
+    #: prompt. The entry leaves the set in this change. (G2 crypto was KILLED
+    #: 2026-07-18 by its preregistered gate; the job had kept firing every 900s
+    #: against a target absent from BOTH checkouts — 1,322 runs, all exit 2. The
+    #: standing record is tests/test_crypto_session_dead_job_evidence.py, which is
+    #: NOT deleted: the evidence outlives the containment.)
+    #: Empty until a future retirement declares a pending state by name.
+    PENDING_UNINSTALL: set[str] = set()
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
