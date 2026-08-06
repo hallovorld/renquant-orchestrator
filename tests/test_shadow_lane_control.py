@@ -117,6 +117,25 @@ def test_unreadable_lane_is_its_own_state_not_a_control(tmp_path):
     assert r["n_copies_of_prod"] == 0
 
 
+def test_non_utf8_lane_config_is_unreadable_not_a_crash(tmp_path):
+    """A UnicodeDecodeError on a per-lane (shadow) read must land that lane in
+    UNREADABLE, not propagate uncaught — one corrupted shadow config must not
+    take down the whole audit member (codex MED on orch#871)."""
+    _cfg(tmp_path, "strategy_config.json", BASE)
+    (tmp_path / "strategy_config.shadow_bad.json").write_bytes(b"\xff\xfe\x00\x01")
+    r = scan(tmp_path)
+    assert r["n_unreadable"] == 1
+    assert r["lanes"][0]["state"] == UNREADABLE
+    assert r["n_copies_of_prod"] == 0
+
+
+def test_non_utf8_lane_config_makes_the_cli_exit_nonzero(tmp_path):
+    from ops.renquant104.shadow_lane_control_probe import main
+    _cfg(tmp_path, "strategy_config.json", BASE)
+    (tmp_path / "strategy_config.shadow_bad.json").write_bytes(b"\xff\xfe\x00\x01")
+    assert main(["--configs", str(tmp_path)]) == 1
+
+
 def test_lane_without_panel_scoring_is_unreadable_not_a_copy(tmp_path):
     _cfg(tmp_path, "strategy_config.json", BASE)
     (tmp_path / "strategy_config.shadow_empty.json").write_text(

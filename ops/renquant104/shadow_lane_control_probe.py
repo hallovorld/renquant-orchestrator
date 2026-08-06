@@ -103,7 +103,7 @@ def scan(configs: pathlib.Path = DEFAULT_CONFIGS) -> dict:
     for f in sorted(configs.glob("strategy_config.shadow*.json")):
         try:
             ps = scoring_block(json.loads(f.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             lanes.append({"lane": f.name, "state": UNREADABLE, "detail": str(exc)})
             continue
         if not ps:
