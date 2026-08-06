@@ -21,19 +21,32 @@ WHAT:     Operator grant, verbatim: **"你直接帮我把当前模型不看好�
           | **GOOG** | **1** | **$358** | **manual** | worst model rank of all ten holdings |
           | **WELL** | **3** | **$701** | **manual** | lowest model expected return of all ten |
 
+          `[VERIFIED — Alpaca order ids in EVIDENCE below; MRVL/NVDA also
+          logs/daily_104/2026-08-06.log:518,1068]` for order id, ticker, qty,
+          placed-by; `≈value` is qty × last traded price read from the same
+          session's positions API.
+
           **Projected, contingent on all four fills** — Book 10 -> 6 positions,
-          `open_slots` -2 -> +2, cash ≈47.3% -> ≈61.0% (≈$1,487 released). These
+          `open_slots` -2 -> +2, cash ≈47.3% -> ≈61.0% (≈$1,487 released).
+          `[DERIVED — 10 - 4 orders = 6 positions; 8 (max_concurrent_positions)
+          - 6 = +2 open_slots; settled_cash $5,141.57 / equity ≈$10,870
+          [VERIFIED — logs/daily_104/2026-08-06.log:212] = 47.3%;
+          ($5,141.57 + $1,487 order value) / $10,870 = 61.0%]`. These
           are the outcome IF all four DAY orders fill at submission size; a
           reject, cancel, or partial fill on any of the four changes them. See
           RECONCILIATION for the actual post-open figures.
 
-WHY/DIR:  The operator's directive of the same day sets `max_concurrent_positions=8`.
-          The book held 10, so `open_slots = 8 - 10 = -2` and `PrepareSelectionTask`
-          returned `no open slots` on every run — the buy path was closed regardless
-          of any sizing change. Nothing in the system trims a book that is over its
-          cap; it only declines to buy and waits for model-driven exits. Two exits
-          fired on their own today; two more were needed to reopen a slot, and the
-          operator chose to take them by hand rather than wait.
+WHY/DIR:  The operator's directive of the same day sets `max_concurrent_positions=8`
+          `[VERIFIED — renquant-strategy-104/configs/strategy_config.json:185]`.
+          The book held 10 `[VERIFIED — Alpaca positions API, this session]`, so
+          `open_slots = 8 - 10 = -2` `[DERIVED]` and `PrepareSelectionTask`
+          returned `no open slots` on every run
+          `[VERIFIED — logs/daily_104/2026-08-06.log:503,1053]` — the buy path
+          was closed regardless of any sizing change. Nothing in the system
+          trims a book that is over its cap; it only declines to buy and waits
+          for model-driven exits. Two exits fired on their own today; two more
+          were needed to reopen a slot, and the operator chose to take them by
+          hand rather than wait.
 
 EVIDENCE:
 artifact:      Alpaca order ids `38b3752d` (GOOG), `f67cea9f` (WELL), `cec40153`
@@ -44,6 +57,9 @@ existing data: per-name model view read from the production rotation tree in
                `logs/daily_104/2026-08-06.log` (the `ROTATION_TREE ... held=` lines),
                joined against the live positions API [VERIFIED — this session]:
 
+`[VERIFIED — logs/daily_104/2026-08-06.log:459,469,479,489,499 (ROTATION_TREE
+held= lines) + Alpaca positions API, this session]` for every field in the
+table below:
 ```
 ticker  mktval$   %equity  unreal%   model_er   model_rank  held_d
 GOOG        358      3.3    -5.72    +0.0252     0.104        108   <- worst rank
@@ -72,8 +88,14 @@ NEXT:     Required reconciliation after the 09:30 ET open (see RECONCILIATION
           = 2` become an established fact; until then it is the projection
           this doc already flags as contingent. Once reconciled, whether the
           book then actually buys depends on `VetoWeakBuysTask`'s relative
-          floor (108 scanned -> 84 ranked -> 2-3 admitted today), not on slot
-          count alone.
+          floor — 108 scanned `[VERIFIED — logs/daily_104/2026-08-06.log:422,972,
+          "Phase 2b (buy scan): 108 candidates from 110 tickers"]` -> 84 ranked
+          `[VERIFIED — logs/daily_104/2026-08-06.log:449,999,
+          "SortCandidatesTask: 84 ranked"]` -> 2-3 admitted
+          `[ASSUMED — typical veto-floor pass rate on other sessions; NOT
+          measured today because PrepareSelectionTask's "no open slots"
+          short-circuit ran before VetoWeakBuysTask, so no admitted-count log
+          line exists in today's log]`, not on slot count alone.
 
 ## RECONCILIATION (fill in after the 09:30 ET open)
 
@@ -94,15 +116,19 @@ forward from the projection in WHAT.
    The model rates them lowest *today*; that is a ranking, not a forecast of the
    realised difference against holding them.
 2. **That the model's per-name `rank` is calibrated across names.** All ten
-   holdings score 0.10-0.34 while the rejected buy candidate CRWD scored 3.050 —
-   a 9-21x gap. The within-book ordering was used; the absolute levels were not
-   interpreted.
-3. **WELL was bought one day earlier.** Selling a 1-day-old position is the churn
-   that `min_hold` exists to prevent; that guard was bypassed by acting by hand.
-   It is recorded here rather than smoothed over.
+   holdings score 0.10-0.34 `[VERIFIED — table above, min GOOG 0.104, max TSLA
+   0.340]` while the rejected buy candidate CRWD scored 3.050
+   `[VERIFIED — logs/daily_104/2026-08-06.log:450, cand=CRWD cand_rank=3.050]` —
+   a 9-29x gap `[DERIVED — 3.050 / 0.340 = 9.0x; 3.050 / 0.104 = 29.3x]`. The
+   within-book ordering was used; the absolute levels were not interpreted.
+3. **WELL was bought one day earlier.** Selling a 1-day-old position
+   `[VERIFIED — table above, WELL held_d=1]` is the churn that `min_hold`
+   exists to prevent; that guard was bypassed by acting by hand. It is
+   recorded here rather than smoothed over.
 4. **DDOG at -19.43% was NOT sold** despite being the largest unrealised loss,
-   because the model still rates it mid-pack (`rank` 0.287, `er` +0.0292). The
-   selection followed the model, not the P&L.
+   because the model still rates it mid-pack (`rank` 0.287, `er` +0.0292)
+   `[VERIFIED — table above, DDOG row]`. The selection followed the model,
+   not the P&L.
 
 ## REVERT
 
