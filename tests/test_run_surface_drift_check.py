@@ -384,3 +384,109 @@ class TestOutputLinesCarryTheirDate:
                 (lambda *a, **k: ([], [])) if name in pair else (lambda *a, **k: []))
         monkeypatch.setattr(
             drift, "check_git_surfaces", lambda: (list(problems), list(infos)))
+
+
+# --- class 1: how far behind origin/main is the checkout the jobs run from ----
+#
+# The module docstring has always named this ("run checkouts drifting from their
+# reviewed refs") and nothing scheduled measured it. `ops/referenced_checkout_
+# freshness.py` measured it correctly and was wired to nothing — not a launchd job,
+# not the reviewed manifest. Measured by hand 2026-08-05: renquant-orchestrator-run
+# was 36 commits behind with 21 jobs running from it, past its own bound of 20.
+#
+# Every test here injects a fake probe, so none of them touch the network, a real
+# checkout, or the machine's own git state.
+
+class _FakeProbe:
+    FAILING_STATUSES = ("STALE", "NOT_A_CHECKOUT", "UNMEASURABLE")
+
+    def __init__(self, report=None, raises=None):
+        self._report, self._raises = report, raises
+
+    def scan(self, *a, **k):
+        if self._raises:
+            raise self._raises
+        return self._report
+
+    def failing(self, report):
+        return [r for r in report.get("results", [])
+                if r.get("status") in self.FAILING_STATUSES]
+
+
+def _inject(monkeypatch, probe):
+    monkeypatch.setitem(sys.modules, "referenced_checkout_freshness", probe)
+
+
+def _result(status, **kw):
+    return {"checkout": "renquant-orchestrator-run", "status": status,
+            "referenced_by_jobs": 21, "commits_behind": kw.pop("behind", None),
+            "detail": kw.pop("detail", "d"), **kw}
+
+
+def test_a_STALE_run_checkout_is_a_problem(monkeypatch):
+    _inject(monkeypatch, _FakeProbe({"results": [
+        _result("STALE", behind=36, detail="36 commits behind origin/main (bound 20)")]}))
+
+    problems, _ = drift.check_referenced_checkout_freshness()
+
+    assert len(problems) == 1
+    assert "STALE" in problems[0]
+    assert "36 commits behind" in problems[0]
+    assert "21 job(s)" in problems[0]   # the blast radius, not just the fact
+
+
+def test_UNMEASURABLE_is_a_problem_not_a_pass(monkeypatch):
+    """could-not-check is not checked-and-found-fresh. This is the exact defect the
+    probe exists for: a checkout comparing itself to its own unfetched origin/main
+    answers '0 behind' with total confidence."""
+    _inject(monkeypatch, _FakeProbe({"results": [
+        _result("UNMEASURABLE", detail="fetch failed in the reference checkout")]}))
+
+    problems, _ = drift.check_referenced_checkout_freshness()
+
+    assert problems and "UNMEASURABLE" in problems[0]
+
+
+def test_a_FRESH_checkout_is_reported_but_does_not_alarm(monkeypatch):
+    """Anti-vacuity in the other direction: the check must be able to pass."""
+    _inject(monkeypatch, _FakeProbe({"results": [_result("FRESH", behind=0)]}))
+
+    problems, infos = drift.check_referenced_checkout_freshness()
+
+    assert problems == []
+    assert infos and "FRESH" in infos[0]
+
+
+def test_measuring_NOTHING_is_a_problem(monkeypatch):
+    """An empty result set is the shape that reads as green while checking zero
+    checkouts — the vacuous pass this repo keeps meeting."""
+    _inject(monkeypatch, _FakeProbe({"results": []}))
+
+    problems, _ = drift.check_referenced_checkout_freshness()
+
+    assert problems and "nothing was measured" in problems[0]
+
+
+def test_a_probe_that_RAISES_does_not_read_as_clean(monkeypatch):
+    _inject(monkeypatch, _FakeProbe(raises=RuntimeError("boom")))
+
+    problems, _ = drift.check_referenced_checkout_freshness()
+
+    assert problems and "scan failed" in problems[0]
+
+
+def test_the_failing_set_comes_from_the_PROBE_not_a_second_list(monkeypatch):
+    """Two enumerations of the same status list is how one of them quietly stops
+    covering a status the other added. The drift check must defer to the probe."""
+    class _ProbeThatCallsEverythingFine(_FakeProbe):
+        def failing(self, report):
+            return []
+
+    _inject(monkeypatch, _ProbeThatCallsEverythingFine({"results": [
+        _result("STALE", behind=999)]}))
+
+    problems, infos = drift.check_referenced_checkout_freshness()
+
+    # the drift check did NOT re-derive "STALE means bad" on its own
+    assert problems == []
+    assert infos and "STALE" in infos[0]

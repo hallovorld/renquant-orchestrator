@@ -297,6 +297,91 @@ def read_loaded_program_args(label: str) -> tuple[str, list[str] | None, str]:
     return LOADED_OK, args, ""
 
 
+def read_loaded_labels() -> tuple[list[str] | None, str]:
+    """Every com.renquant.* label launchd has ACTUALLY LOADED, from launchctl.
+
+    Both existing launchd checks enumerate a DECLARED set — `check_launchd_surface`
+    walks the plists on disk, `check_launchd_loaded` walks the manifest. So a job
+    that is loaded but has NEITHER a manifest entry NOR a plist in the scanned
+    directory is invisible to the whole scan. That is not a hypothetical shape:
+    it is exactly what `launchctl bootstrap` of a file outside
+    ~/Library/LaunchAgents produces, which is the emergency-containment path
+    CLAUDE.md requires a durable record for.
+
+    Returns ``(labels, detail)``. ``None`` means launchctl could not be read —
+    reported as a problem by the caller rather than treated as "nothing loaded",
+    because a checker that cannot see is indistinguishable from one that sees
+    nothing wrong, and only one of those is safe to stay quiet about.
+    """
+    try:
+        res = subprocess.run(["launchctl", "list"],
+                             capture_output=True, text=True, timeout=20)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"launchctl invocation failed: {exc}"
+    if res.returncode != 0:
+        return None, (f"launchctl list exit {res.returncode}: "
+                      f"{(res.stderr or '').strip()[:160]}")
+    labels = []
+    for line in res.stdout.splitlines()[1:]:      # skip the PID/Status header
+        parts = line.split()
+        if parts and parts[-1].startswith("com.renquant."):
+            labels.append(parts[-1])
+    return sorted(set(labels)), ""
+
+
+def check_launchd_loaded_undeclared(
+    manifest_path: str = MANIFEST, agents_dir: str = LAUNCH_AGENTS,
+    loaded_labels: list[str] | None = None,
+) -> list[str]:
+    """A job launchd is running that NO reviewed surface declares.
+
+    The gap this closes, measured 2026-08-05: `com.renquant.crypto-session` is
+    loaded, absent from the manifest, and belongs to a research lane killed
+    2026-07-18. Its plist happens to sit in ~/Library/LaunchAgents, so
+    `check_launchd_surface` does catch it today — but only because the file
+    landed in the one directory that scan walks. Bootstrap the same job from any
+    other path and every check in this file goes quiet, because each of them
+    starts from a list someone already wrote down.
+
+    This one starts from launchd instead. ``loaded_labels`` is injectable so the
+    tests can exercise it without depending on the operator's own launchd domain
+    — a check bound to this machine's job list would be vacuously green on CI.
+    """
+    problems: list[str] = []
+    try:
+        manifest = set(json.loads(Path(manifest_path).read_text())["jobs"])
+    except Exception as exc:  # noqa: BLE001
+        return [f"launchd manifest unreadable ({manifest_path}: {exc})"]
+    if loaded_labels is None:
+        loaded, detail = read_loaded_labels()
+    else:
+        loaded, detail = loaded_labels, ""
+    if loaded is None:
+        return [
+            f"launchd: cannot enumerate loaded jobs ({detail}) — the "
+            f"loaded-but-undeclared check is BLIND, so a job bootstrapped "
+            f"outside the reviewed surface would not be caught. Fix the "
+            f"checker, do not ignore this."
+        ]
+    on_disk = set(scan_launchd_plists(agents_dir))
+    # Filter HERE as well as in read_loaded_labels. Relying on the caller to
+    # hand over a pre-filtered list is the shape that goes wrong the day the
+    # caller changes: this check would start reporting Apple's own agents as
+    # undeclared RenQuant jobs, and the noise would bury the real finding.
+    renquant = {l for l in loaded if l.startswith("com.renquant.")}
+    for label in sorted(renquant - manifest):
+        where = ("its plist is on disk but unmanifested"
+                 if label in on_disk else
+                 "NO plist in the scanned directory AND no manifest entry")
+        problems.append(
+            f"launchd: {label} is LOADED but not declared in "
+            f"{Path(manifest_path).name} ({where}) — an undeclared job on the "
+            f"run surface. Retire it, or legitimise it through review; do not "
+            f"silence this by editing the manifest outside a reviewed change."
+        )
+    return problems
+
+
 def check_launchd_loaded(
     manifest_path: str = MANIFEST, agents_dir: str = LAUNCH_AGENTS,
 ) -> list[str]:
@@ -596,6 +681,58 @@ def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[st
                      f"{data.get('alarm_count')} alarm(s) — it delivers its own "
                      f"alert; recorded here only as liveness"])
     return ([], [])
+
+
+def check_referenced_checkout_freshness() -> tuple[list[str], list[str]]:
+    """How far behind `origin/main` is each checkout the scheduled jobs run from?
+
+    This is class 1 in this module's own docstring — "run checkouts drifting from
+    their reviewed refs" — and until now nothing scheduled measured it.
+    `check_checkout` above compares HEAD against a declared PIN; a checkout with no
+    pin, or one whose pin is itself old, passes it while being months stale.
+
+    `ops/referenced_checkout_freshness.py` has done this correctly for a while and
+    was wired to nothing: not to a launchd job, not named in the reviewed manifest.
+    Measured 2026-08-05 by running it by hand: `renquant-orchestrator-run` was **36
+    commits behind** `origin/main` with **21 jobs** running from it, past its own
+    declared bound of 20 — so every fix merged that morning was not what ran.
+
+    The distance is counted in the reference (dev) checkout, never in the one being
+    measured: a run checkout that has not fetched carries a stale `origin/main` and,
+    asked about itself, answers "0 behind". That is the defect, and the probe
+    documents having once had it.
+    """
+    problems: list[str] = []
+    infos: list[str] = []
+    try:
+        import referenced_checkout_freshness as rcf
+    except Exception as exc:  # noqa: BLE001
+        return ([f"checkout-freshness: probe unimportable ({type(exc).__name__}: {exc}) "
+                 f"— NOT a clean result"], infos)
+    try:
+        report = rcf.scan()
+    except Exception as exc:  # noqa: BLE001
+        return ([f"checkout-freshness: scan failed ({type(exc).__name__}: {exc}) "
+                 f"— could not check is not checked-and-fresh"], infos)
+
+    if not report.get("results"):
+        return (["checkout-freshness: no absolute checkout paths found in "
+                 "program_args — nothing was measured"], infos)
+
+    # The failing set is the probe's own, not a second enumeration here.
+    for r in rcf.failing(report):
+        problems.append(
+            f"checkout-freshness {r.get('checkout', '?')}: {r.get('status')} — "
+            f"{r.get('detail') or 'no detail'} "
+            f"({r.get('referenced_by_jobs', '?')} job(s) run from it)"
+        )
+    for r in report["results"]:
+        if r not in rcf.failing(report):
+            infos.append(
+                f"checkout-freshness {r.get('checkout', '?')}: {r.get('status')} "
+                f"({r.get('commits_behind', '-')} behind)"
+            )
+    return problems, infos
 
 
 def check_import_resolution() -> tuple[list[str], list[str]]:
@@ -970,10 +1107,14 @@ def main(argv: list[str] | None = None) -> int:
     infos += i
     problems += check_launchd_surface()
     problems += check_launchd_loaded()
+    problems += check_launchd_loaded_undeclared()
     p, i = report_manifested_not_loaded()
     problems += p
     infos += i
     p, i = check_import_resolution()
+    problems += p
+    infos += i
+    p, i = check_referenced_checkout_freshness()
     problems += p
     infos += i
     p, i = check_wrapper_pythonpath_roots()

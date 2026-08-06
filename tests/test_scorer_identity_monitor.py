@@ -23,6 +23,7 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_CAL = "c" * 64
 SHA_SHADOW_1 = "d" * 64
+SHADOW_PATH = "/artifacts/shadow/panel-clf.top-decile.fwd60.json"
 SHA_SHADOW_2 = "e" * 64
 
 
@@ -35,6 +36,7 @@ def _bundle(
     trained: str | None = "2026-06-21",
     calibrator_sha: str | None = SHA_CAL,
     shadow_sha: str | None = SHA_SHADOW_1,
+    shadow_path: str | None = SHADOW_PATH,
 ) -> str:
     hashes: dict[str, str] = {}
     if panel_sha is not None:
@@ -47,7 +49,11 @@ def _bundle(
     bundle = {
         "schema_version": 1,
         "artifact_hashes": hashes,
-        "artifact_paths": {"panel": "/prod/panel-ltr.alpha158_fund.json"},
+        "artifact_paths": {
+            "panel": "/prod/panel-ltr.alpha158_fund.json",
+            **({"ranking.panel_scoring.shadow_models[0].artifact_path": shadow_path}
+               if shadow_path else {}),
+        },
         "panel_contract": {"ok": True, "details": {"trained_date": trained}},
     }
     return json.dumps(bundle)
@@ -147,7 +153,7 @@ def test_unexplained_shadow_swap_is_critical(tmp_path, dirs):
     report = _report(tmp_path, dirs, rows)
     assert report["status"] == sim.STATUS_CRITICAL
     change = report["boundaries"][0]["changes"][0]
-    assert change["lane"] == "shadow_models[0]"
+    assert change["lane"] == f"shadow:{SHADOW_PATH}"
 
 
 # --- 2. explained-by-promote passes -------------------------------------------
@@ -258,7 +264,7 @@ def test_atomic_promotion_explains_same_boundary_shadow_swap(tmp_path, dirs):
     report = _report(tmp_path, dirs, rows)
     assert report["status"] == sim.STATUS_OK
     (boundary,) = report["boundaries"]
-    shadow = next(c for c in boundary["changes"] if c["lane"] == "shadow_models[0]")
+    shadow = next(c for c in boundary["changes"] if c["lane"] == f"shadow:{SHADOW_PATH}")
     assert shadow["explained"] is True
     assert shadow["note"] is not None
 
@@ -622,3 +628,94 @@ def test_sim_runs_are_excluded(tmp_path, dirs):
     )
     assert report["status"] == sim.STATUS_OK
     assert report["boundaries"] == []
+
+
+# --- shadow lanes are identities, not list positions -------------------------
+
+CLF = "/artifacts/shadow/panel-clf.top-decile.fwd60.json"
+PATCHTST = "/artifacts/shadow/hf_patchtst_all_seed44_model.pt"
+MOM = "/artifacts/momentum/momentum_artifact_ledger.jsonl"
+MOM_FAST = "/artifacts/momentum_fast/momentum_artifact_ledger.jsonl"
+
+SHA_CLF = "1" * 64
+SHA_PATCHTST = "0" * 64
+SHA_MOM = "9" * 64
+
+
+def _multi_shadow_bundle(entries, *, panel_sha=SHA_A, trained="2026-06-21"):
+    """entries: list of (path, sha|None) stamped at consecutive shadow indices."""
+    hashes = {
+        "panel": f"sha256:{panel_sha}",
+        "ranking.panel_scoring.artifact_path": f"sha256:{panel_sha}",
+        "global_calibration": f"sha256:{SHA_CAL}",
+    }
+    paths = {"panel": "/prod/panel-ltr.alpha158_fund.json"}
+    for i, (path, sha) in enumerate(entries):
+        key = f"ranking.panel_scoring.shadow_models[{i}].artifact_path"
+        hashes[key] = f"sha256:{sha}" if sha else None
+        paths[key] = path
+    return json.dumps({
+        "schema_version": 1,
+        "artifact_hashes": hashes,
+        "artifact_paths": paths,
+        "panel_contract": {"ok": True, "details": {"trained_date": trained}},
+    })
+
+
+def test_a_retired_lane_does_not_make_the_UNCHANGED_lanes_look_swapped(tmp_path, dirs):
+    """The real 2026-07-31 → 2026-08-03 boundary, which reported THREE 'silent
+    scorer swaps'.
+
+    PatchTST was retired (decided 2026-08-02) and the momentum lane activated, so
+    the list went `[patchtst, clf]` → `[clf, momentum]`. Keyed by INDEX that reads
+    as lane0 `patchtst→clf` and lane1 `clf→momentum` — and the clf leg, whose
+    artifact never changed, is counted TWICE: once as lane 0's new value and once
+    as lane 1's old value. Keyed by identity, clf is silent.
+    """
+    rows = [
+        ("run-0731", BASE, _multi_shadow_bundle([(PATCHTST, SHA_PATCHTST), (CLF, SHA_CLF)])),
+        ("run-0803", BASE + timedelta(days=3),
+         _multi_shadow_bundle([(CLF, SHA_CLF), (MOM, SHA_MOM)])),
+    ]
+
+    report = _report(tmp_path, dirs, rows)
+
+    (boundary,) = report["boundaries"]
+    changed = {c["lane"] for c in boundary["changes"]}
+    # the lane that did not change its artifact must not appear at all
+    assert f"shadow:{CLF}" not in changed
+    # and the two that genuinely entered/left must
+    assert f"shadow:{PATCHTST}" in changed
+    assert f"shadow:{MOM}" in changed
+
+
+def test_two_lanes_with_the_SAME_basename_stay_distinct(tmp_path, dirs):
+    """2026-08-04 stamps `momentum/momentum_artifact_ledger.jsonl` AND
+    `momentum_fast/momentum_artifact_ledger.jsonl` in two slots. Keying on the
+    basename would collide and one lane would silently overwrite the other —
+    losing a lane is the failure this monitor exists to prevent."""
+    bundle = _multi_shadow_bundle([(CLF, SHA_CLF), (MOM, SHA_MOM), (MOM_FAST, None)])
+
+    identity = sim.extract_identity(
+        run_id="r", run_date="2026-08-04", created_at=BASE, bundle_raw=bundle)
+
+    assert identity.usable is True
+    assert f"shadow:{MOM}" in identity.lanes
+    assert f"shadow:{MOM_FAST}" in identity.lanes
+    assert identity.lanes[f"shadow:{MOM}"].artifact_sha is not None
+    assert identity.lanes[f"shadow:{MOM_FAST}"].artifact_sha is None
+
+
+def test_a_lane_REPLACED_IN_PLACE_is_still_a_swap(tmp_path, dirs):
+    """Anti-vacuity: identity-keying must not make the monitor blind to the case
+    it exists for — the same path serving a DIFFERENT artifact."""
+    rows = [
+        ("run-old", BASE, _multi_shadow_bundle([(CLF, SHA_CLF)])),
+        ("run-new", BASE + timedelta(days=1), _multi_shadow_bundle([(CLF, SHA_SHADOW_2)])),
+    ]
+
+    report = _report(tmp_path, dirs, rows)
+
+    assert report["status"] == sim.STATUS_CRITICAL
+    (boundary,) = report["boundaries"]
+    assert any(c["lane"] == f"shadow:{CLF}" for c in boundary["changes"])

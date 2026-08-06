@@ -174,6 +174,23 @@ def scan(manifest: Path = MANIFEST) -> dict[str, Any]:
     }
 
 
+#: Statuses that must not read as a pass. `UNMEASURABLE` is in here on purpose:
+#: could-not-check is not checked-and-found-fresh, and this tool exists because a
+#: checkout comparing itself to its own unfetched `origin/main` answered "0 behind".
+FAILING_STATUSES = ("STALE", "NOT_A_CHECKOUT", "UNMEASURABLE")
+
+
+def failing(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """The results a caller must treat as findings.
+
+    Single definition so the CLI's exit code and any scheduled consumer cannot
+    drift apart — two copies of an enumerated status list is how one of them
+    quietly stops covering a status the other added.
+    """
+    return [r for r in report.get("results", [])
+            if r.get("status") in FAILING_STATUSES]
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--manifest", type=Path, default=MANIFEST)
@@ -198,9 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
             if r.get("detail"):
                 print(f"{'':18}   {r['detail']}")
-    bad = [r for r in report["results"]
-           if r["status"] in ("STALE", "NOT_A_CHECKOUT", "UNMEASURABLE")]
-    return 1 if bad else 0
+    return 1 if failing(report) else 0
 
 
 if __name__ == "__main__":
