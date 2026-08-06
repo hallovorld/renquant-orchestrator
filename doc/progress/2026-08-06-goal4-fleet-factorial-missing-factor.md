@@ -1,5 +1,21 @@
 # GOAL-4: the fleet is a designed factorial, and one whole factor level has never produced a datum
 
+STATUS:   delivered (docs-only finding).
+WHAT:     shows the shadow fleet is a 2-factor (clf leg x momentum leg) design in which both cells
+          at the `fast` momentum level (`shadow_blend_momentum_fast`, `shadow_blend_rb_fast`) have
+          never emitted a score, and a third cell (`shadow_blend_momentum`) duplicates PROD.
+WHY/DIR:  GOAL-4 asks whether ensembling is worth pursuing; of six nominal cells, only two are live,
+          non-duplicate controls and zero have measured forward skill — reframes orch#845 from
+          "two lanes broken" to "the fast-momentum factor has no data".
+EVIDENCE: reading every lane's `panel_scoring.components` shows both fast-momentum cells point at
+          `artifacts/momentum_fast/`, which does not exist, and carry no `expected_config_fingerprint`
+          while every populated component does; orch#856 confirms `RAN_AND_SCORED_NOTHING` on 2/2
+          dates each; orch#863 confirms `shadow_blend_momentum` is byte-identical to PROD in all 21
+          score-affecting keys. `[VERIFIED — this session, panel_scoring.components + orch#856 +
+          orch#863 read this session]`
+NEXT:     orch#845 is the highest-leverage GOAL-4 item under this reframing; retire or re-point
+          `shadow_blend_momentum` (orch#863); skill stays unmeasurable until forward returns mature.
+
 **Date:** 2026-08-06
 **Lane:** GOAL-4 (multi-model ensemble)
 
