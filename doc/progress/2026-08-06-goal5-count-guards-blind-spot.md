@@ -1,5 +1,30 @@
 # GOAL-5: every count-based admission guard shares the in-flight blind spot — and the one that looks fixed is fixing a different bug
 
+STATUS:   delivered (docs-only finding; closes an unverified claim from orch#866, corrects a
+          near-miss).
+WHAT:     verifies orch#866's previously-unverified claim that every count-based admission guard
+          (`max_concurrent_positions`, `max_positions_per_sector`, `bear_defensive_slots`, bear
+          sleeve portfolio slots) reads the same filled-positions view and shares the in-flight
+          blind spot; catches a near-miss — the bear sleeve's extra `ctx.orders` term looked like
+          an existing fix but only prevents double-counting within one run's own batch, not orders
+          accumulating unfilled across runs.
+WHY/DIR:  GOAL-5 (daily-run reliability P0) — closes an unverified claim before it ships as fact;
+          the fix (broker open-orders list, not `ctx.holdings` or `ctx.orders`) must apply to all
+          four guards, not just the one orch#866 named.
+EVIDENCE: read all four guards' source in `task_selection.py` (lines 39/52/62/88/825/940); live
+          account still shows 10 positions against cap 8 with 0 in-flight unfilled orders (a
+          settled state, not a transient mid-fill one); `_long_entry_order_tickers` (`:940`)
+          confirmed to read `ctx.orders`, which is per-run only. `[VERIFIED — this session,
+          task_selection.py + live account state read this session]`
+          artifact:      `task_selection.py`'s four count-based guards, read this session
+          prod or exp:   prod — this audits the live selection code path and the live account's own settled position count
+          existing data: orch#866's original unverified claim ("likely, but I have not verified each"), closed here
+          best-known?:   n/a — this is a code-path audit, not a model-variant comparison
+          scope:         "this is the live selection guard code, prod, vs. its own admission logic — no model skill claim is made"
+NEXT:     filed as an addendum to renquant-pipeline#269 (repo boundary — the fix is theirs); the
+          broker-open-orders fix must apply to all four guards, not just
+          `max_concurrent_positions`.
+
 **Date:** 2026-08-06
 **Lane:** GOAL-5 (daily-run reliability P0)
 
