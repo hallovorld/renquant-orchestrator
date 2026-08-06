@@ -18,6 +18,11 @@ EVIDENCE: reproduced against pinned pipeline revision `e13cd3eba378`: 20 exporte
           `renquant_pipeline.panel_scoring.PanelScoringJob`, the same non-kernel twin
           `runtime_parity.py` uses. `[VERIFIED — this session, reproduced against pinned pipeline
           e13cd3eba378 this session]`
+          artifact:      pinned pipeline revision `e13cd3eba378`, import-site census run this session
+          prod or exp:   prod — the pinned revision + `pp_inference.py:334` are the live import path
+          existing data: the twin registry's own prior "20 duplicates, 19 wrong-way" headline, corrected here
+          best-known?:   n/a — this is an import-reachability audit, not a model-variant comparison
+          scope:         "this is an import-site census, prod, vs. the twin registry's definition-count claim — no behavioural claim about the two implementations is made"
 NEXT:     make reachability a first-class column in the twin registry (a twin nothing imports is
           debt; a twin two paths import differently is a defect — today recorded identically);
           resolve the `job_panel_scoring` question deliberately (dead code vs. canonical
