@@ -13,6 +13,11 @@ EVIDENCE: today's live log shows both `momentum_residual` invocations (prod comp
           shadow leg) serving the identical ledger tail row (cutoff 2026-08-02, artifact
           a824c480cd9c...); the probe's live run reports exactly 1 self-comparison for this same
           leg. `[VERIFIED — this session, live decision log + probe run this session]`
+          artifact:      `ops/renquant104/shadow_leg_independence_probe.py`, run live this session
+          prod or exp:   prod — the probe reads today's live decision log and shadow-leg config
+          existing data: today's live log's `momentum_residual` invocation records, cross-checked against the probe's output
+          best-known?:   n/a — this is a diagnostic-independence check, not a model-variant skill comparison
+          scope:         "this is the shadow fleet's own config, prod, vs. the primary scorer it is meant to shadow — the reported ρ is flagged as inflated, not ranked against another model"
 NEXT:     `momentum_residual_v0_shadow` should be retired or re-pointed — a
           `renquant-strategy-104` config change (repo boundary), not actioned here; orch#863 shows
           the same 08-04 promotion degraded a second diagnostic the same way.
