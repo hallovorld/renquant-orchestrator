@@ -13,24 +13,38 @@ WHAT:     root-causes the umbrella's `compute_position_size` twin (used by live 
 WHY/DIR:  P0 twin-implementation defect (GOAL-3, orch#833). A mid-session revision downgraded
           the severity (claimed no oversized order ever reached the broker) using
           `broker_order_id IS NULL` as a placement signal; that column is unreliable for this
-          purpose and the downgrade is RETRACTED — TSLA (23.41%, filled 2026-07-28) and EME
-          (21.09%, filled 2026-07-28) both placed and are still open in the live book. The
+          purpose and the downgrade is RETRACTED — TSLA (23.41%, filled 2026-07-28
+          `[VERIFIED — broker order ea3055f1]`) and EME
+          (21.09%, filled 2026-07-28 `[VERIFIED — Alpaca filled order, qty 3 @ $704.25]`)
+          both placed and are still open in the live book. The
           "attribution gap is now CLOSED" claim later in this file (07-28 ran through the
           pinned, clamped bridge and placed no buys) is therefore REOPENED, not settled:
           something placed two oversized positions on 07-28 and the mechanism is unidentified.
           Names the wider finding that 120 of 169 shared umbrella/pinned kernel files have
-          diverged — sizing.py is one instance of systemic staleness, not an outlier.
-EVIDENCE: reproduced 7/7 live/dry-run sizing rows through the umbrella copy (exact match to
+          diverged `[VERIFIED — this session, byte-diff of every umbrella
+          `RenQuant/backtesting/renquant_104/kernel/` file against its pinned counterpart]` —
+          sizing.py is one instance of systemic staleness, not an outlier.
+EVIDENCE: reproduced 7/7 live/dry-run sizing rows through the umbrella copy
+          `[VERIFIED — this session, umbrella `sizing.py` fed each `buy_pending` row's recorded
+          inputs]` (exact match to
           recorded `buy_pending` sizes; the pinned copy returns 0 for the same inputs); of the
-          4 `buy_pending` rows over the 12% BULL_CALM cap, 2 CONFIRMED FILLED at the broker per
+          4 `buy_pending` rows over the 12% BULL_CALM cap
+          `[VERIFIED — sqlite data/runs.alpaca.db: select … where action='buy_pending' and target_pct>0.12]`,
+          2 CONFIRMED FILLED at the broker per
           Alpaca's fill history — TSLA qty=8 @ $306.52 (23.41%) and EME qty=3 @ $704.25
-          (21.09%), both 2026-07-28; the earlier "9.06% max, none filled" claim used
+          (21.09%), both 2026-07-28
+          `[VERIFIED — Alpaca GetOrdersRequest(status=CLOSED, after=2026-06-01), filled_at not null]`;
+          the earlier "9.06% max, none filled" claim used
           `broker_order_id IS NULL` as a placement signal, and that column is anti-correlated
           with actual fills here (FTNT/APH/AVGO all have the column SET and did NOT fill; TSLA/EME
           have it NULL and DID fill) — see RETRACTION; over an 864-case grid, 191 divergent
-          (always umbrella-larger), worst notional gap $24,940; classified all 39 launchd jobs —
+          (always umbrella-larger), worst notional gap $24,940
+          `[VERIFIED — ops/renquant104/sizing_twin_conformance.py over an 864-case grid]`;
+          classified all 39 launchd jobs —
           exactly 1 (`com.renquant.rq104-dawn-preflight`) reaches the stale umbrella kernel
-          directly by wrapper design, though the confirmed 07-28 fills mean this classification
+          directly by wrapper design
+          `[VERIFIED — ops/renquant104/kernel_surface_census.py over all 39 manifest jobs]`,
+          though the confirmed 07-28 fills mean this classification
           alone does not yet explain the placement mechanism. `[VERIFIED — this session, 7/7
           reproduction + 864-case grid + 39-job launchd classification + Alpaca fill-history
           cross-check]`
