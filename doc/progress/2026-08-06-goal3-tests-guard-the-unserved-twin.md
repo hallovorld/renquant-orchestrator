@@ -1,5 +1,25 @@
 # GOAL-3: the test suite's centre of gravity is the twin production does not run
 
+STATUS:   delivered (docs-only finding; resolves orch#861's open question, corrected twice on
+          re-measurement).
+WHAT:     shows `kernel/panel_pipeline/job_panel_scoring.py` (4350 lines, 0 production import
+          sites even through the module's PEP 562 lazy `__getattr__` map) is exercised by 28 test
+          files, while the twin that production actually imports (`panel_scoring.py`, 1005 lines,
+          imported at `pp_inference.py:334`) is exercised by only 5.
+WHY/DIR:  GOAL-3 (architecture compliance audit) — names the mechanism behind a past incident
+          (`tests/test_panel_scoring_twin_domain_lockstep.py`, 2026-07-29: a #219 safety guard
+          landed only in the unserved twin) as structural, not a one-off: fixes naturally land in
+          the module the tests import, which is not the module production runs.
+EVIDENCE: re-measured via the lazy `__getattr__` map (not a raw grep, which orch#861 used and
+          which cannot find a counterexample): 0 production importers confirmed for
+          `job_panel_scoring.py`; test-file count corrected from an initial 37 (string match,
+          including 9 comment-only mentions) to 28 (verified imports/patches).
+          `[VERIFIED — this session, re-scanned this session]`
+NEXT:     pipeline owners (repo boundary) must decide which twin is canonical — if
+          `job_panel_scoring` is canonical, `pp_inference.py:334` is wired to the wrong module; if
+          `panel_scoring.py` is canonical, the 4350 lines + 28 tests guard something that never
+          runs and the lockstep test is the only thing keeping the two aligned.
+
 **Date:** 2026-08-06
 **Lane:** GOAL-3 (architecture compliance audit)
 
