@@ -148,12 +148,28 @@ def test_a_breach_names_the_RUN_that_produced_it(tmp_path):
     assert "the breaching run(s):" in text and "17:45:49" in text
 
 
-def test_the_LIVE_book_is_what_the_record_describes():
-    """Bound to reality: 2 of 33 live buys since 2026-07-01 breached the cap,
-    both on 2026-07-28. If that changes, the design record must be re-derived."""
+#: The BULL_CALM cap in force when the 2026-07-28 buys were sized. Pinned here
+#: because `scan()` judges every historical buy against the cap in the CURRENTLY
+#: DEPLOYED config — so raising the cap retroactively un-breaches history.
+#: Measured 2026-08-06: the deployed cap moved 0.12 -> 0.30 (strategy-104#94,
+#: operator directive, LONG row 2a), and the two breaches below stopped
+#: registering. They did not stop having happened.
+CAP_IN_FORCE_2026_07_28 = 0.12
+
+
+def test_the_LIVE_book_is_what_the_record_describes(tmp_path):
+    """Bound to reality: 2 of 33 live buys since 2026-07-01 breached the cap
+    IN FORCE AT THE TIME, both on 2026-07-28.
+
+    Evaluated against a pinned historical cap, not the deployed one. Under the
+    deployed config this assertion silently passed as "0 breaches" the moment
+    the cap was raised — a policy change is not a reason for a past breach to
+    disappear from the record, and a test that lets it is how the record rots.
+    """
     if not P.DB.is_file() or not P.CONFIG.is_file():
         pytest.skip("umbrella evidence absent — the unit tests above still ran")
-    r = P.scan("2026-07-01")
+    hist_cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": CAP_IN_FORCE_2026_07_28}})
+    r = P.scan("2026-07-01", config_path=hist_cfg)
     over = [b for b in r["buys"] if b["state"] == P.STATE_OVER]
     assert {b["ticker"] for b in over} == {"TSLA", "EME"}, over
     assert {b["trade_date"] for b in over} == {"2026-07-28"}, over
@@ -164,3 +180,21 @@ def test_the_LIVE_book_is_what_the_record_describes():
     # Both came from ONE run, and it was created off the 12-minute cadence.
     assert {b["run_id"] for b in over} == {"2026-07-28-live-6194047c"}, over
     assert all(str(b["run_created_at"]).endswith("17:45:49") for b in over), over
+
+
+def test_the_DEPLOYED_cap_is_read_and_stated_not_assumed():
+    """The other half of the same fact: under the cap deployed TODAY those two
+    buys are within policy. Both statements are true and neither replaces the
+    other, so both are asserted — and the scan result must name the cap it
+    judged against, or a reader cannot tell which of the two a verdict means."""
+    if not P.DB.is_file() or not P.CONFIG.is_file():
+        pytest.skip("umbrella evidence absent")
+    r = P.scan("2026-07-01")
+    caps = r["caps"]
+    assert "BULL_CALM" in caps, "a scan that does not state its cap is unreadable"
+    deployed = caps["BULL_CALM"]
+    over = [b for b in r["buys"] if b["state"] == P.STATE_OVER]
+    if deployed is not None and deployed > CAP_IN_FORCE_2026_07_28:
+        assert not over, (
+            f"deployed cap {deployed} exceeds the {CAP_IN_FORCE_2026_07_28} in "
+            "force on 2026-07-28, so those buys should no longer register", over)
