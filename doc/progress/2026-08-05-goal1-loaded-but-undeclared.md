@@ -1,5 +1,24 @@
 # GOAL-1: a job launchd is running that no reviewed surface declares
 
+STATUS:   delivered.
+WHAT:     ships `check_launchd_loaded_undeclared()` (10 tests), which starts from `launchctl list`
+          instead of a declared plist/manifest set, so it can catch a job bootstrapped from
+          anywhere and never manifested; live run finds `com.renquant.crypto-session` loaded, not
+          in `ops/launchd_manifest.json`, from a research lane killed 2026-07-18.
+WHY/DIR:  GOAL-1 (shadow reliability gates) — the two existing launchd checks both start from a
+          list someone already wrote down (plists on disk, or manifest entries) and are blind to a
+          job bootstrapped elsewhere and never manifested; this closes that hole, which is exactly
+          the emergency-containment gap CLAUDE.md requires a durable record for.
+EVIDENCE: `launchctl list` shows 40 loaded `com.renquant.*` jobs vs. 39 manifested, 1 loaded-not-
+          manifested (`com.renquant.crypto-session`, last exit 2, plist written 2026-07-13, 23
+          days after its G2 crypto lane was killed 2026-07-18); the existing drift scan already
+          reports it daily (`com.renquant.run-surface-drift` exits 1) — it was undispositioned, not
+          undetected. `[VERIFIED — this session, launchctl list + manifest diff + new checker run
+          this session]`
+NEXT:     `com.renquant.crypto-session` needs a decision not mine to make unilaterally — retire
+          under the containment protocol (tracked record + literal revert steps) or legitimise in
+          the manifest through review; filed as an issue rather than acted on here.
+
 **Date:** 2026-08-05
 **Lane:** GOAL-1 (shadow reliability gates)
 
