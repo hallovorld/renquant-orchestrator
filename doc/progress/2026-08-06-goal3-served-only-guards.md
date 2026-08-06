@@ -25,6 +25,8 @@ existing data: orch#867 established 0 production importers for the kernel twin a
                resolve to the non-kernel twin. Neither examined guard parity.
 best-known?:   yes for guard PRESENCE, by source inspection of both implementations.
                Not a behavioural equivalence check — see the limits below.
+scope:         this repository only documents the two source files; no scorer,
+               training, backtest, or execution behavior changes.
 
           Measured `[VERIFIED — this session, 2026-08-06]`:
 
