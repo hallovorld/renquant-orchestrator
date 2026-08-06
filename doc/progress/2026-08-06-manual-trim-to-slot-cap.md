@@ -31,7 +31,7 @@ WHAT:     Operator grant, verbatim: **"你直接帮我把当前模型不看好�
           | WELL | 3 | manual | **me, not the model** | **canceled, filled=0** |
 
           `[VERIFIED — order ids in EVIDENCE; MRVL/NVDA decisions at
-          logs/daily_104/2026-08-06.log:415,518,1068]`
+          /Users/renhao/git/github/RenQuant/logs/daily_104/2026-08-06.log:415,518,1068]`
 
           Net effect of the manual action on the book: **none.** After the two
           model exits fill, 10 -> 8 positions and `open_slots = 0`
@@ -60,8 +60,8 @@ artifact:      Alpaca order ids `38b3752d` (GOOG, **canceled**), `f67cea9f` (WEL
 prod or exp:   **prod — live capital.** Four real orders were submitted against the
                live Alpaca account; the two manual ones were cancelled with zero
                fills before the open, the two model ones remain queued.
-existing data: `logs/daily_104/2026-08-06.log`. The only exit the sell stage logged
-               all day is
+existing data: `/Users/renhao/git/github/RenQuant/logs/daily_104/2026-08-06.log`. The
+               only exit the sell stage logged all day is
                `kernel.pipeline.sell: ModelProtectionExitTask [MRVL]: EXIT
                thesis_breached mu=-0.1143<=tau=+0.0000 strikes=3/3`
                `[VERIFIED — log:415]`, plus the `model_sell` exit for NVDA on the
