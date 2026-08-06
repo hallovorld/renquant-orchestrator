@@ -236,3 +236,75 @@ a systematically stale copy — and any job that bypasses the bridge runs all of
 it.
 
 Suites: 11 tests · full suite green.
+
+---
+
+# RETRACTION — the severity correction above is WRONG. Two oversized orders FILLED. `[VERIFIED 2026-08-06]`
+
+## What I claimed, and what is true
+
+The section headed *"CORRECTION — I called these 'placed live orders'. They were
+not"* concluded:
+
+> **Every oversized row died before the broker** … The largest position this
+> defect has ever actually placed is **9.06 %**, inside the 12 % BULL_CALM cap.
+
+**That is false.** Measured directly against Alpaca's filled-order history:
+
+```
+broker : TSLA buy qty=8 @ $306.52  FILLED 2026-07-28 17:45:47  order_id ea3055f1
+broker : EME  buy qty=3 @ $704.25  FILLED 2026-07-28
+```
+
+| | |
+|---|---:|
+| `buy_pending` rows over the 12 % BULL_CALM cap | 4 |
+| **of those, ACTUALLY FILLED at the broker** | **2** |
+| TSLA | **23.41 % → filled, $2,452** |
+| EME | **21.09 % → filled, $2,113** |
+
+**TSLA is 23.6 % of the live book right now** — roughly **2× its per-name cap**.
+The defect did not stay latent. It placed, it filled, and the position is open.
+
+## The error, exactly
+
+I derived "never reached the broker" from `broker_order_id IS NULL`. That column
+does not mean *not placed*; it means *the row never got the id stamped onto it*.
+
+It is worse than unpopulated — it is **anti-correlated with reality** here:
+
+| row | `broker_order_id` | actually filled? |
+|---|---|---|
+| FTNT 9.06 % | **SET** | **no** |
+| APH 8.63 % | **SET** | **no** |
+| AVGO 7.04 % | **SET** | **no** |
+| **TSLA 23.41 %** | **NULL** | **YES** |
+| **EME 21.09 %** | **NULL** | **YES** |
+
+So the very column I used to *downgrade* the severity is the one that points the
+wrong way. Every conclusion in the retracted section that rests on it is void.
+
+## Why this happened, and it is a lesson already in my ledger
+
+This repo already records *"a zero from an unpopulated column reads like a
+measurement"*, and separately that **the `trades` table is not a position
+ledger** (established later the same session, in orch#866, when a holdings
+reconstruction from that table produced 18 names against a live 10).
+
+I applied the second lesson to holdings and never went back to re-examine the
+severity claim I had built on the same table hours earlier. **The broker is the
+only authority for what was placed; the DB is a record of what was intended.**
+
+## Standing conclusions, re-stated
+
+| claim | status |
+|---|---|
+| the two `sizing.py` copies diverge (191/864) | **stands** |
+| the umbrella copy lacks the `cap_shares` clamp | **stands** |
+| the 07-28 daily run dispatched through the PINNED bridge | **stands** |
+| *"no oversized order ever reached the broker"* | **RETRACTED — 2 filled** |
+| *"max placed position is 9.06 %"* | **RETRACTED — it is 23.41 %** |
+
+The scoping section's open question — *which surface placed the 07-28 orders* —
+becomes materially more important, not less: something placed two positions at
+~2× the per-name cap, and the pinned clamp should have refused both.
