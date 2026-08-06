@@ -16,8 +16,8 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from ops.renquant104.freshness_axis_agreement_probe import (  # noqa: E402
-    AGREE, CONTRADICTION, DATA_CUTOFF_FIELDS, NOT_LICENSED,
-    ArtifactUnreadable, main, probe,
+    AGREE, CONTRADICTION, DATA_CUTOFF_FIELDS, LICENSE_WOULD_REFUSE, NOT_LICENSED,
+    ArtifactUnreadable, _trained_date_is_readable, main, probe,
 )
 
 LICENSED = "freshness_fallback_rfc210"
@@ -132,3 +132,61 @@ def test_exit_codes(tmp_path):
     assert main(["--artifact", str(bad)]) == 1
     assert main(["--artifact", str(ok)]) == 0
     assert main(["--artifact", str(tmp_path / "gone.json")]) == 2
+
+
+# --- the licence's OWN readability test (codex on orch#860) ------------------
+#
+# The probe judged AGREE on `promotion_basis` + any binding cutoff, ignoring
+# trained_date. But rfc210_license.py:73-84 serves ONLY when trained_date is a
+# non-empty string that parses as an ISO date. So an artifact with a binding
+# cutoff and a missing/blank trained_date was reported as agreement while the
+# licence actually REFUSES it -- hiding exactly the unreadable-licence case this
+# probe exists to surface.
+
+@pytest.mark.parametrize("bad", [None, "", "   ", "not-a-date", "2026-13-45", 20260802])
+def test_binding_cutoff_plus_UNREADABLE_trained_date_is_not_AGREE(tmp_path, bad):
+    """THE regression codex asked for. A binding cutoff is present, so the old
+    code returned AGREE; the licence would refuse."""
+    payload = {"promotion_basis": LICENSED, "cutoff_date": "2026-07-01"}
+    if bad is not None:
+        payload["trained_date"] = bad
+    p = probe(_art(tmp_path, payload, name=f"{str(bad)[:6]!r}.json".replace("/", "_")))
+    assert p["state"] == LICENSE_WOULD_REFUSE
+    assert p["state"] != AGREE
+    assert p["trained_date_readable"] is False
+
+
+def test_unreadable_trained_date_without_a_cutoff_is_also_a_refusal(tmp_path):
+    """The refusal outranks CONTRADICTION too: if the licence never serves, there
+    is no admission to contradict, whether or not a cutoff exists."""
+    p = probe(_art(tmp_path, {"promotion_basis": LICENSED, "trained_date": ""}))
+    assert p["state"] == LICENSE_WOULD_REFUSE
+    assert p["state"] != CONTRADICTION
+
+
+def test_a_readable_trained_date_still_reaches_the_real_verdicts(tmp_path):
+    """Anti-vacuity: the new gate must not swallow the two states that matter."""
+    agree = probe(_art(tmp_path, {"promotion_basis": LICENSED,
+                                  "trained_date": "2026-08-02",
+                                  "cutoff_date": "2026-07-01"}, name="a.json"))
+    contra = probe(_art(tmp_path, {"promotion_basis": LICENSED,
+                                   "trained_date": "2026-08-02"}, name="c.json"))
+    assert agree["state"] == AGREE
+    assert contra["state"] == CONTRADICTION
+
+
+def test_an_unlicensed_artifact_is_unaffected_by_the_age_check(tmp_path):
+    """Readability is a LICENCE-side test. An artifact the licence never claims
+    must not be reclassified by it."""
+    p = probe(_art(tmp_path, {"promotion_basis": "wf_gate_pass", "trained_date": ""}))
+    assert p["state"] == NOT_LICENSED
+
+
+@pytest.mark.parametrize("raw,ok", [
+    ("2026-08-02", True), ("  2026-08-02  ", True),
+    ("", False), ("   ", False), (None, False),
+    ("not-a-date", False), ("2026-13-45", False), (20260802, False),
+])
+def test_readability_helper_mirrors_the_licence(raw, ok):
+    """Pinned directly so the mirrored contract cannot drift silently."""
+    assert _trained_date_is_readable(raw) is ok

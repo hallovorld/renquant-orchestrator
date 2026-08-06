@@ -82,9 +82,19 @@ probe exists to report as missing. The probe carries that refusal as a field
 
 ## Delivered
 
-`ops/renquant104/freshness_axis_agreement_probe.py` + 17 tests. Three states:
+`ops/renquant104/freshness_axis_agreement_probe.py` + 34 tests. Four states:
 `CONTRADICTION` (licensed, no binding axis), `AGREE` (licensed, at least one
-binding axis readable — agreement on **axis**, not on value), `NOT_UNDER_LICENSE`.
+binding axis readable — agreement on **axis**, not on value), `NOT_UNDER_LICENSE`,
+and `LICENSE_WOULD_REFUSE`.
+
+The fourth state was added on codex review. The probe originally judged `AGREE`
+from `promotion_basis` plus any binding cutoff, **ignoring `trained_date`** — but
+`rfc210_license.py:73-84` serves only when `trained_date` is a non-empty string
+that parses as an ISO date, and refuses otherwise. So an artifact with a binding
+cutoff and a missing/blank `trained_date` was reported as **agreement while the
+licence actually refuses it**, hiding precisely the unreadable-licence case this
+probe exists to surface. `_trained_date_is_readable` now mirrors the licence's own
+test, pinned directly by a parametrised regression.
 
 Two design points a reviewer should check:
 

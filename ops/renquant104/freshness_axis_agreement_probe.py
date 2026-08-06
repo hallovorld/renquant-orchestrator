@@ -37,6 +37,7 @@ Read-only. Usage:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import pathlib
 import sys
@@ -66,6 +67,11 @@ LICENSE_BASIS_VALUE = "freshness_fallback_rfc210"
 AGREE = "AGREE"
 CONTRADICTION = "CONTRADICTION"
 NOT_LICENSED = "NOT_UNDER_LICENSE"
+#: The licence names this artifact as its own, but its age field is unreadable, so
+#: `rfc210_license.py:73-84` REFUSES rather than serving. There is no admission to
+#: contradict, and calling this AGREE would hide the very refusal the probe exists
+#: to surface (codex on orch#860). Its own state, never folded into either side.
+LICENSE_WOULD_REFUSE = "LICENSE_WOULD_REFUSE"
 
 
 class ArtifactUnreadable(RuntimeError):
@@ -80,6 +86,20 @@ def _get(payload: dict, field: str):
     if isinstance(md, dict) and field in md:
         return md[field]
     return None
+
+
+def _trained_date_is_readable(raw) -> bool:
+    """Exactly `rfc210_license.py`'s own test: a non-empty string that parses ISO.
+
+    Kept as a named helper rather than inlined so the mirrored contract is
+    greppable from the licence side, and so a test can pin it directly."""
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        dt.date.fromisoformat(raw.strip())
+    except ValueError:
+        return False
+    return True
 
 
 def probe(artifact: pathlib.Path = DEFAULT_ARTIFACT) -> dict:
@@ -99,8 +119,16 @@ def probe(artifact: pathlib.Path = DEFAULT_ARTIFACT) -> dict:
     basis = _get(payload, LICENSE_BASIS_FIELD)
     licensed = basis == LICENSE_BASIS_VALUE
 
+    # Mirror the licence's OWN readability test before judging agreement.
+    # rfc210_license.py:73-84 serves only when trained_date is a non-empty string
+    # that parses as an ISO date, and refuses otherwise. A probe that skipped this
+    # would report AGREE for an artifact the licence actually refuses.
+    age_readable = _trained_date_is_readable(trained)
+
     if not licensed:
         state = NOT_LICENSED
+    elif not age_readable:
+        state = LICENSE_WOULD_REFUSE
     elif binding:
         state = AGREE
     else:
@@ -117,6 +145,7 @@ def probe(artifact: pathlib.Path = DEFAULT_ARTIFACT) -> dict:
         "promotion_basis": basis,
         "under_rfc210_license": licensed,
         "trained_date": trained,
+        "trained_date_readable": age_readable,
         "license_ages_field": LICENSE_AGE_FIELD,
         # Stated so a CONTRADICTION is never read as a staleness measurement.
         "does_NOT_establish": (
@@ -144,6 +173,11 @@ def render(p: dict) -> str:
         out.append("  admits buys on a WF-gate-FAILED artifact.")
         out.append("")
         out.append(f"  This does NOT establish {p['does_NOT_establish']}")
+    elif p["state"] == LICENSE_WOULD_REFUSE:
+        out.append("  LICENSE WOULD REFUSE — promotion_basis names the RFC#210 fallback,")
+        out.append(f"  but trained_date={p['trained_date']!r} is not a parseable ISO date, so")
+        out.append("  the licence refuses rather than serving. Not agreement: there is no")
+        out.append("  admission here to contradict.")
     elif p["state"] == AGREE:
         out.append("  both axes are readable — the license's age can be checked against")
         out.append("  a real data cutoff. NOTE: agreement on AXIS, not on VALUE.")
