@@ -1,10 +1,14 @@
 # 2026-08-06 — Manual exit of two positions to bring the book under its slot cap
 
-STATUS:   DONE — four sell orders queued against the live book (two placed by the
-          daily-full runs, two placed by hand under an explicit operator grant).
-          Market was CLOSED at submission; all four are DAY market orders that
-          execute at the 09:30 ET open. This is a RECORD of a live-capital action,
-          not a code change.
+STATUS:   SUBMITTED, PENDING FILL — four sell orders placed against the live book
+          (two by the daily-full runs, two by hand under an explicit operator
+          grant). Market was CLOSED at submission; all four are DAY market orders
+          targeting the 09:30 ET open. As of this snapshot the only established
+          facts are the order ids and their submitted status — market orders can
+          be rejected, canceled, or partially filled, so nothing below the order
+          table is a completed outcome yet. This is a RECORD of a live-capital
+          action, not a code change. See RECONCILIATION below for the required
+          post-open follow-up.
 
 WHAT:     Operator grant, verbatim: **"你直接帮我把当前模型不看好的几个仓位卖出就好了，
           一次性工作，不需要写代码了，直接看数据就行"** (just sell the few positions
@@ -17,8 +21,11 @@ WHAT:     Operator grant, verbatim: **"你直接帮我把当前模型不看好�
           | **GOOG** | **1** | **$358** | **manual** | worst model rank of all ten holdings |
           | **WELL** | **3** | **$701** | **manual** | lowest model expected return of all ten |
 
-          Book 10 -> 6 positions. `open_slots` goes -2 -> +2. Cash ≈47.3% -> ≈61.0%,
-          ≈$1,487 released.
+          **Projected, contingent on all four fills** — Book 10 -> 6 positions,
+          `open_slots` -2 -> +2, cash ≈47.3% -> ≈61.0% (≈$1,487 released). These
+          are the outcome IF all four DAY orders fill at submission size; a
+          reject, cancel, or partial fill on any of the four changes them. See
+          RECONCILIATION for the actual post-open figures.
 
 WHY/DIR:  The operator's directive of the same day sets `max_concurrent_positions=8`.
           The book held 10, so `open_slots = 8 - 10 = -2` and `PrepareSelectionTask`
@@ -56,9 +63,30 @@ best-known?:   yes for "which names the model rates lowest today" — it is the
                them is profitable"; see NOT ESTABLISHED.
 scope:         one-off manual trim; no config, code, or scheduled job was touched.
 
-NEXT:     After the open, `open_slots = 2` and the buy path reopens. Whether the
-          book then actually buys depends on `VetoWeakBuysTask`'s relative floor
-          (108 scanned -> 84 ranked -> 2-3 admitted today), not on slot count.
+NEXT:     Required reconciliation after the 09:30 ET open (see RECONCILIATION
+          below) — pull the four order ids from the Alpaca orders API, record
+          actual fill/reject/cancel/partial status and fill price per order,
+          and recompute the real post-open position count, `open_slots`, and
+          cash from the live positions API rather than from the projection
+          above. Only after that reconciliation is filled in does `open_slots
+          = 2` become an established fact; until then it is the projection
+          this doc already flags as contingent. Once reconciled, whether the
+          book then actually buys depends on `VetoWeakBuysTask`'s relative
+          floor (108 scanned -> 84 ranked -> 2-3 admitted today), not on slot
+          count alone.
+
+## RECONCILIATION (fill in after the 09:30 ET open)
+
+| order id | ticker | side | submitted qty | status | filled qty | fill price |
+|---|---|---|---:|---|---:|---:|
+| 38b3752d | GOOG | sell | 1 | **TODO — not yet reconciled** | | |
+| f67cea9f | WELL | sell | 3 | **TODO — not yet reconciled** | | |
+| cec40153 | NVDA | sell | 1 | **TODO — not yet reconciled** | | |
+| 8f17321b | MRVL | sell | 1 | **TODO — not yet reconciled** | | |
+
+Actual post-open book: **TODO** (position count, `open_slots`, cash %, $
+released) — read from the live positions API after the open, not carried
+forward from the projection in WHAT.
 
 ## NOT ESTABLISHED
 
