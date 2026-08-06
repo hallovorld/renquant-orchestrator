@@ -15,6 +15,11 @@ EVIDENCE: component-by-component diff of `strategy_config.shadow_blend_momentum.
           `expected_config_fingerprint` on both components; the probe's live run reports exactly 1
           copy-of-prod lane, matching this manual diff. `[VERIFIED — this session, config diff +
           probe run this session]`
+          artifact:      `strategy_config.shadow_blend_momentum.json` vs `strategy_config.json`, both read this session
+          prod or exp:   prod — both configs are live-serving (one primary, one shadow)
+          existing data: orch#856's ρ=0.9998 fleet-divergence measurement, now explained by this config diff
+          best-known?:   n/a — this is a config-identity check, not a model-variant skill comparison
+          scope:         "this is a live shadow lane's own config, prod, vs. the live primary scorer — no model is ranked, the lane is shown to be a duplicate"
 NEXT:     `_mom` needs a decision — retire or re-point at a non-prod candidate (a
           `renquant-strategy-104` config change, repo boundary, not actioned here); wire this probe
           into the daily surface so the next promotion that orphans its own shadow is caught same-day.
