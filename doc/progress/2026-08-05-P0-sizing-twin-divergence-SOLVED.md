@@ -21,6 +21,11 @@ EVIDENCE: reproduced 7/7 live/dry-run sizing rows through the umbrella copy (exa
           classified all 39 launchd jobs — exactly 1 (`com.renquant.rq104-dawn-preflight`) reaches
           the stale umbrella kernel directly, and it places nothing. `[VERIFIED — this session,
           7/7 reproduction + 864-case grid + 39-job launchd classification this session]`
+          artifact:      `RenQuant/backtesting/renquant_104/kernel/sizing.py` (umbrella) vs. its pinned pipeline counterpart, both read this session
+          prod or exp:   prod — the umbrella copy is the one `live.runner` imports; `data/runs.alpaca.db` is the live order record
+          existing data: `data/runs.alpaca.db`'s full `buy_pending` history (63 rows) and `ops/launchd_manifest.json`'s 39 jobs
+          best-known?:   n/a — this compares two code copies for a bug, not two model variants for skill
+          scope:         "this is the umbrella's own sizing code, prod, vs. its pinned pipeline twin — no model skill claim is made"
 NEXT:     the fix is one line in the umbrella (`RenQuant/backtesting/renquant_104/kernel/sizing.py`)
           — port `6de6219`'s clamp, or delete the twin and import the pipeline's; this repo does
           not write to the umbrella so it is not actioned here. The wider 120-file divergence
