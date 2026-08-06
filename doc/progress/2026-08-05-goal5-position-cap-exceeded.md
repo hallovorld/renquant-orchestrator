@@ -2,7 +2,9 @@
 
 **Date:** 2026-08-05
 **Lane:** GOAL-5 (daily-run reliability P0)
-**Status:** OPEN — mechanism NOT established. Filed rather than guessed.
+**Status:** ROOT CAUSE ESTABLISHED (2026-08-06 read). An earlier revision of this
+doc said the mechanism was unestablished and described a single six-second batch.
+Both are corrected below.
 
 ## The fact, from two independent sources `[VERIFIED — this session]`
 
@@ -77,3 +79,70 @@ correctly narrowed.
 The discriminating evidence is the 2026-08-05 11:00 UTC emitting run's own log:
 what it recorded for `held`, `max_positions`, and `open_slots`. That is the next
 step, and it is a read, not a guess.
+
+
+---
+
+# ROOT CAUSE — `held` counts FILLED positions, and in-flight buys are invisible `[VERIFIED]`
+
+## Correction first: it was NOT one batch
+
+The earlier section read Alpaca's `submitted_at` (all six at
+`2026-08-05 11:00:02-11:00:08 UTC`) as one emission six seconds wide. **That is an
+artifact of the broker's field**, not of our runner: an order accepted after
+hours is re-stamped `submitted_at` when it is released at the next session's
+pre-open. Every order in the batch shows the same 2.5 h "in-flight gap" precisely
+because they were all released together, not sent together.
+
+`logs/daily_104/2026-08-04.log` records what actually happened — **three separate
+runs across 5.5 hours**:
+
+| time (PDT) | orders ACCEPTED | `held` the runner reported |
+|---|---|---:|
+| 14:54:46 | DDOG ×1, SOFI ×9, NVDA ×1 | **5** |
+| 19:28:16 | GOOG ×1, WELL ×3 | **5** |
+| 20:18:38 | VLO ×2 | **5** |
+
+## The mechanism
+
+**All three runs saw `held = 5`.** The three orders accepted at 14:54 were still
+`ACCEPTED`-not-filled at 19:28 and again at 20:18, so they never entered
+`holdings` — and `open_slots = max_positions - len(held)` reads `holdings`.
+
+So each run computed `open_slots = 8 − 5 = 3` and emitted **within its own
+budget**: 3, then 2, then 1. Every run enforced the cap correctly against the
+state it could see. **No run could see the other two.**
+
+At the 2026-08-05 open all six filled at once:
+
+```
+4 pre-existing (LRCX, MRVL, TSLA, PANW)  +  6 filled  =  10   against a cap of 8
+```
+
+**The cap is enforced per-run against filled positions only. Accepted-but-unfilled
+buy orders are invisible to it.** Three runs each obeying the cap produced a book
+2 over it — the defect is not in any one run's arithmetic, it is that the budget
+has no memory.
+
+This also explains why it appeared on 08-04 specifically: that was the first day
+with three buy-emitting runs whose orders all queued to the same next open.
+
+## Why this is the load-bearing one
+
+Sizing errors change how much of a name you buy. This changes **how many names you
+hold**, past a limit that exists to bound concentration — and it did so with real
+filled orders, not `buy_pending` rows that died before the broker. The book is
+over its own cap **right now**.
+
+## The fix, stated but not implemented (repo boundary: renquant-pipeline)
+
+`open_slots` must subtract in-flight buy intents, not just filled holdings —
+i.e. `effective_held = filled_positions ∪ accepted_unfilled_buy_orders`. The
+broker's open-orders list is the authoritative source; `ctx.holdings` is not.
+
+## What this does NOT establish
+
+- **Not that any individual run misbehaved.** All three respected the cap they
+  could compute. There is no bug to point at inside one run.
+- **Not the P/L impact.** Whether being 2 names over the cap helped or hurt is
+  unmeasured and is a separate question from whether the control held.
