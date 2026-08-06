@@ -256,6 +256,12 @@ def test_the_cited_contract_is_the_one_in_force():
         # finding exit so a session that could not be checked lands on HARNESS —
         # invisibility is this detector's own defect class.
         "model-load-coverage": (1,),
+        # Added 2026-08-06. Both are `return 1 if <finding> else 0` in main(), and
+        # both `return 2` on a refusal (prod config missing / unparseable) so a
+        # refusal lands on HARNESS rather than reading as "the fleet is clean".
+        # 2 is deliberately NOT declared as a finding exit for either.
+        "shadow-lane-control": (1,),
+        "shadow-leg-independence": (1,),
     }
 
 

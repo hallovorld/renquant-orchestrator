@@ -140,3 +140,19 @@ def test_result_refuses_to_rank_the_two_rhos(tmp_path):
     r = scan(p)
     assert "must not be ranked against each other" in r["does_NOT_establish"]
     assert "is bad" in r["does_NOT_establish"]
+
+def test_non_utf8_config_refuses(tmp_path):
+    p = tmp_path / "strategy_config.json"
+    p.write_bytes(b"\xff\xfe\x00\x01")
+    with pytest.raises(ConfigUnreadable):
+        scan(p)
+
+def test_non_utf8_primary_config_makes_the_cli_exit_2_not_crash(tmp_path):
+    """A UnicodeDecodeError on the PRIMARY read must land in REFUSING (exit 2),
+    not propagate uncaught — an uncaught exception would exit 1, which
+    ops_audit reads as a finding, misclassifying a corrupted config as a clean
+    result."""
+    from ops.renquant104.shadow_leg_independence_probe import main
+    p = tmp_path / "strategy_config.json"
+    p.write_bytes(b"\xff\xfe\x00\x01")
+    assert main(["--config", str(p)]) == 2
