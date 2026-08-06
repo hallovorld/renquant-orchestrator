@@ -1,0 +1,380 @@
+{
+  "dates": [
+    "2026-07-28",
+    "2026-07-29",
+    "2026-07-30",
+    "2026-07-31",
+    "2026-08-03",
+    "2026-08-04",
+    "2026-08-05"
+  ],
+  "top_k": 10,
+  "runs": [
+    {
+      "date": "2026-07-28",
+      "top_k": 10,
+      "prod_run_id": "2026-07-28-live-5b859fff",
+      "prod_n_scored": 78,
+      "prod_score_set_sha256": "sha256:99e65084c0a6f339ca2c0ba3c5294f0ff826f863d3d5d7f08e69351a19f0e9c5",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-07-28-live-735c7e9b",
+          "score_set_sha256": "sha256:5912e50469d66c81f0bf161b06c136c2b755ac716aadb40895749172a4082d3e",
+          "n_common": 78,
+          "prod_score_sd": 0.16132247444336123,
+          "spearman_vs_prod": 0.9288812453369414,
+          "top_k": 10,
+          "top_k_overlap": 7,
+          "affine_residual_ratio": 3.417226172206102,
+          "top_k_only_in_lane": [
+            "ABBV",
+            "CRM",
+            "NEM"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 4
+    },
+    {
+      "date": "2026-07-29",
+      "top_k": 10,
+      "prod_run_id": "2026-07-29-live-34603e64",
+      "prod_n_scored": 78,
+      "prod_score_set_sha256": "sha256:85d351fa074e453631848013267cb7de631d1721e141951a8c877204853e89c5",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-07-29-live-a68df3f8",
+          "score_set_sha256": "sha256:2e80347d108d397ebe862182bcd382df54a46ceed50623dfcb3349de349bc834",
+          "n_common": 78,
+          "prod_score_sd": 0.16035306501650504,
+          "spearman_vs_prod": 0.93037342404431,
+          "top_k": 10,
+          "top_k_overlap": 7,
+          "affine_residual_ratio": 3.2984994271284713,
+          "top_k_only_in_lane": [
+            "CAT",
+            "CRM",
+            "GE"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 4
+    },
+    {
+      "date": "2026-07-30",
+      "top_k": 10,
+      "prod_run_id": "2026-07-30-live-7521e521",
+      "prod_n_scored": 77,
+      "prod_score_set_sha256": "sha256:b9d51d4e73125cbf209451131e515a4f28abfc4c01eefb3360faa01b72ea676b",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-07-30-live-ce5fa504",
+          "score_set_sha256": "sha256:d2fa9376620eb81c7f3657cfb5244d963030451d8e090c39288fc94f6cb366f1",
+          "n_common": 77,
+          "prod_score_sd": 0.15376590137060897,
+          "spearman_vs_prod": 0.9181870760818128,
+          "top_k": 10,
+          "top_k_overlap": 7,
+          "affine_residual_ratio": 3.6959395253194285,
+          "top_k_only_in_lane": [
+            "ABBV",
+            "CRM",
+            "SOFI"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 4
+    },
+    {
+      "date": "2026-07-31",
+      "top_k": 10,
+      "prod_run_id": "2026-07-31-live-381747dd",
+      "prod_n_scored": 79,
+      "prod_score_set_sha256": "sha256:1dae3b45b33d0ad45d784ae0675216d8db13ddeed97be607c94747ddc70b3941",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-07-31-live-8aa713e5",
+          "score_set_sha256": "sha256:7d36048b2826b8c9c5052d17c8f04a002d17e57c1931114455410df3cfb84c52",
+          "n_common": 78,
+          "prod_score_sd": 0.15506413075864547,
+          "spearman_vs_prod": 0.9330795786491989,
+          "top_k": 10,
+          "top_k_overlap": 6,
+          "affine_residual_ratio": 3.629370459257356,
+          "top_k_only_in_lane": [
+            "ABBV",
+            "CAT",
+            "NEM",
+            "SOFI"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 4
+    },
+    {
+      "date": "2026-08-03",
+      "top_k": 10,
+      "prod_run_id": "2026-08-03-live-ff1f674a",
+      "prod_n_scored": 80,
+      "prod_score_set_sha256": "sha256:5b4a97648092bbac8a5d2e25af242e2d41827df82e8bbbff109344d65fcae94d",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-08-03-live-9375cbac",
+          "score_set_sha256": "sha256:a5e51d330444b08c43edf411858ca962b4c37fe2476810e2298b24ab76eab8e9",
+          "n_common": 78,
+          "prod_score_sd": 0.17153685169622926,
+          "spearman_vs_prod": 0.9482289862036696,
+          "top_k": 10,
+          "top_k_overlap": 6,
+          "affine_residual_ratio": 3.1426778970352136,
+          "top_k_only_in_lane": [
+            "CAT",
+            "CRM",
+            "NEM",
+            "ZM"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "state": "NO_RUN_ON_THIS_DATE"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "state": "NO_RUN_ON_THIS_DATE"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 4
+    },
+    {
+      "date": "2026-08-04",
+      "top_k": 10,
+      "prod_run_id": "2026-08-04-live-a199b993",
+      "prod_n_scored": 83,
+      "prod_score_set_sha256": "sha256:5bd24f0339ef8bf98c0368e1c71cca6cbff1d3ff46c0c71163ff07324876e955",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-08-04-live-de57b5a7",
+          "score_set_sha256": "sha256:8bea16cd091313df8c77fda1d6aab752083d07d13ecdb15a1378ef2beb493fa9",
+          "n_common": 81,
+          "prod_score_sd": 1.344801250994554,
+          "spearman_vs_prod": 0.6058491418247516,
+          "top_k": 10,
+          "top_k_overlap": 5,
+          "affine_residual_ratio": 0.9185912444253557,
+          "top_k_only_in_lane": [
+            "AFRM",
+            "AMZN",
+            "GM",
+            "MCHP",
+            "META"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "run_id": "2026-08-04-live-2b1feb08",
+          "score_set_sha256": "sha256:7f4ae369ce8b215207c1f5566dfbd0180df9b420ec4f69263da06d7dbcef7493",
+          "n_common": 82,
+          "prod_score_sd": 1.3394401801849771,
+          "spearman_vs_prod": 0.9997170252827027,
+          "top_k": 10,
+          "top_k_overlap": 10,
+          "affine_residual_ratio": 0.011470041023918118,
+          "top_k_only_in_lane": [],
+          "state": "SAME_TOP_K_AS_PROD"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "run_id": "2026-08-04-live-cd1c23b2",
+          "state": "RAN_AND_SCORED_NOTHING",
+          "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "run_id": "2026-08-04-live-46d9f612",
+          "score_set_sha256": "sha256:40e5b1591b6dc00d6cccadc2504a91bd95982ddf9e2c3a75c1e4047a820e4c2b",
+          "n_common": 82,
+          "prod_score_sd": 1.3394401801849771,
+          "spearman_vs_prod": 0.9271884285107912,
+          "top_k": 10,
+          "top_k_overlap": 8,
+          "affine_residual_ratio": 0.4944650942409893,
+          "top_k_only_in_lane": [
+            "GRMN",
+            "MCHP"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "run_id": "2026-08-04-live-6a5db792",
+          "state": "RAN_AND_SCORED_NOTHING",
+          "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 3
+    },
+    {
+      "date": "2026-08-05",
+      "top_k": 10,
+      "prod_run_id": "2026-08-05-live-2d99f969",
+      "prod_n_scored": 84,
+      "prod_score_set_sha256": "sha256:9176cefca5f74c1563a6ec684de04f34e2e14a2dc05898c5ce4a73de647c6cb7",
+      "lanes": [
+        {
+          "lane": "alpaca_shadow_blend",
+          "run_id": "2026-08-05-live-a981a491",
+          "score_set_sha256": "sha256:c2a3f414bbfcaba3f3c5fc95c78b078e9e9fabff74bd3904555fa57a389a2d83",
+          "n_common": 83,
+          "prod_score_sd": 1.2863915503034375,
+          "spearman_vs_prod": 0.609126401074682,
+          "top_k": 10,
+          "top_k_overlap": 4,
+          "affine_residual_ratio": 0.9828126113160534,
+          "top_k_only_in_lane": [
+            "AMZN",
+            "BWXT",
+            "GM",
+            "MCHP",
+            "META",
+            "ZM"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom",
+          "run_id": "2026-08-05-live-bd569876",
+          "score_set_sha256": "sha256:a1aedba8901cd3e2b0c4caa6ab4ed591b1b60407a0c7d91547c5ec309f89fc9c",
+          "n_common": 84,
+          "prod_score_sd": 1.2811632726079747,
+          "spearman_vs_prod": 0.9998987546825961,
+          "top_k": 10,
+          "top_k_overlap": 10,
+          "affine_residual_ratio": 0.018326295036473404,
+          "top_k_only_in_lane": [],
+          "state": "SAME_TOP_K_AS_PROD"
+        },
+        {
+          "lane": "alpaca_shadow_blend_mom_fast",
+          "run_id": "2026-08-05-live-c5d2ef40",
+          "state": "RAN_AND_SCORED_NOTHING",
+          "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_mom",
+          "run_id": "2026-08-05-live-26e69854",
+          "score_set_sha256": "sha256:024c76e539c6bd3573d0644452defd2b525299fc6d246c1461362a2c0ab3b85a",
+          "n_common": 84,
+          "prod_score_sd": 1.2811632726079747,
+          "spearman_vs_prod": 0.9179912929027032,
+          "top_k": 10,
+          "top_k_overlap": 7,
+          "affine_residual_ratio": 0.5561687560310867,
+          "top_k_only_in_lane": [
+            "AMZN",
+            "BWXT",
+            "EME"
+          ],
+          "state": "DIVERGED"
+        },
+        {
+          "lane": "alpaca_shadow_blend_rb_fast",
+          "run_id": "2026-08-05-live-7c88501a",
+          "state": "RAN_AND_SCORED_NOTHING",
+          "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+        }
+      ],
+      "n_lanes": 5,
+      "n_lanes_with_no_separating_evidence": 3
+    }
+  ]
+}
