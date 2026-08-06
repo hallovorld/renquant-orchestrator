@@ -15,6 +15,11 @@ EVIDENCE: `launchctl list` shows 40 loaded `com.renquant.*` jobs vs. 39 manifest
           reports it daily (`com.renquant.run-surface-drift` exits 1) — it was undispositioned, not
           undetected. `[VERIFIED — this session, launchctl list + manifest diff + new checker run
           this session]`
+          artifact:      `launchctl list` output + `ops/launchd_manifest.json`, both read this session
+          prod or exp:   prod — the operator's own live launchd domain on the run surface
+          existing data: the existing drift scan's own daily exit-1 report, cross-checked against this new checker
+          best-known?:   n/a — this is a run-surface audit, not a model-variant comparison
+          scope:         "this is the live launchd surface, prod, vs. the reviewed manifest — no model skill claim is made"
 NEXT:     `com.renquant.crypto-session` needs a decision not mine to make unilaterally — retire
           under the containment protocol (tracked record + literal revert steps) or legitimise in
           the manifest through review; filed as an issue rather than acted on here.
