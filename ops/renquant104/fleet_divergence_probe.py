@@ -11,7 +11,7 @@ decision, and agreement with prod is invisible because no one compares them.
 MEASURED 2026-08-04 `[VERIFIED — this session]`, against
 `2026-08-04-live-a199b993` (prod, 83 scored):
 
-    lane               n   spearman   top10   resid/sd   prod_sd   state
+    lane               n   spearman   top10   resid/sd   base_sd   state
     blend             81     0.6058    5/10      91.9%    1.3448   DIVERGED
     blend_mom         82     0.9997   10/10       1.1%    1.3394   SAME_TOP_K_AS_PROD
     blend_rb_mom      82     0.9272    8/10      49.4%    1.3394   DIVERGED
@@ -40,8 +40,8 @@ THE RATIO'S DENOMINATOR IS NOT STABLE, so it is printed beside it. Prod's own
 cross-sectional score sd went **0.17 → 1.35 (8x)** on 2026-08-04 when prod
 itself became a two-component z-blend `[VERIFIED — this session]`. Any
 `resid/sd` read across that boundary is comparing ratios whose denominator
-moved. The probe therefore reports `prod_score_sd` on every row: a ratio whose
-denominator is invisible is a number nobody can check.
+moved. The probe therefore reports `baseline_score_sd` on every row: a ratio
+whose denominator is invisible is a number nobody can check.
 
 NO INVENTED THRESHOLD. The verdicts are facts, not cutoffs:
   * ``NO_RUN`` / ``RAN_AND_SCORED_NOTHING`` — no evidence, for two different
@@ -218,7 +218,7 @@ def compare(prod: dict[str, float], lane: dict[str, float], *, top_k: int) -> di
         "n_common": len(common),
         # Printed with the ratio, always: the denominator moved 8x once
         # already, and a ratio without it cannot be compared across dates.
-        "prod_score_sd": float(np.asarray(px, float).std(ddof=1)),
+        "baseline_score_sd": float(np.asarray(px, float).std(ddof=1)),
         "spearman_vs_prod": _spearman(px, lx),
         "top_k": top_k,
         "top_k_overlap": len(top_prod & top_lane),
@@ -229,18 +229,32 @@ def compare(prod: dict[str, float], lane: dict[str, float], *, top_k: int) -> di
     return out
 
 
-def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
+def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA,
+          baseline: str = PROD_LANE) -> dict:
+    """Compare every other lane against ``baseline`` (prod by default).
+
+    WHY A CHOOSABLE BASELINE `[measured 2026-08-05]`: prod scores its buy funnel
+    ONCE a day, at 13:55 PT. Before that the reference does not exist and the
+    probe — correctly — refuses. But the fleet may already have run, and
+    "do the candidates disagree with EACH OTHER" is the ensemble question
+    regardless of whether prod has scored yet. Refusing to answer a question the
+    evidence supports is its own kind of silence.
+
+    The baseline is still VALIDATED identically: an absent run, an empty one, or
+    too few names to define the requested top-K refuses the whole probe. A
+    choosable reference must not become an unchecked one.
+    """
     # A top-0 or negative K makes every top-K set empty, so every lane would
     # read SAME_TOP_K_AS_PROD — the strongest verdict this file can emit, from
     # a parameter that asked for nothing [codex on orch#826].
     if not isinstance(top_k, int) or top_k < 1:
         raise ValueError(f"top_k must be a positive integer, got {top_k!r} — "
                          "an empty top-K would make every lane 'agree'")
-    prod_run, prod = lane_scores(PROD_LANE, date, data)
+    prod_run, prod = lane_scores(baseline, date, data)
     # The REFERENCE is validated before anything is compared to it.
     if prod_run is None:
         raise ProdBaselineUnavailable(
-            f"prod has no completed run on {date} — there is nothing to compare "
+            f"{baseline} has no completed run on {date} — there is nothing to compare "
             f"the fleet against, and reporting the lanes as 'no separating "
             f"evidence' would publish a missing control as a finding")
     need = max(MIN_COMMON, top_k)
@@ -255,14 +269,14 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
         # probe's own error text. The reader gets the facts and draws the
         # conclusion.
         raise ProdBaselineUnavailable(
-            f"prod run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
+            f"{baseline} run {prod_run} scored {len(prod)} name(s) on {date}, fewer "
             f"than the {need} needed to define a top-{top_k} — the reference "
             f"cannot support the comparison being asked for "
-            f"({_n_runs(PROD_LANE, date, data)} prod run(s) recorded on this "
+            f"({_n_runs(baseline, date, data)} {baseline} run(s) recorded on this "
             f"date). Refusing rather than falling back to an older scored run, "
             f"which would publish a stale baseline as this date's.")
     rows = []
-    for lane in SHADOW_LANES:
+    for lane in [l for l in (PROD_LANE, *SHADOW_LANES) if l != baseline]:
         try:
             run_id, scores = lane_scores(lane, date, data)
         except LaneUnreadable as exc:
@@ -282,9 +296,10 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
     return {
         "date": date,
         "top_k": top_k,
-        "prod_run_id": prod_run,
-        "prod_n_scored": len(prod),
-        "prod_score_set_sha256": score_set_sha256(prod),
+        "baseline_lane": baseline,
+        "baseline_run_id": prod_run,
+        "baseline_n_scored": len(prod),
+        "baseline_score_set_sha256": score_set_sha256(prod),
         "lanes": rows,
         "n_lanes": len(rows),
         "n_lanes_with_no_separating_evidence": sum(
@@ -292,7 +307,8 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
     }
 
 
-def probe_range(dates, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
+def probe_range(dates, *, top_k: int = 10, data: pathlib.Path = DATA,
+                baseline: str = PROD_LANE) -> dict:
     """One row per date for which prod has a usable baseline.
 
     A claim about a RANGE needs a record of the range `[codex on orch#826]`: the
@@ -304,20 +320,22 @@ def probe_range(dates, *, top_k: int = 10, data: pathlib.Path = DATA) -> dict:
     out = []
     for date in dates:
         try:
-            out.append(probe(date, top_k=top_k, data=data))
+            out.append(probe(date, top_k=top_k, data=data, baseline=baseline))
         except ProdBaselineUnavailable as exc:
             out.append({"date": date, "state": STATE_PROD_UNAVAILABLE,
                         "detail": str(exc), "lanes": []})
-    return {"dates": [str(d) for d in dates], "top_k": top_k, "runs": out}
+    return {"dates": [str(d) for d in dates], "top_k": top_k,
+            "baseline_lane": baseline, "runs": out}
 
 
 def render(result: dict) -> str:
-    out = [f"fleet divergence vs prod — {result['date']}",
-           f"  prod run {result['prod_run_id']} "
-           f"({result['prod_n_scored']} scored)", ""]
+    out = [f"fleet divergence vs {result.get('baseline_lane', PROD_LANE)} — "
+           f"{result['date']}",
+           f"  baseline run {result['baseline_run_id']} "
+           f"({result['baseline_n_scored']} scored)", ""]
     k = result["lanes"][0].get("top_k", 10) if result["lanes"] else 10
     out.append(f"  {'lane':26}{'n':>5}{'spearman':>10}{'top' + str(k):>8}"
-               f"{'resid/sd':>10}{'prod_sd':>10}  state")
+               f"{'resid/sd':>10}{'base_sd':>10}  state")
     for r in result["lanes"]:
         name = r["lane"].replace("alpaca_shadow_", "")
         if "spearman_vs_prod" not in r:
@@ -329,7 +347,7 @@ def render(result: dict) -> str:
             f"  {name:26}{r['n_common']:>5}{r['spearman_vs_prod']:>10.4f}"
             f"{str(r['top_k_overlap']) + '/' + str(r['top_k']):>8}"
             f"{('—' if ratio is None else f'{ratio:.1%}'):>10}"
-            f"{r['prod_score_sd']:>10.4f}  {r['state']}")
+            f"{r['baseline_score_sd']:>10.4f}  {r['state']}")
     n = result["n_lanes_with_no_separating_evidence"]
     out.append("")
     out.append(f"  {n} of {result['n_lanes']} shadow lane(s) produced NO "
@@ -338,7 +356,7 @@ def render(result: dict) -> str:
                "fleet can accumulate.\n        It is NOT a claim that any lane's "
                "model is bad. resid/sd is a MAGNITUDE,\n        never a verdict "
                "— no cutoff is applied to it, and it is NOT\n        comparable "
-               "across dates on which prod_sd moved.")
+               "across dates on which base_sd moved.")
     return "\n".join(out)
 
 
@@ -348,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--date", default=dt.date.today().isoformat())
     ap.add_argument("--top-k", type=int, default=10)
+    ap.add_argument("--baseline", default=PROD_LANE,
+                    help="lane to compare against; prod by default. Useful "
+                         "before prod's once-daily buy funnel has scored.")
     ap.add_argument("--range", nargs="+", metavar="DATE",
                     help="probe several dates and persist them as ONE bundle — "
                          "the record a range claim may cite")
@@ -357,7 +378,8 @@ def main(argv: list[str] | None = None) -> int:
                                   "reads is mutable")
     args = ap.parse_args(argv)
     if args.range:
-        bundle = probe_range(args.range, top_k=args.top_k, data=DATA)
+        bundle = probe_range(args.range, top_k=args.top_k, data=DATA,
+                             baseline=args.baseline)
         text = json.dumps(bundle, indent=2)
         if args.out:
             pathlib.Path(args.out).write_text(text, encoding="utf-8")
@@ -367,7 +389,8 @@ def main(argv: list[str] | None = None) -> int:
         # Module-global lookup at CALL time, not the def-time default: a test
         # (and an operator with RENQUANT_REPO_ROOT set) must be able to point
         # this at another tree without the CLI silently reading the live one.
-        result = probe(args.date, top_k=args.top_k, data=DATA)
+        result = probe(args.date, top_k=args.top_k, data=DATA,
+                       baseline=args.baseline)
     except ProdBaselineUnavailable as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 3

@@ -1,0 +1,64 @@
+{
+  "date": "2026-08-05",
+  "top_k": 10,
+  "baseline_lane": "alpaca_shadow_blend",
+  "baseline_run_id": "2026-08-05-live-9c15b912",
+  "baseline_n_scored": 84,
+  "baseline_score_set_sha256": "sha256:568185a28d806618dcf3c4581840a56136d93ebbed339967e14f6c5bf00343ce",
+  "lanes": [
+    {
+      "lane": "alpaca",
+      "run_id": "2026-08-05-live-fb13a17c",
+      "state": "RAN_AND_SCORED_NOTHING",
+      "detail": "a run row exists and no candidate carries a panel_score \u2014 the lane produced no evidence"
+    },
+    {
+      "lane": "alpaca_shadow_blend_mom",
+      "run_id": "2026-08-05-live-0f216cbb",
+      "score_set_sha256": "sha256:662fc2233a8d8a2729aeb2c2c6b6a4975c9dc1cbe9862863ba423a81fd5f6ca6",
+      "n_common": 84,
+      "baseline_score_sd": 1.6466196104298145,
+      "spearman_vs_prod": 0.6122506834058925,
+      "top_k": 10,
+      "top_k_overlap": 4,
+      "affine_residual_ratio": 0.5900882518846304,
+      "top_k_only_in_lane": [
+        "ASML",
+        "FTNT",
+        "GRMN",
+        "NEM",
+        "ROST",
+        "SPG"
+      ],
+      "state": "DIVERGED"
+    },
+    {
+      "lane": "alpaca_shadow_blend_mom_fast",
+      "state": "NO_RUN_ON_THIS_DATE"
+    },
+    {
+      "lane": "alpaca_shadow_blend_rb_mom",
+      "run_id": "2026-08-05-live-a624adb4",
+      "score_set_sha256": "sha256:e184d5e35afd421bb3965d7a84424801537ec1154065ad8e65a307b2ec06d9da",
+      "n_common": 84,
+      "baseline_score_sd": 1.6466196104298145,
+      "spearman_vs_prod": 0.8450946643717728,
+      "top_k": 10,
+      "top_k_overlap": 6,
+      "affine_residual_ratio": 0.573532103278333,
+      "top_k_only_in_lane": [
+        "ASML",
+        "EME",
+        "FTNT",
+        "NEM"
+      ],
+      "state": "DIVERGED"
+    },
+    {
+      "lane": "alpaca_shadow_blend_rb_fast",
+      "state": "NO_RUN_ON_THIS_DATE"
+    }
+  ],
+  "n_lanes": 5,
+  "n_lanes_with_no_separating_evidence": 3
+}

@@ -90,7 +90,9 @@ class TestTheReferenceIsValidatedBEFOREAnythingIsComparedToIt:
                   run_id=f"r{i}", created_at=f"2026-08-04T1{i}:00:00")
         with pytest.raises(F.ProdBaselineUnavailable) as exc:
             F.probe("2026-08-04", data=tmp_path)
-        assert "3 prod run(s) recorded" in str(exc.value)
+        # The message now names the BASELINE LANE rather than the word "prod",
+        # because the baseline is choosable.
+        assert "3 alpaca run(s) recorded" in str(exc.value)
         assert "stale baseline" in str(exc.value)
 
     def test_the_refusal_DIAGNOSES_NOTHING(self, tmp_path):
@@ -137,8 +139,8 @@ class TestWhatWasComparedIsHashed:
         _lane(tmp_path, "alpaca", "2026-08-04", prod)
         _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", prod)
         r = F.probe("2026-08-04", data=tmp_path)
-        assert r["prod_score_set_sha256"].startswith("sha256:")
-        assert r["lanes"][0]["score_set_sha256"] == r["prod_score_set_sha256"]
+        assert r["baseline_score_set_sha256"].startswith("sha256:")
+        assert r["lanes"][0]["score_set_sha256"] == r["baseline_score_set_sha256"]
 
     def test_the_hash_is_ORDER_independent_but_VALUE_sensitive(self):
         a = {"AAA": 1.0, "BBB": 2.0}
@@ -207,8 +209,8 @@ class TestAgreementIsMeasuredNotThresholded:
               {t: v * 2 for t, v in prod.items()})
         r = F.probe("2026-08-04", data=tmp_path)
         row = r["lanes"][0]
-        assert row["prod_score_sd"] > 0
-        assert "prod_sd" in F.render(r)
+        assert row["baseline_score_sd"] > 0
+        assert "base_sd" in F.render(r)
 
     def test_NO_cutoff_is_applied_to_the_ratio(self, tmp_path):
         """A NON-zero residual with an identical top-K still reads SAME_TOP_K.
@@ -264,8 +266,8 @@ class TestTheRecordThisProbeStands_On:
 
     def test_the_bundle_names_what_it_compared(self, bundle):
         assert bundle["date"] == "2026-08-04" and bundle["top_k"] == 10
-        assert bundle["prod_run_id"] == "2026-08-04-live-a199b993"
-        assert bundle["prod_score_set_sha256"].startswith("sha256:")
+        assert bundle["baseline_run_id"] == "2026-08-04-live-a199b993"
+        assert bundle["baseline_score_set_sha256"].startswith("sha256:")
         for row in bundle["lanes"]:
             if row["state"] not in (F.STATE_NO_RUN, F.STATE_NO_DB):
                 assert row["run_id"], row
@@ -297,7 +299,7 @@ def test_the_LIVE_evidence_still_reproduces_the_committed_bundle():
         pytest.skip("umbrella data absent — the bundle tests above still ran")
     bundle = _json.loads(BUNDLE.read_text())
     live = F.probe(bundle["date"], top_k=bundle["top_k"])
-    assert live["prod_score_set_sha256"] == bundle["prod_score_set_sha256"], (
+    assert live["baseline_score_set_sha256"] == bundle["baseline_score_set_sha256"], (
         "prod's scored set changed under the GOAL-4 record — re-derive it "
         "rather than inheriting it")
     for want in bundle["lanes"]:
@@ -339,8 +341,8 @@ class TestTheRangeClaimHasItsOwnRecord:
 
     def test_each_date_names_the_runs_and_hashes_it_compared(self, rng):
         for run in rng["runs"]:
-            assert run["prod_run_id"], run["date"]
-            assert run["prod_score_set_sha256"].startswith("sha256:"), run["date"]
+            assert run["baseline_run_id"], run["date"]
+            assert run["baseline_score_set_sha256"].startswith("sha256:"), run["date"]
             row = next(x for x in run["lanes"]
                        if x["lane"] == "alpaca_shadow_blend")
             assert row["run_id"] and row["score_set_sha256"].startswith("sha256:")
@@ -355,3 +357,90 @@ class TestTheRangeClaimHasItsOwnRecord:
         assert [r["date"] for r in out["runs"]] == ["2026-08-03", "2026-08-04"]
         assert out["runs"][0]["state"] == F.STATE_PROD_UNAVAILABLE
         assert out["runs"][0]["lanes"] == []
+
+
+class TestTheBaselineIsChoosableButStillValidated:
+    """[measured 2026-08-05] prod scores its buy funnel ONCE a day. Before that
+    the reference does not exist and the probe refuses — but the fleet may
+    already have run, and "do the candidates disagree with EACH OTHER" is the
+    ensemble question regardless. A choosable reference must not become an
+    unchecked one."""
+
+    def _fleet(self, tmp_path):
+        prod = {_n(i): float(i) for i in range(20)}
+        _lane(tmp_path, "alpaca", "2026-08-04", prod)
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", prod)
+        _lane(tmp_path, "alpaca_shadow_blend_mom", "2026-08-04",
+              {t: -v for t, v in prod.items()})
+        return prod
+
+    def test_a_NON_PROD_baseline_compares_the_others_to_it(self, tmp_path):
+        self._fleet(tmp_path)
+        r = F.probe("2026-08-04", data=tmp_path,
+                    baseline="alpaca_shadow_blend")
+        assert r["baseline_lane"] == "alpaca_shadow_blend"
+        lanes = {x["lane"]: x for x in r["lanes"]}
+        # PROD is now one of the compared lanes, and the baseline is not.
+        assert "alpaca" in lanes and "alpaca_shadow_blend" not in lanes
+        assert lanes["alpaca"]["state"] == F.STATE_SAME_TOP
+        assert lanes["alpaca_shadow_blend_mom"]["top_k_overlap"] == 0
+
+    def test_a_CHOSEN_baseline_that_scored_nothing_still_REFUSES(self, tmp_path):
+        """The validation is on the baseline, whichever lane it is."""
+        _lane(tmp_path, "alpaca", "2026-08-04", {_n(i): float(i) for i in range(20)})
+        _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", {})
+        with pytest.raises(F.ProdBaselineUnavailable) as exc:
+            F.probe("2026-08-04", data=tmp_path, baseline="alpaca_shadow_blend")
+        assert "alpaca_shadow_blend" in str(exc.value)
+
+    def test_the_default_baseline_is_still_PROD(self, tmp_path):
+        self._fleet(tmp_path)
+        r = F.probe("2026-08-04", data=tmp_path)
+        assert r["baseline_lane"] == "alpaca"
+        assert all(x["lane"] != "alpaca" for x in r["lanes"])
+
+    def test_the_render_names_which_baseline_was_used(self, tmp_path):
+        self._fleet(tmp_path)
+        text = F.render(F.probe("2026-08-04", data=tmp_path,
+                                baseline="alpaca_shadow_blend"))
+        assert "vs alpaca_shadow_blend" in text
+
+
+# --- persisted names must be baseline-scoped (codex on orch#844) --------------
+
+def test_no_persisted_key_claims_prod_when_the_baseline_is_choosable():
+    """The committed bundle is a review surface. With `--baseline` choosable, a
+    key named `prod_*` asserts a comparison that did not happen: the shipped
+    bundle had `baseline_lane = alpaca_shadow_blend` while its keys still said
+    `prod_run_id` / `prod_n_scored` / `prod_score_set_sha256`.
+
+    Pinned as "no persisted key starts with prod_" rather than as a rename of
+    three known names, so a FOURTH prod-scoped key cannot be added later and
+    reintroduce the same misleading record."""
+    import json as _json
+    for p in sorted((REPO / "doc" / "progress" / "data").glob("*fleet-divergence*.json")):
+        bundle = _json.loads(p.read_text())
+
+        def walk(node, path="$"):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    assert not k.startswith("prod_"), (
+                        f"{p.name}{path}: persisted key {k!r} is prod-scoped while "
+                        f"baseline_lane={node.get('baseline_lane', '?')!r}")
+                    walk(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, f"{path}[{i}]")
+
+        walk(bundle)
+
+
+def test_the_blendbase_bundle_records_a_NON_prod_baseline():
+    """Anti-vacuity for the test above: it must be checking a bundle whose
+    baseline really is not prod, otherwise prod-scoped keys would be harmless
+    and the assertion vacuous."""
+    import json as _json
+    p = REPO / "doc" / "progress" / "data" / "2026-08-05-fleet-divergence-2026-08-05-blendbase.json"
+    bundle = _json.loads(p.read_text())
+    assert bundle["baseline_lane"] != "alpaca"
+    assert bundle["baseline_run_id"]
