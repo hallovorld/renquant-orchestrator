@@ -14,6 +14,11 @@ EVIDENCE: local merge of all 18 PRs onto `origin/main`: 18/18 merged, 0 conflict
           #858 (same-file touch) verified beyond textual merge — module imports and all 3 launchd
           checks present. `[VERIFIED — this session, local 18-PR merge + full pytest run this
           session]`
+          artifact:      local merge of all 18 open PR branches onto `origin/main` + full `pytest` run
+          prod or exp:   experiment — a local, throwaway merge rehearsal, not a landed change
+          existing data: bare `origin/main`'s own `pytest` run (5910 passed, 1 failed), measured in the same session
+          best-known?:   n/a — this verifies merge/test cleanliness, not a model variant
+          scope:         "this is a local 18-PR merge rehearsal, experiment, vs. bare origin/main today — no code has actually landed"
 NEXT:     nothing here unblocks the queue — that needs Codex review. This only guarantees a clean
           landing when review resumes; the verification is against `origin/main` as of this run
           and is invalidated by any merge from another session in the meantime.
