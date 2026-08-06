@@ -1,5 +1,28 @@
 # 2026-08-05 — a zero-risk reproduction for the P0, and one more number
 
+STATUS:   delivered.
+WHAT:     ships `ops/renquant104/trace_sizing_preflight.py` (4 tests), which traces every
+          `compute_position_size` call (args + return) during the dry-run dawn preflight so the
+          effective `max_pct` is observed, not inferred; shows the same formula reproduces exactly
+          on 2026-08-05 (3/3) and misses by up to 140x on 2026-08-03 (0/3), always oversizing the
+          weakest candidates.
+WHY/DIR:  P0 sizing-twin follow-up (goal5) — proves the defect is observable without touching
+          money (the dry-run dawn preflight reproduces the same oversized decisions the live
+          07-28 orders showed) and refutes the earlier "sub-one-share" hypothesis: PYPL at $57.21
+          was oversized too, nowhere near the sub-share region.
+EVIDENCE: on 08-03, one constant target notional ([$2,689, $2,713), ~25% of PV) explains all three
+          oversized fills (AMZN 9@$271.32, MRK 20@$130.22, PYPL 47@$57.21) across conviction 0.03
+          to 0.37; on 08-05, the same `max_pct = regime_cap(0.12) x confidence(0.57) x conviction x
+          sigma_mult` formula matches actual share counts exactly for APH/ROST/GRMN (conviction
+          saturated at 1.00 on strong candidates). GOOG's low 3.3% allocation is corrected from an
+          earlier claim of "conviction applied" to cash-starvation (`remaining_cash=$615` after
+          the other 3 orders spent 97% of available cash). `[VERIFIED — this session, dawn
+          preflight logs + traced sizer run this session]`
+NEXT:     the tracer is caveated — sizing is only reached with an open funnel slot, so an
+          instrumented run on a full book legitimately traces nothing; the fuller root cause is
+          filed under orch#854 (P0 sizing-twin missing clamp), which this reproduction supports
+          with independent evidence.
+
 ## Why a harness instead of an answer
 
 Four rounds of static analysis could not reproduce the 2026-07-28 oversized
