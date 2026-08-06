@@ -15,6 +15,11 @@ EVIDENCE: evidence bundle `doc/evidence/2026-08-05-fleet-divergence-bundle.json`
           (`PROD_BASELINE_UNAVAILABLE`) on a zsh word-splitting bug in the first run rather than
           silently reporting "0 of 35 separate", which would have been a shell-quoting artifact,
           not a finding. `[VERIFIED — this session, probe run over 7 dates x 5 lanes this session]`
+          artifact:      `doc/evidence/2026-08-05-fleet-divergence-bundle.json` (sha256 b44939485b2d3469cb4f57bd6cfd6bc51d0cba307ada078ab10cd814b64e9ff8)
+          prod or exp:   prod — all 5 fleet lanes are live shadow lanes scored against the live prod primary
+          existing data: the mutable sqlite DB the probe reads from; the bundle is cited instead since the DB can change
+          best-known?:   n/a — this measures rank disagreement, not forward-return skill; no lane is claimed better than another
+          scope:         "this is the shadow fleet's 7-date divergence bundle, prod, vs. the live primary scorer — no skill claim is made"
 NEXT:     orch#845 (the two dark lanes) now has serving-side evidence and can be closed by a fix;
           inspect `_mom`'s inputs before treating it as a component (if it is prod's feature set
           plus a near-zero-weight momentum leg, it needs a weight, not a rebuild); skill remains
