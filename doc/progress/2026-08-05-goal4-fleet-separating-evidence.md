@@ -1,8 +1,25 @@
 # GOAL-4: the fleet's first measured number — 9 of 35 lane-days separate from prod
 
-**Date:** 2026-08-05
-**Lane:** GOAL-4 (multi-model ensemble)
-**Status:** first measurement. Not a kill, not a green light — a premise check.
+STATUS:   delivered (first measurement; not a kill or a green light — a premise check).
+WHAT:     measures the cheap half of the ensemble premise (do fleet lanes disagree with prod)
+          over 7 dates x 5 lanes = 35 lane-days: 9 `DIVERGED`, 4 `RAN_AND_SCORED_NOTHING`, 2
+          `SAME_TOP_K_AS_PROD`, 20 `NO_RUN_ON_THIS_DATE` (expected — 4 lanes stood up 08-04/08-05).
+WHY/DIR:  GOAL-4 (multi-model ensemble) — an ensemble needs components that disagree with the
+          primary AND are individually skilled; this measures only disagreement and finds `_mom`
+          is not a component at all (ρ=0.9998 vs prod, 10/10 top-k overlap, 1.5% residual variance
+          after an affine fit) while `_mom_fast`/`_rb_fast` have never emitted a score (2/2
+          `RAN_AND_SCORED_NOTHING`, confirming orch#845 from the serving side).
+EVIDENCE: evidence bundle `doc/evidence/2026-08-05-fleet-divergence-bundle.json`
+          (sha256 b44939485b2d3469cb4f57bd6cfd6bc51d0cba307ada078ab10cd814b64e9ff8), cited instead
+          of the mutable sqlite DB the probe reads from; the probe refused
+          (`PROD_BASELINE_UNAVAILABLE`) on a zsh word-splitting bug in the first run rather than
+          silently reporting "0 of 35 separate", which would have been a shell-quoting artifact,
+          not a finding. `[VERIFIED — this session, probe run over 7 dates x 5 lanes this session]`
+NEXT:     orch#845 (the two dark lanes) now has serving-side evidence and can be closed by a fix;
+          inspect `_mom`'s inputs before treating it as a component (if it is prod's feature set
+          plus a near-zero-weight momentum leg, it needs a weight, not a rebuild); skill remains
+          unmeasured and is the actual gate — extending the bundle daily is cheap, forward returns
+          are what would convert `DIVERGED` into a reason to ensemble anything.
 
 ## Bottom line
 
