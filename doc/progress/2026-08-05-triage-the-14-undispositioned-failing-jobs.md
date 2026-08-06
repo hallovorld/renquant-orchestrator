@@ -24,11 +24,11 @@ finding:
 
 | category | n | what "failing" means |
 |---|---|---|
-| **A. the monitor works and found something real** | 7 | the job is healthy; its FINDING needs action |
+| **A. the monitor works and found something real** | 8 | the job is healthy; its FINDING needs action |
 | **B. genuinely broken / chronic** | 4 | the job itself cannot complete |
-| **C. dead or already fixed** | 3 | nothing to debug |
+| **C. dead or already fixed** | 2 | nothing to debug |
 
-**Seven of the fourteen are monitors correctly reporting.** A monitor that exits
+**Eight of the fourteen are monitors correctly reporting.** A monitor that exits
 nonzero on a finding is indistinguishable, in `launchctl list`, from one that crashed.
 `sentinel_receipt.py` already draws exactly this distinction for one job
 (`EXIT_ALARMS=1` vs `EXIT_INTERNAL=3`, added so a crashed sentinel would stop looking
@@ -71,7 +71,7 @@ undispositioned, and reporting correctly — its alarm is being lost with the re
 ## What this deliberately does NOT do
 
 No acks are written. An ack suppresses an alarm, and CLAUDE.md's containment protocol
-requires each to name an owner, an exit code, and an expiry or restore condition; seven
+requires each to name an owner, an exit code, and an expiry or restore condition; eight
 of these fourteen should not be acked at all, because the job is fine and the *finding*
 is what needs an owner. Writing fourteen acks to make a list go green would be the
 purest form of the failure being reported.
@@ -87,7 +87,7 @@ EVIDENCE:
 | claim | value | provenance |
 |---|---|---|
 | failing / acked / undispositioned | 16 / 5 (2 covering) / **14** | [VERIFIED — `launchctl list` ∩ ledger on origin/main] |
-| category split | A=7, B=4, C=3 | [VERIFIED — each row's own log, cited above] |
+| category split | A=8, B=4, C=2 | [VERIFIED — each row's own log, cited above] |
 | TSLA concentration | weight 0.2321, cap 0.12, consumption 1.9339, status CRITICAL, `kind: hard` | [VERIFIED — `breaches.per_name_concentration` + `readings.concentration` in the 2026-08-01 statement] |
 | book beta | measured 1.0195, limit 0.6, consumption 1.6992, `kind: planning` PROVISIONAL | [VERIFIED — `breaches.book_beta`] |
 | retrain-panel104 is a mirror, not an independent failure | delegates to weekly_wf_promote and reports its result | [VERIFIED — `logs/retrain_panel/2026-08-02.log`] |
@@ -237,3 +237,28 @@ standing exposure that the alarm noise was burying.
 
 Cash is **47.0%**, which is the same surface the concurrent session's design PR (#848,
 "the book is 'full' at 47% cash") is working from a different angle.
+
+## Addendum 4: the counts were stale, and that is the same defect as the rest of this doc
+
+[codex on orch#841] The split was stated as `A=7, B=4, C=3` in three places while the
+enumerated rows were `A=8, B=4, C=2`. Addendum 2 re-filed `agent-pr-loop` from C to A
+and moved the row without touching any of the derived totals — the summary table, the
+sentence beneath it, the "seven of these fourteen" in the scope note, and the evidence
+row all kept the pre-move numbers.
+
+The counts are now taken by **counting the rows**, not by restating them:
+
+```
+A = 8  rq104-risk-budget, rq104-scorer-identity, rq104-model-freshness,
+       rq104-silent-refusal, rq105-liveness, run-surface-drift,
+       agent-pr-loop, ops-audit
+B = 4  weekly-wf-promote, retrain-panel104, monthly-calibrator-refresh,
+       rq105-shadow-serving
+C = 2  crypto-session, weekly-apy104
+total = 14
+```
+
+This is worth naming rather than quietly patching: the whole document argues that a
+number restated instead of measured is how a report stops matching reality, and its own
+headline count was exactly that. A derived total has to be re-derived when the data
+moves, or it is an assertion wearing a measurement's clothes.
