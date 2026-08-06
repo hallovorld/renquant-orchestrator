@@ -13,6 +13,11 @@ EVIDENCE: reading every lane's `panel_scoring.components` shows both fast-moment
           dates each; orch#863 confirms `shadow_blend_momentum` is byte-identical to PROD in all 21
           score-affecting keys. `[VERIFIED — this session, panel_scoring.components + orch#856 +
           orch#863 read this session]`
+          artifact:      every shadow lane's `panel_scoring.components` config, read live this session
+          prod or exp:   prod — these are the live shadow fleet's own configs
+          existing data: orch#856 (serving-side RAN_AND_SCORED_NOTHING) + orch#863 (byte-identical config diff)
+          best-known?:   n/a — this is a fleet-design audit, not a model-variant skill comparison
+          scope:         "this is the shadow fleet's own config/serving state, prod, vs. its own designed factorial — no forward-skill claim is made"
 NEXT:     orch#845 is the highest-leverage GOAL-4 item under this reframing; retire or re-point
           `shadow_blend_momentum` (orch#863); skill stays unmeasurable until forward returns mature.
 
