@@ -99,3 +99,95 @@ mis-scaled, and it gates half the universe.
 NEXT:     R1 needs the live z-composite percentile distribution frozen as evidence
           before a value is chosen — a prereg-style step, not a guess. R2 is
           pipeline#269. Both are repo-boundary changes requiring operator authorisation.
+
+---
+
+# CORRECTION to this document, from an independent 30-session audit `[VERIFIED 2026-08-06]`
+
+A second, independent measurement pass over the last 30 live sessions corrects
+this design on **three counts**. Two of them change the recommendation ordering.
+
+## 1. "47 % cash" is the wrong number, and the wrong direction
+
+`settled_cash / equity = 47.0 %` is a **transiently low** reading — six 08-04 buys
+were still settling. The deployment-relevant measure is buying power:
+
+| | |
+|---|---:|
+| idle buying power today (2026-08-05) | **73.5 %** |
+| median across the last 30 sessions | **80.9 %** |
+| minimum across the last 30 sessions | **65.2 %** |
+| consecutive sessions at ≥ 58.8 % idle | **54** |
+| last session at or below 50 % idle | **2026-05-19** |
+| peak idle (2026-06-18, 1 position) | **94.6 %** |
+
+**47 % was one of the best deployment days in eleven weeks.** The chronic state is
+~80 % idle, and it has been for 54 consecutive sessions. Equity across that span:
+$10,739.88 → $10,938.92 (**+1.85 %**).
+
+This makes the problem larger than this document originally framed it, not smaller.
+
+## 2. Sizing is not the only cause — admission starvation is upstream of it
+
+This document concluded the chain runs *cap → multipliers → flooring*. That is
+true but **incomplete**: the funnel starves before sizing ever runs. A typical day:
+
+```
+108 scanned
+ −24  realized-vol gate
+ −63  VetoWeakBuysTask          ← the dominant filter
+ −15  conviction gate
+ ───
+   2  ranked
+```
+
+`VetoWeakBuysTask` uses a **relative** floor, `max(0.20, mean + 1.00·std)`, which by
+construction admits only the top ~1–3 % of the cross-section **whatever the scores
+look like**. It cannot starve less on a good day, and it cannot be fixed by
+re-scaling `conviction` — R1 alone would not have re-deployed the book.
+
+## 3. Even when it buys, it deploys almost nothing
+
+On the **12 of 30** sessions that did place orders, the median deployment was
+**4.3 % of available cash** (range $75–$1,071 against $8–9.9 k). Measured example:
+`2026-07-20 SizeAndEmitTask: 2 orders placed (spent=$260 / starting_cash=$9220)` = 2.8 %.
+
+**No sequence of such sessions can re-deploy the book**, independent of how often
+buys are blocked.
+
+## And 23 % of sessions never produced a buy decision at all
+
+7 of 30 — **infrastructure, not strategy**: 2 wrapper aborts (live checkout on a
+feature branch), 1 session where daily-full never started, 3 sessions with an
+empty buy-scan universe (`0 candidates from 0 tickers`), 1 gap.
+
+## Revised recommendation ordering
+
+| was | now | why |
+|---|---|---|
+| R1 re-calibrate `sizing.ceiling` | **R1b** | necessary, **not sufficient** — VetoWeakBuys starves the funnel upstream |
+| — | **R0 (new, highest)** | make `VetoWeakBuysTask`'s floor absolute-or-relative by choice, not relative by construction |
+| — | **R0b (new)** | 23 % session-loss rate is an availability defect and is cheaper to fix than any sizing change |
+| R2 in-flight `open_slots` | R2 | unchanged — still a real control failure |
+
+## Method warnings this audit surfaced, recorded because they are load-bearing
+
+- **`pipeline_runs.n_buys` and `n_exits` are literally 0 for all 1,536 live rows**
+  since 2026-06-01. Dead, not low.
+- **`trades.fill_status` is never `'filled'`** — only `NULL` (12,457) or
+  `'submitted'` (32) across 12,489 rows. `filled_qty`, `fill_price`,
+  `fill_updated_at` are all NULL.
+- `broker_order_id` NULL-despite-fill is confirmed independently: 2026-07-13
+  FTNT/APH/ZM all NULL, all three accepted in the log, all three in the book 07-14.
+  This is the same column that produced the orch#854 retraction.
+- **The `ntfy` DECISION headline mis-attributes the blocker.**
+  `risk_gate_vol_dropped(N)` is a counter, never the binding constraint — on
+  2026-08-05 it was the headline while the real blockers were `no open slots` and
+  `correlation_guard`. Counting headlines yields a wrong root-cause histogram
+  (already filed as orch#842).
+- `live_state_snapshots … entry_dates` **values** are stale (GOOG shows 2026-04-20
+  though bought 08-04); only the **key set** is trustworthy.
+
+**Not determined:** true long-market-value per session. Neither `cash` nor
+`long_market_value` is logged, so every "idle %" above is a **buying-power ratio**,
+confounded by pending-order reserves — not a positions-value ratio. Not estimated.
