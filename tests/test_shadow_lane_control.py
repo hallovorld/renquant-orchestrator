@@ -95,15 +95,15 @@ def test_missing_prod_refuses_rather_than_calling_every_lane_a_control(tmp_path)
         scan(tmp_path)
 
 
-def test_non_utf8_prod_config_raises_ProdConfigUnreadable(tmp_path):
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    (tmp_path / "strategy_config.json").write_bytes(b"\xff\xfe\x00\x01")
+def test_prod_with_empty_panel_scoring_refuses(tmp_path):
+    _cfg(tmp_path, "strategy_config.json", {})
     with pytest.raises(ProdConfigUnreadable):
         scan(tmp_path)
 
 
-def test_prod_with_empty_panel_scoring_refuses(tmp_path):
-    _cfg(tmp_path, "strategy_config.json", {})
+def test_non_utf8_prod_config_raises_ProdConfigUnreadable(tmp_path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "strategy_config.json").write_bytes(b"\xff\xfe\x00\x01")
     with pytest.raises(ProdConfigUnreadable):
         scan(tmp_path)
 
@@ -115,6 +115,20 @@ def test_unreadable_lane_is_its_own_state_not_a_control(tmp_path):
     assert r["n_unreadable"] == 1
     assert r["lanes"][0]["state"] == UNREADABLE
     assert r["n_copies_of_prod"] == 0
+
+
+def test_lane_without_panel_scoring_is_unreadable_not_a_copy(tmp_path):
+    _cfg(tmp_path, "strategy_config.json", BASE)
+    (tmp_path / "strategy_config.shadow_empty.json").write_text(
+        json.dumps({"ranking": {}}), encoding="utf-8")
+    assert scan(tmp_path)["n_unreadable"] == 1
+
+
+def test_unreadable_lane_makes_the_cli_exit_nonzero(tmp_path):
+    from ops.renquant104.shadow_lane_control_probe import main
+    _cfg(tmp_path, "strategy_config.json", BASE)
+    (tmp_path / "strategy_config.shadow_bad.json").write_text("{nope", encoding="utf-8")
+    assert main(["--configs", str(tmp_path)]) == 1
 
 
 def test_non_utf8_lane_config_is_unreadable_not_a_crash(tmp_path):
@@ -136,18 +150,14 @@ def test_non_utf8_lane_config_makes_the_cli_exit_nonzero(tmp_path):
     assert main(["--configs", str(tmp_path)]) == 1
 
 
-def test_lane_without_panel_scoring_is_unreadable_not_a_copy(tmp_path):
-    _cfg(tmp_path, "strategy_config.json", BASE)
-    (tmp_path / "strategy_config.shadow_empty.json").write_text(
-        json.dumps({"ranking": {}}), encoding="utf-8")
-    assert scan(tmp_path)["n_unreadable"] == 1
+# --- it must not overclaim ------------------------------------------------
 
-
-def test_unreadable_lane_makes_the_cli_exit_nonzero(tmp_path):
-    from ops.renquant104.shadow_lane_control_probe import main
+def test_result_refuses_to_call_a_differing_lane_good(tmp_path):
     _cfg(tmp_path, "strategy_config.json", BASE)
-    (tmp_path / "strategy_config.shadow_bad.json").write_text("{nope", encoding="utf-8")
-    assert main(["--configs", str(tmp_path)]) == 1
+    _cfg(tmp_path, "strategy_config.shadow_x.json", {**BASE, "buy_floor": 0.9})
+    r = scan(tmp_path)
+    assert "necessary" in r["does_NOT_establish"]
+    assert "not sufficient" in r["does_NOT_establish"]
 
 
 def test_non_utf8_prod_config_refuses_rather_than_crashing(tmp_path):
@@ -158,13 +168,3 @@ def test_non_utf8_prod_config_refuses_rather_than_crashing(tmp_path):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "strategy_config.json").write_bytes(b"\xff\xfe\x00\x01")
     assert main(["--configs", str(tmp_path)]) == 2
-
-
-# --- it must not overclaim ------------------------------------------------
-
-def test_result_refuses_to_call_a_differing_lane_good(tmp_path):
-    _cfg(tmp_path, "strategy_config.json", BASE)
-    _cfg(tmp_path, "strategy_config.shadow_x.json", {**BASE, "buy_floor": 0.9})
-    r = scan(tmp_path)
-    assert "necessary" in r["does_NOT_establish"]
-    assert "not sufficient" in r["does_NOT_establish"]

@@ -162,6 +162,28 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("booster-identity", "renquant104/booster_identity_census.py",
      ["--query", "panel-ltr.alpha158_fund*.json"], (1,)),
     ("bundle-producer-keys", "bundle_producer_key_audit.py", [], (1,)),
+    # model-load-coverage, added 2026-08-06. GOAL-5 P0, and it is the same
+    # merged-but-inert class this aggregator exists to end -- except here NOTHING
+    # was even merged: `grep -rl "Loaded models for" ops/` returned empty, so the
+    # number was logged daily by the runner and read by no one.
+    #
+    # MEASURED BEFORE ADDING, over 45 sessions: SIX decided on a skeleton fleet
+    # (2026-06-30 7/145, 07-06 58/145, 07-07 58/145, 07-08 4/145, 07-09 4/145,
+    # 07-15 11/145) against a trailing median of 80.3%. Two of those six PLACED
+    # ORDERS. Every one reported a clean no-trade or nothing at all, and zero
+    # alerts fired on any of them.
+    #
+    # Exit contract read from source: `return 2` on NoSessions and on an
+    # unreadable-only window; `return 1` whenever a collapse is present, even
+    # alongside unreadable sessions; 0 otherwise. Only 1 is declared, so an
+    # unreadable-only window lands on HARNESS by the default rule -- the intent,
+    # since invisibility is the defect class itself. Collapse outranking a
+    # coexisting unreadable session (not the reverse) is load-bearing: the live
+    # logs have unreadable historical sessions sitting in the same window as the
+    # collapsed ones this member exists to catch, and an earlier revision let
+    # the unreadable code win, which read as HARNESS here and silently dropped
+    # the collapse finding (codex on orch#878).
+    ("model-load-coverage", "renquant104/model_load_coverage_scan.py", [], (1,)),
     # The two below, added 2026-08-06, exist because ONE promotion silently
     # degraded THREE diagnostics and nothing alarmed. On 2026-08-04 the operator
     # moved the z-blend into prod ("z-blend进prod" / "整本切换"). That single
