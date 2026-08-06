@@ -17,6 +17,11 @@ EVIDENCE: scan of all 37 artifacts carrying `wf_gate_metadata`: 2 distinct
           and unenforced). Corrects an earlier anchor claim of "四工件同哈希" (4, not 36) and a
           reading of +0.00079 as *the* genuine IC (it is the minimum of 8, not a scalar).
           `[VERIFIED — this session, probe run over all 37 artifacts this session]`
+          artifact:      all 37 artifacts carrying `wf_gate_metadata` under the pinned WF gate
+          prod or exp:   experiment — these are WF gate candidate evaluations, not the serving prod artifact
+          existing data: the anchor's prior "四工件同哈希" claim and "+0.00079 genuine IC" reading, both corrected here
+          best-known?:   the max observed (+0.009239) is the best of these 36, but it is under half the unenforced v3 bar (+0.02) and none is a promoted prod candidate
+          scope:         "this is the WF gate's admitted-candidate set, experiment, vs. its own unenforced v3 criterion — no candidate clears the bar"
 NEXT:     fixing bt#109 wires real labels into Stage-2 but does not by itself make the fingerprint
           discriminate; the fingerprint should incorporate the candidate artifact's own content
           digest, or `candidate_artifact_used` should stop being `false` (orch#868 shows the digest
