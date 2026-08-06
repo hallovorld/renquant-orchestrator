@@ -190,3 +190,28 @@ def test_an_unlicensed_artifact_is_unaffected_by_the_age_check(tmp_path):
 def test_readability_helper_mirrors_the_licence(raw, ok):
     """Pinned directly so the mirrored contract cannot drift silently."""
     assert _trained_date_is_readable(raw) is ok
+
+
+# --- unreadable input must refuse, not crash (codex on orch#860) --------------
+
+def test_non_utf8_artifact_refuses_instead_of_crashing(tmp_path):
+    """UnicodeDecodeError is a ValueError, not an OSError, so it escaped the
+    original `except (OSError, JSONDecodeError)` and crashed the probe on the
+    FIRST file it reads."""
+    bad = tmp_path / "binary.json"
+    bad.write_bytes(b"\xff\xfe\x00\x01 not utf-8 at all")
+    with pytest.raises(ArtifactUnreadable):
+        probe(bad)
+
+
+def test_non_utf8_artifact_exits_2_not_a_traceback(tmp_path):
+    """The contract codex named: the documented refusal path, end to end."""
+    bad = tmp_path / "binary.json"
+    bad.write_bytes(b"\xff\xfe\x00\x01")
+    assert main(["--artifact", str(bad)]) == 2
+
+
+def test_a_valid_utf8_artifact_is_still_read(tmp_path):
+    """Anti-vacuity: widening the except must not swallow readable input."""
+    good = _art(tmp_path, {"promotion_basis": LICENSED, "trained_date": "2026-08-02"})
+    assert probe(good)["state"] == CONTRADICTION

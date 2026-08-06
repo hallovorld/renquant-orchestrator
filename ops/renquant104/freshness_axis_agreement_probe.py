@@ -105,7 +105,12 @@ def _trained_date_is_readable(raw) -> bool:
 def probe(artifact: pathlib.Path = DEFAULT_ARTIFACT) -> dict:
     try:
         payload = json.loads(artifact.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError, NOT an OSError, so it escaped the
+        # first two and crashed the probe on the very first file it reads --
+        # leaving the detector with no stable unreadable-input contract exactly
+        # where it needs one. A binary or mis-encoded artifact must reach the
+        # documented refusal (exit 2), not a traceback.
         raise ArtifactUnreadable(f"{artifact}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ArtifactUnreadable(
