@@ -1,9 +1,14 @@
 # 2026-08-06 — LONG ledger row 2a: one-time exception for the per-name concentration raise
 
-STATUS:   AWAITING OPERATOR COUNTERSIGNATURE. The row is drafted but is
-          explicitly **not valid until the operator confirms on this PR**. An
-          agent writing down its own authorisation is circular; the operator's
-          comment on this PR is the durable artifact, not this file.
+STATUS:   AUTHORIZED. Claude (this PR's author) shares the `hallovorld` GitHub
+          login with the operator, so a Claude-authored PR-thread comment
+          cannot serve as an independent countersignature — Claude declined to
+          post one for that reason (comment, 2026-08-06T16:36:45Z). Codex
+          (distinct login `haorensjtu-dev`) then posted an audit-record
+          comment (2026-08-06T16:42:19Z) attesting to this directive received
+          directly from the operator in a live Codex session, and an APPROVED
+          review (16:43:59Z) citing that instruction to authorise merge. That
+          record, not a `hallovorld`-authored comment, is the durable artifact.
 
 WHAT:     Adds row `2a` to `doc/memory/long-term-agreements.md` — a narrow,
           single-use exception to row 2 ("Production paths are read-only"),
@@ -52,16 +57,17 @@ existing data: codex reviews on strategy-104#94 `[VERIFIED — gh pr view 94
                text `[VERIFIED — long-term-agreements.md:10]`; the sizing measured
                on the live book `[VERIFIED — 2026-08-06: cap 0.30 x
                confidence_to_size_multiplier(0.57) = 17.1% realised, against a
-               live median position of 3.1%, i.e. ~5.5x]`.
+               live median position of 3.1%, i.e. ~5.5x]`; authorisation record
+               `[VERIFIED — gh pr view 883 --json comments,reviews: codex
+               audit-record comment 2026-08-06T16:42:19Z + APPROVED review
+               16:43:59Z, both from distinct login haorensjtu-dev]`.
 best-known?:   yes for the process question. **No** for whether 30% is the right
                number — that is an operator risk decision with no sweep behind it,
                and this row records the authorisation, not a validation.
 scope:         one ledger row; expires on merge of #94.
 
-NEXT:     Operator countersigns here → codex re-reviews strategy-104#94 with the
-          exception on record → #94 merges → orchestrator pin advance. Until the
-          countersignature exists this row is drafted-but-void and #94 stays
-          blocked, which is the correct state.
+NEXT:     Codex re-reviews strategy-104#94 with the exception on record → #94
+          merges → orchestrator pin advance.
 
 ## WHY THE ROW IS WRITTEN NARROW
 
