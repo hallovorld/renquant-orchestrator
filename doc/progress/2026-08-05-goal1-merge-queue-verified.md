@@ -1,5 +1,23 @@
 # GOAL-1: the 18-PR blocked queue merges clean and green — verified, not assumed
 
+STATUS:   delivered (docs-only verification; unblocks nothing by itself — merge still needs Codex).
+WHAT:     merges all 18 open PRs onto `origin/main` in ascending number order and measures the
+          result: 18/18 merge with 0 conflicts, full suite 6029 passed / 2 skipped / 0 failed
+          (vs. main alone today: 5910 passed, 1 failed), and every live-tree probe added across
+          the queue produces the same exit code post-merge as it did on its own branch.
+WHY/DIR:  GOAL-1 (shadow reliability gates) — the merge pipeline stalled ~5h with 0 reviews; this
+          guarantees that when review resumes, the 18-PR stack lands clean and main goes green
+          instead of red, rather than leaving that unverified.
+EVIDENCE: local merge of all 18 PRs onto `origin/main`: 18/18 merged, 0 conflicts, 55 commits,
+          `pytest` 6029 passed/2 skipped/0 failed on the merged stack vs. 5910 passed/1 failed on
+          bare main (#849 clears the standing red from a transient live-job-state test); #852 and
+          #858 (same-file touch) verified beyond textual merge — module imports and all 3 launchd
+          checks present. `[VERIFIED — this session, local 18-PR merge + full pytest run this
+          session]`
+NEXT:     nothing here unblocks the queue — that needs Codex review. This only guarantees a clean
+          landing when review resumes; the verification is against `origin/main` as of this run
+          and is invalidated by any merge from another session in the meantime.
+
 **Date:** 2026-08-05
 **Lane:** GOAL-1 (shadow reliability gates)
 
