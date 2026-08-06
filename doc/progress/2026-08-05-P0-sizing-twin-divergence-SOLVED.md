@@ -1,35 +1,52 @@
 # 2026-08-05 — P0 SOLVED: the umbrella's sizing twin has the fallback but not its clamp
 
-STATUS:   delivered (root cause + probes delivered; the umbrella fix itself is a one-line
-          umbrella-repo change, repo boundary, not actioned here).
+STATUS:   delivered, severity CONFIRMED HIGH (root cause + probes delivered; the umbrella fix
+          itself is a one-line umbrella-repo change, repo boundary, not actioned here). The
+          RETRACTION at the end of this file is authoritative over the "CORRECTION" section
+          that precedes it in reading order — this header states the retraction's conclusions,
+          not the superseded ones.
 WHAT:     root-causes the umbrella's `compute_position_size` twin (used by live `live.runner`)
           missing the post-fallback clamp that landed in the pinned pipeline copy 2026-07-03
           (`6de6219`) — any candidate sized under one share falls back to 25% of portfolio
           uncapped; ships `sizing_twin_conformance.py` (fails on any divergence, 11 tests) and
           `kernel_surface_census.py` (classifies all 39 launchd jobs by bridge-vs-direct kernel path).
-WHY/DIR:  P0 twin-implementation defect (GOAL-3, orch#833) — corrects an earlier overstated
-          severity (no oversized order has ever reached the broker) and closes the attribution gap
-          (the 07-28 run went through the pinned bridge, not the stale umbrella copy) by reading
-          the log, not by inference; names the wider finding that 120 of 169 shared umbrella/pinned
-          kernel files have diverged — sizing.py is one instance of systemic staleness, not an
-          outlier.
+WHY/DIR:  P0 twin-implementation defect (GOAL-3, orch#833). A mid-session revision downgraded
+          the severity (claimed no oversized order ever reached the broker) using
+          `broker_order_id IS NULL` as a placement signal; that column is unreliable for this
+          purpose and the downgrade is RETRACTED — TSLA (23.41%, filled 2026-07-28) and EME
+          (21.09%, filled 2026-07-28) both placed and are still open in the live book. The
+          "attribution gap is now CLOSED" claim later in this file (07-28 ran through the
+          pinned, clamped bridge and placed no buys) is therefore REOPENED, not settled:
+          something placed two oversized positions on 07-28 and the mechanism is unidentified.
+          Names the wider finding that 120 of 169 shared umbrella/pinned kernel files have
+          diverged — sizing.py is one instance of systemic staleness, not an outlier.
 EVIDENCE: reproduced 7/7 live/dry-run sizing rows through the umbrella copy (exact match to
-          recorded `buy_pending` sizes; the pinned copy returns 0 for the same inputs); against
-          `data/runs.alpaca.db`, 45/63 `buy_pending` rows never reached the broker and the max
-          `target_pct` that DID reach the broker is 9.06% (inside the BULL_CALM cap); over an
-          864-case grid, 191 divergent (always umbrella-larger), worst notional gap $24,940;
-          classified all 39 launchd jobs — exactly 1 (`com.renquant.rq104-dawn-preflight`) reaches
-          the stale umbrella kernel directly, and it places nothing. `[VERIFIED — this session,
-          7/7 reproduction + 864-case grid + 39-job launchd classification this session]`
+          recorded `buy_pending` sizes; the pinned copy returns 0 for the same inputs); of the
+          4 `buy_pending` rows over the 12% BULL_CALM cap, 2 CONFIRMED FILLED at the broker per
+          Alpaca's fill history — TSLA qty=8 @ $306.52 (23.41%) and EME qty=3 @ $704.25
+          (21.09%), both 2026-07-28; the earlier "9.06% max, none filled" claim used
+          `broker_order_id IS NULL` as a placement signal, and that column is anti-correlated
+          with actual fills here (FTNT/APH/AVGO all have the column SET and did NOT fill; TSLA/EME
+          have it NULL and DID fill) — see RETRACTION; over an 864-case grid, 191 divergent
+          (always umbrella-larger), worst notional gap $24,940; classified all 39 launchd jobs —
+          exactly 1 (`com.renquant.rq104-dawn-preflight`) reaches the stale umbrella kernel
+          directly by wrapper design, though the confirmed 07-28 fills mean this classification
+          alone does not yet explain the placement mechanism. `[VERIFIED — this session, 7/7
+          reproduction + 864-case grid + 39-job launchd classification + Alpaca fill-history
+          cross-check]`
           artifact:      `RenQuant/backtesting/renquant_104/kernel/sizing.py` (umbrella) vs. its pinned pipeline counterpart, both read this session
-          prod or exp:   prod — the umbrella copy is the one `live.runner` imports; `data/runs.alpaca.db` is the live order record
-          existing data: `data/runs.alpaca.db`'s full `buy_pending` history (63 rows) and `ops/launchd_manifest.json`'s 39 jobs
+          prod or exp:   prod — the umbrella copy is the one `live.runner` imports; `data/runs.alpaca.db` is the live order record; Alpaca's fill history is the broker of record
+          existing data: `data/runs.alpaca.db`'s full `buy_pending` history (63 rows), `ops/launchd_manifest.json`'s 39 jobs, and Alpaca's filled-order history
           best-known?:   n/a — this compares two code copies for a bug, not two model variants for skill
-          scope:         "this is the umbrella's own sizing code, prod, vs. its pinned pipeline twin — no model skill claim is made"
-NEXT:     the fix is one line in the umbrella (`RenQuant/backtesting/renquant_104/kernel/sizing.py`)
+          scope:         "this is the umbrella's own sizing code, prod, vs. its pinned pipeline twin, cross-checked against the live broker fill record — no model skill claim is made"
+NEXT:     the umbrella fix is still one line (`RenQuant/backtesting/renquant_104/kernel/sizing.py`)
           — port `6de6219`'s clamp, or delete the twin and import the pipeline's; this repo does
-          not write to the umbrella so it is not actioned here. The wider 120-file divergence
-          (GOAL-3, orch#833) needs its own remediation plan.
+          not write to the umbrella so it is not actioned here. HIGHER PRIORITY, reopened by the
+          retraction: identify which surface actually placed the TSLA/EME 07-28 fills — the
+          bridge classification below says that run should have gone through the pinned, clamped
+          kernel and refused both, so either the classification is wrong, the bridge has its own
+          gap, or a third path exists. The wider 120-file divergence (GOAL-3, orch#833) needs its
+          own remediation plan.
 
 ## Root cause
 
@@ -70,13 +87,19 @@ Feeding the umbrella copy the inputs recorded on each `buy_pending` row:
 
 | date | name | umbrella copy says | recorded size | reached the broker? |
 |---|---|---|---|---|
-| 07-28 live db | TSLA | **8** (23.4 %) | **8** ✓ | **NO** — `broker_order_id` is NULL |
-| 07-28 live db | EME | **3** (21.1 %) | **3** ✓ | **NO** — `broker_order_id` is NULL |
+| 07-28 live db | TSLA | **8** (23.4 %) | **8** ✓ | ~~NO~~ **⚠ WRONG — FILLED, see RETRACTION** |
+| 07-28 live db | EME | **3** (21.1 %) | **3** ✓ | ~~NO~~ **⚠ WRONG — FILLED, see RETRACTION** |
 | 07-28 live db | SPG | **1** (2.2 %) | **1** ✓ | **NO** — `broker_order_id` is NULL |
 | 08-03 dry-run | AMZN | **9** (22.7 %) | **9** ✓ | n/a (dry) |
 | 08-03 dry-run | MRK | **20** (24.2 %) | **20** ✓ | n/a (dry) |
 | 08-03 dry-run | PYPL | **47** (25.0 %) | **47** ✓ | n/a (dry) |
 | 08-03 dry-run | GOOG | **1** (3.3 %) | **1** ✓ | n/a (dry) |
+
+> **⚠ table correction (see RETRACTION at the end of this file):** the "reached the broker?"
+> column above is WRONG for TSLA and EME — both FILLED at the broker on 2026-07-28. It was
+> derived from `broker_order_id IS NULL`, which means "never got the id stamped onto it," not
+> "never placed." SPG's `NO` is not re-verified against the broker fill history and should be
+> read with the same caveat, not relied on.
 
 The **same inputs through the pinned copy** give `0, 0, 1 / 0, 0, 0, 1`.
 
@@ -87,6 +110,10 @@ SPG is the control: its target bought a whole share, the fallback never fired,
 and **both copies agree on 1**.
 
 ### CORRECTION — I called these "placed live orders". They were not. `[VERIFIED]`
+
+> **⚠ this entire subsection is SUPERSEDED by the RETRACTION at the end of this file.** Its
+> central claim — no oversized order ever reached the broker — is itself wrong: TSLA and EME
+> both filled. Kept verbatim below for the audit trail; do not read it as current.
 
 An earlier revision of this doc headed the last column **"actually placed"**. That
 was wrong, and it made the P0 read one category more severe than the evidence
@@ -110,17 +137,17 @@ Corroborating, from the run logs: the 07-28 daily run resolved
 under `.subrepo_runtime`** — i.e. the **pinned** kernel. The only 07-28 rows with
 a real `broker_order_id` are two SPG **sells**.
 
-So the honest statement of this P0 is:
+So the honest statement of this P0 **was believed to be**, until the RETRACTION below:
 
-- the two copies diverge — **proven**, 191/864;
-- the umbrella copy computes 21–25 % positions — **proven**;
-- **the umbrella copy has never placed an oversized order at the broker** —
-  measured, and it is the reason this is a latent defect and not an incident.
+- the two copies diverge — **proven**, 191/864, still stands;
+- the umbrella copy computes 21–25 % positions — **proven**, still stands;
+- ~~the umbrella copy has never placed an oversized order at the broker~~ —
+  **⚠ WRONG, RETRACTED**: TSLA and EME both filled at the broker on 2026-07-28.
 
-What remains load-bearing: something downstream is absorbing these, and *that*
+~~What remains load-bearing: something downstream is absorbing these, and *that*
 is unidentified. A defect that only survives because an unrelated gate happens to
-fire first is not contained — it is **unexploded**. But it has not gone off, and
-saying it did would have been a fabrication in the direction of my own thesis.
+fire first is not contained — it is **unexploded**. But it has not gone off.~~
+**⚠ It did go off** — see the RETRACTION at the end of this file.
 
 ## Scope of the divergence
 
@@ -169,6 +196,12 @@ Checked before letting this claim stand `[VERIFIED]`:
 
 ### The attribution gap is now CLOSED — by reading the log, not by inference `[VERIFIED]`
 
+> **⚠ REOPENED by the RETRACTION at the end of this file.** This section concludes the
+> 07-28 run placed no buys at all. That is contradicted by the broker fill record: TSLA and
+> EME, both dated 07-28, filled. Either this log-dispatch reading is incomplete, the bridge
+> classification has its own gap, or a third code path placed those orders — undetermined.
+> Kept verbatim below for the audit trail; do not read "CLOSED" as current.
+
 An earlier revision left this open: *"which of the two surfaces the run that
 placed the 2026-07-28 orders was using."* It is answerable, and the answer did
 not need the twin evidence at all — `logs/daily_104/2026-07-28.log:24-25` records
@@ -200,9 +233,11 @@ through the bridge or invokes `-m live.runner` directly:
 | no `live.runner` at all | 36 |
 
 **Exactly one scheduled job runs the stale kernel, and it is a preflight that
-places nothing.** That is the whole live exposure of a 120-file divergence today
-— which is good news, and is also precisely why the divergence has been able to
-grow to 120 files unnoticed.
+places nothing** by wrapper design. ~~That is the whole live exposure of a
+120-file divergence today~~ — **⚠ NOT ESTABLISHED, see RETRACTION**: TSLA and
+EME filled oversized on 07-28 despite that day's run being classified above as
+going through the pinned kernel, so this classification is not yet known to
+account for the actual live exposure.
 
 ## The wider finding
 
