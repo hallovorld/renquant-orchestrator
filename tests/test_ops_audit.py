@@ -251,6 +251,11 @@ def test_the_cited_contract_is_the_one_in_force():
         # Added 2026-08-01 (#723): shadow_lane_preflight.py `return 1` on any failed
         # precondition; 3 = skipped preconditions -> UNUSABLE by design.
         "shadow-lane-preflight": (1,),
+        # Added 2026-08-06 (GOAL-5 P0). `return 1` on a collapse; `return 2` on
+        # NoSessions and on any UNREADABLE session, deliberately NOT declared as a
+        # finding exit so a session that could not be checked lands on HARNESS —
+        # invisibility is this detector's own defect class.
+        "model-load-coverage": (1,),
     }
 
 

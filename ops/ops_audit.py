@@ -162,6 +162,22 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("booster-identity", "renquant104/booster_identity_census.py",
      ["--query", "panel-ltr.alpha158_fund*.json"], (1,)),
     ("bundle-producer-keys", "bundle_producer_key_audit.py", [], (1,)),
+    # model-load-coverage, added 2026-08-06. GOAL-5 P0, and it is the same
+    # merged-but-inert class this aggregator exists to end -- except here NOTHING
+    # was even merged: `grep -rl "Loaded models for" ops/` returned empty, so the
+    # number was logged daily by the runner and read by no one.
+    #
+    # MEASURED BEFORE ADDING, over 45 sessions: SIX decided on a skeleton fleet
+    # (2026-06-30 7/145, 07-06 58/145, 07-07 58/145, 07-08 4/145, 07-09 4/145,
+    # 07-15 11/145) against a trailing median of 80.3%. Two of those six PLACED
+    # ORDERS. Every one reported a clean no-trade or nothing at all, and zero
+    # alerts fired on any of them.
+    #
+    # Exit contract read from source: `return 2` on NoSessions and on any
+    # UNREADABLE session; `return 1` on a collapse; 0 otherwise. Only 1 is
+    # declared, so an unreadable session lands on HARNESS by the default rule --
+    # which is the intent, since invisibility is the defect class itself.
+    ("model-load-coverage", "renquant104/model_load_coverage_scan.py", [], (1,)),
 )
 
 #: Detectors that CANNOT join yet, and why — recorded rather than silently omitted, so
