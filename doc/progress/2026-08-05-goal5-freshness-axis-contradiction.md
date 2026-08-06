@@ -1,5 +1,27 @@
 # GOAL-5: the gate that admits live buys certifies freshness from the one field the freshness policy forbids
 
+STATUS:   delivered.
+WHAT:     ships `ops/renquant104/freshness_axis_agreement_probe.py` + 17 tests, which reports
+          `CONTRADICTION` when the buy-admission license certifies freshness on an artifact whose
+          six binding data-cutoff axes are all absent; live run on `artifacts/prod/panel-ltr.alpha158_fund.json`
+          returns `CONTRADICTION`, exit 1.
+WHY/DIR:  GOAL-5 (daily-run reliability P0) — the pinned `kernel/rfc210_license.py` ages
+          `trained_date` to admit live buys (`served=True`), but the freshness monitor's own design
+          explicitly excludes `trained_date` as a freshness axis and fails closed to `unknown` on a
+          missing binding cutoff; today's live run acted on the license, not the monitor.
+EVIDENCE: the served artifact has all six binding data-cutoff fields (`label_observation_cutoff`,
+          `effective_selection_cutoff_date`, `effective_train_cutoff_date`, `data_cutoff_date`,
+          `live_train_end`, `cutoff_date`) ABSENT, only `trained_date=2026-08-02`; the monitor
+          returns `[unknown] ... exit 3` on the same artifact while the license returns
+          `served=True` and `logs/daily_104/2026-08-05.log:371` shows live buys admitted on the
+          license's verdict; the artifact's own WF gate failed
+          (`wf_sharpe_mean=0.602, benchmark_ok=False, regime_ok=False`). `[VERIFIED — this session,
+          both implementations run against the same served artifact this session]`
+NEXT:     upstream fix (renquant-pipeline / artifact writer) — stamp a binding data cutoff into the
+          artifact, then age that in the license with fail-closed refusal, not a `trained_date`
+          fallback; until then `served=True` means "a fit ran 3 days ago", not "the model saw
+          recent data".
+
 **Date:** 2026-08-05
 **Lane:** GOAL-5 (daily-run reliability P0)
 
