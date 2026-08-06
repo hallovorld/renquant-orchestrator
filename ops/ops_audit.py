@@ -162,6 +162,31 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("booster-identity", "renquant104/booster_identity_census.py",
      ["--query", "panel-ltr.alpha158_fund*.json"], (1,)),
     ("bundle-producer-keys", "bundle_producer_key_audit.py", [], (1,)),
+    # The two below, added 2026-08-06, exist because ONE promotion silently
+    # degraded THREE diagnostics and nothing alarmed. On 2026-08-04 the operator
+    # moved the z-blend into prod ("z-blend进prod" / "整本切换"). That single
+    # change:
+    #
+    #   * made `shadow_blend_momentum` byte-identical to prod in all 21
+    #     score-affecting keys, so the lane stopped being a control (orch#863);
+    #   * left `momentum_residual_v0_shadow` serving the SAME artifact as prod's
+    #     component[1], so its reported rho=+0.75 became a self-comparison
+    #     (orch#864);
+    #   * and turned GOAL-7's preregistered Arm B from a deployment gate into a
+    #     post-hoc monitor (orch#870).
+    #
+    # All three were found by hand, days later, by reading correlations. Nothing
+    # in the daily surface could have raised any of them: every existing detector
+    # looks at run-surface drift, artifact identity, or job liveness, and a
+    # promotion that orphans its own controls changes none of those. These two
+    # close that class -- a lane or leg that agrees with prod BY CONSTRUCTION.
+    #
+    # Both follow the exit convention above: 1 = finding, 2 = refusal (prod
+    # config missing/unparseable), so a refusal lands on HARNESS rather than
+    # being read as "the fleet is clean".
+    ("shadow-lane-control", "renquant104/shadow_lane_control_probe.py", [], (1,)),
+    ("shadow-leg-independence", "renquant104/shadow_leg_independence_probe.py",
+     [], (1,)),
 )
 
 #: Detectors that CANNOT join yet, and why — recorded rather than silently omitted, so

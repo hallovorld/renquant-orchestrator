@@ -251,6 +251,12 @@ def test_the_cited_contract_is_the_one_in_force():
         # Added 2026-08-01 (#723): shadow_lane_preflight.py `return 1` on any failed
         # precondition; 3 = skipped preconditions -> UNUSABLE by design.
         "shadow-lane-preflight": (1,),
+        # Added 2026-08-06. Both are `return 1 if <finding> else 0` in main(), and
+        # both `return 2` on a refusal (prod config missing / unparseable) so a
+        # refusal lands on HARNESS rather than reading as "the fleet is clean".
+        # 2 is deliberately NOT declared as a finding exit for either.
+        "shadow-lane-control": (1,),
+        "shadow-leg-independence": (1,),
     }
 
 
