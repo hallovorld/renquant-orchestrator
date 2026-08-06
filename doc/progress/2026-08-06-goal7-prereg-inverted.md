@@ -12,6 +12,11 @@ EVIDENCE: `momentum_artifact_ledger.jsonl` row_index 0 (artifact_content_sha256=
           `_zblend_fullbook_note` records as promoted to prod 2026-08-04; Arm B accrual is 0/30
           matured BULL_CALM dates (STATE=GENESIS_ONLY_NO_CADENCE_YET). `[VERIFIED — this session,
           momentum_artifact_ledger.jsonl + strategy_config.json read this session]`
+          artifact:      `momentum_artifact_ledger.jsonl` row_index 0 (artifact_content_sha256=a824c480...)
+          prod or exp:   prod — this artifact is the live-serving momentum component today
+          existing data: `strategy_config.json`'s `_zblend_fullbook_note` + Arm B accrual ledger, both read this session
+          best-known?:   n/a — this is a process/governance finding (gate-vs-monitor state), not a model-variant comparison
+          scope:         "this is the prereg evidence lane's own state, prod, vs. its own preregistered design — no model skill claim is made"
 NEXT:     restate GOAL-7's AC for an already-live model — Arm A/B answers "should we deploy"; the
           live question ("is it contributing, what would take it out") has no owner yet.
 
