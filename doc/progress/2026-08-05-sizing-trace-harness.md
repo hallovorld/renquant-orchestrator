@@ -18,6 +18,11 @@ EVIDENCE: on 08-03, one constant target notional ([$2,689, $2,713), ~25% of PV) 
           earlier claim of "conviction applied" to cash-starvation (`remaining_cash=$615` after
           the other 3 orders spent 97% of available cash). `[VERIFIED — this session, dawn
           preflight logs + traced sizer run this session]`
+          artifact:      `logs/rq104/dawn_funnel_preflight_*.log` (07-27, 07-28, 08-03, 08-04) + the traced sizer run
+          prod or exp:   prod — the dry-run dawn preflight executes the live sizing code path, no money moves
+          existing data: the live 07-28 `buy_pending` fills, cross-checked against this dry-run reproduction
+          best-known?:   n/a — this reproduces a sizing defect, it does not compare model variants
+          scope:         "this is the dry-run dawn preflight's own traced sizing decisions, prod code path, vs. the live 07-28 fills — no model skill claim is made"
 NEXT:     the tracer is caveated — sizing is only reached with an open funnel slot, so an
           instrumented run on a full book legitimately traces nothing; the fuller root cause is
           filed under orch#854 (P0 sizing-twin missing clamp), which this reproduction supports
