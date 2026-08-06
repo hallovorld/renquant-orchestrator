@@ -1,5 +1,22 @@
 # GOAL-7: the momentum model is in PROD, and its shadow diagnostic now measures it against itself
 
+STATUS:   delivered.
+WHAT:     ships `ops/renquant104/shadow_leg_independence_probe.py` + 13 tests, which flags any
+          shadow leg whose `(kind, artifact_path)` matches a live primary scoring component; live
+          run finds 1 self-comparison (`momentum_residual_v0_shadow` serves the same artifact as
+          prod's `component[1]`), exit 1.
+WHY/DIR:  GOAL-7 ("独立动量模型 → shadow") — the momentum model is actually in PROD (2026-08-04
+          operator override, 'z-blend进prod'), so its shadow leg's reported ρ=+0.75 is inflated by
+          construction (correlated against a primary that contains it), not evidence the leg
+          outperforms the clf shadow leg's ρ=+0.28.
+EVIDENCE: today's live log shows both `momentum_residual` invocations (prod component[1] and the
+          shadow leg) serving the identical ledger tail row (cutoff 2026-08-02, artifact
+          a824c480cd9c...); the probe's live run reports exactly 1 self-comparison for this same
+          leg. `[VERIFIED — this session, live decision log + probe run this session]`
+NEXT:     `momentum_residual_v0_shadow` should be retired or re-pointed — a
+          `renquant-strategy-104` config change (repo boundary), not actioned here; orch#863 shows
+          the same 08-04 promotion degraded a second diagnostic the same way.
+
 **Date:** 2026-08-05
 **Lane:** GOAL-7 (standalone momentum → shadow)
 
