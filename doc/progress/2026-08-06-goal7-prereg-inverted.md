@@ -1,5 +1,20 @@
 # GOAL-7: the preregistered evidence lane was built to gate a deployment that had already happened
 
+STATUS:   delivered (docs-only finding).
+WHAT:     shows GOAL-7's Arm A/Arm B prereg evidence lane inverted from gate to monitor when the
+          momentum z-blend was promoted into the prod scorer on 2026-08-04, two days after the
+          model's first (and, today, only) artifact.
+WHY/DIR:  GOAL-7 ("独立动量模型 → shadow") has no AC that is both current and checkable now that the
+          model is live; the same 08-04 promotion also degraded orch#863 (shadow lane became
+          byte-identical to prod) and orch#864 (shadow leg is now a self-comparison).
+EVIDENCE: `momentum_artifact_ledger.jsonl` row_index 0 (artifact_content_sha256=a824c480...,
+          cutoff_date=2026-08-02) is the same artifact `strategy_config.json`'s
+          `_zblend_fullbook_note` records as promoted to prod 2026-08-04; Arm B accrual is 0/30
+          matured BULL_CALM dates (STATE=GENESIS_ONLY_NO_CADENCE_YET). `[VERIFIED — this session,
+          momentum_artifact_ledger.jsonl + strategy_config.json read this session]`
+NEXT:     restate GOAL-7's AC for an already-live model — Arm A/B answers "should we deploy"; the
+          live question ("is it contributing, what would take it out") has no owner yet.
+
 **Date:** 2026-08-06
 **Lane:** GOAL-7 (standalone momentum → shadow)
 
