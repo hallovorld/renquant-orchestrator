@@ -1,5 +1,27 @@
 # 2026-08-05 — GOAL-4: a second date, and the reason two lanes have never produced anything
 
+STATUS:   delivered.
+WHAT:     adds a `--baseline` option to `ops/renquant104/fleet_divergence_probe.py` (4 new tests,
+          30 total) so lane-vs-lane comparison is measurable before prod's daily 13:55 PT score
+          exists; second measured date shows the fleet DOES disagree (blend vs blend_mom spearman
+          0.61, 4/10 top-k overlap — 08-04's near-agreement was not a permanent property); and
+          root-causes why 2 of 5 lanes (`shadow_blend_mom_fast`, `shadow_blend_rb_fast`) have never
+          produced a score: both point at `artifacts/momentum_fast/`, which does not exist, and
+          launchd has exactly one momentum training job (the slow-clock one) — the recipe exists,
+          the producer job does not.
+WHY/DIR:  GOAL-4 (multi-model ensemble) — gives the census line "3 of 5 lanes produced no
+          separating evidence" its cause: 1 lane agreed with prod, 2 were never fed. `--baseline`
+          is validated identically to the default reference (absent/empty/too-few-names all
+          refuse) so a choosable reference does not become an unchecked one.
+EVIDENCE: today's lane-vs-lane spearman: blend<->blend_mom 0.6123 (4/10 top-k, n=84),
+          blend<->blend_rb_mom 0.8451 (6/10, n=84), blend_mom<->blend_rb_mom 0.9220 (7/10, n=85);
+          `artifacts/momentum_fast/` confirmed absent from disk; `ops/launchd_manifest.json` has
+          exactly 1 momentum training job (`com.renquant.momentum-train-weekly`, slow clock) while
+          `params_v1_fast()` exists in the model package. `[VERIFIED — this session, probe run +
+          launchd manifest + artifact directory checked this session]`
+NEXT:     the actionable item is a fast-momentum producer job, filed separately (orch#845); until
+          it exists, F2/F3 are two configs, two DBs, two launchd slots and zero evidence.
+
 ## Two things this round establishes
 
 ### 1. The fleet DOES disagree — when its lanes actually run
