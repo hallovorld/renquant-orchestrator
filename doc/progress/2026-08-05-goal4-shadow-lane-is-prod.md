@@ -1,5 +1,24 @@
 # GOAL-4: the lane built to shadow the z-blend became prod, and nothing said so
 
+STATUS:   delivered.
+WHAT:     ships `ops/renquant104/shadow_lane_control_probe.py` + 13 tests, which compares each
+          shadow lane's score-affecting config against prod; live run finds
+          `alpaca_shadow_blend_mom` differs from prod in 0 of 21 score-affecting keys (a byte-level
+          duplicate), exit 1.
+WHY/DIR:  GOAL-4 (multi-model ensemble) — `_mom` existed to shadow the momentum z-blend; on
+          2026-08-04 the z-blend was promoted to prod (operator override, 'z-blend进prod') and
+          nothing retired or re-pointed its shadow, so a lane that agrees with prod by construction
+          has been scoring and reporting healthy daily. Of 5 fleet lanes, only 2 carry separating
+          information.
+EVIDENCE: component-by-component diff of `strategy_config.shadow_blend_momentum.json` vs
+          `strategy_config.json` shows identical `artifact_path`, `expected_content_sha256`, and
+          `expected_config_fingerprint` on both components; the probe's live run reports exactly 1
+          copy-of-prod lane, matching this manual diff. `[VERIFIED — this session, config diff +
+          probe run this session]`
+NEXT:     `_mom` needs a decision — retire or re-point at a non-prod candidate (a
+          `renquant-strategy-104` config change, repo boundary, not actioned here); wire this probe
+          into the daily surface so the next promotion that orphans its own shadow is caught same-day.
+
 **Date:** 2026-08-05
 **Lane:** GOAL-4 (multi-model ensemble)
 
