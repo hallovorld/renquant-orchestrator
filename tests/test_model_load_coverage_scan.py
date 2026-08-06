@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from ops.renquant104.model_load_coverage_scan import (  # noqa: E402
-    BELOW_ABSOLUTE, BELOW_TRAILING, NoSessions, OK, UNREADABLE,
+    BELOW_ABSOLUTE, BELOW_TRAILING, INSUFFICIENT, NoSessions, OK, UNREADABLE,
     dated_logs, main, read_coverage, scan,
 )
 
@@ -140,3 +140,77 @@ def test_result_refuses_to_call_a_healthy_count_correct(tmp_path):
     _log(tmp_path, "2026-07-10", 120)
     r = scan(tmp_path, days=30)
     assert "not whether any of them is fresh" in r["does_NOT_establish"]
+
+
+# --- the baseline must be PRIOR sessions only (codex on orch#878) -------------
+
+def test_a_sustained_decline_cannot_hide_by_lowering_its_own_baseline(tmp_path):
+    """THE regression codex asked for. With one median over the WHOLE window, a
+    sustained partial decline drags the baseline down and evades both checks:
+    140,140,80,80,80 of 145 has a window median of 80, so the 80-rows show a drop
+    of zero, and 55% clears a 50% absolute floor. Judged against PRIOR sessions
+    only, the first 80 is a 43% fall from a 140-baseline and fires."""
+    for i, n in enumerate([140, 140, 140, 140]):
+        _log(tmp_path, f"2026-07-{10+i:02d}", n)
+    for i, n in enumerate([80, 80, 80]):
+        _log(tmp_path, f"2026-07-{20+i:02d}", n)
+    r = scan(tmp_path, days=30, min_frac=0.50, max_drop=0.40, min_history=3)
+    flagged = [x["date"] for x in r["rows"] if x["state"] == BELOW_TRAILING]
+    assert "2026-07-20" in flagged, r["rows"]
+    # and it is NOT caught by the absolute floor — 80/145 = 55% clears 50%
+    row = [x for x in r["rows"] if x["date"] == "2026-07-20"][0]
+    assert row["frac"] > r["min_frac"]
+
+
+def test_no_row_is_judged_against_a_baseline_containing_itself(tmp_path):
+    for i, n in enumerate([120, 118, 122, 119, 60]):
+        _log(tmp_path, f"2026-07-{10+i:02d}", n)
+    r = scan(tmp_path, days=30, min_history=3)
+    last = r["rows"][-1]
+    assert last["n_prior_sessions"] == 4
+    # baseline is the median of the FOUR earlier rows, not of all five
+    import statistics
+    assert last["baseline_frac"] == statistics.median(
+        [x["frac"] for x in r["rows"][:-1]])
+
+
+def test_too_little_history_is_INSUFFICIENT_not_OK(tmp_path):
+    """A median over one or two points is not a baseline. Such a row must not be
+    reported clean on the relative test."""
+    for i, n in enumerate([120, 118]):
+        _log(tmp_path, f"2026-07-{10+i:02d}", n)
+    r = scan(tmp_path, days=30, min_history=3)
+    assert all(x["state"] == INSUFFICIENT for x in r["rows"])
+    assert r["n_insufficient_history"] == 2
+
+
+def test_the_absolute_floor_still_applies_without_history(tmp_path):
+    """INSUFFICIENT must not become a hole: a collapse in the first session is
+    still a collapse."""
+    _log(tmp_path, "2026-07-10", 4)
+    r = scan(tmp_path, days=30, min_history=3)
+    assert r["rows"][0]["state"] == BELOW_ABSOLUTE
+    assert r["n_collapsed"] == 1
+
+
+def test_unreadable_sessions_do_not_enter_the_baseline(tmp_path):
+    """An unreadable session contributes no frac; it must not shorten or skew the
+    prior window silently."""
+    for i, n in enumerate([120, 118, 122]):
+        _log(tmp_path, f"2026-07-{10+i:02d}", n)
+    _log(tmp_path, "2026-07-13", None)
+    _log(tmp_path, "2026-07-14", 119)
+    r = scan(tmp_path, days=30, min_history=3)
+    last = [x for x in r["rows"] if x["date"] == "2026-07-14"][0]
+    assert last["n_prior_sessions"] == 3
+
+
+def test_latest_is_reported_for_the_daily_alert_surface(tmp_path):
+    """The daily surface needs the newest session judged against its preceding
+    baseline, not a window verdict."""
+    for i, n in enumerate([120, 118, 122, 119]):
+        _log(tmp_path, f"2026-07-{10+i:02d}", n)
+    _log(tmp_path, "2026-07-20", 30)
+    r = scan(tmp_path, days=30, min_history=3)
+    assert r["latest"]["date"] == "2026-07-20"
+    assert r["latest"]["state"] == BELOW_ABSOLUTE

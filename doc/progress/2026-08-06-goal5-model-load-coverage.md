@@ -51,9 +51,18 @@ NEXT:     This detects; it does not explain. Why the artifacts became unopenable
 ## Design notes a reviewer should check
 
 **Two floors, deliberately OR-ed.** An absolute floor (< 50 % of universe) catches a
-collapse on its own terms; a relative floor (> 40 % below the trailing median)
-catches a fleet decaying from a high base that an absolute floor tuned low would
-sleep through. Requiring **both** would let each veto the other. Both directions are
+collapse on its own terms; a relative floor (> 40 % below the median of the
+sessions **before** it) catches a fleet decaying from a high base that an absolute
+floor tuned low would sleep through.
+
+**The baseline is strictly PRIOR sessions** `[VERIFIED — scan(), min_history=3]`.
+An earlier revision took one median over the whole window and judged every row
+against it, so a **sustained partial decline dragged its own baseline down and
+evaded both checks**: 140,140,80,80,80 of 145 has a window median of 80, giving
+the 80-rows a drop of zero while 55 % clears a 50 % absolute floor — invisible in
+exactly the shape the relative floor exists for (codex on this PR). A row with
+fewer than 3 prior readable sessions is `INSUFFICIENT_HISTORY`, never OK; the
+absolute floor still applies to it, so the state is not a hole. Requiring **both** would let each veto the other. Both directions are
 pinned by test, including the twin case where a uniformly low fleet drags the
 trailing median down so only the absolute floor can fire.
 

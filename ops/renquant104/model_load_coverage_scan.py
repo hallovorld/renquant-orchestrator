@@ -22,9 +22,19 @@ clean no-trade.
 TWO FLOORS, because one is not enough:
 
   * ABSOLUTE  — below `--min-frac` of the universe is a collapse on its own terms.
-  * RELATIVE  — a drop of more than `--max-drop` against the trailing median
-    catches a fleet that is decaying from a high base, which an absolute floor
-    tuned low would sleep through.
+  * RELATIVE  — a drop of more than `--max-drop` against the median of the
+    sessions BEFORE it. Catches a fleet decaying from a high base, which an
+    absolute floor tuned low would sleep through.
+
+    The baseline is strictly PRIOR sessions, never the whole window. An earlier
+    revision took one median over the entire window and judged every row against
+    it, so a sustained partial decline dragged the baseline down and evaded both
+    checks: 140,140,80,80,80 of 145 has a window median of 80, giving the 80-rows
+    a drop of zero while 55 % clears a 50 % absolute floor. The decline was
+    invisible in exactly the shape the relative floor exists for (codex on
+    orch#878). A row with fewer than `--min-history` prior readable sessions is
+    reported INSUFFICIENT_HISTORY for the relative test — the absolute floor
+    still applies to it.
 
 A day that fails EITHER is a finding. This is deliberately not an
 `and`: the two floors exist to catch different shapes, and requiring both would
@@ -57,11 +67,16 @@ DEFAULT_MIN_FRAC = 0.50
 #: A fall of more than this fraction BELOW the trailing median is a collapse even
 #: if the absolute floor is met.
 DEFAULT_MAX_DROP = 0.40
+#: Minimum PRIOR readable sessions before a relative verdict is meaningful. Below
+#: this the row is INSUFFICIENT_HISTORY, never OK — a median over one or two
+#: points is not a baseline.
+DEFAULT_MIN_HISTORY = 3
 
 OK = "OK"
 BELOW_ABSOLUTE = "BELOW_ABSOLUTE_FLOOR"
 BELOW_TRAILING = "COLLAPSED_VS_TRAILING"
 UNREADABLE = "UNREADABLE"
+INSUFFICIENT = "INSUFFICIENT_HISTORY"
 
 
 class NoSessions(RuntimeError):
@@ -99,7 +114,8 @@ def read_coverage(path: pathlib.Path) -> tuple[int | None, int | None, str]:
 
 def scan(log_dir: pathlib.Path = LOG_DIR, days: int = 30,
          min_frac: float = DEFAULT_MIN_FRAC,
-         max_drop: float = DEFAULT_MAX_DROP) -> dict:
+         max_drop: float = DEFAULT_MAX_DROP,
+         min_history: int = DEFAULT_MIN_HISTORY) -> dict:
     sessions = dated_logs(log_dir)[-days:]
     if not sessions:
         raise NoSessions(
@@ -117,20 +133,30 @@ def scan(log_dir: pathlib.Path = LOG_DIR, days: int = 30,
         rows.append({"date": date, "loaded": loaded, "universe": universe,
                      "frac": loaded / universe, "state": None, "detail": ""})
 
-    fracs = [r["frac"] for r in rows if r["frac"] is not None]
-    trailing = statistics.median(fracs) if fracs else None
-
+    # Each row is judged against the sessions BEFORE it. Never the whole window:
+    # that would include the row itself and every later collapse, so a sustained
+    # decline lowers its own baseline and hides.
+    prior: list[float] = []
     for r in rows:
         if r["state"] == UNREADABLE:
             continue
-        drop = None if trailing in (None, 0) else (trailing - r["frac"]) / trailing
-        r["drop_vs_trailing"] = drop
+        base = statistics.median(prior) if len(prior) >= min_history else None
+        drop = None if base in (None, 0) else (base - r["frac"]) / base
+        r["baseline_frac"] = base
+        r["n_prior_sessions"] = len(prior)
+        r["drop_vs_prior"] = drop
         if r["frac"] < min_frac:
             r["state"] = BELOW_ABSOLUTE
         elif drop is not None and drop > max_drop:
             r["state"] = BELOW_TRAILING
+        elif base is None:
+            r["state"] = INSUFFICIENT
         else:
             r["state"] = OK
+        prior.append(r["frac"])
+
+    fracs = [r["frac"] for r in rows if r["frac"] is not None]
+    trailing = statistics.median(fracs) if fracs else None
 
     bad = [r for r in rows if r["state"] in (BELOW_ABSOLUTE, BELOW_TRAILING)]
     unreadable = [r for r in rows if r["state"] == UNREADABLE]
@@ -138,6 +164,11 @@ def scan(log_dir: pathlib.Path = LOG_DIR, days: int = 30,
         "log_dir": str(log_dir), "n_sessions": len(rows),
         "trailing_median_frac": trailing,
         "min_frac": min_frac, "max_drop": max_drop,
+        "min_history": min_history,
+        "n_insufficient_history": sum(1 for r in rows if r["state"] == INSUFFICIENT),
+        # The daily alert surface: the LATEST session against its own prior
+        # baseline, never one that includes itself.
+        "latest": (rows[-1] if rows else None),
         "n_collapsed": len(bad), "n_unreadable": len(unreadable),
         "collapsed": [{k: r[k] for k in ("date", "loaded", "universe", "state")}
                       for r in bad],
@@ -183,10 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--min-frac", type=float, default=DEFAULT_MIN_FRAC)
     ap.add_argument("--max-drop", type=float, default=DEFAULT_MAX_DROP)
+    ap.add_argument("--min-history", type=int, default=DEFAULT_MIN_HISTORY)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     try:
-        r = scan(a.log_dir, a.days, a.min_frac, a.max_drop)
+        r = scan(a.log_dir, a.days, a.min_frac, a.max_drop, a.min_history)
     except NoSessions as exc:
         print(f"REFUSING: {exc}", file=sys.stderr)
         return 2
