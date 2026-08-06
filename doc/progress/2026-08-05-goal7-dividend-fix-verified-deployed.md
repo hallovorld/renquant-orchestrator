@@ -19,6 +19,11 @@ EVIDENCE: `git merge-base --is-ancestor` confirms model#110 is an ancestor of th
           `ZERO_BY_DATA`/`SOURCE_MISSING`, and all 31 `ZERO_BY_ABSENCE` names cross-checked against
           every other parquet source in the tree pay no dividend anywhere. `[VERIFIED — this
           session, git ancestry check + probe run over all 144 served names this session]`
+          artifact:      the served 2026-08-02 momentum artifact, all 144 names, probed this session
+          prod or exp:   prod — the pinned umbrella model pin `96fe2d3d` that the weekly job actually executes
+          existing data: model#110's own merge record (2f5fd237) + the pinned `momentum_train_run.py` source, both read this session
+          best-known?:   yes — this is the currently-deployed prod artifact, verified as the dividend-adjusted (post-fix) variant, not a stale pre-fix one
+          scope:         "this is the served prod momentum artifact vs. its own pre-fix state — no claim is made about momentum's forward skill"
 NEXT:     model-side fix (renquant-model, repo boundary) — record per-name dividend provenance in
           the artifact and fail closed for a known-payer whose column goes missing; update the
           GOAL-7 anchor to reflect model#110 merged/blocker resolved. Arm B accrual is unchanged
