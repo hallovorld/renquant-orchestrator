@@ -17,6 +17,11 @@ EVIDENCE: the served artifact has all six binding data-cutoff fields (`label_obs
           license's verdict; the artifact's own WF gate failed
           (`wf_sharpe_mean=0.602, benchmark_ok=False, regime_ok=False`). `[VERIFIED — this session,
           both implementations run against the same served artifact this session]`
+          artifact:      `artifacts/prod/panel-ltr.alpha158_fund.json`, the served prod scoring artifact
+          prod or exp:   prod — the artifact both the live monitor and the live license act on today
+          existing data: `model_freshness_monitor.py`'s own six-axis design doc + `rfc210_license.py`'s pinned source, both read this session
+          best-known?:   n/a — this is a governance-contradiction check, not a model-variant comparison
+          scope:         "this is the served prod artifact's freshness state, prod, vs. two governance implementations disagreeing about it — no model skill claim is made"
 NEXT:     upstream fix (renquant-pipeline / artifact writer) — stamp a binding data cutoff into the
           artifact, then age that in the license with fail-closed refusal, not a `trained_date`
           fallback; until then `served=True` means "a fit ran 3 days ago", not "the model saw
