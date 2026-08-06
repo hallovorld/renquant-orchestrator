@@ -12,6 +12,11 @@ EVIDENCE: across the same 36 artifacts as orch#862, `content_sha256` is `None` 3
           `candidate_recipe_fingerprint`, `wf_3cut_sharpe_mean` spans +0.0524 to +1.1656 (22x)
           across 10 distinct values. `[VERIFIED — this session, scanned all 36 artifacts this
           session]`
+          artifact:      the 36 WF-gate-admitted panel artifacts sharing `candidate_recipe_fingerprint`
+          prod or exp:   experiment — these are WF gate candidate evaluations, not the serving prod artifact
+          existing data: orch#862's original 36-artifact scan, re-checked at the field-value level this session
+          best-known?:   n/a — the finding is that identity cannot be established, not a ranking of these variants
+          scope:         "this is the WF gate's admitted-candidate set, experiment, vs. its own proposed remedy in orch#862 — no artifact is claimed better than another"
 NEXT:     stamp a content digest into the panel artifact at write time (renquant-pipeline /
           artifact-writer change), then have `candidate_recipe_fingerprint` incorporate it or be
           replaced as the admission key; bt#109 remains blocked at 0 reviews and neither step
