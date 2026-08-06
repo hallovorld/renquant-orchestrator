@@ -139,8 +139,8 @@ class TestWhatWasComparedIsHashed:
         _lane(tmp_path, "alpaca", "2026-08-04", prod)
         _lane(tmp_path, "alpaca_shadow_blend", "2026-08-04", prod)
         r = F.probe("2026-08-04", data=tmp_path)
-        assert r["prod_score_set_sha256"].startswith("sha256:")
-        assert r["lanes"][0]["score_set_sha256"] == r["prod_score_set_sha256"]
+        assert r["baseline_score_set_sha256"].startswith("sha256:")
+        assert r["lanes"][0]["score_set_sha256"] == r["baseline_score_set_sha256"]
 
     def test_the_hash_is_ORDER_independent_but_VALUE_sensitive(self):
         a = {"AAA": 1.0, "BBB": 2.0}
@@ -209,7 +209,7 @@ class TestAgreementIsMeasuredNotThresholded:
               {t: v * 2 for t, v in prod.items()})
         r = F.probe("2026-08-04", data=tmp_path)
         row = r["lanes"][0]
-        assert row["prod_score_sd"] > 0
+        assert row["baseline_score_sd"] > 0
         assert "prod_sd" in F.render(r)
 
     def test_NO_cutoff_is_applied_to_the_ratio(self, tmp_path):
@@ -266,8 +266,8 @@ class TestTheRecordThisProbeStands_On:
 
     def test_the_bundle_names_what_it_compared(self, bundle):
         assert bundle["date"] == "2026-08-04" and bundle["top_k"] == 10
-        assert bundle["prod_run_id"] == "2026-08-04-live-a199b993"
-        assert bundle["prod_score_set_sha256"].startswith("sha256:")
+        assert bundle["baseline_run_id"] == "2026-08-04-live-a199b993"
+        assert bundle["baseline_score_set_sha256"].startswith("sha256:")
         for row in bundle["lanes"]:
             if row["state"] not in (F.STATE_NO_RUN, F.STATE_NO_DB):
                 assert row["run_id"], row
@@ -299,7 +299,7 @@ def test_the_LIVE_evidence_still_reproduces_the_committed_bundle():
         pytest.skip("umbrella data absent — the bundle tests above still ran")
     bundle = _json.loads(BUNDLE.read_text())
     live = F.probe(bundle["date"], top_k=bundle["top_k"])
-    assert live["prod_score_set_sha256"] == bundle["prod_score_set_sha256"], (
+    assert live["baseline_score_set_sha256"] == bundle["baseline_score_set_sha256"], (
         "prod's scored set changed under the GOAL-4 record — re-derive it "
         "rather than inheriting it")
     for want in bundle["lanes"]:
@@ -341,8 +341,8 @@ class TestTheRangeClaimHasItsOwnRecord:
 
     def test_each_date_names_the_runs_and_hashes_it_compared(self, rng):
         for run in rng["runs"]:
-            assert run["prod_run_id"], run["date"]
-            assert run["prod_score_set_sha256"].startswith("sha256:"), run["date"]
+            assert run["baseline_run_id"], run["date"]
+            assert run["baseline_score_set_sha256"].startswith("sha256:"), run["date"]
             row = next(x for x in run["lanes"]
                        if x["lane"] == "alpaca_shadow_blend")
             assert row["run_id"] and row["score_set_sha256"].startswith("sha256:")
@@ -404,3 +404,43 @@ class TestTheBaselineIsChoosableButStillValidated:
         text = F.render(F.probe("2026-08-04", data=tmp_path,
                                 baseline="alpaca_shadow_blend"))
         assert "vs alpaca_shadow_blend" in text
+
+
+# --- persisted names must be baseline-scoped (codex on orch#844) --------------
+
+def test_no_persisted_key_claims_prod_when_the_baseline_is_choosable():
+    """The committed bundle is a review surface. With `--baseline` choosable, a
+    key named `prod_*` asserts a comparison that did not happen: the shipped
+    bundle had `baseline_lane = alpaca_shadow_blend` while its keys still said
+    `prod_run_id` / `prod_n_scored` / `prod_score_set_sha256`.
+
+    Pinned as "no persisted key starts with prod_" rather than as a rename of
+    three known names, so a FOURTH prod-scoped key cannot be added later and
+    reintroduce the same misleading record."""
+    import json as _json
+    for p in sorted((REPO / "doc" / "progress" / "data").glob("*fleet-divergence*.json")):
+        bundle = _json.loads(p.read_text())
+
+        def walk(node, path="$"):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    assert not k.startswith("prod_"), (
+                        f"{p.name}{path}: persisted key {k!r} is prod-scoped while "
+                        f"baseline_lane={node.get('baseline_lane', '?')!r}")
+                    walk(v, f"{path}.{k}")
+            elif isinstance(node, list):
+                for i, v in enumerate(node):
+                    walk(v, f"{path}[{i}]")
+
+        walk(bundle)
+
+
+def test_the_blendbase_bundle_records_a_NON_prod_baseline():
+    """Anti-vacuity for the test above: it must be checking a bundle whose
+    baseline really is not prod, otherwise prod-scoped keys would be harmless
+    and the assertion vacuous."""
+    import json as _json
+    p = REPO / "doc" / "progress" / "data" / "2026-08-05-fleet-divergence-2026-08-05-blendbase.json"
+    bundle = _json.loads(p.read_text())
+    assert bundle["baseline_lane"] != "alpaca"
+    assert bundle["baseline_run_id"]

@@ -11,7 +11,7 @@ decision, and agreement with prod is invisible because no one compares them.
 MEASURED 2026-08-04 `[VERIFIED — this session]`, against
 `2026-08-04-live-a199b993` (prod, 83 scored):
 
-    lane               n   spearman   top10   resid/sd   prod_sd   state
+    lane               n   spearman   top10   resid/sd   base_sd   state
     blend             81     0.6058    5/10      91.9%    1.3448   DIVERGED
     blend_mom         82     0.9997   10/10       1.1%    1.3394   SAME_TOP_K_AS_PROD
     blend_rb_mom      82     0.9272    8/10      49.4%    1.3394   DIVERGED
@@ -218,7 +218,7 @@ def compare(prod: dict[str, float], lane: dict[str, float], *, top_k: int) -> di
         "n_common": len(common),
         # Printed with the ratio, always: the denominator moved 8x once
         # already, and a ratio without it cannot be compared across dates.
-        "prod_score_sd": float(np.asarray(px, float).std(ddof=1)),
+        "baseline_score_sd": float(np.asarray(px, float).std(ddof=1)),
         "spearman_vs_prod": _spearman(px, lx),
         "top_k": top_k,
         "top_k_overlap": len(top_prod & top_lane),
@@ -297,9 +297,9 @@ def probe(date: str, *, top_k: int = 10, data: pathlib.Path = DATA,
         "date": date,
         "top_k": top_k,
         "baseline_lane": baseline,
-        "prod_run_id": prod_run,
-        "prod_n_scored": len(prod),
-        "prod_score_set_sha256": score_set_sha256(prod),
+        "baseline_run_id": prod_run,
+        "baseline_n_scored": len(prod),
+        "baseline_score_set_sha256": score_set_sha256(prod),
         "lanes": rows,
         "n_lanes": len(rows),
         "n_lanes_with_no_separating_evidence": sum(
@@ -331,11 +331,11 @@ def probe_range(dates, *, top_k: int = 10, data: pathlib.Path = DATA,
 def render(result: dict) -> str:
     out = [f"fleet divergence vs {result.get('baseline_lane', PROD_LANE)} — "
            f"{result['date']}",
-           f"  baseline run {result['prod_run_id']} "
-           f"({result['prod_n_scored']} scored)", ""]
+           f"  baseline run {result['baseline_run_id']} "
+           f"({result['baseline_n_scored']} scored)", ""]
     k = result["lanes"][0].get("top_k", 10) if result["lanes"] else 10
     out.append(f"  {'lane':26}{'n':>5}{'spearman':>10}{'top' + str(k):>8}"
-               f"{'resid/sd':>10}{'prod_sd':>10}  state")
+               f"{'resid/sd':>10}{'base_sd':>10}  state")
     for r in result["lanes"]:
         name = r["lane"].replace("alpaca_shadow_", "")
         if "spearman_vs_prod" not in r:
@@ -347,7 +347,7 @@ def render(result: dict) -> str:
             f"  {name:26}{r['n_common']:>5}{r['spearman_vs_prod']:>10.4f}"
             f"{str(r['top_k_overlap']) + '/' + str(r['top_k']):>8}"
             f"{('—' if ratio is None else f'{ratio:.1%}'):>10}"
-            f"{r['prod_score_sd']:>10.4f}  {r['state']}")
+            f"{r['baseline_score_sd']:>10.4f}  {r['state']}")
     n = result["n_lanes_with_no_separating_evidence"]
     out.append("")
     out.append(f"  {n} of {result['n_lanes']} shadow lane(s) produced NO "
@@ -356,7 +356,7 @@ def render(result: dict) -> str:
                "fleet can accumulate.\n        It is NOT a claim that any lane's "
                "model is bad. resid/sd is a MAGNITUDE,\n        never a verdict "
                "— no cutoff is applied to it, and it is NOT\n        comparable "
-               "across dates on which prod_sd moved.")
+               "across dates on which base_sd moved.")
     return "\n".join(out)
 
 
