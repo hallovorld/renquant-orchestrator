@@ -168,6 +168,20 @@ def scan(log_root: str = LOG_ROOT, *, as_of: dt.date | None = None) -> list[Unde
     return found
 
 
+#: Statuses a PERSON can do something about. TRANSIENT is excluded because the
+#: delivery layer now retries transients itself (renquant-common `notify.send`:
+#: 3 attempts with backoff, 2026-08-05) — a network blip is handled by the code,
+#: not by waking someone. RESOLVED is excluded because it is, by its own
+#: definition, already fixed. Both are still PRINTED; neither is worth a push.
+ACTIONABLE_STATUSES = ("PERMANENT", "UNTESTABLE")
+
+
+def actionable(lines: list[str]) -> list[str]:
+    """The subset of rendered findings that justify waking a human."""
+    return [ln for ln in lines
+            if any(f"[{st}]" in ln for st in ACTIONABLE_STATUSES)]
+
+
 def findings(items: list[Undelivered]) -> list[str]:
     """One line per distinct (title, error), permanent failures first.
 
@@ -180,7 +194,16 @@ def findings(items: list[Undelivered]) -> list[str]:
     #: RESOLVED is reported, not dropped. A defect that WAS dropping alarms and has
     #: since been fixed is information — it says the historical gap is closed. Hiding
     #: it would make the fix invisible; calling it PERMANENT would make the fix a lie.
+    #:
+    #: But REPORTED and PAGED are different verbs, and conflating them is what made
+    #: this scan's own notification useless. Operator, 2026-08-06, on a push whose
+    #: seven lines were four TRANSIENT network timeouts and three RESOLVED entries
+    #: that said "no action needed" in their own text: "这种msg我不会看的".
+    #: A notification that tells you nothing needs doing has spent your attention to
+    #: buy nothing. See ACTIONABLE below: everything is still printed; only what a
+    #: person can act on is sent.
     ORDER = {"PERMANENT": 0, "UNTESTABLE": 1, "TRANSIENT": 2, "RESOLVED": 3}
+
     seen: dict[tuple[str, str], list[Undelivered]] = {}
     for it in items:
         seen.setdefault((it.title, it.status), []).append(it)
@@ -222,10 +245,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"undelivered-alert scan: no dropped alarms in logs touched "
               f"within {MAX_LOG_AGE_DAYS}d as of {as_of}")
         return 0
+    act = actionable(lines)
+    if not act:
+        print(f"undelivered-alert scan: {len(lines)} finding(s), none actionable "
+              f"(TRANSIENT is retried by the sender; RESOLVED is already fixed) "
+              f"— printed above, not paged")
+        return 0
     if not args.dry_run:
         # ASCII-only title on purpose: an alarm ABOUT undeliverable alarms
         # must not be undeliverable for the same reason.
-        alert("RenQuant UNDELIVERED ALARMS", " | ".join(lines))
+        alert("RenQuant UNDELIVERED ALARMS", " | ".join(act))
     return 1
 
 
