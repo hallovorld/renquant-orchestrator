@@ -1,5 +1,31 @@
 # 2026-08-05 — P0 SOLVED: the umbrella's sizing twin has the fallback but not its clamp
 
+STATUS:   delivered (root cause + probes delivered; the umbrella fix itself is a one-line
+          umbrella-repo change, repo boundary, not actioned here).
+WHAT:     root-causes the umbrella's `compute_position_size` twin (used by live `live.runner`)
+          missing the post-fallback clamp that landed in the pinned pipeline copy 2026-07-03
+          (`6de6219`) — any candidate sized under one share falls back to 25% of portfolio
+          uncapped; ships `sizing_twin_conformance.py` (fails on any divergence, 11 tests) and
+          `kernel_surface_census.py` (classifies all 39 launchd jobs by bridge-vs-direct kernel path).
+WHY/DIR:  P0 twin-implementation defect (GOAL-3, orch#833) — corrects an earlier overstated
+          severity (no oversized order has ever reached the broker) and closes the attribution gap
+          (the 07-28 run went through the pinned bridge, not the stale umbrella copy) by reading
+          the log, not by inference; names the wider finding that 120 of 169 shared umbrella/pinned
+          kernel files have diverged — sizing.py is one instance of systemic staleness, not an
+          outlier.
+EVIDENCE: reproduced 7/7 live/dry-run sizing rows through the umbrella copy (exact match to
+          recorded `buy_pending` sizes; the pinned copy returns 0 for the same inputs); against
+          `data/runs.alpaca.db`, 45/63 `buy_pending` rows never reached the broker and the max
+          `target_pct` that DID reach the broker is 9.06% (inside the BULL_CALM cap); over an
+          864-case grid, 191 divergent (always umbrella-larger), worst notional gap $24,940;
+          classified all 39 launchd jobs — exactly 1 (`com.renquant.rq104-dawn-preflight`) reaches
+          the stale umbrella kernel directly, and it places nothing. `[VERIFIED — this session,
+          7/7 reproduction + 864-case grid + 39-job launchd classification this session]`
+NEXT:     the fix is one line in the umbrella (`RenQuant/backtesting/renquant_104/kernel/sizing.py`)
+          — port `6de6219`'s clamp, or delete the twin and import the pipeline's; this repo does
+          not write to the umbrella so it is not actioned here. The wider 120-file divergence
+          (GOAL-3, orch#833) needs its own remediation plan.
+
 ## Root cause
 
 `compute_position_size` exists **twice**:
