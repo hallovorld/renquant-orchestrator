@@ -22,6 +22,11 @@ EVIDENCE: for all 3 orders in the one 17:45:49 run (SPG/TSLA/EME), cap/Kelly/por
           by two different sizer modules (`governor_sizing.py:548` and `SizeAndEmitTask` itself),
           so live-order attribution cannot identify which code sized it. `[VERIFIED — this session,
           trades table + Alpaca /v2/orders + pinned task_selection.py read this session]`
+          artifact:      the live `trades` table + Alpaca `/v2/orders` history for 2026-07-28
+          prod or exp:   prod — the live account's own filled orders and trade rows
+          existing data: orch#848's original cap-breach observation, root-caused further here
+          best-known?:   n/a — this is a live-order attribution audit, not a model-variant comparison
+          scope:         "this is the live account's own order history, prod, vs. the deployed regime cap config — no model skill claim is made"
 NEXT:     root cause is narrowed to the sub-one-share branch but not yet found (the documented
           one-share-floor rescue is disabled, so something else ran there); needs runtime
           instrumentation to catch the branch live (orch#853 is that harness); `TrimHeldTask` being
