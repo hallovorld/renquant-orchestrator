@@ -1,8 +1,29 @@
 # GOAL-7: the dividend fix IS deployed and correct 144/144 — and it cannot prove it
 
-**Date:** 2026-08-05
-**Lane:** GOAL-7 (standalone momentum → shadow)
-**Status:** blocker resolved (positive verification). One latent hazard found and instrumented.
+STATUS:   delivered (blocker resolved by positive verification; one latent hazard found and
+          instrumented, not fixed here).
+WHAT:     ships `ops/renquant104/momentum_dividend_coverage_probe.py` + 12 tests, which
+          re-derives per served name whether the dividend input was read or substituted; verifies
+          model#110 (the −66.7bp dividend-adjustment fix) is merged (2f5fd237, 2026-07-30) and
+          deployed (pinned in the umbrella model pin `96fe2d3d`, actually executed by the weekly
+          job), and finds all 144 served names correct — 113 HAS_DIVIDENDS, 31 ZERO_BY_ABSENCE,
+          all 31 cross-checked as genuine non-payers.
+WHY/DIR:  GOAL-7 (standalone momentum → shadow) — resolves the anchor's stale blocker (model#110
+          listed open); the real remaining hazard is structural: a missing dividend column is
+          indistinguishable from a genuine non-payer (both produce a zero series with an identical
+          `content_sha256`), so a future payer losing its column would silently corrupt momentum
+          with no artifact-level signal.
+EVIDENCE: `git merge-base --is-ancestor` confirms model#110 is an ancestor of the deployed pin; the
+          pinned `momentum_train_run.py:111` computes `total_return_close(raw["close"],
+          raw["dividend"])`; probe run over the served artifact's 144 names finds 0
+          `ZERO_BY_DATA`/`SOURCE_MISSING`, and all 31 `ZERO_BY_ABSENCE` names cross-checked against
+          every other parquet source in the tree pay no dividend anywhere. `[VERIFIED — this
+          session, git ancestry check + probe run over all 144 served names this session]`
+NEXT:     model-side fix (renquant-model, repo boundary) — record per-name dividend provenance in
+          the artifact and fail closed for a known-payer whose column goes missing; update the
+          GOAL-7 anchor to reflect model#110 merged/blocker resolved. Arm B accrual is unchanged
+          (0/30 matured BULL_CALM dates, 2027 horizon at weekly cadence) — this finding does not
+          move that clock.
 
 ## Bottom line
 
