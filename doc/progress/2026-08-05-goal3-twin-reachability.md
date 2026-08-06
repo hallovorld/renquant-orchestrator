@@ -1,5 +1,28 @@
 # GOAL-3: the twin registry counts definitions, not executions — and for the headline pair, neither twin is on today's live path
 
+STATUS:   delivered (docs-only finding; refutes the hypothesis it set out to confirm).
+WHAT:     shows the twin registry's headline claim (20 duplicate exports, 19 resolving to the
+          non-kernel twin) overstates behavioural risk — 5 of the 19 are byte-identical, only 3
+          production modules import any of the 14 divergent ones, and the one plausible
+          parity-harness defect (backtest simulating the wrong `PanelScoringJob` twin) is refuted:
+          `pp_inference.py:334` imports the same non-kernel twin the harness does.
+WHY/DIR:  GOAL-3 (architecture compliance audit) — the registry counts definitions, not
+          executions; this reframes the risk as reachability, not duplicate-export count, and
+          finds neither twin is even visibly on today's live decision path (only blend-dispatch
+          loggers fired in `logs/daily_104/2026-08-05.log`).
+EVIDENCE: reproduced against pinned pipeline revision `e13cd3eba378`: 20 exported duplicates, 19
+          resolve non-kernel (0 resolve kernel, 1 has no counterpart); of the 19, 5 are
+          identical-copy and 14 differing-bodies; only 3 unique production modules import any of
+          the 14 (diagnostics/bundle snapshots excluded — including them inflates the count to 331
+          across 68,251 files); `kernel/pipeline/pp_inference.py:334` imports
+          `renquant_pipeline.panel_scoring.PanelScoringJob`, the same non-kernel twin
+          `runtime_parity.py` uses. `[VERIFIED — this session, reproduced against pinned pipeline
+          e13cd3eba378 this session]`
+NEXT:     make reachability a first-class column in the twin registry (a twin nothing imports is
+          debt; a twin two paths import differently is a defect — today recorded identically);
+          resolve the `job_panel_scoring` question deliberately (dead code vs. canonical
+          implementation the runtime silently stopped using) — carried forward as orch#867.
+
 **Date:** 2026-08-05
 **Lane:** GOAL-3 (architecture compliance audit)
 
