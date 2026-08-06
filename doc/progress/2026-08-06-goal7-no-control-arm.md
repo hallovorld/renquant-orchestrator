@@ -22,6 +22,13 @@ existing data: orch#869 mapped the fleet as a clf × momentum factorial and foun
                `_mom` a copy of prod and its shadow leg a self-comparison.
 best-known?:   yes for arm PRESENCE — read from every lane config and every run DB on
                disk. Not a contribution estimate; see the limits below.
+scope:         this is the 11 served lane configs under
+               `.subrepo_runtime/repos/renquant-strategy-104/configs/` plus every
+               `data/runs.alpaca*.db`, **prod**, and it is a claim about which ARMS
+               EXIST — not a comparison against any existing best. There is no
+               `<X>=<ic>` to cite here precisely because the arm that would produce
+               one (panel-alone) is the arm this doc reports as absent. No IC,
+               Sharpe or contribution figure is asserted anywhere in this PR.
 
           **Every lane containing the panel scorer also contains something else**
           `[VERIFIED — this session, 2026-08-06]`:
