@@ -1,5 +1,27 @@
 # GOAL-6: the gate's admission key hides 36 artifacts and 8 different skill levels behind one identity
 
+STATUS:   delivered.
+WHAT:     ships `ops/renquant104/wf_gate_discrimination_probe.py` + 11 tests, which reports
+          `discriminates=False` when artifacts sharing one `candidate_recipe_fingerprint` carry
+          differing `sanity_placebo_genuine_ic`; live run finds 36 of 37 artifacts share one
+          fingerprint with 8 distinct genuine_ic values (+0.000791 to +0.009239), exit 1.
+WHY/DIR:  GOAL-6 (model capability) — answers the lane's central question without needing
+          bt#109 (still blocked, 0 reviews, 15 rounds): the WF gate's admission key cannot
+          distinguish model capability, because it evaluates the recipe and admits the artifact
+          (`candidate_artifact_used=false` on 37/37) — the concrete reason GOAL-4 and GOAL-6 are
+          both stalled on evidence.
+EVIDENCE: scan of all 37 artifacts carrying `wf_gate_metadata`: 2 distinct
+          `candidate_recipe_fingerprint` values, 36 sharing `sha256:cfdd6cb8e950da0f`, 8 distinct
+          `sanity_placebo_genuine_ic` under that one shared fingerprint; the max observed
+          (+0.009239) is still under half the v3 criterion (`genuine_ic > 0.02`, itself shadow-only
+          and unenforced). Corrects an earlier anchor claim of "四工件同哈希" (4, not 36) and a
+          reading of +0.00079 as *the* genuine IC (it is the minimum of 8, not a scalar).
+          `[VERIFIED — this session, probe run over all 37 artifacts this session]`
+NEXT:     fixing bt#109 wires real labels into Stage-2 but does not by itself make the fingerprint
+          discriminate; the fingerprint should incorporate the candidate artifact's own content
+          digest, or `candidate_artifact_used` should stop being `false` (orch#868 shows the digest
+          it would need does not exist yet).
+
 **Date:** 2026-08-05
 **Lane:** GOAL-6 (model capability)
 
