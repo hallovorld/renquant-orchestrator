@@ -598,6 +598,58 @@ def check_sentinel_receipt(now: float | None = None) -> tuple[list[str], list[st
     return ([], [])
 
 
+def check_referenced_checkout_freshness() -> tuple[list[str], list[str]]:
+    """How far behind `origin/main` is each checkout the scheduled jobs run from?
+
+    This is class 1 in this module's own docstring — "run checkouts drifting from
+    their reviewed refs" — and until now nothing scheduled measured it.
+    `check_checkout` above compares HEAD against a declared PIN; a checkout with no
+    pin, or one whose pin is itself old, passes it while being months stale.
+
+    `ops/referenced_checkout_freshness.py` has done this correctly for a while and
+    was wired to nothing: not to a launchd job, not named in the reviewed manifest.
+    Measured 2026-08-05 by running it by hand: `renquant-orchestrator-run` was **36
+    commits behind** `origin/main` with **21 jobs** running from it, past its own
+    declared bound of 20 — so every fix merged that morning was not what ran.
+
+    The distance is counted in the reference (dev) checkout, never in the one being
+    measured: a run checkout that has not fetched carries a stale `origin/main` and,
+    asked about itself, answers "0 behind". That is the defect, and the probe
+    documents having once had it.
+    """
+    problems: list[str] = []
+    infos: list[str] = []
+    try:
+        import referenced_checkout_freshness as rcf
+    except Exception as exc:  # noqa: BLE001
+        return ([f"checkout-freshness: probe unimportable ({type(exc).__name__}: {exc}) "
+                 f"— NOT a clean result"], infos)
+    try:
+        report = rcf.scan()
+    except Exception as exc:  # noqa: BLE001
+        return ([f"checkout-freshness: scan failed ({type(exc).__name__}: {exc}) "
+                 f"— could not check is not checked-and-fresh"], infos)
+
+    if not report.get("results"):
+        return (["checkout-freshness: no absolute checkout paths found in "
+                 "program_args — nothing was measured"], infos)
+
+    # The failing set is the probe's own, not a second enumeration here.
+    for r in rcf.failing(report):
+        problems.append(
+            f"checkout-freshness {r.get('checkout', '?')}: {r.get('status')} — "
+            f"{r.get('detail') or 'no detail'} "
+            f"({r.get('referenced_by_jobs', '?')} job(s) run from it)"
+        )
+    for r in report["results"]:
+        if r not in rcf.failing(report):
+            infos.append(
+                f"checkout-freshness {r.get('checkout', '?')}: {r.get('status')} "
+                f"({r.get('commits_behind', '-')} behind)"
+            )
+    return problems, infos
+
+
 def check_import_resolution() -> tuple[list[str], list[str]]:
     """Do this repo's imported public symbols still resolve where they were reviewed?
 
@@ -974,6 +1026,9 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
     p, i = check_import_resolution()
+    problems += p
+    infos += i
+    p, i = check_referenced_checkout_freshness()
     problems += p
     infos += i
     p, i = check_wrapper_pythonpath_roots()
