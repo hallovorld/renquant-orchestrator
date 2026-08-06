@@ -169,3 +169,66 @@ def test_a_direct_job_is_counted_and_a_bridge_job_is_not(tmp_path):
     assert by["com.example.preflight"] == UMBRELLA
     assert by["com.example.daily"] == PINNED
     assert by["com.example.report"] == NO_RUNNER
+
+
+# --- an ARMED fallback is exposure, not dormancy (codex MED on orch#854) ------
+
+def test_armed_fallback_counts_as_REACHING_the_umbrella_kernel(tmp_path):
+    """The bug: FALLBACK rows were counted dormant unconditionally, so an armed
+    machine reported n_reaching_umbrella_kernel=0 next to fallback_is_armed=true
+    — under-reporting exposure in exactly the scenario this probe exists for."""
+    m = _manifest(tmp_path, {
+        "com.example.daily": {
+            "program_args": ["/bin/sh", _wrapper(tmp_path, "d.sh", FALLBACK_SH)],
+            "environment": {"RQ_DAILY_RUNNER": "umbrella"},
+        },
+    })
+    c = census(m, launchagents=tmp_path / "no-agents")
+    assert c["fallback_is_armed"] is True
+    assert c["n_reaching_umbrella_kernel"] == 1
+    assert c["n_with_dormant_umbrella_fallback"] == 0
+    assert c["n_with_armed_umbrella_fallback"] == 1
+
+
+def test_unarmed_fallback_is_still_dormant(tmp_path):
+    """Anti-vacuity twin: the fix must not turn every fallback into exposure."""
+    m = _manifest(tmp_path, {
+        "com.example.daily": {"program_args": [
+            "/bin/sh", _wrapper(tmp_path, "d.sh", FALLBACK_SH)]},
+    })
+    c = census(m, launchagents=tmp_path / "no-agents")
+    assert c["fallback_is_armed"] is False
+    assert c["n_reaching_umbrella_kernel"] == 0
+    assert c["n_with_dormant_umbrella_fallback"] == 1
+    assert c["n_with_armed_umbrella_fallback"] == 0
+
+
+def test_direct_importers_count_regardless_of_arming(tmp_path):
+    """A DIRECT job reaches the umbrella kernel whether or not the env is armed;
+    only the fallback rows are conditional."""
+    m = _manifest(tmp_path, {
+        "com.example.pre": {"program_args": [
+            "/bin/sh", _wrapper(tmp_path, "pre.sh", DIRECT_SH)]},
+        "com.example.daily": {"program_args": [
+            "/bin/sh", _wrapper(tmp_path, "d.sh", FALLBACK_SH)]},
+    })
+    c = census(m, launchagents=tmp_path / "no-agents")
+    assert c["n_direct_umbrella_kernel"] == 1
+    assert c["n_reaching_umbrella_kernel"] == 1     # fallback unarmed, excluded
+
+
+def test_an_armed_plist_also_flips_the_fallback_rows(tmp_path):
+    """Arming can come from a LaunchAgent plist as well as the manifest env; the
+    exposure count must respond to either source, not just the one it reads first."""
+    agents = tmp_path / "LaunchAgents"
+    agents.mkdir()
+    (agents / "com.example.daily.plist").write_text(
+        "<plist><dict><key>RQ_DAILY_RUNNER</key><string>umbrella</string>"
+        "</dict></plist>", encoding="utf-8")
+    m = _manifest(tmp_path, {
+        "com.example.daily": {"program_args": [
+            "/bin/sh", _wrapper(tmp_path, "d.sh", FALLBACK_SH)]},
+    })
+    c = census(m, launchagents=agents)
+    assert c["n_reaching_umbrella_kernel"] == 1
+    assert c["n_with_dormant_umbrella_fallback"] == 0

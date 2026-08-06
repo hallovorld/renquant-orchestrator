@@ -151,8 +151,8 @@ fire first is not contained — it is **unexploded**. But it has not gone off.~~
 
 ## Scope of the divergence
 
-Over an 864-case grid `[VERIFIED]`: **191 divergent**, worst notional gap
-**$24,940**, largest umbrella allocation **24.9 % of portfolio value**. In every
+Over an 864-case grid `[VERIFIED]`: **191 divergent** `[VERIFIED — ops/renquant104/sizing_twin_conformance.py over an 864-case grid]`, worst notional gap
+**$24,940** `[VERIFIED — sizing_twin_conformance.py worst_notional_gap_usd]`, largest umbrella allocation **24.9 % of portfolio value** `[VERIFIED — sizing_twin_conformance.py max_umbrella_pct_of_pv]`. In every
 divergent case the umbrella sizes **larger** — the defect has one direction, and
 a test pins that so a reverse divergence cannot be folded silently into this
 record.
@@ -229,7 +229,7 @@ through the bridge or invokes `-m live.runner` directly:
 | kernel surface | jobs |
 |---|---:|
 | bridge → **pinned** kernel (`daily104`, `intraday104`) | 2 |
-| **direct → umbrella (stale) kernel** | **1** — `com.renquant.rq104-dawn-preflight` |
+| **direct → umbrella (stale) kernel** | **1** — `com.renquant.rq104-dawn-preflight` `[VERIFIED — ops/renquant104/kernel_surface_census.py over all 39 manifest jobs]` |
 | no `live.runner` at all | 36 |
 
 **Exactly one scheduled job runs the stale kernel, and it is a preflight that
@@ -293,12 +293,12 @@ broker : EME  buy qty=3 @ $704.25  FILLED 2026-07-28
 
 | | |
 |---|---:|
-| `buy_pending` rows over the 12 % BULL_CALM cap | 4 |
-| **of those, ACTUALLY FILLED at the broker** | **2** |
-| TSLA | **23.41 % → filled, $2,452** |
-| EME | **21.09 % → filled, $2,113** |
+| `buy_pending` rows over the 12 % BULL_CALM cap | 4 `[VERIFIED — sqlite data/runs.alpaca.db: select … where action='buy_pending' and target_pct>0.12]` |
+| **of those, ACTUALLY FILLED at the broker** | **2** `[VERIFIED — Alpaca GetOrdersRequest(status=CLOSED, after=2026-06-01), filled_at not null]` |
+| TSLA | **23.41 % → filled, $2,452** `[VERIFIED — broker order ea3055f1, filled 2026-07-28T17:45:47, qty 8 @ $306.52]` `[DERIVED — 8 × $306.52]` |
+| EME | **21.09 % → filled, $2,113** `[VERIFIED — Alpaca filled order, 2026-07-28, qty 3 @ $704.25]` `[DERIVED — 3 × $704.25]` |
 
-**TSLA is 23.6 % of the live book right now** — roughly **2× its per-name cap**.
+**TSLA is 23.6 % of the live book right now** `[VERIFIED — Alpaca get_all_positions 2026-08-06: market_value $2,577 / equity $10,943]` — roughly **2× its per-name cap**.
 The defect did not stay latent. It placed, it filled, and the position is open.
 
 ## The error, exactly
@@ -343,3 +343,31 @@ only authority for what was placed; the DB is a record of what was intended.**
 The scoping section's open question — *which surface placed the 07-28 orders* —
 becomes materially more important, not less: something placed two positions at
 ~2× the per-name cap, and the pinned clamp should have refused both.
+
+
+---
+
+## Provenance reconciliation (LONG #10) `[VERIFIED — this session, 2026-08-06]`
+
+Every decision-driving quantity above now carries an inline
+`[VERIFIED — <command/file>]` or `[DERIVED — <formula/inputs>]` tag, per LONG
+agreement #10: *"an untaggable number is not stated"*, and the header-level
+evidence block alone is not sufficient.
+
+Two numbers changed meaning during this PR and are recorded here rather than
+silently overwritten, as LONG #10 requires:
+
+| number | was | is | why |
+|---|---|---|---|
+| max position this defect placed | 9.06 % | **23.41 %** `[VERIFIED — broker order ea3055f1]` | `broker_order_id IS NULL` was read as "not placed"; it means "id not stamped" |
+| oversized orders reaching the broker | 0 | **2** `[VERIFIED — Alpaca filled-order history]` | same cause |
+
+**One count in `kernel_surface_census.py` was also wrong and is fixed in this
+push**: `n_reaching_umbrella_kernel` counted only `DIRECT_UMBRELLA_KERNEL`, so on a
+machine with `RQ_DAILY_RUNNER=umbrella` armed it would report **0** exposure
+alongside `fallback_is_armed=true` — under-reporting in exactly the scenario the
+probe exists for. Now `n_direct + (n_fallback if armed else 0)`, with
+`n_with_dormant_umbrella_fallback` going to 0 when armed, and four regressions
+covering armed-via-manifest, armed-via-plist, unarmed, and direct-only.
+Live reading is unchanged (**1** direct, **2** dormant, unarmed)
+`[VERIFIED — python ops/renquant104/kernel_surface_census.py, 2026-08-06]`.

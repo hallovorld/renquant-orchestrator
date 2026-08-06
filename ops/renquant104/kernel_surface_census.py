@@ -149,19 +149,33 @@ def census(manifest_path: pathlib.Path = DEFAULT_MANIFEST,
     by = {}
     for r in rows:
         by[r["surface"]] = by.get(r["surface"], 0) + 1
+
+    # A fallback job's surface depends on the ENVIRONMENT, not on its wrapper
+    # alone. Once RQ_DAILY_RUNNER=umbrella is armed anywhere, every
+    # BRIDGE_WITH_UMBRELLA_FALLBACK job DOES execute the umbrella kernel and is
+    # no longer dormant.
+    #
+    # An earlier revision counted FALLBACK rows as dormant unconditionally, so on
+    # an armed machine it reported n_reaching_umbrella_kernel=0 alongside
+    # fallback_is_armed=true -- under-reporting exposure in exactly the scenario
+    # this probe exists to surface (codex MED on orch#854).
+    armed = env["armed_anywhere"]
+    n_fallback = sum(1 for r in rows if r["surface"] == FALLBACK)
+    n_direct = sum(1 for r in rows if r["surface"] in REACHES_UMBRELLA)
     return {
         "manifest": str(manifest_path),
         "jobs": rows,
         "counts": by,
         "runner_env": env,
-        "n_reaching_umbrella_kernel": sum(
-            1 for r in rows if r["surface"] in REACHES_UMBRELLA),
+        # Direct importers ALWAYS reach it; fallback jobs reach it only when armed.
+        "n_reaching_umbrella_kernel": n_direct + (n_fallback if armed else 0),
+        "n_direct_umbrella_kernel": n_direct,
         "n_undetermined": sum(1 for r in rows if r["surface"] in UNDETERMINED),
-        # A dormant fallback is not the same as no fallback. Both numbers are
-        # reported so a reader never has to infer one from the other.
-        "n_with_dormant_umbrella_fallback": sum(
-            1 for r in rows if r["surface"] == FALLBACK),
-        "fallback_is_armed": env["armed_anywhere"],
+        # Dormant ONLY while the env is unarmed. Reported separately from the
+        # total so a reader never has to infer one from the other.
+        "n_with_dormant_umbrella_fallback": 0 if armed else n_fallback,
+        "n_with_armed_umbrella_fallback": n_fallback if armed else 0,
+        "fallback_is_armed": armed,
     }
 
 
