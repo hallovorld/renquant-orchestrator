@@ -1,5 +1,22 @@
 # GOAL-6: the fix I proposed for the fingerprint collapse cannot be implemented — the digest it needs does not exist
 
+STATUS:   delivered (docs-only finding; corrects orch#862's proposed remedy).
+WHAT:     shows orch#862's proposed fix ("incorporate the candidate's content digest into the
+          fingerprint") cannot be implemented — all 36 artifacts have `content_sha256 = None`, so
+          there is no digest to incorporate yet.
+WHY/DIR:  GOAL-6 (model capability) needs a content-identity field before any ensemble/capability
+          comparison built on these artifacts can be grounded; reorders the remedy to two steps —
+          stamp a digest first, then key the fingerprint on it.
+EVIDENCE: across the same 36 artifacts as orch#862, `content_sha256` is `None` 36/36 (the only
+          shape-ish key present, `panel_shape`, is not a digest); under the single shared
+          `candidate_recipe_fingerprint`, `wf_3cut_sharpe_mean` spans +0.0524 to +1.1656 (22x)
+          across 10 distinct values. `[VERIFIED — this session, scanned all 36 artifacts this
+          session]`
+NEXT:     stamp a content digest into the panel artifact at write time (renquant-pipeline /
+          artifact-writer change), then have `candidate_recipe_fingerprint` incorporate it or be
+          replaced as the admission key; bt#109 remains blocked at 0 reviews and neither step
+          depends on it.
+
 **Date:** 2026-08-06
 **Lane:** GOAL-6 (model capability)
 
