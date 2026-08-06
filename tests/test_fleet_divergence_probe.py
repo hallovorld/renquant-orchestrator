@@ -210,7 +210,7 @@ class TestAgreementIsMeasuredNotThresholded:
         r = F.probe("2026-08-04", data=tmp_path)
         row = r["lanes"][0]
         assert row["baseline_score_sd"] > 0
-        assert "prod_sd" in F.render(r)
+        assert "base_sd" in F.render(r)
 
     def test_NO_cutoff_is_applied_to_the_ratio(self, tmp_path):
         """A NON-zero residual with an identical top-K still reads SAME_TOP_K.

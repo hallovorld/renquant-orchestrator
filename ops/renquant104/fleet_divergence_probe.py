@@ -40,8 +40,8 @@ THE RATIO'S DENOMINATOR IS NOT STABLE, so it is printed beside it. Prod's own
 cross-sectional score sd went **0.17 → 1.35 (8x)** on 2026-08-04 when prod
 itself became a two-component z-blend `[VERIFIED — this session]`. Any
 `resid/sd` read across that boundary is comparing ratios whose denominator
-moved. The probe therefore reports `prod_score_sd` on every row: a ratio whose
-denominator is invisible is a number nobody can check.
+moved. The probe therefore reports `baseline_score_sd` on every row: a ratio
+whose denominator is invisible is a number nobody can check.
 
 NO INVENTED THRESHOLD. The verdicts are facts, not cutoffs:
   * ``NO_RUN`` / ``RAN_AND_SCORED_NOTHING`` — no evidence, for two different
