@@ -1,5 +1,25 @@
 # GOAL-5: the book holds 10 against a cap of 8, and the code that enforces the cap looks correct
 
+STATUS:   delivered (docs-only root-cause finding; fix stated but not implemented — repo boundary
+          is renquant-pipeline).
+WHAT:     root-causes the live book holding 10 positions against `max_concurrent_positions=8` —
+          three separate 2026-08-04 daily runs (14:54/19:28/20:18 PDT) each computed `open_slots`
+          against `held=5` filled positions only, blind to each other's accepted-but-unfilled buy
+          orders, so 6 orders filled at once against 4 pre-existing positions = 10.
+WHY/DIR:  GOAL-5 (daily-run reliability P0) — the defect is not any single run's arithmetic (each
+          enforced the cap correctly against the state it could see); it is that the budget has no
+          memory of in-flight buy intents across runs.
+EVIDENCE: `logs/daily_104/2026-08-04.log` shows 3 runs each reporting `held=5`, emitting 3/2/1
+          orders respectively (all within that run's own budget); Alpaca API confirms 10 live
+          positions vs prod config `max_concurrent_positions=8`; the broker-derived reconstruction
+          (not the `trades` table, which contained 45/63 `buy_pending` rows that never reached the
+          broker) matches the live book exactly. `[VERIFIED — this session, Alpaca API +
+          logs/daily_104/2026-08-04.log + selection.py/task_selection.py read this session]`
+NEXT:     `open_slots` must subtract in-flight buy intents, not just filled holdings —
+          `effective_held = filled_positions ∪ accepted_unfilled_buy_orders`, using the broker's
+          open-orders list (not `ctx.holdings`) as the authoritative source. Not yet implemented
+          (renquant-pipeline repo boundary).
+
 **Date:** 2026-08-05
 **Lane:** GOAL-5 (daily-run reliability P0)
 **Status:** ROOT CAUSE ESTABLISHED (2026-08-06 read). An earlier revision of this
