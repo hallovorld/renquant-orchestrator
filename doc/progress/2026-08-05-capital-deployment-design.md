@@ -17,6 +17,11 @@ EVIDENCE: `max_concurrent_positions` absent from the pinned config; book holds 1
           0.70 veto threshold is PANW at 0.845; TSLA is 23.5% of equity against
           `BULL_CALM.max_position_pct=0.12`. `[VERIFIED — this session, pinned config + correlation
           artifact + trades table read this session]`
+          artifact:      pinned config + correlation artifact + `trades` table, all read this session
+          prod or exp:   prod — the live pinned config and the live book's own holdings
+          existing data: the correlation artifact's own `as_of` timestamp, showing it 75 days stale
+          best-known?:   n/a — this is a config/data-freshness audit, not a model-variant comparison
+          scope:         "this is the live pinned config and book state, prod, vs. the declared regime caps — no model skill claim is made"
 NEXT:     two items cost nothing and unblock the rest — make the rotation veto name the binding
           holding, and measure whether a trim path exists (orch#850 does the latter); everything
           else needs orch#808's pin advance and operator authorisation.
