@@ -76,9 +76,18 @@ existing data: `/Users/renhao/git/github/RenQuant/logs/daily_104/2026-08-06.log`
                `NULL-is-a-fact-about-the-record` error and it is corrected here
                rather than silently dropped.
 
-               The per-name view I actually sorted on, from the rotation tree
-               `[VERIFIED — log:459,469,479,489,499 ROTATION_TREE held= lines +
-               Alpaca positions API, this session]`:
+               The per-name view I actually sorted on, from the rotation tree. No
+               single contiguous block covers all 10 rows: MRVL was already
+               flagged for model exit before the 04:43 run's rotation tree ran, so
+               it is absent from that run's `held=` lines; NVDA's exit order was
+               placed between the two runs, so it is absent from the 05:12 run's
+               `held=` lines. 9 of the 10 rows (`GOOG, WELL, NVDA, PANW, LRCX,
+               DDOG, VLO, SOFI, TSLA`) are `[VERIFIED — log:451-459 ROTATION_TREE
+               held= lines, 04:43 run, first cand=CRWD block]`; the 10th
+               (`MRVL`) is `[VERIFIED — log:1002 ROTATION_TREE held=MRVL line,
+               05:12 run, first cand=CRWD block]`. `mktval$` / `%equity` /
+               `unreal%` columns are `[VERIFIED — Alpaca positions API, this
+               session]`:
 
 ```
 ticker  mktval$   %equity  unreal%   model_er   model_rank  held_d
@@ -98,8 +107,10 @@ best-known?:   n/a — reverted before any market effect.
 scope:         two orders, cancelled, zero fills; no config, code, or scheduled job
                was touched at any point.
 
-NEXT:     The book sits at 8 positions once the two model exits fill, so
-          `open_slots = 0` and the buy path remains closed. Reopening it needs
+NEXT:     `[ASSUMED — queued model exits (MRVL, NVDA) fill]` the book sits at
+          8 positions, so `open_slots = 0`
+          `[DERIVED — 10 held - 2 filled exits = 8; 8 - max_concurrent_positions(8)
+          = 0]`, and the buy path remains closed. Reopening it needs
           either a further exit the model itself calls, or an explicit decision to
           trim framed **as** an override of the model — which is precisely the
           decision this revert handed back to the operator.
