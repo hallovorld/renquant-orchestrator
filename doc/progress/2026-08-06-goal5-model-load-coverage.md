@@ -90,3 +90,62 @@ prod's. Pinned by test.
 - **Not that the six sessions would have traded.** Whether a full fleet would have
   produced buys is unmeasured, and the two that did trade complicate that question
   rather than settling it.
+
+---
+
+# CORRECTION — the cause is model STALENESS, not unopenable artifacts `[VERIFIED — 2026-08-06]`
+
+The section above said the six sessions "decided on a skeleton model fleet" and
+that *why the artifacts became unopenable is unmeasured*. Measured now: **they
+were never unopenable.** The per-ticker fleet had aged past its staleness limit
+and the gate refused it — correctly.
+
+```
+2026-07-08  live.runner: AAPL stale_76d_limit_60:live_train_end, skipping
+```
+
+| date | loaded | stale-skip lines | oldest model |
+|---|---|---:|---|
+| 2026-06-30 | 7/145 | 126 | **61d** vs limit 60 |
+| 2026-07-06 | 58/145 | **0** | — |
+| 2026-07-08 | 4/145 | 129 | **76d** |
+| 2026-07-09 | 4/145 | 129 | **77d** |
+| 2026-07-15 | 11/145 | 520 † | **83d** |
+| 2026-07-10 | 125/145 | 0 | — |
+| 2026-08-05 | 120/145 | 0 | — |
+
+† 520 exceeds the 145-symbol universe because shadow lanes replay the same bar
+and log their own skips into the one file. The count is lanes × symbols, not
+symbols. Reported as measured rather than silently divided.
+
+## What this changes, and what it does not
+
+**Changes:** the staleness gate is not the defect. It did exactly its job on four
+of the six sessions.
+
+**Does not change — and sharpens — the finding:** the fleet crossed the limit on
+**2026-06-30 at 61 days, one day over**, and nothing retrained it for **ten
+days**, by which time it had reached **83 days**. Through that window the book
+scored candidates against **4 to 11 models out of 145**, and:
+
+- **zero alerts fired** `[VERIFIED — grep over each session log]`
+- **no ops detector read the loaded-model count** — `grep -rl "Loaded models for" ops/`
+  was empty before this PR
+
+A guard that correctly refuses 129 of 145 models for two weeks, while nothing
+escalates, is not a working control. **The refusal was right and the silence was
+the defect.**
+
+## One session still unexplained
+
+**2026-07-06 loaded 58/145 with ZERO stale-skip lines**, so its cause is
+different from the other five and is **not established here**. It is also one of
+the two sessions that **placed orders** while under-loaded. That remains open.
+
+## The detector's verdict is unchanged
+
+`model_load_coverage_scan.py` still flags all six, and should: its subject is
+*how many models the run actually had*, which is the decision-relevant quantity
+regardless of why. The `does_NOT_establish` field already said it "does not
+establish why the models failed to load" — that limit was correctly stated, and
+this section fills it in for five of the six.
