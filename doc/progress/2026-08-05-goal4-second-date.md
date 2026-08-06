@@ -19,6 +19,11 @@ EVIDENCE: today's lane-vs-lane spearman: blend<->blend_mom 0.6123 (4/10 top-k, n
           exactly 1 momentum training job (`com.renquant.momentum-train-weekly`, slow clock) while
           `params_v1_fast()` exists in the model package. `[VERIFIED — this session, probe run +
           launchd manifest + artifact directory checked this session]`
+          artifact:      `ops/renquant104/fleet_divergence_probe.py --baseline` run over today's fleet scores
+          prod or exp:   prod — all 5 fleet lanes are live shadow lanes, launchd manifest is the live job list
+          existing data: 08-04's single-date measurement (near-agreement), extended here to a second date
+          best-known?:   n/a — this measures rank disagreement, not forward-return skill; no lane is claimed better
+          scope:         "this is the shadow fleet's own lane-vs-lane scores, prod, across two dates — no skill claim is made"
 NEXT:     the actionable item is a fast-momentum producer job, filed separately (orch#845); until
           it exists, F2/F3 are two configs, two DBs, two launchd slots and zero evidence.
 
