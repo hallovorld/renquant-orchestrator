@@ -15,6 +15,11 @@ EVIDENCE: re-measured via the lazy `__getattr__` map (not a raw grep, which orch
           `job_panel_scoring.py`; test-file count corrected from an initial 37 (string match,
           including 9 comment-only mentions) to 28 (verified imports/patches).
           `[VERIFIED — this session, re-scanned this session]`
+          artifact:      `kernel/panel_pipeline/job_panel_scoring.py` + `panel_scoring.py`, both read this session
+          prod or exp:   prod — import-site census against the pinned pipeline production actually runs
+          existing data: orch#861's raw-grep count, corrected here via the lazy `__getattr__` map
+          best-known?:   n/a — this is an import-reachability audit, not a model-variant comparison
+          scope:         "this is an import-site census, prod, vs. orch#861's raw-grep count — no behavioural claim about the two implementations is made"
 NEXT:     pipeline owners (repo boundary) must decide which twin is canonical — if
           `job_panel_scoring` is canonical, `pp_inference.py:334` is wired to the wrong module; if
           `panel_scoring.py` is canonical, the 4350 lines + 28 tests guard something that never
