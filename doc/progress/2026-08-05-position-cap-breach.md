@@ -1,5 +1,33 @@
 # 2026-08-05 — TSLA's 23.5 % was not drift. It was bought that way.
 
+STATUS:   delivered (read-only probe delivered; root cause narrowed but no fix proposed yet).
+WHAT:     ships `ops/renquant104/position_cap_conformance.py` (read-only, 13 tests), which
+          compares every live buy's recorded `target_pct` against the regime's declared cap; finds
+          2 of 33 live buys since 07-01 breached the cap — TSLA 23.4%, EME 21.1% vs. a 12%
+          BULL_CALM cap — both from one off-schedule run (2026-07-28 17:45:49, not on the 12-minute
+          scheduled grid).
+WHY/DIR:  GOAL-5 (daily-run reliability P0), orch#848 Defect C follow-up — refutes the "uncapped
+          drift" hypothesis twice (a trim path, `TrimHeldTask`, exists but has fired 0/250 times
+          live — it is inert, not missing; the breach came from an oversized BUY, not drift) and
+          narrows the trigger to the sub-one-share branch: the two breached names are exactly the
+          two whose target notional ($245.43) was below their share price, the same defect class
+          as the known dropped-names bug (orch#608/pipeline#224) with the opposite sign — it
+          multiplies instead of drops.
+EVIDENCE: for all 3 orders in the one 17:45:49 run (SPG/TSLA/EME), cap/Kelly/portfolio-value are
+          each independently verified correct and identical (recorded `max_pct=0.02323` for all
+          three); SPG's intended notional $244.32 > price $237.52 floors to 1 share (correct);
+          TSLA's $245.43 < price $306.52 floors to 0 but emitted 8; EME's $257.55 < price $704.26
+          floors to 0 but emitted 3; `sizing.one_share_floor_enabled=false` in the pinned config,
+          so the documented rescue path is not what ran; `source_task="SizeAndEmitTask"` is stamped
+          by two different sizer modules (`governor_sizing.py:548` and `SizeAndEmitTask` itself),
+          so live-order attribution cannot identify which code sized it. `[VERIFIED — this session,
+          trades table + Alpaca /v2/orders + pinned task_selection.py read this session]`
+NEXT:     root cause is narrowed to the sub-one-share branch but not yet found (the documented
+          one-share-floor rescue is disabled, so something else ran there); needs runtime
+          instrumentation to catch the branch live (orch#853 is that harness); `TrimHeldTask` being
+          inert on the live path (0/250 live fires) is a second, independent finding that also
+          needs a decision.
+
 ## What the operator asked me to measure
 
 Design orch#848 listed Defect C as *"TSLA is 23.5 % against a 12 % cap; the cap
