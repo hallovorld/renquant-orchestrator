@@ -149,3 +149,62 @@ the two sessions that **placed orders** while under-loaded. That remains open.
 regardless of why. The `does_NOT_establish` field already said it "does not
 establish why the models failed to load" — that limit was correctly stated, and
 this section fills it in for five of the six.
+
+---
+
+# The one session left open is now closed — and it is a DIFFERENT defect `[VERIFIED — 2026-08-06]`
+
+The correction above closed five of six sessions as model **staleness** and left
+2026-07-06 open: *"58/145 with ZERO stale-skip lines, so its cause differs from
+the other five and is NOT established here."*
+
+Established now. `runner.py:452-454`:
+
+```python
+meta_path = models_dir / symbol / f"{symbol}-policy-metadata.json"
+if not meta_path.exists():
+    log.warning("%s no_artifact, skipping", symbol)
+```
+
+`no_artifact` means the model's **metadata file is absent from disk** — not stale,
+not unreadable, **not there**.
+
+| date | loaded | `no_artifact` | `stale` | class |
+|---|---|---:|---:|---|
+| 2026-06-30 | 7/145 | 12 | **126** | stale |
+| **2026-07-06** | 58/145 | **240** | **0** | **MISSING FILES** |
+| **2026-07-07** | 58/145 | **80** | **0** | **MISSING FILES** |
+| 2026-07-08 | 4/145 | 12 | **129** | stale |
+| 2026-07-09 | 4/145 | 12 | **129** | stale |
+| 2026-07-15 | 11/145 | 16 | **520** | stale |
+| 2026-08-05 (healthy) | 120/145 | 4 | 0 | — |
+
+Counts exceed the 145-symbol universe on the worst days because shadow lanes
+replay the same bar into one log; the figure is lanes × symbols. Reported as
+measured.
+
+**So the six sessions are two defects, not one:**
+
+- **four** were the staleness gate correctly refusing a fleet that had aged past
+  its 60-day limit and stayed there ten days (already recorded above);
+- **two — 07-06 and 07-07 — had model metadata files missing from disk**, and
+  these are exactly the two sessions that **placed live orders** while
+  under-loaded.
+
+Baseline `no_artifact` on a healthy session is **4**. On 07-06 it was **240**.
+
+## What this does NOT establish
+
+- **Not why the files were absent.** A plausible reading is that a rebuild had
+  them mid-write (240 on 07-06 → 80 on 07-07 → 12 on 07-08, by which point the
+  files existed and were merely stale). **That sequence is consistent with a
+  rebuild and I have not verified it** — no retrain log was consulted, and the
+  monotone decay could equally be several causes.
+- **Not that the orders placed on 07-06/07-07 were wrong.** They were sized from
+  the 58 models that did load. Whether the missing 87 would have changed the
+  selection is unmeasured.
+- **Not that files are missing now.** The current session reads `no_artifact = 4`.
+
+The detector's verdict is unchanged: both classes present the same way — a run
+deciding on a fleet far below its trailing coverage — which is why the probe
+measures *how many models the run had* rather than *why*.
