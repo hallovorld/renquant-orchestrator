@@ -151,6 +151,62 @@ def _job_suffix(label: str) -> str:
     return label.split("com.renquant.", 1)[-1]
 
 
+
+#: Job suffix → the log basename it actually writes, when that differs from the
+#: suffix. MEASURED 2026-08-07 against `logs/`, not guessed: two layouts exist
+#: and both are in use.
+_LOG_BASENAME = {
+    "rq104-silent-refusal": "silent_refusal",
+    "rq104-degradation-sentinel": "degradation_sentinel",
+    "rq104-risk-budget": "risk_budget",
+    "daily104": "daily_104",
+}
+
+#: The flat directories that hold `<name>_YYYY-MM-DD.log` files.
+_FLAT_LOG_DIRS = ("rq104", "rq105")
+
+
+def _newest_log_date(suffix: str) -> str | None:
+    """Date of the job's newest dated log, or None when none is discoverable.
+
+    WHY this is on every launchd row (measured 2026-08-07): `launchctl list`
+    reports the last exit of the last run **launchd itself started**. A job that
+    is also run by hand does not update it. `weekly-wf-promote` is scheduled
+    Saturdays; its launchd record was exit 1 from Sat 2026-08-01, while its
+    NEWEST log — a manual Tue 2026-08-04 run — ended `exit 0, governance
+    nominal`. Both numbers were correct; they described different events.
+
+    Reading the code alone therefore reports a stale condition as current —
+    the exact defect this module exists to end, and it was in this module.
+
+    Showing the newest log's date beside the code does NOT resolve which run
+    produced the code (launchctl does not say) and deliberately does not guess.
+    It puts the ambiguity in front of the reader instead of hiding it.
+
+    Two layouts exist and both are checked [VERIFIED — `logs/` 2026-08-07]:
+      1. `logs/<job_with_underscores>/YYYY-MM-DD.log`
+      2. `logs/<rq104|rq105>/<basename>_YYYY-MM-DD.log`
+    """
+    stem = suffix.replace("-", "_")
+    d = RQ / "logs" / stem
+    if d.is_dir():
+        dates = sorted(f.stem for f in d.glob("*.log")
+                       if re.fullmatch(r"\d{4}-\d{2}-\d{2}", f.stem))
+        if dates:
+            return dates[-1]
+    base = _LOG_BASENAME.get(suffix, stem)
+    found: list[str] = []
+    for flat in _FLAT_LOG_DIRS:
+        fd = RQ / "logs" / flat
+        if not fd.is_dir():
+            continue
+        for f in fd.glob(f"{base}_*.log"):
+            m = re.fullmatch(rf"{re.escape(base)}_(\d{{4}}-\d{{2}}-\d{{2}})", f.stem)
+            if m:
+                found.append(m.group(1))
+    return max(found) if found else None
+
+
 def read_launchd_exits() -> list[dict[str, Any]]:
     """`launchctl list` → the renquant jobs whose LAST exit was nonzero.
 
@@ -184,6 +240,7 @@ def read_launchd_exits() -> list[dict[str, Any]]:
         }
         if known:
             row["actionable"] = known[3]
+        row["newest_log"] = _newest_log_date(suffix)
         rows.append(row)
     return rows
 
@@ -306,19 +363,26 @@ def render(box: dict[str, Any]) -> str:
     if not unk:
         L.append("  none")
     for r in unk:
-        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
+        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}"
+                 + (f"   [newest log {r['newest_log']}]" if r.get("newest_log") else ""))
+    L.append("  NOTE: an exit code is the last run LAUNCHD started — a manual run "
+             "does not update it, so the code can predate the newest log. "
+             "`newest log` is shown where discoverable; absent is undiscoverable, "
+             "not `no logs`.")
     L.append("")
 
     L.append(f"== JOB EXITS THAT ARE DESIGNED BUT ACTIONABLE ({len(act)}) ==")
     if not act:
         L.append("  none")
     for r in act:
-        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
+        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}"
+                 + (f"   [newest log {r['newest_log']}]" if r.get("newest_log") else ""))
     L.append("")
 
     L.append(f"== JOB EXITS THAT ARE BY DESIGN ({len(des)}) — not work ==")
     for r in des:
-        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
+        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}"
+                 + (f"   [newest log {r['newest_log']}]" if r.get("newest_log") else ""))
     if not des:
         L.append("  none")
     return "\n".join(L)

@@ -73,8 +73,15 @@ def test_an_unlisted_code_is_unknown_not_assumed_fine(monkeypatch):
     monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
         "R", (), {"stdout": "-\t7\tcom.renquant.some-new-job\n"})())
     rows = inbox.read_launchd_exits()
-    assert rows == [{"job": "some-new-job", "code": 7, "kind": "unknown",
-                     "detail": "no documented meaning for this code"}]
+    # Field-wise, not dict-equality: the row grows (it gained `newest_log` when
+    # the launchctl-staleness fix landed) and an exact-equality assertion turns
+    # every additive change into a false failure while testing nothing extra.
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["job"] == "some-new-job"
+    assert r["code"] == 7
+    assert r["kind"] == "unknown"
+    assert r["detail"] == "no documented meaning for this code"
 
 
 def test_a_listed_code_is_designed(monkeypatch):
@@ -295,3 +302,60 @@ def test_module_never_writes(monkeypatch):
     for forbidden in ("UPDATE ", "INSERT ", "DELETE ", "launchctl unload",
                       "launchctl stop", "open(", "write_text"):
         assert forbidden not in src, f"inbox must stay read-only: found {forbidden!r}"
+
+
+# ── launchctl staleness: the code is not the newest run ────────────────────
+
+def test_every_launchd_row_carries_a_newest_log_field(monkeypatch):
+    """Even when None. A row without the field lets a reader assume the exit
+    code describes the newest run, which is the defect this closes."""
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "-\t1\tcom.renquant.some-job\n"})())
+    assert "newest_log" in inbox.read_launchd_exits()[0]
+
+
+def test_newest_log_reads_the_per_job_directory_layout(tmp_path, monkeypatch):
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    d = tmp_path / "logs" / "weekly_wf_promote"
+    d.mkdir(parents=True)
+    for name in ("2026-08-01.log", "2026-08-04.log", "notes.txt"):
+        (d / name).write_text("x")
+    assert inbox._newest_log_date("weekly-wf-promote") == "2026-08-04"
+
+
+def test_newest_log_reads_the_flat_directory_layout(tmp_path, monkeypatch):
+    # logs/rq104/silent_refusal_YYYY-MM-DD.log — the second measured layout.
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    d = tmp_path / "logs" / "rq104"
+    d.mkdir(parents=True)
+    (d / "silent_refusal_2026-08-03.log").write_text("x")
+    (d / "silent_refusal_2026-08-06.log").write_text("x")
+    assert inbox._newest_log_date("rq104-silent-refusal") == "2026-08-06"
+
+
+def test_undiscoverable_is_None_not_a_guess(tmp_path, monkeypatch):
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    assert inbox._newest_log_date("no-such-job") is None
+
+
+def test_non_dated_files_are_not_mistaken_for_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    d = tmp_path / "logs" / "weekly_wf_promote"
+    d.mkdir(parents=True)
+    (d / "manual_20260601-225243.log").write_text("x")
+    (d / "final_test_20260608-082722.log").write_text("x")
+    assert inbox._newest_log_date("weekly-wf-promote") is None
+
+
+def test_render_states_the_launchctl_limitation():
+    """The limitation must be VISIBLE, not just handled: a reader who does not
+    know that `launchctl` only tracks launchd-started runs will read a stale
+    code as current — which is what happened to me."""
+    box = {"incidents": [], "audit_findings": [],
+           "launchd_unknown": [{"job": "a", "code": 1, "detail": "?",
+                                "newest_log": "2026-08-04"}],
+           "launchd_designed": [], "launchd_designed_actionable": []}
+    text = render(box)
+    assert "[newest log 2026-08-04]" in text
+    assert "last run LAUNCHD started" in text
+    assert "not `no logs`" in text
