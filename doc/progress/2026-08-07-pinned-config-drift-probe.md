@@ -10,7 +10,7 @@ WHAT:      `ops/pinned_config_drift_probe.py` compares the PINNED
            Registered as `pinned-config-drift` so the daily ops-audit runs it and
            `agent_inbox.py` surfaces it.
 
-WHY-DIR:   2026-08-07 (orch#895): `strategy-104` merged `feat(risk): per-name cap
+WHY/DIR:   2026-08-07 (orch#895): `strategy-104` merged `feat(risk): per-name cap
            12% -> 30% (#94)` under an operator directive. The runtime checkout was
            advanced to it and `subrepos.lock.json` was NEVER updated, so the next
            pin-restoring run checked the old sha back out. For days `origin/main`
@@ -39,7 +39,24 @@ WHY-DIR:   2026-08-07 (orch#895): `strategy-104` merged `feat(risk): per-name ca
              the main sha AND its commit date it compared against, and refuses
              (exit 2) when the mirror has no `origin/main`.
 
-EVIDENCE:  probe, live, after remediation:
+EVIDENCE:  artifact:      ops/pinned_config_drift_probe.py (registered in
+                          `ops_audit.MEMBERS` as `pinned-config-drift`)
+           prod or exp:   prod — reads the live pinned `strategy_config.json` and
+                          was used to remediate a live production drift below
+           existing data: `ops/subrepo_pin_lag_check.py` already alarms on this
+                          class of drift but only in commit count
+                          (`strategy-104 pin=c8bba9c9 behind=1`) and could not
+                          say whether the 1 commit changed anything a running
+                          strategy reads
+           best-known?:   yes — first content-aware pin-drift check in this repo;
+                          supersedes commit-count lag as the detector that would
+                          have caught orch#895
+           scope:         this is ops/pinned_config_drift_probe.py, prod
+                          (ops_audit.MEMBERS member), vs existing best
+                          subrepo_pin_lag_check.py, which cannot distinguish a
+                          behavioural config change from routine drift
+
+           probe, live, after remediation:
              `python3 ops/pinned_config_drift_probe.py` ->
              `OK renquant-strategy-104/configs/strategy_config.json:
               pinned=e00d9356 main=e00d9356 (committed 2026-08-06T16:24:18-07:00),
