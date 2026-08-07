@@ -72,36 +72,48 @@ REPO = Path(__file__).resolve().parent.parent
 RQ = Path(os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant"))
 RUNS_DB = RQ / "data" / "runs.alpaca.db"
 
-#: job suffix → {exit code: (label, source file, the token proving it)}.
+#: job suffix → {exit code: (label, source file, the token proving it, whether
+#: the exit is itself a genuine problem someone must act on).
 #: Every entry is a claim about a file in another repo; the test re-greps the
 #: source for `probe` and fails if it is gone. An unlisted code is UNKNOWN by
 #: construction — the default is "this needs a human", never "probably fine".
-DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str]]] = {
+#: `actionable=False` means the exit is purely a status report (e.g. "not
+#: wired yet"); `actionable=True` means the documented meaning IS the
+#: problem (a breach, an alarm, a budget over limit) — "designed" tells you
+#: the code's meaning is known, not that nothing is wrong.
+DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
     "rq105-shadow-serving": {
         4: ("not wired yet (no feature-snapshot producer)",
-            "ops/renquant105/run_shadow_serving.sh", "EXIT_NOT_WIRED=4"),
+            "ops/renquant105/run_shadow_serving.sh", "EXIT_NOT_WIRED=4", False),
     },
     "rq104-shadow-scorer-sentinel": {
         8: ("alarming — a watched shadow lane is degraded",
-            "ops/renquant104/rq104_shadow_scorer_sentinel.py", "EXIT_ALARM = 8"),
+            "ops/renquant104/rq104_shadow_scorer_sentinel.py", "EXIT_ALARM = 8",
+            True),
     },
     "ops-audit": {
-        1: ("findings present", "ops/ops_audit.py", "findings"),
+        # Informational here: the live findings from this same job already
+        # surface through `read_audit_findings()`; this launchd code is a
+        # stale echo of that (see the module docstring's own warning that a
+        # launchd exit code "may be hours old").
+        1: ("findings present", "ops/ops_audit.py", "findings", False),
     },
     "run-surface-drift": {
-        1: ("run-surface drift found", "ops/run_surface_drift_check.py", "exit 1"),
+        1: ("run-surface drift found", "ops/run_surface_drift_check.py",
+            "exit 1", True),
     },
     "rq104-model-freshness": {
         3: ("genuine BREACH (or UNKNOWN artifact) — model artifact is stale",
             "ops/renquant104/run_model_freshness_monitor.sh",
-            "3 breach (>28d) or UNKNOWN"),
+            "3 breach (>28d) or UNKNOWN", True),
     },
     "rq104-risk-budget": {
         1: ("CRITICAL — a budget is at or over 100%",
-            "ops/renquant104/run_risk_budget_statement.sh", "1 CRITICAL (>=100%)"),
+            "ops/renquant104/run_risk_budget_statement.sh",
+            "1 CRITICAL (>=100%)", True),
         2: ("WARN — a budget is over 80%",
             "ops/renquant104/run_risk_budget_statement.sh",
-            "2 WARN (>80% of any budget)"),
+            "2 WARN (>80% of any budget)", True),
     },
 }
 
@@ -139,24 +151,39 @@ def read_launchd_exits() -> list[dict[str, Any]]:
             continue
         suffix = _job_suffix(parts[2])
         known = DESIGNED_EXIT_CODES.get(suffix, {}).get(code)
-        rows.append({
+        row = {
             "job": suffix,
             "code": code,
             "kind": "designed" if known else "unknown",
             "detail": known[0] if known else "no documented meaning for this code",
-        })
+        }
+        if known:
+            row["actionable"] = known[3]
+        rows.append(row)
     return rows
 
 
 def read_incidents(db: Path = RUNS_DB) -> list[dict[str, Any]]:
-    """Unacked rows from the incident ledger, newest last_seen first."""
+    """Unacked, actionable rows from the incident ledger, newest last_seen first.
+
+    ``state`` is persisted independently of ``acked`` — a row can be
+    ``RESOLVED`` and still carry ``acked = 0`` forever if nobody ever acked
+    it (RenQuant `backtesting/renquant_104/kernel/persistence.py`, the
+    ``alert_incidents`` table comment: ``state TEXT -- WARN | CRITICAL |
+    RESOLVED``). Filtering on ``acked`` alone would render a resolved
+    incident as active work indefinitely, so this also requires ``state`` to
+    be one of ``ACTIONABLE_STATES``.
+    """
     if not db.exists():
         return []
     try:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        placeholders = ",".join("?" * len(ACTIONABLE_STATES))
         cur = con.execute(
             "SELECT audit, scope, cause_hash, first_seen, last_seen, state, "
-            "acked FROM alert_incidents WHERE acked = 0 ORDER BY last_seen DESC"
+            f"acked FROM alert_incidents WHERE acked = 0 AND state IN "
+            f"({placeholders}) ORDER BY last_seen DESC",
+            ACTIONABLE_STATES,
         )
         cols = [c[0] for c in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -209,11 +236,17 @@ def read_audit_findings() -> list[dict[str, Any]]:
 
 def collect() -> dict[str, Any]:
     launchd = read_launchd_exits()
+    designed = [r for r in launchd if r["kind"] == "designed"]
     return {
         "incidents": read_incidents(),
         "audit_findings": read_audit_findings(),
         "launchd_unknown": [r for r in launchd if r["kind"] == "unknown"],
-        "launchd_designed": [r for r in launchd if r["kind"] == "designed"],
+        # "designed" only means the exit code's meaning is documented — it
+        # does not mean nothing is wrong. Split on the per-entry `actionable`
+        # flag: a genuine BREACH/CRITICAL/ALARM still needs a human even
+        # though the exit code itself is not a mystery.
+        "launchd_designed": [r for r in designed if not r["actionable"]],
+        "launchd_designed_actionable": [r for r in designed if r["actionable"]],
     }
 
 
@@ -221,9 +254,11 @@ def render(box: dict[str, Any]) -> str:
     L: list[str] = []
     inc, aud = box["incidents"], box["audit_findings"]
     unk, des = box["launchd_unknown"], box["launchd_designed"]
+    act = box.get("launchd_designed_actionable", [])
 
     L.append(f"AGENT INBOX — {len(inc)} unacked incident(s), "
-             f"{len(aud)} audit finding(s), {len(unk)} unexplained job exit(s)")
+             f"{len(aud)} audit finding(s), {len(unk)} unexplained job exit(s), "
+             f"{len(act)} designed-but-actionable job exit(s)")
     L.append("")
 
     L.append(f"== UNACKED INCIDENTS ({len(inc)}) ==")
@@ -249,6 +284,13 @@ def render(box: dict[str, Any]) -> str:
         L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
     L.append("")
 
+    L.append(f"== JOB EXITS THAT ARE DESIGNED BUT ACTIONABLE ({len(act)}) ==")
+    if not act:
+        L.append("  none")
+    for r in act:
+        L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
+    L.append("")
+
     L.append(f"== JOB EXITS THAT ARE BY DESIGN ({len(des)}) — not work ==")
     for r in des:
         L.append(f"  {r['job']} (exit {r['code']}) — {r['detail']}")
@@ -263,11 +305,15 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     box = collect()
     print(json.dumps(box, indent=2, default=str) if args.json else render(box))
-    # Exit 1 when there IS work, so a wrapper can page on it. Designed job exits
-    # deliberately do not count — that conflation is what this module exists to
-    # end, and reproducing it here would be the joke writing itself.
+    # Exit 1 when there IS work, so a wrapper can page on it. Purely
+    # informational designed exits (e.g. "not wired yet") deliberately do not
+    # count — that conflation is what this module exists to end. But a
+    # designed exit whose documented meaning IS a problem (BREACH, CRITICAL,
+    # ALARM, drift found) must still page: "designed" means the code's
+    # meaning is known, not that nothing is wrong.
     has_work = bool(box["incidents"] or box["audit_findings"]
-                    or box["launchd_unknown"])
+                    or box["launchd_unknown"]
+                    or box.get("launchd_designed_actionable"))
     return 1 if has_work else 0
 
 

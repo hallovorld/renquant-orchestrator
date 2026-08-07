@@ -43,7 +43,7 @@ import ops.agent_inbox as inbox
 def test_designed_exit_codes_are_still_true_of_their_sources():
     missing = []
     for job, codes in DESIGNED_EXIT_CODES.items():
-        for code, (_label, src, probe) in codes.items():
+        for code, (_label, src, probe, _actionable) in codes.items():
             path = REPO / src
             if not path.exists():
                 missing.append(f"{job}/{code}: {src} does not exist")
@@ -59,9 +59,12 @@ def test_designed_exit_codes_are_still_true_of_their_sources():
 def test_every_designed_entry_names_a_source_and_a_probe():
     for job, codes in DESIGNED_EXIT_CODES.items():
         for code, entry in codes.items():
-            assert len(entry) == 3, f"{job}/{code}: expected (label, source, probe)"
-            label, src, probe = entry
+            assert len(entry) == 4, (
+                f"{job}/{code}: expected (label, source, probe, actionable)")
+            label, src, probe, actionable = entry
             assert label and src and probe, f"{job}/{code}: blank field"
+            assert isinstance(actionable, bool), (
+                f"{job}/{code}: actionable must be a bool")
 
 
 # ── the default direction ──────────────────────────────────────────────────
@@ -100,6 +103,69 @@ def test_non_renquant_jobs_are_ignored(monkeypatch):
     monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
         "R", (), {"stdout": "-\t1\tcom.apple.something\n"})())
     assert inbox.read_launchd_exits() == []
+
+
+# ── designed ≠ non-actionable (Codex P1, orch#887) ─────────────────────────
+# "Known exit semantics are not the same as non-actionable." A genuine BREACH
+# or CRITICAL/WARN reported through a documented exit code is still real work,
+# even though the code itself is not a mystery.
+
+def test_model_freshness_breach_is_designed_and_actionable(monkeypatch):
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "-\t3\tcom.renquant.rq104-model-freshness\n"})())
+    rows = inbox.read_launchd_exits()
+    assert rows[0]["kind"] == "designed"
+    assert rows[0]["actionable"] is True
+
+
+def test_risk_budget_critical_is_designed_and_actionable(monkeypatch):
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "-\t1\tcom.renquant.rq104-risk-budget\n"})())
+    rows = inbox.read_launchd_exits()
+    assert rows[0]["kind"] == "designed"
+    assert rows[0]["actionable"] is True
+
+
+def test_risk_budget_warn_is_designed_and_actionable(monkeypatch):
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "-\t2\tcom.renquant.rq104-risk-budget\n"})())
+    rows = inbox.read_launchd_exits()
+    assert rows[0]["kind"] == "designed"
+    assert rows[0]["actionable"] is True
+
+
+def test_not_wired_yet_is_designed_but_not_actionable(monkeypatch):
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": "-\t4\tcom.renquant.rq105-shadow-serving\n"})())
+    rows = inbox.read_launchd_exits()
+    assert rows[0]["kind"] == "designed"
+    assert rows[0]["actionable"] is False
+
+
+def test_collect_splits_designed_into_actionable_and_informational(monkeypatch):
+    monkeypatch.setattr(inbox.subprocess, "run", lambda *a, **k: type(
+        "R", (), {"stdout": (
+            "-\t3\tcom.renquant.rq104-model-freshness\n"
+            "-\t4\tcom.renquant.rq105-shadow-serving\n")})())
+    monkeypatch.setattr(inbox, "read_incidents", lambda: [])
+    monkeypatch.setattr(inbox, "read_audit_findings", lambda: [])
+    box = inbox.collect()
+    assert [r["job"] for r in box["launchd_designed_actionable"]] == [
+        "rq104-model-freshness"]
+    assert [r["job"] for r in box["launchd_designed"]] == ["rq105-shadow-serving"]
+
+
+def test_designed_actionable_exit_still_pages(monkeypatch):
+    """A designed exit that IS a genuine BREACH must page — 'designed' means
+    the code's meaning is known, not that nothing is wrong (Codex P1)."""
+    monkeypatch.setattr(inbox, "collect", lambda: {
+        "incidents": [], "audit_findings": [], "launchd_unknown": [],
+        "launchd_designed": [],
+        "launchd_designed_actionable": [
+            {"job": "rq104-model-freshness", "code": 3,
+             "detail": "genuine BREACH"}],
+    })
+    assert inbox.main([]) == 1
 
 
 # ── ops-audit schema: measured, and loud when it moves ─────────────────────
@@ -166,6 +232,18 @@ def test_acked_rows_are_excluded(tmp_path):
     rows = read_incidents(db)
     assert len(rows) == 1
     assert rows[0]["cause_hash"] == "CRITICAL:psi~5.9"
+
+
+def test_resolved_but_unacked_rows_are_excluded(tmp_path):
+    """The source ledger persists `state` independently of `acked`
+    (RenQuant `persistence.py`'s `alert_incidents` comment: `state TEXT --
+    WARN | CRITICAL | RESOLVED`) — a resolved incident nobody ever acked
+    must not render as active work forever (Codex MED, orch#887)."""
+    db = _ledger(tmp_path, [
+        ("score_drift", "panel", "CRITICAL:psi~1.1", "2026-08-01", "2026-08-01",
+         "RESOLVED", 0, 1),
+    ])
+    assert read_incidents(db) == []
 
 
 def test_a_missing_db_is_empty_not_an_error(tmp_path):

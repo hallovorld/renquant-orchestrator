@@ -1,8 +1,9 @@
 # 2026-08-06 — Agent inbox: one read-only answer to "what is broken right now"
 
-STATUS:   READY FOR REVIEW. 20 new tests for the inbox + 1 new test and a
-          correction in the position-cap conformance suite. Read-only: never
-          acks, writes, or mutates a job.
+STATUS:   READY FOR REVIEW. 27 tests for the inbox (started at 20; +7 from
+          this review-fix round — designed-vs-actionable split, resolved-
+          incident filter) + 1 new test and a correction in the position-cap
+          conformance suite. Read-only: never acks, writes, or mutates a job.
 
 WHAT:     `ops/agent_inbox.py` unions three EXISTING alert sources into one
           agent-facing view — `alert_incidents` (unacked), `ops_audit --json`
@@ -126,10 +127,43 @@ the cap it judged against, and that is now asserted too.
    nothing yet PUSHES to the agent. Wiring it into the loop's fixed opening
    check is the next step and needs no code.
 
+## FIXED — designed ≠ non-actionable, resolved ≠ still open (Codex P1 + MED,
+## 2026-08-07T00:39Z / 00:42Z)
+
+Two more review rounds landed after the entries above:
+
+* **P1** — every `DESIGNED_EXIT_CODES` entry, including the two just added
+  (`rq104-model-freshness`=3 genuine BREACH, `rq104-risk-budget`=1/2
+  CRITICAL/WARN), was rendered under "BY DESIGN — not work" and excluded from
+  `has_work`. "Documented" and "fine" are not the same claim; a BREACH is
+  real work whether or not its exit code is a mystery. Each entry now carries
+  a fourth field, `actionable: bool`. `collect()` splits the `designed` kind
+  into `launchd_designed` (informational — `rq105-shadow-serving`=4 "not
+  wired yet"; `ops-audit`=1, whose live findings already surface separately
+  through `read_audit_findings()`) and `launchd_designed_actionable`
+  (`rq104-model-freshness`=3, `rq104-risk-budget`=1/2,
+  `rq104-shadow-scorer-sentinel`=8 ALARM, `run-surface-drift`=1 — all real
+  problems under a documented code). `main()`'s exit-1 contract now counts
+  the actionable bucket. Live run on this head
+  `[VERIFIED — 2026-08-07, python ops/agent_inbox.py --json]`: all four of
+  those jobs are firing right now and moved from "not work" to actionable —
+  this was not a hypothetical gap. 6 new regression tests.
+* **MED** — `read_incidents()` filtered on `acked = 0` only; the ledger
+  persists `state` independently of `acked`
+  (`RenQuant/backtesting/renquant_104/kernel/persistence.py`'s
+  `alert_incidents` comment: `state TEXT -- WARN | CRITICAL | RESOLVED`), so
+  a resolved-but-never-acked row would have rendered as active work forever.
+  `read_incidents()` now also requires `state IN ACTIONABLE_STATES` — the
+  constant already existed in the module (added in the original commit,
+  unused until now). 1 new regression test.
+
+Focused validation: `pytest -q tests/test_agent_inbox.py
+tests/test_position_cap_conformance.py` → 41 passed.
+
 NEXT:     Wire the inbox into the loop's fixed opening check so a fault reaches
           the agent without a human relay — that is the directive's actual ask
           and needs no code, only the loop prompt. Then, in priority order:
-          (a) NOT the severity inversion — see the CORRECTION below; that
+          (a) NOT the severity inversion — see the CORRECTION above; that
           claim is withdrawn. If anything is proposed there it is a severity
           axis on the incident ledger, as a design question, not a bug fix;
           (b) document or fix the five remaining jobs that exit nonzero with no
