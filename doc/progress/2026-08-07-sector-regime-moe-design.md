@@ -4,16 +4,25 @@ STATUS:    DESIGN DRAFT for review. Nothing deployed. Stage 0 (data
            eligibility) and Stage 2 (the held-out incremental effect) are
            BLOCKING gates, each with a kill condition written before it runs.
            Design/progress content review is clean (codex re-read at
-           `74f655d2`); merge is blocked only by a repo-wide CI failure
-           unrelated to this diff, tracked at orch#898 (the GOAL-3
-           export-resolution record cannot stay pinned to an unpinned
-           `renquant-pipeline` checkout — CI resolves a new revision on every
-           run, so appending another VERIFIED-AT sha buys hours, not a fix;
-           demonstrated by the identical block already documented on
-           orch#896, comment 2026-08-07T07:55:24Z). Not fixed in this PR:
-           doing so needs either orch#898's structural decision (pin CI's
-           checkout, or re-scope the assertion) or touching orch#896's
-           branch, both outside this PR's docs-only, two-file scope.
+           `74f655d2`).
+
+           VISIBLE CORRECTION 7 (2026-08-07, this commit). The paragraph below
+           is superseded, kept for the record rather than silently dropped
+           (LONG ledger #10). It previously read: "merge is blocked only by a
+           repo-wide CI failure unrelated to this diff, tracked at orch#898
+           ... Not fixed in this PR." orch#898's root cause (`.github/workflows/ci.yml`
+           checked out `renquant-pipeline` with no `ref:`, so the GOAL-3
+           export-resolution record's `VERIFIED-AT` pin raced a moving HEAD)
+           was fixed by orch#903 (pins the checkout, re-derives the record at
+           the pinned sha), merged to `main` at `a0e90866`. This branch is now
+           rebased onto that `main`, so the CI failure this note describes no
+           longer applies — separately from that, this rebase also replaces a
+           merge commit an out-of-scope reviewer identity (`haorensjtu-dev`)
+           had pushed directly onto this PR-owner branch (merging orch#896's
+           branch in, in an attempt to pull the same CI fix transitively);
+           per `CLAUDE.md` §3.0 a PR branch carries exactly one GitHub commit
+           identity, so the branch was rebuilt from `main` as clean
+           single-identity history instead of kept as pushed.
 
 WHAT:      `doc/design/2026-08-07-sector-regime-moe.md` — a hierarchical mixture
            (soft regime gate, shrunk sector-GROUP experts as additive
