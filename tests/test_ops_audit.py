@@ -267,6 +267,12 @@ def test_the_cited_contract_is_the_one_in_force():
         # 2 is deliberately NOT declared as a finding exit for either.
         "shadow-lane-control": (1,),
         "shadow-leg-independence": (1,),
+        # Added 2026-08-07 (orch#895). `return EXIT_DRIFT` (1) when a behavioural
+        # key in the pinned config differs from origin/main; `return EXIT_UNUSABLE`
+        # (2) when a side could not be read. 2 is deliberately NOT declared: a
+        # config that could not be compared must land on HARNESS, never read as
+        # "the pinned config matches the reviewed one".
+        "pinned-config-drift": (1,),
     }
 
 
