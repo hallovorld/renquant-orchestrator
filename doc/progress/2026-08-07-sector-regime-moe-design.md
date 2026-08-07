@@ -9,7 +9,7 @@ WHAT:      `doc/design/2026-08-07-sector-regime-moe.md` — a hierarchical mixtu
            own kill condition, plus the operator decision the design cannot make
            for itself.
 
-WHY-DIR:   Operator directive 2026-08-07: "根据不同 sector 不同 regime 的 moe
+WHY/DIR:   Operator directive 2026-08-07: "根据不同 sector 不同 regime 的 moe
            模型 ... 给我一个可行的设计". Two measurements decide the shape:
 
            (1) Per-sector skill has NEVER been measured. `wf_gate_metadata`
@@ -23,7 +23,23 @@ WHY-DIR:   Operator directive 2026-08-07: "根据不同 sector 不同 regime 的
                additive corrections on a shared base so a thin cell degrades to
                today's behaviour instead of producing confident garbage.
 
-EVIDENCE:  per-regime, all three shift multiples
+EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json
+                          (metadata.wf_gate_metadata.model_placebo_profile.per_regime)
+                          + pinned strategy_config.json + config_fingerprint_fields.sector_map
+           prod or exp:   experiment — staging WF artifact, not a prod artifact
+           existing data: `wf_gate_metadata` contains ZERO keys matching `sector`;
+                          per-sector skill has never been measured before this doc
+           best-known?:   first correctly-read per-regime IC from this artifact;
+                          supersedes orch#805 and this doc's own two earlier
+                          summaries, which misread the key structure and reported
+                          BEAR's point estimate rather than its range (see the
+                          VISIBLE CORRECTION note below)
+           scope:         this is panel-ltr.alpha158_fund staging artifact,
+                          experiment, vs existing best: no per-sector or
+                          leakage-corrected per-regime measurement exists yet —
+                          this is the first
+
+           per-regime, all three shift multiples
            `[VERIFIED — panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json,
              metadata.wf_gate_metadata.model_placebo_profile.per_regime, 2026-08-07]`
              BEAR          real 0.353/0.351/0.361  placebo +0.108/+0.016/-0.122
