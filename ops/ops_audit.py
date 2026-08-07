@@ -184,6 +184,18 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     # the unreadable code win, which read as HARNESS here and silently dropped
     # the collapse finding (codex on orch#878).
     ("model-load-coverage", "renquant104/model_load_coverage_scan.py", [], (1,)),
+    # broker-allowlist-parity, added 2026-08-07. `runs_db_path()` fail-closes on
+    # an unknown broker_name, and the umbrella copy of that allow-list is a
+    # strict subset of the pinned one — missing three LIVE shadow-fleet lanes.
+    # It only bites under RQ_DAILY_RUNNER=umbrella, which daily_104.sh documents
+    # as the escape hatch for a missing pinned subrepo: i.e. it fails exactly in
+    # the degraded moment the fallback exists for, and presents as a lane crash.
+    #
+    # Exit contract read from source: 1 = the umbrella list is missing tags the
+    # pinned list has; 2 = a copy could not be imported. Only 1 is declared, so
+    # a refusal lands on HARNESS rather than reading as "the lists agree" —
+    # unreadability is this detector's own defect class.
+    ("broker-allowlist-parity", "renquant104/broker_allowlist_parity_probe.py", [], (1,)),
     # The two below, added 2026-08-06, exist because ONE promotion silently
     # degraded THREE diagnostics and nothing alarmed. On 2026-08-04 the operator
     # moved the z-blend into prod ("z-blend进prod" / "整本切换"). That single
