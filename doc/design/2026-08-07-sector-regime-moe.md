@@ -168,13 +168,32 @@ indistinguishable from zero and the score falls back to today's behaviour. A
 flat MoE with independent experts has no such floor — a thin expert produces
 confident garbage.
 
-**(b) The sector axis enters as `g(i)`, a sector GROUP, not the raw 13.** Groups
-are formed by a preregistered rule applied to Stage-0 output — not by name, and
-not by my intuition about which sectors "belong together". Candidate rule:
-agglomerative clustering on the correlation matrix of sector-level daily residual
-returns, cut so every group holds ≥ 8 names. On today's map that collapses 13 → 5
-or 6 groups and dissolves `telecom`/`commodity`/`real_estate` into neighbours.
-**The number of groups is an output of Stage 0, not an input.**
+**(b) The sector axis enters as `g(i)`, a sector GROUP, and group formation is
+NESTED AND TEMPORAL.** Groups come from agglomerative clustering on the
+correlation matrix of sector-level daily residual returns, cut so every group
+holds ≥ 8 names — but that clustering runs **inside each walk-forward fold, on
+training dates only**, and is then **frozen** before the fold's embargoed
+validation dates are touched.
+
+> **CORRECTION — this design shipped with a post-selection flaw** (codex on
+> orch#897). The first revision preregistered the clustering *rule* and then
+> evaluated the sector effect as "between-group IC spread exceeds the
+> shift-multiple spread" on the same series the clustering had just been fitted
+> to. Preregistering the rule does not help: the rule is free to carve groups
+> that maximize apparent between-group spread, and that spread is then read as
+> evidence the groups are real. It is a selection effect wearing a
+> preregistration.
+
+Consequences of the nested form, all deliberate:
+
+* Groups may **differ across folds**. That is information, not noise — a sector
+  partition that is unstable across time is itself evidence against a durable
+  sector effect, and fold-to-fold group agreement (adjusted Rand index) is
+  reported alongside the effect size.
+* The evaluated quantity is the **held-out incremental effect**: Stage-2 minus
+  Stage-1 (regime-only) performance, on embargoed dates the grouping never saw.
+* Nothing about `telecom`/`commodity` is decided by hand. If a fold's training
+  residuals put `telecom` with `utility`, that is where it goes for that fold.
 
 **(c) The gate is soft and regime-uncertainty-aware.** The regime label is an HMM
 *estimate*. Hard-assigning a date to BEAR and training a BEAR expert on it treats
@@ -210,12 +229,35 @@ Report `n_names_per_date < 5` cells as UNESTIMABLE rather than scoring them —
 the `telecom` lesson generalizes, and a cell reported as 0.00 reads as "no skill"
 when it means "no measurement".
 
-**KILL CONDITION:** if, after grouping to ≥8 names, the between-group spread in
-`genuine_ic` within any regime does not exceed the within-group shift-multiple
-spread, **there is no sector effect to model** and this goal closes NEGATIVE.
-That comparison is the whole point: the BEAR row in §2.1 shows the
-shift-multiple spread alone can be ±0.12, so a "sector effect" of 0.05 is not an
-effect.
+**KILL CONDITION — revised after review, and the revision matters.** The
+original condition ("between-group `genuine_ic` spread exceeds the shift-multiple
+spread") is **withdrawn**: it compares a quantity to a noise band on the very
+dates the grouping was fitted to, so it is optimistic by construction.
+
+The gate is instead the **held-out incremental effect**, estimated fold-wise:
+
+1. For each walk-forward fold: cluster on training-date residuals only, freeze
+   the groups, fit both the regime-only and the regime×group corrections on
+   training dates, and score both on the fold's embargoed validation dates.
+2. The statistic is `Δ_fold = IC(regime×group) − IC(regime-only)` on those
+   held-out dates — a **paired, per-fold difference**, so the leakage floor and
+   the regime mix cancel rather than needing to be corrected for.
+3. Aggregate with a **block bootstrap over dates with a gap ≥ the label
+   horizon** — `L = h` gives crossing ≈ 1.00, so the gap is the whole point —
+   and compare against the **bootstrap distribution's own quantiles**, never a
+   hardcoded 1.96 on a single-digit number of folds.
+
+**KILL: if the fold-level CI for `Δ` covers zero, there is no sector effect
+beyond the regime axis and this goal closes NEGATIVE.** Report the CI, the
+number of folds, and the fold-to-fold group agreement whatever the verdict.
+
+This is proportionate rather than ceremonial: the question is whether an entire
+sector-specialized model exists, and §2.1 already shows this evidence base can
+move a headline number by ±0.12 through leakage-correction noise alone.
+
+Stage 0 still produces the descriptive per-(sector, regime) table — it is how we
+learn which cells are estimable at all — but **that table is diagnostic, not the
+gate.** Nothing may be promoted on it.
 
 ### Stage 1 — the control arm
 
@@ -232,9 +274,10 @@ is uninterpretable).
 
 Add `δ_{r,g}` on top of the Stage-1 winner. Same preregistration.
 
-**KILL CONDITION:** Stage 2 does not beat Stage 1 by more than the Stage-1
-bootstrap CI width. Complexity that does not clear its own control is removed,
-not "kept for later".
+**KILL CONDITION:** the Stage-0 fold-level CI for `Δ` covers zero — same
+statistic, same bootstrap, now on the full model rather than the score
+adjustment alone. Complexity that does not clear its own control is removed, not
+"kept for later".
 
 ### Stage 3 — economics, not IC
 
@@ -283,8 +326,11 @@ decision, not a modelling one:
 
 Stated now so it cannot be rationalized later:
 
-* Stage 0 shows between-group IC spread inside the shift-multiple noise band → no
-  sector effect, goal closes NEGATIVE.
+* The Stage-0 fold-level CI for the held-out incremental effect covers zero → no
+  sector effect beyond regime, goal closes NEGATIVE.
+* Groups disagree badly across folds (low adjusted Rand index) while `Δ` looks
+  positive → the "effect" is fold-specific carving, not a durable partition, and
+  the positive result is not believed.
 * Stage 1 regime-only wins and Stage 2 adds nothing → the sector axis is dropped;
   the deliverable becomes a 4-expert regime MoE.
 * BEAR's `genuine_ic` collapses toward its 1x value under a proper block
