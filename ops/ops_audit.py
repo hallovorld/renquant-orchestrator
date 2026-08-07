@@ -236,8 +236,13 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     #
     # Exit contract read from source: 1 = at least one behavioural key differs;
     # 2 = a side could not be read (pinned file absent/malformed, no local
-    # mirror, no origin/main). Only 1 is declared, so an unreadable side lands
-    # on HARNESS rather than reading as "the pinned config matches".
+    # mirror, no origin/main), OR the local origin/main disagrees with the
+    # remote, OR the remote was unreachable. That last group matters: reporting
+    # the compared sha and date is observability, not a staleness control (codex
+    # on orch#896) — a week-old local ref that happens to match the pin would
+    # otherwise exit 0 while the remote carried a risk-critical change. Only 1
+    # is declared, so every refusal lands on HARNESS rather than reading as
+    # "the pinned config matches".
     ("pinned-config-drift", "pinned_config_drift_probe.py", [], (1,)),
 )
 
