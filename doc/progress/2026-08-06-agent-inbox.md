@@ -94,6 +94,17 @@ the cap it judged against, and that is now asserted too.
    nothing yet PUSHES to the agent. Wiring it into the loop's fixed opening
    check is the next step and needs no code.
 
+NEXT:     Wire the inbox into the loop's fixed opening check so a fault reaches
+          the agent without a human relay — that is the directive's actual ask
+          and needs no code, only the loop prompt. Then, in priority order:
+          (a) file the `state`-vs-`cause_hash` severity inversion against
+          `renquant-pipeline/kernel/persistence.py:2999` — 14 of 17 rows are
+          mislabelled and triage-by-state is inverted today;
+          (b) document or fix the six jobs that exit nonzero with no stated
+          meaning, which is what the UNKNOWN bucket exists to drive;
+          (c) decide whether the 17 unacked incidents are real drift or a
+          broken detector — the inbox reports them, it does not diagnose them.
+
 ## REVERT
 
 Delete `ops/agent_inbox.py` and `tests/test_agent_inbox.py`; restore
