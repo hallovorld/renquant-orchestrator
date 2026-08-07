@@ -20,6 +20,7 @@ installed wheel `[codex on orch#833]`:
 |---|---|---|
 | CI, which checks out the **PINNED** pipeline | `3be590956f13` | **20 / 19 / 0** |
 | this workstation's sibling checkout | `5d41b31249df` | **20 / 19 / 0** |
+| CI again, 2026-08-07, after pipeline `main` advanced | `e8b0f75aafb7` | **20 / 19 / 0** |
 
 Both are verified `[VERIFIED — this session]`; the pinned one was measured in a
 throwaway `git worktree` so no shared checkout was moved. The machine-readable
@@ -28,7 +29,31 @@ form the test parses — prose formatting must not be able to break the binding:
 ```
 VERIFIED-AT repo revision 3be590956f1339ae6099be34cf347dad6c7712bb
 VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
+VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
 ```
+
+### 2026-08-07: the guard fired, and the result was re-derived rather than inherited
+
+`renquant-pipeline`'s `main` advanced to `e8b0f75aafb7`. CI checks that repo out with
+no `ref:`, so the measured revision moved and
+`test_the_RECORD_names_the_revision_that_was_actually_measured` went red on **every**
+open PR — the guard doing precisely what its docstring promises: *"a source change
+forces the result to be re-derived rather than inherited."*
+
+Re-derived against that exact revision in a throwaway `git worktree`, so no shared
+checkout was moved:
+
+```
+package_repo_revision: e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
+total exports        : 20
+   RESOLVES_TO_THE_OTHER_TWIN: 19
+   NO_COUNTERPART_TWIN:         1
+```
+
+**20 / 19 / 0 holds at the new source.** The number is unchanged, but it is now a
+measurement of this revision rather than an inheritance from two older ones — which is
+the whole distinction the guard exists to enforce. Had the counts moved, this entry
+would be recording the new ones.
 
 **That split is itself worth recording.** CI runs against the revision
 production is pinned to; the workstation sits on a later commit. The first
