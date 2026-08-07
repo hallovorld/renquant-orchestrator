@@ -221,6 +221,24 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("shadow-lane-control", "renquant104/shadow_lane_control_probe.py", [], (1,)),
     ("shadow-leg-independence", "renquant104/shadow_leg_independence_probe.py",
      [], (1,)),
+    # pinned-config-drift, added 2026-08-07 (orch#895). The operator-directed
+    # per-name cap 0.12 -> 0.30 merged, the runtime checkout was advanced to it,
+    # and `subrepos.lock.json` was never updated — so the next pin-restoring run
+    # checked the old sha back out and the book kept sizing new entries at 0.12
+    # for days. `subrepo_pin_lag_check.py` DID see `strategy-104 behind=1` and
+    # could not report it: its alarm is `behind > --max-lag` at a default of 50,
+    # and lag measured in commit COUNT cannot tell a stranded risk-cap change
+    # from a typo fix. Dropping that threshold to 0 is noise, not signal, since
+    # a pin trails main most of the time. This member asks the content question
+    # instead — does the config the run READS differ from the one that was
+    # reviewed? — and is deliberately silent when the shas differ but every key
+    # agrees.
+    #
+    # Exit contract read from source: 1 = at least one behavioural key differs;
+    # 2 = a side could not be read (pinned file absent/malformed, no local
+    # mirror, no origin/main). Only 1 is declared, so an unreadable side lands
+    # on HARNESS rather than reading as "the pinned config matches".
+    ("pinned-config-drift", "pinned_config_drift_probe.py", [], (1,)),
 )
 
 #: Detectors that CANNOT join yet, and why — recorded rather than silently omitted, so
