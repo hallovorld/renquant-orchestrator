@@ -226,10 +226,41 @@ it, the sector axis dies there.**
 
 ### Stage 0 — measure the premise (BLOCKING, no modelling)
 
-Produce, from the existing WF replay path and the persisted served matrix, a
+**Required data source — binding, not indicative.** Stage 0 MUST run on the
+WF replay's persisted served matrix, the same evidence base as §2.1/§3 —
+concretely, the artifact family typified by
+`panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json`
+(`metadata.wf_gate_metadata.hmm_regime_counts_total`, regime dates BULL_CALM
+489 / BULL_VOLATILE 147 / BEAR 73 / CHOPPY 42, 751 total). Produce a
 per-(sector, regime) table of: `n_dates`, `mean_names_per_date`,
 `aligned_real_ic`, `placebo_ic` at **all three shift multiples**, and
 `genuine_ic` reported as a **range across shifts**, never a point.
+
+**The live runs DB is explicitly EXCLUDED as a substitute.** A feasibility
+probe of `data/runs.alpaca.db` (`candidate_scores` joined to `pipeline_runs`
+and `ticker_forward_returns`) confirmed the join is mechanically possible —
+243,902 scored rows, `sector`/`regime` columns present — but the regime split
+cannot carry this design's premise, above all for BEAR, the regime the whole
+proposal is motivated by:
+
+| regime | live days (`runs.alpaca.db`) | WF replay days (required source) |
+|---|---|---|
+| BULL_CALM | 546 | 489 |
+| BULL_VOLATILE | 30 | 147 |
+| **BEAR** | **27** | **73** |
+| CHOPPY | 21 | 42 |
+
+`[VERIFIED — sqlite3 read-only on
+/Users/renhao/git/github/RenQuant/data/runs.alpaca.db, 2026-08-07]`. At 27
+BEAR dates, every live BEAR cell lands in the UNESTIMABLE bucket this design
+already defines (§3), and the live sample is 88% BULL_CALM vs. the WF
+replay's 65% — a materially different regime mix, not merely a shorter
+window. A future Stage-0 implementation MUST NOT join against the live DB as
+a convenient substitute for the WF replay path: doing so would silently
+answer a BULL_CALM-dominated question under the same table name. If a
+live-sample, BULL_CALM-only check is ever wanted — `ticker_forward_returns`
+makes one possible at five horizons — that is a **separate question with its
+own preregistration and success metric**, not a Stage-0 substitute.
 
 Report `n_names_per_date < 5` cells as UNESTIMABLE rather than scoring them —
 the `telecom` lesson generalizes, and a cell reported as 0.00 reads as "no skill"

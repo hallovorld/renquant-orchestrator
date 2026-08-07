@@ -126,12 +126,33 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
            conclusion (BEAR has 12 sells and effectively zero buys) is
            unchanged; only the provenance tag is corrected.
 
+           VISIBLE CORRECTION 5 (codex on orch#897, accepted in full). A
+           read-only feasibility probe of the live runs DB
+           `[VERIFIED — sqlite3 read-only on
+           /Users/renhao/git/github/RenQuant/data/runs.alpaca.db, 2026-08-07]`
+           found `candidate_scores` (243,902 rows, `sector`/`regime` columns
+           present) joinable to `ticker_forward_returns` without new plumbing
+           — but the live regime split cannot carry this design's premise:
+           live BEAR is 27 dates vs. the WF replay's 73 (live BULL_VOLATILE
+           30 vs. 147, CHOPPY 21 vs. 42, BULL_CALM 546 vs. 489 — 88% live vs.
+           65% WF-replay share). This was first surfaced only as a PR comment,
+           which is not a committed record; Stage 0's data source is now
+           stated as binding in the design doc (§5): the WF replay's persisted
+           served matrix (artifact family
+           `panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json`,
+           `hmm_regime_counts_total`) is the required source, the live DB is
+           explicitly excluded as a substitute, and a live-sample
+           BULL_CALM-only check (where `ticker_forward_returns` is a ready
+           label source) is named as a separate question with its own
+           preregistration, not a Stage-0 shortcut.
+
 NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surface.
               The descriptive per-(sector, regime) table at all three shifts,
               `<5 names/date` reported UNESTIMABLE rather than 0.00 — but that
               table is DIAGNOSTIC. The gate is the fold-level CI on the held-out
               incremental effect (see the correction below); nothing may be
-              promoted on the descriptive table.
+              promoted on the descriptive table. Data source is the WF replay
+              path only (VISIBLE CORRECTION 5) — the live DB is excluded.
            2. OPERATOR DECISION, design doc section 6: BEAR is the strongest
               measured regime and `entry_mode='blocked'` means its expert can
               never become a trade. Three coherent resolutions; my recommendation
