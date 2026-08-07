@@ -12,7 +12,7 @@ WHAT:     `ops/renquant104/broker_allowlist_parity_probe.py`, registered in
 
 WHY/DIR:  `runs_db_path()` fail-closes on an unknown `broker_name`. The umbrella
           copy of that allow-list is a strict SUBSET of the pinned one
-          `[VERIFIED — 2026-08-07, both modules imported]`:
+          `[VERIFIED — python3 ops/renquant104/broker_allowlist_parity_probe.py]`:
 
 ```
 pinned    15 tags        umbrella  10 tags
@@ -80,7 +80,9 @@ NEXT:     Sync the umbrella copy, or make the umbrella fallback refuse loudly
    one was compared.
 3. **That the live book is affected.** It is not, today: `daily_104.sh` defaults
    to `multirepo`, which imports the pinned copy, and all five fleet lanes wrote
-   their DBs on 2026-08-06. The exposure is the fallback path.
+   their DBs on 2026-08-06
+   `[VERIFIED — python3 ops/renquant104/fleet_lane_sentinel.py --date 2026-08-06]`.
+   The exposure is the fallback path.
 
 ## REVERT
 
