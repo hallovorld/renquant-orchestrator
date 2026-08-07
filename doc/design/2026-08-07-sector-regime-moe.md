@@ -73,13 +73,17 @@ BEAR.cash_reserve_pct = 1
 
 Buys by regime `[VERIFIED — same staging artifact,
 metadata.wf_gate_metadata.trade_buy_regime_counts_total, 2026-08-07]`:
-BULL_CALM 136 · CHOPPY 9 · BULL_VOLATILE 9 · **BEAR 0**.
+BULL_CALM 136 · CHOPPY 9 · BULL_VOLATILE 9. **`trade_buy_regime_counts_total`
+has no BEAR key** — the producer (`_merge_trade_counts`, renquant-backtesting
+`src/renquant_backtesting/wf_gate/runner.py:1058-1064`) emits a key only for
+regimes with ≥1 observed buy row, so the omission means zero buys, not a
+stored `0` `[DERIVED — same artifact, key-omission semantics, 2026-08-07]`.
 
-The zero is not emergent from admission gates or from the signal. It is written
-down. **The model's strongest measured regime is the one regime the risk policy
-forbids entering.** Any MoE that routes to a BEAR expert inherits this conflict
-unresolved; §6 treats it as a first-class decision rather than an implementation
-detail.
+The zero is not emergent from admission gates or from the signal — it is what
+zero observed buy rows produces. **The model's strongest measured regime is
+the one regime the risk policy forbids entering.** Any MoE that routes to a
+BEAR expert inherits this conflict unresolved; §6 treats it as a first-class
+decision rather than an implementation detail.
 
 ### 2.3 Per-sector skill has NEVER been measured
 
