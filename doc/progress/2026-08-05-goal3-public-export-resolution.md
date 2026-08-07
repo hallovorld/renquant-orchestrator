@@ -1,6 +1,6 @@
 # 2026-08-05 — GOAL-3: the published surface hands out the non-kernel twin, 19 times out of 20
 
-STATUS: complete, and re-verified 2026-08-07 at the pipeline revision CI now measures.
+STATUS: complete, and re-verified 2026-08-06 at the pipeline revision CI now measures.
 Evidence only — this record proposes nothing and changes no behaviour.
 
 WHAT: for every name `renquant_pipeline` publishes, which definition
@@ -34,15 +34,18 @@ installed wheel `[codex on orch#833]`:
 | CI, which checks out the **PINNED** pipeline | `3be590956f13` | **20 / 19 / 0** |
 | this workstation's sibling checkout | `5d41b31249df` | **20 / 19 / 0** |
 | CI again, 2026-08-07, after pipeline `main` advanced | `e8b0f75aafb7` | **20 / 19 / 0** |
+| CI again, 2026-08-06, after pipeline `main` advanced again | `0cee0e0a2483` | **20 / 19 / 0** |
 
-Both are verified `[VERIFIED — this session]`; the pinned one was measured in a
-throwaway `git worktree` so no shared checkout was moved. The machine-readable
-form the test parses — prose formatting must not be able to break the binding:
+All are verified `[VERIFIED — this session]`; each pinned-revision measurement
+was taken in a throwaway `git worktree` so no shared checkout was moved. The
+machine-readable form the test parses — prose formatting must not be able to
+break the binding:
 
 ```
 VERIFIED-AT repo revision 3be590956f1339ae6099be34cf347dad6c7712bb
 VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
 VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
+VERIFIED-AT repo revision 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
 ```
 
 ### 2026-08-07: the guard fired, and the result was re-derived rather than inherited
@@ -72,6 +75,35 @@ would be recording the new ones.
 production is pinned to; the workstation sits on a later commit. The first
 version of this record cited only the workstation's — so the number was correct
 and its provenance was not.
+
+### 2026-08-06: the guard fired a second time, blocking an unrelated PR
+
+`renquant-pipeline`'s `main` advanced again, from `e8b0f75aafb7` to
+`0cee0e0a2483` (`fix(replay): size the WF/QP replay on the production
+per-regime cap`, orch-unrelated). CI has no `ref:` pin on that checkout, so
+the measured revision moved again and
+`test_the_RECORD_names_the_revision_that_was_actually_measured` went red on
+every open PR in this repo — including `renquant-orchestrator#887`, an
+agent-inbox feature with no connection to `renquant_pipeline`'s export
+surface, which is exactly the failure mode this section exists to document:
+a revision-pinned guard in one subsystem can block merges in a wholly
+unrelated one.
+
+Re-derived against `0cee0e0a2483` in a throwaway `git worktree`, so no shared
+checkout was moved (the sibling checkout at `../renquant-pipeline` was left
+untouched — it was mid-work on a different branch):
+
+```
+package_repo_revision: 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
+total exports        : 20
+   RESOLVES_TO_THE_OTHER_TWIN: 19
+   NO_COUNTERPART_TWIN:         1
+```
+
+**20 / 19 / 0 holds again.** The replay/regime-cap commit that moved `main`
+touches sizing logic, not `__all__` exports or the `kernel/` twin relation, so
+this is unsurprising — but per the guard's own design, unsurprising is not the
+same as unverified, so it was re-measured rather than assumed.
 
 A test parses these revisions back out of **this file** and asserts the measured
 checkout is among them `[codex on orch#833]`. Asserting only that the revision is
