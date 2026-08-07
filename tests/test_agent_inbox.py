@@ -314,6 +314,38 @@ def test_every_launchd_row_carries_a_newest_log_field(monkeypatch):
     assert "newest_log" in inbox.read_launchd_exits()[0]
 
 
+
+
+def test_every_mapped_location_is_real_on_this_machine():
+    """`_LOG_LOCATION` is a claim about the filesystem, read out of each job's
+    wrapper and confirmed against a file. If a directory disappears the map is
+    stale and the inbox silently reports `None` — i.e. "undiscoverable" — for a
+    job that does have logs, which is the failure this map exists to remove."""
+    missing = [f"{job}: logs/{d}" for job, (d, _) in inbox._LOG_LOCATION.items()
+               if not (inbox.RQ / "logs" / d).is_dir()]
+    assert not missing, "mapped log directories that no longer exist:\n  " + "\n  ".join(missing)
+
+
+def test_the_flat_basename_form_is_read(tmp_path, monkeypatch):
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    monkeypatch.setitem(inbox._LOG_LOCATION, "x-job", ("shared", "thing"))
+    d = tmp_path / "logs" / "shared"; d.mkdir(parents=True)
+    (d / "thing_2026-08-01.log").write_text("x")
+    (d / "thing_2026-08-06.log").write_text("x")
+    (d / "other_2026-08-09.log").write_text("x")   # different basename, ignored
+    assert inbox._newest_log_date("x-job") == "2026-08-06"
+
+
+def test_an_unmapped_job_falls_back_once_then_gives_up(tmp_path, monkeypatch):
+    """One convention is tried because it does hold sometimes; a SECOND guess
+    would be inventing a pattern, which is how the earlier false verdicts
+    happened."""
+    monkeypatch.setattr(inbox, "RQ", tmp_path)
+    d = tmp_path / "logs" / "some_job"; d.mkdir(parents=True)
+    (d / "2026-08-05.log").write_text("x")
+    assert inbox._newest_log_date("some-job") == "2026-08-05"
+    assert inbox._newest_log_date("no-such-job-at-all") is None
+
 def test_newest_log_reads_the_per_job_directory_layout(tmp_path, monkeypatch):
     monkeypatch.setattr(inbox, "RQ", tmp_path)
     d = tmp_path / "logs" / "weekly_wf_promote"
