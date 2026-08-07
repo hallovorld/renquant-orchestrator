@@ -3,7 +3,8 @@
 STATUS:   READY FOR REVIEW. No new tests needed — the existing
           `test_designed_exit_codes_are_still_true_of_their_sources` re-greps
           every cited source, so each new row is measured by the suite that
-          already runs. 27 inbox tests pass.
+          already runs. 27 inbox tests pass
+          `[VERIFIED — python3 -m pytest tests/test_agent_inbox.py -q]`.
 
 WHAT:     Encodes four measured exit contracts into `DESIGNED_EXIT_CODES`:
           `rq104-silent-refusal` 1, `rq104-degradation-sentinel` 1 and 3,
@@ -11,7 +12,10 @@ WHAT:     Encodes four measured exit contracts into `DESIGNED_EXIT_CODES`:
           something", not "nothing to do".
 
 WHY/DIR:  The inbox's UNKNOWN bucket exists to drive exactly this work, and it
-          did. Measured 2026-08-07 `[VERIFIED]`:
+          did. Measured 2026-08-07
+          `[VERIFIED — rq104_silent_refusal_sentinel.py:357,
+          sentinel_receipt.py:46, rq104_degradation_sentinel.py,
+          rq105_liveness_check.py:496, read directly this session]`:
 
           | job | code | contract | where |
           |---|---:|---|---|
@@ -20,7 +24,10 @@ WHY/DIR:  The inbox's UNKNOWN bucket exists to drive exactly this work, and it
           | `rq104-degradation-sentinel` | 3 | `EXIT_INTERNAL = 3` | `rq104_degradation_sentinel.py` |
           | `rq105-liveness` | 1 | collector issues → "rq105 DOWN" alert | `rq105_liveness_check.py:496` |
 
-          UNKNOWN drops **10 → 7**; designed-but-actionable rises **4 → 7**.
+          UNKNOWN drops **10 → 7**; designed-but-actionable rises **4 → 7**
+          `[VERIFIED — python3 ops/agent_inbox.py --json, len(launchd_unknown)
+          and len(launchd_designed_actionable), before this commit's parent
+          a9d7b795 vs. after b4599472]`.
 
 ## A CLAIM OF MINE THIS RETRACTS
 
@@ -57,11 +64,12 @@ scope:         one dict; no logic change.
 
 NEXT:     The seven still-UNKNOWN exits (`monthly-calibrator-refresh`,
           `retrain-panel104`, `weekly-apy104`=2, `rq104-scorer-identity`,
-          `agent-pr-loop`, `shadow-ab-daily`=3, `weekly-wf-promote`) — several
-          live in the umbrella's `scripts/`, so their contracts must be read
-          there rather than assumed absent, which is the mistake this PR
-          corrects. Do not encode a row without a source + probe the test can
-          re-grep.
+          `agent-pr-loop`, `shadow-ab-daily`=3, `weekly-wf-promote`)
+          `[VERIFIED — python3 ops/agent_inbox.py --json,
+          launchd_unknown, this session]` — several live in the umbrella's
+          `scripts/`, so their contracts must be read there rather than
+          assumed absent, which is the mistake this PR corrects. Do not
+          encode a row without a source + probe the test can re-grep.
 
 ## NOT ESTABLISHED
 
