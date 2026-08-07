@@ -1,9 +1,10 @@
 # Sector × Regime MoE — a feasible design, and the three things that must be measured first
 
-STATUS: DESIGN DRAFT. Nothing here is deployed, and Stage 0 is a blocking
-measurement gate, not a formality — if Stage 0 comes back flat, the honest
-outcome is that this goal closes NEGATIVE and the fleet keeps the current
-scorer.
+STATUS: DESIGN DRAFT. Nothing here is deployed. Stage 0 (data eligibility)
+and Stage 2 (the held-out incremental effect) are blocking gates, not
+formalities — if the data is not estimable (Stage 0) or the sector axis
+does not clear its directional bar (Stage 2), the honest outcome is that
+this goal closes NEGATIVE and the fleet keeps the current scorer.
 
 ---
 
@@ -94,7 +95,9 @@ fingerprint, but nothing in the evaluation path has ever conditioned on it.
 
 **This is the single largest hole in the premise.** The proposal is to specialize
 by sector; there is currently no evidence that skill *varies* by sector. Stage 0
-exists to produce that evidence before anything is built.
+checks whether the data can even support that question (data eligibility, no
+modelling); Stage 2's held-out incremental effect is what actually produces the
+evidence, before anything is built.
 
 ---
 
@@ -224,7 +227,7 @@ it, the sector axis dies there.**
 
 ## 5. Staged plan, with the kill condition stated before each stage
 
-### Stage 0 — measure the premise (BLOCKING, no modelling)
+### Stage 0 — data eligibility (BLOCKING, descriptive, no modelling)
 
 **Required data source — binding, not indicative.** Stage 0 MUST run on the
 WF replay's persisted served matrix, the same evidence base as §2.1/§3 —
@@ -234,7 +237,10 @@ concretely, the artifact family typified by
 489 / BULL_VOLATILE 147 / BEAR 73 / CHOPPY 42, 751 total). Produce a
 per-(sector, regime) table of: `n_dates`, `mean_names_per_date`,
 `aligned_real_ic`, `placebo_ic` at **all three shift multiples**, and
-`genuine_ic` reported as a **range across shifts**, never a point.
+`genuine_ic` reported as a **range across shifts**, never a point. **This step
+fits nothing** — it groups per-date IC observations that already exist by
+their already-known sector/regime labels; no clustering, correction, or model
+is estimated here. That is Stage 1–2's job, below.
 
 **The live runs DB is explicitly EXCLUDED as a substitute.** A feasibility
 probe of `data/runs.alpaca.db` (`candidate_scores` joined to `pipeline_runs`
@@ -266,16 +272,43 @@ Report `n_names_per_date < 5` cells as UNESTIMABLE rather than scoring them —
 the `telecom` lesson generalizes, and a cell reported as 0.00 reads as "no skill"
 when it means "no measurement".
 
-**KILL CONDITION — revised after review, and the revision matters.** The
-original condition ("between-group `genuine_ic` spread exceeds the shift-multiple
-spread") is **withdrawn**: it compares a quantity to a noise band on the very
-dates the grouping was fitted to, so it is optimistic by construction.
+**KILL CONDITION — data eligibility, not effect size.** This is a descriptive
+gate on whether the test below can even be run, not a judgement of whether a
+sector effect exists — that judgement is Stage 2's, and requires fitting a
+model, which is why it does not belong here. **KILL if no sector can form an
+estimable ≥8-name group** (the group-size floor from §4.1(b)) **with at least
+one regime cell that clears the `n_names_per_date ≥ 5` bar above.** If the data
+cannot support one estimable group in one regime, Stage 1–2's nested evaluation
+has nothing to test and must not run.
 
-The gate is instead the **held-out incremental effect**, estimated fold-wise:
+The descriptive per-(sector, regime) table is how we learn which cells are
+estimable at all, and it feeds Stage 1–2's group formation — but **the table
+itself is diagnostic, not the effect-existence gate.** Nothing about whether
+sector skill exists may be promoted from this table alone.
+
+### Stage 1 — the control arm
+
+Build the **regime-only** additive MoE (4 soft experts, no sector axis) per
+§4.1(c)'s soft gate. Preregister: per-arm placebo, all three shift multiples,
+block bootstrap with a gap ≥ the label horizon (`L = h` gives crossing 1.00 —
+the gap is the point).
+
+**KILL CONDITION:** regime-only fails to beat the pooled base on
+placebo-corrected OOS IC, with the comparison made on *differences* rather than
+absolute IC (the WF-gate embargo leakage floor is ≈ +0.04; absolute IC below that
+is uninterpretable).
+
+### Stage 2 — add the sector axis, evaluated as a paired increment over Stage 1
+
+**Group formation and model fitting happen here, not in Stage 0.** The
+nested/temporal clustering from §4.1(b) runs inside the same walk-forward
+harness as Stage 1, and the two arms are fit and scored together so their
+difference can be taken paired, per fold:
 
 1. For each walk-forward fold: cluster on training-date residuals only, freeze
-   the groups, fit both the regime-only and the regime×group corrections on
-   training dates, and score both on the fold's embargoed validation dates.
+   the groups, fit both the Stage-1 regime-only correction and the
+   regime×group correction on training dates, and score both on the fold's
+   embargoed validation dates.
 2. The statistic is `Δ_fold = IC(regime×group) − IC(regime-only)` on those
    held-out dates — a **paired, per-fold difference**, so the leakage floor and
    the regime mix cancel rather than needing to be corrected for.
@@ -285,43 +318,19 @@ The gate is instead the **held-out incremental effect**, estimated fold-wise:
    hardcoded 1.96 on a single-digit number of folds.
 
 **The gate is directional, not "significant vs. not."** Preregistered success
-criterion: proceed to Stage 2 only if the **lower bound of the fold-level CI
+criterion: proceed to Stage 3 only if the **lower bound of the fold-level CI
 for `Δ` is greater than zero**. **KILL if the CI covers zero (no detectable
 effect) OR the CI sits entirely below zero (the sector axis reliably makes
 held-out IC *worse*, not merely unhelpful) — both outcomes close this goal
 NEGATIVE.** A CI entirely below zero must not be read as "passing" just
 because it excludes zero; the sign is part of the gate, not implicit. Report
-the CI, the number of folds, and the fold-to-fold group agreement whatever the
-verdict.
+the CI, the number of folds, and the fold-to-fold group agreement (adjusted
+Rand index) whatever the verdict. Complexity that does not clear its own
+control is removed, not "kept for later".
 
 This is proportionate rather than ceremonial: the question is whether an entire
 sector-specialized model exists, and §2.1 already shows this evidence base can
 move a headline number by ±0.12 through leakage-correction noise alone.
-
-Stage 0 still produces the descriptive per-(sector, regime) table — it is how we
-learn which cells are estimable at all — but **that table is diagnostic, not the
-gate.** Nothing may be promoted on it.
-
-### Stage 1 — the control arm
-
-Build the **regime-only** additive MoE (4 soft experts, no sector axis).
-Preregister: per-arm placebo, all three shift multiples, block bootstrap with a
-gap ≥ the label horizon (`L = h` gives crossing 1.00 — the gap is the point).
-
-**KILL CONDITION:** regime-only fails to beat the pooled base on
-placebo-corrected OOS IC, with the comparison made on *differences* rather than
-absolute IC (the WF-gate embargo leakage floor is ≈ +0.04; absolute IC below that
-is uninterpretable).
-
-### Stage 2 — add the sector axis
-
-Add `δ_{r,g}` on top of the Stage-1 winner. Same preregistration.
-
-**KILL CONDITION:** same directional rule as Stage 0, now on the full model
-rather than the score adjustment alone — same statistic, same bootstrap.
-Proceed only if the fold-level CI for `Δ` has its lower bound greater than
-zero; **KILL if the CI covers zero or sits entirely below zero.** Complexity
-that does not clear its own control is removed, not "kept for later".
 
 ### Stage 3 — economics, not IC
 
@@ -373,9 +382,12 @@ decision, not a modelling one:
 
 Stated now so it cannot be rationalized later:
 
-* The Stage-0 fold-level CI for the held-out incremental effect covers zero, or
+* The Stage-2 fold-level CI for the held-out incremental effect covers zero, or
   sits entirely below zero → no sector effect beyond regime, or the sector axis
   actively harms held-out IC; either way the goal closes NEGATIVE.
+* Stage 0's data-eligibility gate kills outright (no sector can form an
+  estimable group in any regime) → Stage 1–2 never run; the sector axis is
+  unfalsifiable on this book's data, not merely unproven.
 * Groups disagree badly across folds (low adjusted Rand index) while `Δ` looks
   positive → the "effect" is fold-specific carving, not a durable partition, and
   the positive result is not believed.
