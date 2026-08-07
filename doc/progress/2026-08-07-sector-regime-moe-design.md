@@ -71,9 +71,28 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
            BULL_VOLATILE (n=11, placebo -0.195 at 3x flipping -0.080 to +0.269)
            can support no conclusion at all.
 
+           VISIBLE CORRECTION 2 (codex on orch#897, accepted in full). The first
+           revision formed sector groups by clustering sector-level residual
+           returns and then used the resulting between-group IC spread as the
+           evidence that a sector effect exists — selecting the grouping on the
+           same series that evaluates it. Preregistering the clustering RULE does
+           not fix this; the rule can carve groups that maximise apparent spread,
+           and the spread is then read as proof the groups are real. Group
+           formation is now NESTED AND TEMPORAL (cluster on training dates only,
+           inside each walk-forward fold, frozen before the embargoed validation
+           dates are touched), and the kill condition is a block-bootstrap
+           fold-level CI on the paired held-out increment
+           `IC(regime x group) - IC(regime-only)`, compared against the
+           bootstrap's own quantiles rather than a hardcoded critical value on a
+           single-digit fold count. The original spread-vs-noise-band condition
+           is WITHDRAWN.
+
 NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surface.
-              Per-(sector, regime) IC at all three shifts, `<5 names/date`
-              reported UNESTIMABLE rather than 0.00.
+              The descriptive per-(sector, regime) table at all three shifts,
+              `<5 names/date` reported UNESTIMABLE rather than 0.00 — but that
+              table is DIAGNOSTIC. The gate is the fold-level CI on the held-out
+              incremental effect (see the correction below); nothing may be
+              promoted on the descriptive table.
            2. OPERATOR DECISION, design doc section 6: BEAR is the strongest
               measured regime and `entry_mode='blocked'` means its expert can
               never become a trade. Three coherent resolutions; my recommendation
