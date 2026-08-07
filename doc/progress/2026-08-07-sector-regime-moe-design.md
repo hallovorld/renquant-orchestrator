@@ -56,7 +56,14 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
              panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json,
              metadata.wf_gate_metadata.trade_buy_regime_counts_total /
              trade_sell_regime_counts_total, 2026-08-07]`
-             buys:  BULL_CALM 136 / CHOPPY 9 / BULL_VOLATILE 9 / BEAR 0
+             buys:  BULL_CALM 136 / CHOPPY 9 / BULL_VOLATILE 9 — no BEAR key
+                    in `trade_buy_regime_counts_total`; the producer
+                    (renquant-backtesting `src/renquant_backtesting/wf_gate/
+                    runner.py:1058-1064 _merge_trade_counts`) emits a key
+                    only for regimes with >=1 observed buy row, so the
+                    omission means zero buys, not a stored `0`
+                    `[DERIVED — same artifact, key-omission semantics,
+                    2026-08-07]`
              sells: CHOPPY 36 / BULL_CALM 20 / BEAR 12 / BULL_VOLATILE 8
 
            sector map `[VERIFIED — config_fingerprint_fields.sector_map]`
@@ -104,6 +111,21 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
            entirely below zero. Applied identically to the Stage 2 kill
            condition and the falsification section (design doc §5, §7).
 
+           VISIBLE CORRECTION 4 (codex on orch#897, accepted in full). The
+           "trade counts by regime" evidence block tagged `BEAR 0` buys as
+           `[VERIFIED — ...trade_buy_regime_counts_total...]`, which reads as
+           if the artifact literally stores a `0` for BEAR. It does not: the
+           producer (`_merge_trade_counts`, renquant-backtesting
+           `src/renquant_backtesting/wf_gate/runner.py:1058-1064`) builds the
+           map only from regimes with >=1 observed buy row, so BEAR is
+           simply absent — a zero bucket represented by key omission, not an
+           explicit stored zero. Both this doc and the design doc now state
+           "no BEAR key in `trade_buy_regime_counts_total`" and tag the
+           zero-buys inference `[DERIVED — same artifact, key-omission
+           semantics, 2026-08-07]` rather than `VERIFIED`. The underlying
+           conclusion (BEAR has 12 sells and effectively zero buys) is
+           unchanged; only the provenance tag is corrected.
+
 NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surface.
               The descriptive per-(sector, regime) table at all three shifts,
               `<5 names/date` reported UNESTIMABLE rather than 0.00 — but that
@@ -114,8 +136,9 @@ NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surfac
               measured regime and `entry_mode='blocked'` means its expert can
               never become a trade. Three coherent resolutions; my recommendation
               is routing BEAR skill to the EXIT side (BEAR already has 12 sells
-              and 0 buys — see "trade counts by regime" evidence above), which
-              uses the signal without touching entry risk.
+              and no buys — no BEAR key in `trade_buy_regime_counts_total`, see
+              "trade counts by regime" evidence above), which uses the signal
+              without touching entry risk.
            3. Ownership on execution: model internals in `renquant-model`,
               harness in `renquant-backtesting`. NOT here — the orchestrator does
               not grow model internals (CLAUDE.md Hard Boundaries).
