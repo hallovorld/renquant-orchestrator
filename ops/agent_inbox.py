@@ -115,6 +115,31 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
             "ops/renquant104/run_risk_budget_statement.sh",
             "2 WARN (>80% of any budget)", True),
     },
+    # The three below were in the UNKNOWN bucket until 2026-08-07. They were
+    # never undocumented — my earlier greps looked for `EXIT_X = N` literals and
+    # bare `exit N`, and missed both a NAMED constant defined in another module
+    # and a `return 1 if findings else 0` expression. "I could not find the
+    # contract" is not "there is no contract", and the difference is one more
+    # read.
+    "rq104-silent-refusal": {
+        1: ("findings — a scheduled job has stopped acting",
+            "ops/renquant104/rq104_silent_refusal_sentinel.py",
+            "return 1 if findings else 0", True),
+    },
+    "rq104-degradation-sentinel": {
+        # EXIT_ALARMS is defined in sentinel_receipt.py, imported here — which is
+        # why grepping the sentinel itself for `= 1` found only EXIT_INTERNAL=3
+        # and made the live exit 1 look like a contract mismatch. It is not.
+        1: ("EXIT_ALARMS — the sentinel raised alarms",
+            "ops/renquant104/sentinel_receipt.py", "EXIT_ALARMS = 1", True),
+        3: ("EXIT_INTERNAL — the sentinel itself crashed",
+            "ops/renquant104/rq104_degradation_sentinel.py",
+            "EXIT_INTERNAL = 3", True),
+    },
+    "rq105-liveness": {
+        1: ("collector issue(s) — the 'rq105 DOWN' alert fired",
+            "ops/renquant105/rq105_liveness_check.py", "rq105 DOWN", True),
+    },
 }
 
 #: Incident states worth acting on. `acked` rows are excluded regardless — the
