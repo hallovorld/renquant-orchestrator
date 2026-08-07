@@ -106,10 +106,22 @@ the cap it judged against, and that is now asserted too.
 
 1. **That the 17 incidents are real drift.** They are unacked, not verified. The
    inbox reports them; diagnosing PSI ~10.6 is separate work.
-2. **That the DESIGNED map is complete.** Six jobs still exit nonzero with no
+2. **That the DESIGNED map is complete.** Five jobs still exit nonzero with no
    documented meaning (`monthly-calibrator-refresh`, `retrain-panel104`,
-   `rq104-risk-budget`, `rq104-scorer-identity`, `weekly-apy104`=2,
-   `agent-pr-loop`). They surface as UNKNOWN — correctly, that IS the work.
+   `rq104-scorer-identity`, `weekly-apy104`=2, `agent-pr-loop`). They surface
+   as UNKNOWN — correctly, that IS the work.
+
+   Two more were added to `DESIGNED_EXIT_CODES` after Codex's MEDIUM review
+   (2026-08-07T00:11Z): `rq104-model-freshness`=3 and `rq104-risk-budget`=1,2
+   were already named "designed" in this module's own docstring table but the
+   map omitted both — so the module was reproducing the exact defect it exists
+   to fix, on its own two newest wrappers. `weekly-wf-promote`=1 stays out on
+   purpose: its wrapper lives in the sibling umbrella repo, which this repo's
+   CI does not check out, so a `DESIGNED_EXIT_CODES` entry for it could not be
+   MEASURED by `test_designed_exit_codes_are_still_true_of_their_sources` and
+   would be exactly the un-probed claim the map is built to reject. It is
+   documented as out-of-scope in the module docstring instead of silently
+   claimed. `[VERIFIED — 2026-08-07, python ops/agent_inbox.py --json]`
 3. **That this closes the operator's loop.** It gives the agent a place to look;
    nothing yet PUSHES to the agent. Wiring it into the loop's fixed opening
    check is the next step and needs no code.
@@ -120,8 +132,10 @@ NEXT:     Wire the inbox into the loop's fixed opening check so a fault reaches
           (a) NOT the severity inversion — see the CORRECTION below; that
           claim is withdrawn. If anything is proposed there it is a severity
           axis on the incident ledger, as a design question, not a bug fix;
-          (b) document or fix the six jobs that exit nonzero with no stated
-          meaning, which is what the UNKNOWN bucket exists to drive;
+          (b) document or fix the five remaining jobs that exit nonzero with no
+          stated meaning (`rq104-model-freshness` and `rq104-risk-budget` are
+          now documented — see NOT ESTABLISHED item 2), which is what the
+          UNKNOWN bucket exists to drive;
           (c) decide whether the 17 unacked incidents are real drift or a
           broken detector — the inbox reports them, it does not diagnose them.
 

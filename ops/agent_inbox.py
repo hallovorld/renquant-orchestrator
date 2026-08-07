@@ -32,6 +32,7 @@ failures. Measured 2026-08-06, most are jobs REPORTING, not failing:
     rq104-shadow-scorer-sentinel  8  EXIT_ALARM       — designed "I am alarming"
     run-surface-drift             1  drift found      — designed "I found something"
     rq104-model-freshness         3  genuine BREACH   — designed "it is stale"
+    rq104-risk-budget          1, 2  CRITICAL / WARN  — designed "over budget"
     weekly-wf-promote             1  no train         — designed "nothing to promote"
     ops-audit                     1  findings present — designed "I found something"
 
@@ -44,6 +45,14 @@ surfaces UNKNOWN codes as the work.
 ``DESIGNED_EXIT_CODES`` is a claim about other files. It is kept honest by
 ``tests/test_agent_inbox.py``, which re-greps each cited source and fails when a
 wrapper's contract moves — the map is asserted here and MEASURED there.
+
+``weekly-wf-promote`` stays OUT of ``DESIGNED_EXIT_CODES`` even though the table
+above lists it: its wrapper (``scripts/weekly_wf_promote.sh``) lives in the
+sibling umbrella repo, which this repo's CI does not check out (`.github/workflows/ci.yml`
+checks out only the ``renquant-*`` subrepos) — a claim this module cannot MEASURE
+here would be exactly the un-probed, silently-rotting assertion the map exists to
+prevent. It therefore still surfaces as UNKNOWN until cross-repo source
+verification exists; that is accurate, not a gap in this pass.
 
 Read-only: never acks, never writes, never mutates a job.
 """
@@ -81,6 +90,18 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str]]] = {
     },
     "run-surface-drift": {
         1: ("run-surface drift found", "ops/run_surface_drift_check.py", "exit 1"),
+    },
+    "rq104-model-freshness": {
+        3: ("genuine BREACH (or UNKNOWN artifact) — model artifact is stale",
+            "ops/renquant104/run_model_freshness_monitor.sh",
+            "3 breach (>28d) or UNKNOWN"),
+    },
+    "rq104-risk-budget": {
+        1: ("CRITICAL — a budget is at or over 100%",
+            "ops/renquant104/run_risk_budget_statement.sh", "1 CRITICAL (>=100%)"),
+        2: ("WARN — a budget is over 80%",
+            "ops/renquant104/run_risk_budget_statement.sh",
+            "2 WARN (>80% of any budget)"),
     },
 }
 
