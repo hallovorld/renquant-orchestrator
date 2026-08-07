@@ -1,5 +1,18 @@
 # 2026-08-05 — GOAL-3: the published surface hands out the non-kernel twin, 19 times out of 20
 
+STATUS: complete, and re-verified 2026-08-07 at the pipeline revision CI now measures.
+Evidence only — this record proposes nothing and changes no behaviour.
+
+WHAT: for every name `renquant_pipeline` publishes, which definition
+`from renquant_pipeline import <name>` actually hands out — resolved by importing and
+reading `__module__` off the exported object, not by heuristic. Result: **20 exported
+duplicates, 19 resolving to the non-kernel twin, 0 to the kernel counterpart.**
+
+WHY/DIR: the census (orch#821) answered *could* a caller reach two definitions of a
+name. This answers the one with consequences — *which one do they get* — and binds the
+answer to a named repository revision so it cannot be inherited across a source change.
+
+
 ## The question after the census
 
 The census (orch#821) answers *could a caller reach two definitions of this
@@ -20,6 +33,7 @@ installed wheel `[codex on orch#833]`:
 |---|---|---|
 | CI, which checks out the **PINNED** pipeline | `3be590956f13` | **20 / 19 / 0** |
 | this workstation's sibling checkout | `5d41b31249df` | **20 / 19 / 0** |
+| CI again, 2026-08-07, after pipeline `main` advanced | `e8b0f75aafb7` | **20 / 19 / 0** |
 
 Both are verified `[VERIFIED — this session]`; the pinned one was measured in a
 throwaway `git worktree` so no shared checkout was moved. The machine-readable
@@ -28,7 +42,31 @@ form the test parses — prose formatting must not be able to break the binding:
 ```
 VERIFIED-AT repo revision 3be590956f1339ae6099be34cf347dad6c7712bb
 VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
+VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
 ```
+
+### 2026-08-07: the guard fired, and the result was re-derived rather than inherited
+
+`renquant-pipeline`'s `main` advanced to `e8b0f75aafb7`. CI checks that repo out with
+no `ref:`, so the measured revision moved and
+`test_the_RECORD_names_the_revision_that_was_actually_measured` went red on **every**
+open PR — the guard doing precisely what its docstring promises: *"a source change
+forces the result to be re-derived rather than inherited."*
+
+Re-derived against that exact revision in a throwaway `git worktree`, so no shared
+checkout was moved:
+
+```
+package_repo_revision: e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
+total exports        : 20
+   RESOLVES_TO_THE_OTHER_TWIN: 19
+   NO_COUNTERPART_TWIN:         1
+```
+
+**20 / 19 / 0 holds at the new source.** The number is unchanged, but it is now a
+measurement of this revision rather than an inheritance from two older ones — which is
+the whole distinction the guard exists to enforce. Had the counts moved, this entry
+would be recording the new ones.
 
 **That split is itself worth recording.** CI runs against the revision
 production is pinned to; the workstation sits on a later commit. The first
@@ -110,9 +148,22 @@ all. Plus the shape riding along (a wrapper is not a twin), the render refusing
 the production claim, the measured copy being recorded, and the live 20/19/0
 pinned to a named repository revision.
 
-## Next
+EVIDENCE:
 
-The actionable follow-up is **not** in this repo: `renquant-pipeline` decides
+artifact: none. Nothing is produced, staged or promoted; the resolution is computed
+  from the pipeline package's own `__init__` at a named revision.
+prod or exp: neither. A read-only measurement of an installed package's export
+  resolution. No config, schedule, artifact or live surface is touched.
+existing data: yes — the pipeline source itself, at three recorded revisions. Nothing
+  was generated to support the number, and each revision was measured in a throwaway
+  `git worktree` so no shared checkout was moved.
+best-known?: yes for the question asked. Reading `__module__` off the imported object
+  is what the import system actually does; any static or name-matching approach would
+  be a proxy for it. It is explicitly NOT an answer to whether the 19 should be
+  re-pointed — that is a behaviour change owned by `renquant-pipeline`.
+scope: documentation only. One record, no source file, test, config or ack.
+
+NEXT: the actionable follow-up is **not** in this repo: `renquant-pipeline` decides
 what its `__all__` exports resolve to. The candidate change is to re-point the
 19 exports at the kernel definitions — which is a behaviour change for anyone
 importing the public surface, and needs the pipeline's own review. This record
