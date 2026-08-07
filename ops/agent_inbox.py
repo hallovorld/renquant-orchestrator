@@ -152,26 +152,39 @@ def _job_suffix(label: str) -> str:
 
 
 
-#: Job suffix → the log basename it actually writes, when that differs from the
-#: suffix. MEASURED 2026-08-07 against `logs/`, not guessed: two layouts exist
-#: and both are in use.
-_LOG_BASENAME = {
-    "rq104-silent-refusal": "silent_refusal",
-    "rq104-degradation-sentinel": "degradation_sentinel",
-    "rq104-risk-budget": "risk_budget",
-    "daily104": "daily_104",
+#: Job suffix → (log directory, dated-file basename or None).
+#: EVERY row was read out of the job's own wrapper — its `LOG=`/`exec >>` line
+#: or the plist's `StandardOutPath` — and then CONFIRMED against a real file on
+#: disk. None of it is a guessed convention: guessing a convention is what
+#: produced this module's earlier false "no documentation" verdicts, and the
+#: directory name matches the job name in fewer than half of these.
+#: `[VERIFIED — wrappers + `ls logs/…`, 2026-08-07]`
+_LOG_LOCATION: dict[str, tuple[str, str | None]] = {
+    # per-job directory holding bare YYYY-MM-DD.log
+    "weekly-wf-promote":            ("weekly_wf_promote", None),
+    "conditional-retrain104":       ("conditional_retrain_104", None),
+    "retrain-panel104":             ("retrain_panel", None),
+    "monthly-calibrator-refresh":   ("monthly_calibrator", None),
+    "agent-pr-loop":                ("agent_pr_loop", None),
+    "daily104":                     ("daily_104", None),
+    # per-job directory holding <basename>_YYYY-MM-DD.log
+    "ops-audit":                    ("ops_audit", "ops_audit"),
+    # shared directory holding <basename>_YYYY-MM-DD.log
+    "rq104-silent-refusal":         ("rq104", "silent_refusal"),
+    "rq104-scorer-identity":        ("rq104", "scorer_identity"),
+    "rq104-model-freshness":        ("rq104", "model_freshness"),
+    "rq104-risk-budget":            ("rq104", "risk_budget"),
+    "rq105-shadow-serving":         ("rq105", "shadow_serving"),
+    "rq105-liveness":               ("rq105", "liveness"),
 }
-
-#: The flat directories that hold `<name>_YYYY-MM-DD.log` files.
-_FLAT_LOG_DIRS = ("rq104", "rq105")
 
 
 def _newest_log_date(suffix: str) -> str | None:
     """Date of the job's newest dated log, or None when none is discoverable.
 
     WHY this is on every launchd row (measured 2026-08-07): `launchctl list`
-    reports the last exit of the last run **launchd itself started**. A job that
-    is also run by hand does not update it. `weekly-wf-promote` is scheduled
+    reports the last exit of the last run **launchd itself started**. A run
+    started by hand does not update it. `weekly-wf-promote` is scheduled
     Saturdays; its launchd record was exit 1 from Sat 2026-08-01, while its
     NEWEST log — a manual Tue 2026-08-04 run — ended `exit 0, governance
     nominal`. Both numbers were correct; they described different events.
@@ -183,28 +196,29 @@ def _newest_log_date(suffix: str) -> str | None:
     produced the code (launchctl does not say) and deliberately does not guess.
     It puts the ambiguity in front of the reader instead of hiding it.
 
-    Two layouts exist and both are checked [VERIFIED — `logs/` 2026-08-07]:
-      1. `logs/<job_with_underscores>/YYYY-MM-DD.log`
-      2. `logs/<rq104|rq105>/<basename>_YYYY-MM-DD.log`
+    Only YYYY-MM-DD names count. `manual_20260601-225243.log` and
+    `final_test_20260608-082722.log` sit in the same directories and are not
+    scheduled runs.
     """
-    stem = suffix.replace("-", "_")
-    d = RQ / "logs" / stem
-    if d.is_dir():
-        dates = sorted(f.stem for f in d.glob("*.log")
-                       if re.fullmatch(r"\d{4}-\d{2}-\d{2}", f.stem))
-        if dates:
-            return dates[-1]
-    base = _LOG_BASENAME.get(suffix, stem)
-    found: list[str] = []
-    for flat in _FLAT_LOG_DIRS:
-        fd = RQ / "logs" / flat
-        if not fd.is_dir():
-            continue
-        for f in fd.glob(f"{base}_*.log"):
+    loc = _LOG_LOCATION.get(suffix)
+    if loc is None:
+        # Unmapped: try the one convention that does hold sometimes, then give
+        # up honestly rather than inventing a second guess.
+        loc = (suffix.replace("-", "_"), None)
+    dirname, base = loc
+    d = RQ / "logs" / dirname
+    if not d.is_dir():
+        return None
+    if base is None:
+        dates = [f.stem for f in d.glob("*.log")
+                 if re.fullmatch(r"\d{4}-\d{2}-\d{2}", f.stem)]
+    else:
+        dates = []
+        for f in d.glob(f"{base}_*.log"):
             m = re.fullmatch(rf"{re.escape(base)}_(\d{{4}}-\d{{2}}-\d{{2}})", f.stem)
             if m:
-                found.append(m.group(1))
-    return max(found) if found else None
+                dates.append(m.group(1))
+    return max(dates) if dates else None
 
 
 def read_launchd_exits() -> list[dict[str, Any]]:
