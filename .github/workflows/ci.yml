@@ -48,6 +48,18 @@ jobs:
         with:
           repository: hallovorld/renquant-pipeline
           path: renquant-pipeline
+          # PINNED (orch#898). Without a ref, actions/checkout takes the default
+          # branch, so CI measured pipeline main HEAD at job time — a value that
+          # changes on every pipeline merge. `test_the_RECORD_names_the_revision_
+          # that_was_actually_measured` binds the GOAL-3 record to the revision it
+          # measured, so a floating checkout made that assertion unsatisfiable and
+          # turned every orchestrator PR red. Three different revisions were
+          # observed inside one hour on 2026-08-07.
+          #
+          # Advancing this sha is a deliberate act: re-derive the record's
+          # 20/19/0 against the new source and add its VERIFIED-AT line in the
+          # same PR. That is the review step the floating checkout removed.
+          ref: 7477978c2ff4dc9747be220f82ab63fe84917751
           token: ${{ secrets.AGENT_GIT_PUSH_TOKEN }}
       - uses: actions/checkout@v4
         if: env.RENQUANT_HAS_CI_TOKEN == 'true'
