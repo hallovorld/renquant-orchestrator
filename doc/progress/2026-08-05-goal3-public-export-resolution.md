@@ -46,6 +46,7 @@ VERIFIED-AT repo revision 3be590956f1339ae6099be34cf347dad6c7712bb
 VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
 VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
 VERIFIED-AT repo revision 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
+VERIFIED-AT repo revision 7477978c2ff4dc9747be220f82ab63fe84917751
 ```
 
 ### 2026-08-07: the guard fired, and the result was re-derived rather than inherited
