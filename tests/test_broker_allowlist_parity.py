@@ -8,6 +8,7 @@ that keeps this probe from repeating that.
 """
 from __future__ import annotations
 
+import sys
 import types
 
 import pytest
@@ -82,6 +83,28 @@ def test_a_module_without_the_attribute_refuses(monkeypatch):
     monkeypatch.setattr(P, "_load_pinned", lambda: types.SimpleNamespace())
     monkeypatch.setattr(P, "_load_umbrella", lambda: _mod(("a",)))
     assert P.main([]) == P.EXIT_REFUSE
+
+
+def test_load_pinned_ignores_a_preloaded_sys_modules_entry(tmp_path, monkeypatch):
+    """A stale `renquant_pipeline.state_paths` already sitting in `sys.modules`
+    (e.g. from the test process or an earlier import) must not win over the
+    pinned copy on disk — that is exactly how the probe would silently compare
+    the wrong module and miss the fallback crash it exists to detect."""
+    pkg_dir = tmp_path / "renquant_pipeline"
+    pkg_dir.mkdir()
+    (pkg_dir / "state_paths.py").write_text(
+        "ALLOWED_BROKERS = frozenset({'real_tag'})\n"
+    )
+
+    fake = types.ModuleType("renquant_pipeline.state_paths")
+    fake.ALLOWED_BROKERS = frozenset({"fake_tag"})
+    fake.__file__ = "/tmp/not-the-pinned-copy/state_paths.py"
+    monkeypatch.setitem(sys.modules, "renquant_pipeline.state_paths", fake)
+    monkeypatch.setitem(sys.modules, "renquant_pipeline", types.ModuleType("renquant_pipeline"))
+
+    top = P._load_pinned(src=tmp_path)
+    assert top.ALLOWED_BROKERS == frozenset({"real_tag"}), (
+        "the preloaded sys.modules entry must not win over the file at PINNED_SRC")
 
 
 # ── the live machine ───────────────────────────────────────────────────────

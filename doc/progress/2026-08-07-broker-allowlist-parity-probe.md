@@ -1,6 +1,6 @@
 # 2026-08-07 — Compare the allow-lists programmatically, because grepping them is how I got it wrong
 
-STATUS:   READY FOR REVIEW. 8 new tests; ops-audit suite 49 passed
+STATUS:   READY FOR REVIEW. 9 new tests; ops-audit suite 50 passed
           `[VERIFIED — python3 -m pytest tests/test_ops_audit.py
           tests/test_broker_allowlist_parity.py -q]`. The aggregator now runs
           15 detectors and the new one reports a live finding
@@ -65,6 +65,33 @@ agree" — unreadability is this detector's own defect class, the same reasoning
 
 `test_the_cited_contract_is_the_one_in_force` is a provenance pin and was
 updated in the SAME change, as its docstring requires.
+
+## P1 FIX (review round 2): `_load_pinned` could silently accept a wrong module
+
+`_load_pinned` used `from renquant_pipeline import state_paths as top` after
+prepending `PINNED_SRC` to `sys.path`. If `renquant_pipeline.state_paths` was
+already present in `sys.modules` (e.g. cached from an earlier import in the
+same process), that `from ... import` statement returns the **cached** module,
+not the one at `PINNED_SRC` — so the probe could compare the umbrella copy
+against the wrong module and miss the exact fallback crash it exists to
+detect. Reproduced by preloading a fake `renquant_pipeline.state_paths` with
+`ALLOWED_BROKERS = {"fake_only"}` in `sys.modules` before calling
+`_load_pinned()`: pre-fix it returned the fake module and its `fake_only` tag;
+post-fix it returns the real module at `PINNED_SRC` and the real 15 tags
+`[VERIFIED — python3 -m pytest tests/test_broker_allowlist_parity.py::test_load_pinned_ignores_a_preloaded_sys_modules_entry -q]`.
+
+Fixed by loading the pinned copy the same way `_load_umbrella` already loads
+the umbrella copy — `importlib.util.spec_from_file_location` against the
+explicit file `PINNED_SRC/renquant_pipeline/state_paths.py`, under a private
+module name (`_pinned_state_paths`). This bypasses `sys.modules` entirely, so
+a preloaded entry can no longer win. `state_paths.py` has no relative imports
+(only `from pathlib import Path`), so file-based loading is safe.
+
+New regression `test_load_pinned_ignores_a_preloaded_sys_modules_entry`
+(`tests/test_broker_allowlist_parity.py`) preloads a conflicting
+`renquant_pipeline.state_paths` in `sys.modules` and asserts `_load_pinned`
+still returns the tags from the real file on disk, not the preloaded fake
+`[VERIFIED — python3 -m pytest tests/test_broker_allowlist_parity.py -q]`.
 
 NEXT:     Sync the umbrella copy, or make the umbrella fallback refuse loudly
           when a configured lane's broker tag is not in its list. Which one is

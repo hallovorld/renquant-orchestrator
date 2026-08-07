@@ -69,14 +69,18 @@ def _load_umbrella(path: Path = UMBRELLA_MOD):
 def _load_pinned(src: Path = PINNED_SRC):
     if not src.is_dir():
         raise Unreadable(f"pinned pipeline src absent: {src}")
-    added = str(src) not in sys.path
-    if added:
-        sys.path.insert(0, str(src))
+    path = src / "renquant_pipeline" / "state_paths.py"
+    if not path.is_file():
+        raise Unreadable(f"pinned copy absent: {path}")
+    spec = importlib.util.spec_from_file_location("_pinned_state_paths", path)
+    if spec is None or spec.loader is None:
+        raise Unreadable(f"cannot build a spec for {path}")
+    mod = importlib.util.module_from_spec(spec)
     try:
-        from renquant_pipeline import state_paths as top  # noqa: PLC0415
-    except Exception as exc:  # noqa: BLE001
-        raise Unreadable(f"cannot import pinned renquant_pipeline.state_paths: {exc}") from exc
-    return top
+        spec.loader.exec_module(mod)
+    except Exception as exc:  # noqa: BLE001 - any import failure is a refusal
+        raise Unreadable(f"{path}: {exc}") from exc
+    return mod
 
 
 def _tags(mod, where: str) -> set[str]:
