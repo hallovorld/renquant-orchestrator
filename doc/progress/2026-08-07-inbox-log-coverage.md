@@ -10,13 +10,19 @@ WHAT:     Replaces the two guessed log-layout conventions with `_LOG_LOCATION`,
           plist `StandardOutPath` — and then confirmed against a real file.
 
 WHY/DIR:  #890 landed `newest_log` with **3 of 16** rows resolving a date
-          `[VERIFIED — read_launchd_exits(), 2026-08-07]`, and its NEXT said to
-          raise that by reading each wrapper rather than guessing a convention.
-          Done. Coverage is now **9 of 16** `[VERIFIED — same call, this commit]`.
+          `[VERIFIED — prior work, doc/progress/2026-08-07-inbox-launchctl-staleness.md]`,
+          and its NEXT said to raise that by reading each wrapper rather than
+          guessing a convention. Done. Coverage is now **9 of 16**, re-measured
+          this session with the REPRO command below `[VERIFIED — REPRO, 2026-08-07]`.
 
           The reason guessing failed is worth stating: **the log directory
-          matches the job name in fewer than half of these**. Measured
-          `[VERIFIED — wrappers, 2026-08-07]`:
+          matches the job name in fewer than half of these**. Measured by
+          reading each job's `LOG=`/`exec >>` line
+          `[VERIFIED — RenQuant/scripts/monthly_calibrator_refresh.sh:49,66;
+          RenQuant/scripts/retrain_panel.sh:29,39;
+          ops/run_ops_audit.sh:14 (this repo);
+          ops/renquant104/run_model_freshness_monitor.sh:51 (this repo);
+          ops/renquant105/run_shadow_serving.sh:21 (this repo), 2026-08-07]`:
 
 ```
 monthly-calibrator-refresh -> logs/monthly_calibrator/     (not …_refresh)
@@ -30,12 +36,19 @@ rq105-shadow-serving       -> logs/rq105/shadow_serving_<date>.log
           `YYYY-MM-DD.log`; a per-job directory of `<base>_YYYY-MM-DD.log`; and a
           SHARED directory (`rq104`, `rq105`) of `<base>_YYYY-MM-DD.log`.
 
-          What the coverage buys, immediately `[VERIFIED — 2026-08-07]`: four of
-          the nine resolvable rows are reporting conditions **days old** —
-          `monthly-calibrator-refresh` and `rq104-risk-budget` newest log
-          2026-08-01, `retrain-panel104` 2026-08-02, `weekly-wf-promote`
-          2026-08-04 — against five that are current (2026-08-06). Before this,
-          all nine looked equally current.
+          REPRO (produces both the 9/16 count above and the per-row dates below):
+```
+python3 -c "from ops.agent_inbox import read_launchd_exits as f; r = f(); \
+print(sum(1 for x in r if x['newest_log']), '/', len(r)); \
+[print(x['job'], '->', x['newest_log']) for x in r]"
+```
+
+          What the coverage buys, immediately `[VERIFIED — REPRO, 2026-08-07]`:
+          four of the nine resolvable rows are reporting conditions **days
+          old** — `monthly-calibrator-refresh` and `rq104-risk-budget` newest
+          log 2026-08-01, `retrain-panel104` 2026-08-02, `weekly-wf-promote`
+          2026-08-04 — against five that are current (2026-08-06). Before
+          this, all nine looked equally current.
 
 EVIDENCE:
 artifact:      `ops/agent_inbox.py`, `tests/test_agent_inbox.py`

@@ -320,7 +320,14 @@ def test_every_mapped_location_is_real_on_this_machine():
     """`_LOG_LOCATION` is a claim about the filesystem, read out of each job's
     wrapper and confirmed against a file. If a directory disappears the map is
     stale and the inbox silently reports `None` — i.e. "undiscoverable" — for a
-    job that does have logs, which is the failure this map exists to remove."""
+    job that does have logs, which is the failure this map exists to remove.
+
+    Off the operator machine (CI: a clean checkout has no `logs/` tree at all)
+    there is nothing to verify — skip loudly rather than fail on absent state
+    that was never this map's claim to begin with."""
+    if not (inbox.RQ / "logs").is_dir():
+        pytest.skip("no logs/ tree here — cannot verify the operator-local "
+                    "log-directory map (expected off the operator machine, e.g. CI)")
     missing = [f"{job}: logs/{d}" for job, (d, _) in inbox._LOG_LOCATION.items()
                if not (inbox.RQ / "logs" / d).is_dir()]
     assert not missing, "mapped log directories that no longer exist:\n  " + "\n  ".join(missing)
