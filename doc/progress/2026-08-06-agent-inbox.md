@@ -50,23 +50,43 @@ exit_code, detail, disposition}]`, and a changed schema is now REPORTED rather
 than swallowed as an empty list, because a broken aggregator must not look like
 a clean system.
 
-## A SEVERITY INVERSION THIS SURFACED — not fixed here
+## CORRECTION — the "severity inversion" I reported was WRONG
 
-The 17 incidents carry a `state` column that is **anti-correlated** with the
-severity embedded in their own `cause_hash` `[VERIFIED — 2026-08-06, all 17 rows
-parsed]`:
+An earlier revision of this doc, and PR #887's body, claimed the 17 incidents'
+`state` column was "anti-correlated with the severity in their own cause_hash"
+and called it a defect. **That is refuted.** `state` is not a severity at all.
+
+`kernel/alert_lifecycle.py` states the contract in its own header:
 
 ```
-psi 10.6  8.6  6.8  5.9  5.3  5.1   ->  state = WARN
-psi  0.4  0.3  0.2  0.1             ->  state = CRITICAL
-17 rows: 3 consistent, 14 inconsistent; the ordering is exactly inverted
+NEW ──(first ntfy)──> WARN ──(unacked >= escalate_after_days=5)──> CRITICAL
 ```
 
-Anything triaging by `state` works the lightest incidents first and stays silent
-on the heaviest. PSI > 0.25 is conventionally a significant shift; 10.6 is 42x
-that, labelled WARN. The writer is `renquant-pipeline/kernel/persistence.py:2999`.
-Filed separately — the inbox reports both fields side by side so the
-contradiction is visible rather than averaged away.
+`state` is an **escalation stage**: an incident is born WARN and becomes CRITICAL
+after 5 unacked days. It is orthogonal to how bad the drift is. Tested against
+every row `[VERIFIED — 2026-08-06, all 17]`: predicting
+`CRITICAL ⟺ (last_seen − first_seen) ≥ 5 and not acked` matches **17/17**. The
+psi~10.6 rows are WARN because they are ONE day old; the psi~0.1 rows are
+CRITICAL because they went unacked for 5–36 days.
+
+The lifecycle exists for a documented reason — a stale-fundamentals warning
+"fired DAILY for ~4 months and was ignored; 121 identical ntfys train the
+operator to mute the channel". It does exactly what it says.
+
+**My error:** I read a column named `state` holding `WARN`/`CRITICAL` and assumed
+severity, without reading the module that writes it. Same shape as reading
+`kelly_target_pct` as the operative size or `broker_order_id IS NULL` as "never
+placed" — a plausible field standing in for the authority one step further.
+
+### What survives, stated much more modestly
+
+The ledger carries **no severity axis**, so `state` alone cannot rank work: a
+psi~10.6 incident and a psi~0.6 incident are both WARN on day one and
+indistinguishable to anything sorting by `state`. That is a design GAP (the
+lifecycle was built for repeat-noise suppression, not triage), **not a bug**, and
+it is not this PR's to close. The inbox prints `state` and `cause_hash` side by
+side so a reader sees both axes; that remains the right behaviour for a reason
+opposite to the one first given.
 
 ## A RECORD THIS CHANGE ALSO CORRECTS
 
@@ -97,9 +117,9 @@ the cap it judged against, and that is now asserted too.
 NEXT:     Wire the inbox into the loop's fixed opening check so a fault reaches
           the agent without a human relay — that is the directive's actual ask
           and needs no code, only the loop prompt. Then, in priority order:
-          (a) file the `state`-vs-`cause_hash` severity inversion against
-          `renquant-pipeline/kernel/persistence.py:2999` — 14 of 17 rows are
-          mislabelled and triage-by-state is inverted today;
+          (a) NOT the severity inversion — see the CORRECTION below; that
+          claim is withdrawn. If anything is proposed there it is a severity
+          axis on the incident ledger, as a design question, not a bug fix;
           (b) document or fix the six jobs that exit nonzero with no stated
           meaning, which is what the UNKNOWN bucket exists to drive;
           (c) decide whether the 17 unacked incidents are real drift or a
