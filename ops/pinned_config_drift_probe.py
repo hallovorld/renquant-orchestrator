@@ -32,21 +32,33 @@ behaviour (documentation keys, which this config spells with a leading
 underscore). A new knob is therefore reported by default, not ignored by
 default.
 
-A STALE MIRROR MUST NOT READ AS CLEAN
--------------------------------------
-`origin/main` here is whatever the local sibling clone last fetched. If that
-mirror is stale, a real drift can look like agreement. The probe therefore
-reports the main sha and its commit date it compared against, and refuses
-(exit 2) when the mirror has no `origin/main` at all — it never reports
-"in sync" on evidence it could not obtain.
+A STALE MIRROR MUST NOT READ AS CLEAN — AND REPORTING THE DATE IS NOT ENOUGH
+---------------------------------------------------------------------------
+`origin/main` here is whatever the local sibling clone last fetched. An earlier
+revision of this probe reported the compared sha and its commit date and called
+that a staleness control. It is not (codex on orch#896): a week-old local
+`origin/main` whose config happens to match the pin returns exit 0 even when the
+remote main carries a risk-critical change — the exact failure this probe claims
+to prevent, reproduced inside the probe.
 
-Read-only: runs `git show` against a mirror and reads two JSON blobs. It never
-writes, checks out, or fetches.
+So the local ref is verified against the REMOTE before any comparison is
+believed. `git ls-remote origin refs/heads/main` reads the remote's tip without
+mutating the clone; if it disagrees with local `origin/main`, the mirror is stale
+and the probe REFUSES (exit 2) rather than reporting agreement it cannot
+establish. A transport failure is also a refusal — "I could not reach the remote"
+is not "the mirror is current". `--allow-stale-mirror` exists for offline use and
+downgrades the probe to an explicitly-labelled local diagnostic; the daily audit
+does not pass it.
+
+Read-only: runs `git show` / `git rev-parse` / `git ls-remote` and reads two JSON
+blobs. It never writes, checks out, or fetches.
 
 Exit codes:
     0  every behavioural key in the pinned config matches origin/main
     1  at least one behavioural key differs                        (FINDING)
-    2  refusal — a side could not be read, or the mirror has no origin/main
+    2  refusal — a side could not be read, the mirror has no origin/main, the
+       local ref DISAGREES with the remote (stale mirror), or the remote could
+       not be reached at all
 """
 from __future__ import annotations
 
@@ -114,8 +126,23 @@ def _git(repo: Path, *args: str) -> str:
     return proc.stdout
 
 
+def remote_main_sha(mirror: Path) -> str:
+    """The REMOTE's main tip, read without mutating the clone.
+
+    `ls-remote` performs no ref update and writes nothing into the object store,
+    so this stays a read-only probe while still observing the authority.
+    """
+    out = _git(mirror, "ls-remote", "origin", "refs/heads/main")
+    for line in out.splitlines():
+        sha, _, ref = line.partition("\t")
+        if ref.strip() == "refs/heads/main" and sha.strip():
+            return sha.strip()
+    raise Unusable(f"remote has no refs/heads/main: {mirror}")
+
+
 def compare(name: str, rel_path: str, *, rq: Path = RQ,
-            mirror_root: Path = Path("/Users/renhao/git/github")) -> dict:
+            mirror_root: Path = Path("/Users/renhao/git/github"),
+            allow_stale_mirror: bool = False) -> dict:
     """Compare the pinned copy of one config against the mirror's origin/main."""
     pinned_file = rq / ".subrepo_runtime" / "repos" / name / rel_path
     mirror = mirror_root / name
@@ -125,6 +152,22 @@ def compare(name: str, rel_path: str, *, rq: Path = RQ,
         raise Unusable(f"no local mirror to read origin/main from: {mirror}")
 
     main_sha = _git(mirror, "rev-parse", "origin/main").strip()
+
+    # The local ref is not evidence about the remote until it is checked against
+    # it. Without this, a stale mirror that happens to agree with the pin exits 0.
+    mirror_state = "unchecked (--allow-stale-mirror)"
+    if not allow_stale_mirror:
+        try:
+            remote_sha = remote_main_sha(mirror)
+        except Unusable as exc:
+            raise Unusable(f"could not observe remote main ({exc}) — refusing "
+                           f"rather than trusting a possibly stale local ref")
+        if remote_sha != main_sha:
+            raise Unusable(
+                f"local origin/main is STALE: local={main_sha[:12]} "
+                f"remote={remote_sha[:12]}. Refusing — a clean result here would "
+                f"mean the reviewed main was never observed.")
+        mirror_state = "verified against remote"
     main_date = _git(mirror, "log", "-1", "--format=%cI", main_sha).strip()
     pinned_sha = _git(rq / ".subrepo_runtime" / "repos" / name,
                       "rev-parse", "HEAD").strip()
@@ -148,16 +191,19 @@ def compare(name: str, rel_path: str, *, rq: Path = RQ,
             diffs.append({"key": key, "pinned": av, "main": bv})
     return {"subrepo": name, "path": rel_path, "pinned_sha": pinned_sha,
             "main_sha": main_sha, "main_committed_at": main_date,
+            "mirror_state": mirror_state,
             "in_sync": pinned_sha == main_sha, "diffs": diffs,
             "n_keys_compared": len(set(a) | set(b))}
 
 
 def scan(*, rq: Path = RQ,
-         mirror_root: Path = Path("/Users/renhao/git/github")) -> dict:
+         mirror_root: Path = Path("/Users/renhao/git/github"),
+         allow_stale_mirror: bool = False) -> dict:
     results, refusals = [], []
     for name, rel in WATCHED:
         try:
-            results.append(compare(name, rel, rq=rq, mirror_root=mirror_root))
+            results.append(compare(name, rel, rq=rq, mirror_root=mirror_root,
+                                   allow_stale_mirror=allow_stale_mirror))
         except Unusable as exc:
             refusals.append({"subrepo": name, "path": rel, "detail": str(exc)})
     return {"results": results, "refusals": refusals,
@@ -168,7 +214,8 @@ def render(res: dict) -> str:
     lines = []
     for r in res["results"]:
         head = (f"{r['subrepo']}/{r['path']}: pinned={r['pinned_sha'][:8]} "
-                f"main={r['main_sha'][:8]} (committed {r['main_committed_at']}), "
+                f"main={r['main_sha'][:8]} (committed {r['main_committed_at']}, "
+                f"mirror {r['mirror_state']}), "
                 f"{r['n_keys_compared']} keys compared")
         if not r["diffs"]:
             lines.append(f"  OK    {head}")
@@ -187,9 +234,13 @@ def main(argv=None) -> int:
     ap.add_argument("--rq-root", default=str(RQ))
     ap.add_argument("--mirror-root", default="/Users/renhao/git/github")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--allow-stale-mirror", action="store_true",
+                    help="skip the ls-remote check and label the result a LOCAL "
+                         "diagnostic; offline use only, never the daily audit")
     a = ap.parse_args(argv)
 
-    res = scan(rq=Path(a.rq_root), mirror_root=Path(a.mirror_root))
+    res = scan(rq=Path(a.rq_root), mirror_root=Path(a.mirror_root),
+               allow_stale_mirror=a.allow_stale_mirror)
     if a.json:
         print(json.dumps(res, indent=2, default=str))
     else:
