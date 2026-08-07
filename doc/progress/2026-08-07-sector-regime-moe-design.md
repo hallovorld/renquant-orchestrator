@@ -1,7 +1,8 @@
 # Sector x Regime MoE — design draft (operator-directed new goal)
 
-STATUS:    DESIGN DRAFT for review. Nothing deployed. Stage 0 is a BLOCKING
-           measurement gate with a kill condition written before it runs.
+STATUS:    DESIGN DRAFT for review. Nothing deployed. Stage 0 (data
+           eligibility) and Stage 2 (the held-out incremental effect) are
+           BLOCKING gates, each with a kill condition written before it runs.
 
 WHAT:      `doc/design/2026-08-07-sector-regime-moe.md` — a hierarchical mixture
            (soft regime gate, shrunk sector-GROUP experts as additive
@@ -146,13 +147,37 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
            label source) is named as a separate question with its own
            preregistration, not a Stage-0 shortcut.
 
-NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surface.
-              The descriptive per-(sector, regime) table at all three shifts,
-              `<5 names/date` reported UNESTIMABLE rather than 0.00 — but that
-              table is DIAGNOSTIC. The gate is the fold-level CI on the held-out
-              incremental effect (see the correction below); nothing may be
-              promoted on the descriptive table. Data source is the WF replay
-              path only (VISIBLE CORRECTION 5) — the live DB is excluded.
+           VISIBLE CORRECTION 6 (codex P2 on orch#897, accepted in full). Stage
+           0 was labelled "BLOCKING, no modelling" but its kill condition was
+           the full nested-fold clustering + fit-both-arms + paired held-out Δ
+           procedure — the core model experiment, duplicating what Stages 1-2
+           already describe (§4.1(b) already attributes this exact procedure to
+           "Stage-2 minus Stage-1"). A team reading only the Stage-0 heading
+           could implement the whole MoE believing it was a read-only premise
+           check. Design doc §5 is split: Stage 0 keeps only the descriptive
+           per-(sector, regime) table and a data-eligibility kill condition
+           (can any sector form an estimable group in any regime — no
+           clustering or fitting); the nested/temporal group formation, the
+           regime-only vs. regime×group fit, the paired `Δ_fold` statistic, the
+           block bootstrap, and the directional kill rule all move to Stage 2,
+           evaluated jointly with Stage 1 as its control arm. §7's falsification
+           bullet and §8's "Stage 0 is read-only" note are now consistent with
+           the split (Stage 0 is genuinely read-only again; Stages 1-2 are
+           where `renquant-model` fitting happens, per §8's existing ownership
+           note).
+
+NEXT:      1. Stage 0 — read-only, descriptive, no modelling, parallel-safe,
+              touches no production surface. The per-(sector, regime) table at
+              all three shifts, `<5 names/date` reported UNESTIMABLE rather
+              than 0.00 — but that table is DIAGNOSTIC, and Stage 0's own kill
+              condition is a data-eligibility check (can any sector form an
+              estimable group in any regime), not a judgement on whether a
+              sector effect exists. Data source is the WF replay path only
+              (VISIBLE CORRECTION 5) — the live DB is excluded.
+           1a. Stage 1–2 — this is where model fitting and the fold-level CI on
+              the held-out incremental effect happen (VISIBLE CORRECTION 6);
+              nothing about effect existence may be promoted on Stage 0's
+              descriptive table alone.
            2. OPERATOR DECISION, design doc section 6: BEAR is the strongest
               measured regime and `entry_mode='blocked'` means its expert can
               never become a trade. Three coherent resolutions; my recommendation
