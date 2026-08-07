@@ -71,7 +71,9 @@ BEAR.max_position_pct = 0
 BEAR.cash_reserve_pct = 1
 ```
 
-Buys by regime: BULL_CALM 136 · CHOPPY 9 · BULL_VOLATILE 9 · **BEAR 0**.
+Buys by regime `[VERIFIED — same staging artifact,
+metadata.wf_gate_metadata.trade_buy_regime_counts_total, 2026-08-07]`:
+BULL_CALM 136 · CHOPPY 9 · BULL_VOLATILE 9 · **BEAR 0**.
 
 The zero is not emergent from admission gates or from the signal. It is written
 down. **The model's strongest measured regime is the one regime the risk policy
@@ -247,9 +249,15 @@ The gate is instead the **held-out incremental effect**, estimated fold-wise:
    and compare against the **bootstrap distribution's own quantiles**, never a
    hardcoded 1.96 on a single-digit number of folds.
 
-**KILL: if the fold-level CI for `Δ` covers zero, there is no sector effect
-beyond the regime axis and this goal closes NEGATIVE.** Report the CI, the
-number of folds, and the fold-to-fold group agreement whatever the verdict.
+**The gate is directional, not "significant vs. not."** Preregistered success
+criterion: proceed to Stage 2 only if the **lower bound of the fold-level CI
+for `Δ` is greater than zero**. **KILL if the CI covers zero (no detectable
+effect) OR the CI sits entirely below zero (the sector axis reliably makes
+held-out IC *worse*, not merely unhelpful) — both outcomes close this goal
+NEGATIVE.** A CI entirely below zero must not be read as "passing" just
+because it excludes zero; the sign is part of the gate, not implicit. Report
+the CI, the number of folds, and the fold-to-fold group agreement whatever the
+verdict.
 
 This is proportionate rather than ceremonial: the question is whether an entire
 sector-specialized model exists, and §2.1 already shows this evidence base can
@@ -274,10 +282,11 @@ is uninterpretable).
 
 Add `δ_{r,g}` on top of the Stage-1 winner. Same preregistration.
 
-**KILL CONDITION:** the Stage-0 fold-level CI for `Δ` covers zero — same
-statistic, same bootstrap, now on the full model rather than the score
-adjustment alone. Complexity that does not clear its own control is removed, not
-"kept for later".
+**KILL CONDITION:** same directional rule as Stage 0, now on the full model
+rather than the score adjustment alone — same statistic, same bootstrap.
+Proceed only if the fold-level CI for `Δ` has its lower bound greater than
+zero; **KILL if the CI covers zero or sits entirely below zero.** Complexity
+that does not clear its own control is removed, not "kept for later".
 
 ### Stage 3 — economics, not IC
 
@@ -315,7 +324,10 @@ decision, not a modelling one:
    `cash_reserve_pct` reduced, gated on the Stage-3 economics and preregistered
    before Stage 0 output is seen.
 3. **Route BEAR skill into the EXIT side instead of entries.** BEAR already has
-   12 sells and no buys; a signal that ranks well in BEAR can improve *which
+   12 sells and no buys `[VERIFIED — same staging artifact,
+   metadata.wf_gate_metadata.trade_sell_regime_counts_total.BEAR=12 /
+   trade_buy_regime_counts_total has no BEAR key, 2026-08-07]`; a signal that
+   ranks well in BEAR can improve *which
    positions are exited* without any change to entry policy. **This is the
    cheapest path to using the strongest measured signal, and it does not touch
    the entry risk posture at all.** I would start here.
@@ -326,8 +338,9 @@ decision, not a modelling one:
 
 Stated now so it cannot be rationalized later:
 
-* The Stage-0 fold-level CI for the held-out incremental effect covers zero → no
-  sector effect beyond regime, goal closes NEGATIVE.
+* The Stage-0 fold-level CI for the held-out incremental effect covers zero, or
+  sits entirely below zero → no sector effect beyond regime, or the sector axis
+  actively harms held-out IC; either way the goal closes NEGATIVE.
 * Groups disagree badly across folds (low adjusted Rand index) while `Δ` looks
   positive → the "effect" is fold-specific carving, not a durable partition, and
   the positive result is not believed.

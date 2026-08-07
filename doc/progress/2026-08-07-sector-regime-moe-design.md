@@ -24,7 +24,8 @@ WHY/DIR:   Operator directive 2026-08-07: "根据不同 sector 不同 regime 的
                today's behaviour instead of producing confident garbage.
 
 EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json
-                          (metadata.wf_gate_metadata.model_placebo_profile.per_regime)
+                          (metadata.wf_gate_metadata.model_placebo_profile.per_regime,
+                          .trade_buy_regime_counts_total, .trade_sell_regime_counts_total)
                           + pinned strategy_config.json + config_fingerprint_fields.sector_map
            prod or exp:   experiment — staging WF artifact, not a prod artifact
            existing data: `wf_gate_metadata` contains ZERO keys matching `sector`;
@@ -50,7 +51,13 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
 
            entry policy `[VERIFIED — pinned strategy_config.json]`
              BEAR.entry_mode='blocked', max_position_pct=0, cash_reserve_pct=1
-             buys: BULL_CALM 136 / CHOPPY 9 / BULL_VOLATILE 9 / BEAR 0
+
+           trade counts by regime `[VERIFIED —
+             panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json,
+             metadata.wf_gate_metadata.trade_buy_regime_counts_total /
+             trade_sell_regime_counts_total, 2026-08-07]`
+             buys:  BULL_CALM 136 / CHOPPY 9 / BULL_VOLATILE 9 / BEAR 0
+             sells: CHOPPY 36 / BULL_CALM 20 / BEAR 12 / BULL_VOLATILE 8
 
            sector map `[VERIFIED — config_fingerprint_fields.sector_map]`
              144 tickers -> 13 sectors; telecom 1, commodity 2, real_estate 3
@@ -87,6 +94,16 @@ EVIDENCE:  artifact:      panel-ltr.alpha158_fund.weekly_20260706T230931Z.stagin
            single-digit fold count. The original spread-vs-noise-band condition
            is WITHDRAWN.
 
+           VISIBLE CORRECTION 3 (codex on orch#897, accepted in full). The
+           nested-temporal Stage-0 gate as first written killed only when the
+           fold-level CI for `Δ` covered zero, which let a CI sitting entirely
+           below zero — sector specialization reliably WORSENING held-out IC —
+           pass the gate under a literal "does it cover zero" reading. The
+           gate is now directional: proceed to Stage 2 only if the CI's lower
+           bound is greater than zero; KILL if the CI covers zero OR sits
+           entirely below zero. Applied identically to the Stage 2 kill
+           condition and the falsification section (design doc §5, §7).
+
 NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surface.
               The descriptive per-(sector, regime) table at all three shifts,
               `<5 names/date` reported UNESTIMABLE rather than 0.00 — but that
@@ -97,7 +114,8 @@ NEXT:      1. Stage 0 — read-only, parallel-safe, touches no production surfac
               measured regime and `entry_mode='blocked'` means its expert can
               never become a trade. Three coherent resolutions; my recommendation
               is routing BEAR skill to the EXIT side (BEAR already has 12 sells
-              and 0 buys), which uses the signal without touching entry risk.
+              and 0 buys — see "trade counts by regime" evidence above), which
+              uses the signal without touching entry risk.
            3. Ownership on execution: model internals in `renquant-model`,
               harness in `renquant-backtesting`. NOT here — the orchestrator does
               not grow model internals (CLAUDE.md Hard Boundaries).
