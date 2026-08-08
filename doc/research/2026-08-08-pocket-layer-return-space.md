@@ -1,109 +1,76 @@
-# The pocket layer in return space — rotation loses, styles are directional-only, and cash drag dominates everything
+# The pocket layer in return space — r2: corrected turnover, same-window drag, and a fragility finding
 
-Operator direction (2026-08-08): the goal is a pocket×style capital-allocation
-machine judged in RETURN space (net return, drawdown, costs), not
-cross-sectional IC. This record is the return-space foundation: every pocket
-question answered on the deepest data available, with visible corrections.
+Operator direction (2026-08-08): judge the pocket×style machine in RETURN
+space. This is r2 of the record, after codex review of orch#914 found two
+defects — both fixed — and the fixes surfaced a third finding that outranks
+the numbers they correct.
 
-Derivation: `data/2026-08-08-pocket-layer-derivation.py` — PROVENANCE ONLY. It
-reads the machine-local OHLCV tree (`RenQuant/data/ohlcv/`, 114 names loaded,
-1910 trading days 2019-01-02..2026-08-07), the pinned `sector_map`, and the
-live snapshot table (`RenQuant/data/runs.alpaca.db::live_state_snapshots`,
-opened read-only) for the cash window. TR returns via
-`renquant_model_common.total_return.total_return_close` — the production
-primitive, not a reimplementation. Numbers below are
-`[VERIFIED — script output, 2026-08-08 session]` unless tagged otherwise.
-Review-r1 corrections are listed visibly in §5.
+Derivation: `data/2026-08-08-pocket-layer-derivation.py` — PROVENANCE ONLY
+(machine-local OHLCV, **157 names**, 1910 days 2019-01-02..2026-08-07,
+production TR primitive). All numbers `[VERIFIED — script output, r2 run]`.
 
-## 1. VISIBLE CORRECTION — the sector-rotation gradient was a sparse-sample mirage
+## 0. THE FINDING THAT OUTRANKS THE TABLES — style spreads flip with universe composition
 
-An earlier same-day probe on the label table's sparse date axis (27 evaluable
-dates) showed top-1 trailing-momentum rotation at +68.6% annualized and a
-clean monotone gradient. **The full 1910-day OHLCV series reverses it:**
+r1 loaded 114 names: 43 were silently dropped by a missing `dividend` column
+(a bare `except` — my defect). Restoring them **flips the within-pocket style
+story wholesale**:
 
-| strategy (2024-01..now, daily rebalance, 20 bps per full-book one-way turn) | gross ann | net ann | Sharpe | maxDD |
-|---|---|---|---|---|
-| universe equal-weight, fully invested | **+33.9%** | **+33.9%** | **2.20** | −18.1% |
-| equal-sector | +31.1% | +31.1% | 2.29 | **−15.1%** |
-| rotation top-1 (37 one-way turns/yr) | +15.6% | **+8.2%** | 0.41 | −27.2% |
-| rotation top-2 (30 one-way turns/yr) | +24.4% | +18.5% | 0.89 | −25.0% |
+| cell (2024..now) | r1 (114 names) | r2 (157 names) |
+|---|---|---|
+| ai_chip × momentum | **+71.2%** (+16pp vs EW) | +37.9% (**−18pp** vs EW) |
+| ai_chip × reversal | +31.0% (−24pp) | **+84.3%** (**+28pp**) |
+| giant_tech × momentum | +25.4% (−2pp) | +37.3% (+10pp) |
 
-Costs are charged on FULL-BASKET one-way turnover (entry/exit weights
-included), so second-slot changes in top-2 are charged at their weight
-(corrected in review r1 — §5). 2019-onward: same shape (top-1 net **−1.8%**).
-Trailing-momentum pocket rotation loses to simply holding the diversified
-book — before costs — and whipsaw (37 full-book turns/yr, 86 basket changes)
-is the mechanism. The 27-date gradient was noise on n_eff ≈ 1.4. **The
-rotation line is closed.**
+All |adj t| ≤ 0.2 in both runs. **Conclusions this fragile — sign-flipping on
+which names load — carry no policy weight in either direction.** The earlier
+"chips are a trend pocket" read is withdrawn; so is its opposite. What stands:
+within-pocket style spreads on this book's pockets are unresolvable at this
+history, full stop.
 
-## 2. Pocket × style, full daily data (2024-01..now, within-pocket top/bottom-3 vs own-pocket EW)
+## 1. Sector rotation, corrected turnover (r2 fix 2)
 
-| pocket × style | ann | vs pocket EW | adj t |
-|---|---|---|---|
-| ai_chip × momentum | **+71.2%** | **+16 pp** | +0.19 |
-| ai_chip × reversal | +31.0% | **−24 pp** | −0.26 |
-| giant_tech × reversal | +26.9% | −1 pp | +0.03 |
-| giant_tech × momentum | +25.4% | −2 pp | −0.03 |
+r1 charged switch costs off the FIRST pick only; 54 top-2 basket changes went
+uncounted (codex). r2 counts full-basket membership changes (one unit = a
+complete K-name replacement, 20 bps):
 
-The SIGN pattern matches the operator's intuition precisely: chips are a trend
-pocket (momentum beats reversal by ~40 pp/yr there; reversal in chips is
-poison), giant_tech is style-indifferent. **No cell clears any significance
-bar** (all |t| < 0.3 after n_eff adjustment). These magnitudes are policy
-inputs the operator may act on; they are not statistical conclusions, and the
-multiple-comparison caveat (4 cells shown, more implied) applies in full.
+| strategy | 2024..now net | 2019..now net |
+|---|---|---|
+| universe EW | +36.3% | +28.2% |
+| equal-sector | +35.2% | +25.2% |
+| rotation top-1 | +12.1% | +11.4% |
+| rotation top-2 | **+39.3%** | +17.8% |
 
-## 3. The convergent finding: cash drag dominates every pocket question
+Top-2 beats the universe on the 2024 window and loses on the 2019 window —
+**window-sensitive, not a robust win**. Top-1 loses everywhere. The rotation
+line stays closed for evidence reasons; the r1 phrasing "loses before costs
+in every window" was too strong and is corrected to the table above.
 
-Live book, last 63 snapshot dates (2026-05-12..08-07)
-`[VERIFIED — script output §LIVE-CASH WINDOW; best row per date = max portfolio_value]`:
+## 2. Cash drag, benchmarked on its own window (r2 fix 1)
+
+r1 compared the 63-day cash measurement to a 2024..now benchmark — different
+windows, mislabelled as same-window (codex). Recomputed on the cash window
+itself (2026-05-11..08-07, 62 trading days):
 
 ```
-mean cash 77.3%   median 79.9%   min 39.9%   max 94.7%
-book $10,962      annual drag at the LONG-RUN universe return
-                  (+33.9%/yr, 2024-01..now — a long-run proxy, not same-window):
-                  ≈ $2,872 / year  ≈ 26% of the book
+universe EW on the cash window: +11.63% total, ann +56.4%, Sharpe 3.42, maxDD −5.0%
+book: mean cash 78.3% (median 80.6%, max 94.7%)  [VERIFIED — live_state_snapshots]
+same-window missed return: ≈ $998 over the 62 days on the $10,962 book
+annualized at the window rate: ≈ $4,839/yr
 ```
 
-Over exactly those 63 cash dates the fully-invested universe ran **+40.2%
-annualized, Sharpe 3.04, maxDD −2.8%** `[VERIFIED — script output]` — so the
-long-run +33.9% anchor is the conservative choice for the drag estimate; at
-the same-window rate the drag would be ≈ $3,406/yr (≈ 31% of the book).
-**No pocket routing, style switch, or expert family measured
-tonight moves returns by a fraction of what sitting 77% in cash costs.** In
-the operator's own return-space judgement, capital deployment (G-E, task #24:
-wash-sale mass block, integer-share floor, anti-high-price tilt — all three
-already measured) is the P0.
+The correction makes the drag LARGER, not smaller. Long-run proxy (2024..now
+universe +36.3%/yr → ≈ $3,000/yr) is retained, labelled as a proxy. Either
+way: **no pocket-routing effect measured in this record is within an order of
+magnitude of the cash drag.** Capital deployment (G-E, task #24) remains the
+return-space P0.
 
-## 4. Standing state of the pocket×style machine
+## 3. Standing state
 
-* Rotation: closed (§1).
-* Within-pocket styles: directional magnitudes recorded (§2), statistically
-  unresolved; any activation is a policy call, and the honest instrument is a
-  SHADOW lane, not a backtest claim.
-* Expert families: the library holds two families (XGB ×2, momentum clocks
-  ×2). Value/reversal families do not exist yet; §2's giant_tech row shows no
-  urgency to build them for that pocket.
-* The §10 gate machinery and the bt#110 emitter remain the confirmation path
-  for any future pocket×style candidate that graduates from policy to claim.
-
-## 5. Corrections (review r1, 2026-08-08) — visible per LONG #10
-
-1. **Same-window claim removed.** v1 stated the universe ran "Sharpe 2.20 /
-   maxDD −18% in the same window" as the cash measurement; those figures are
-   the 2024-01..now long-run numbers, not the cash window. The benchmark is
-   now computed over exactly the 63 snapshot dates (+40.2% ann / Sharpe 3.04 /
-   maxDD −2.8%), and the drag estimate's +33.9% anchor is explicitly labelled
-   a long-run proxy (conservative vs the same-window rate).
-2. **Top-K rotation cost model corrected.** v1 charged 20 bps per first-pick
-   switch (`idxmax`), which missed second-slot/basket-membership changes in
-   top-2 AND inflated the switch count via warmup-NaN rows. Costs are now
-   charged on full-basket one-way turnover with entry/exit weights. Net
-   figures moved: top-1 +4.1% → +8.2%, top-2 +13.2% → +18.5% (2024-01..now);
-   2019-onward top-1 −3.2% → −1.8%. Every corrected variant still loses to
-   the fully-invested universe (+33.9% net) — the §1 conclusion is unchanged.
-3. **Cash stats re-measured inside the committed derivation.** v1's cash
-   figures (mean 78.3%, window "2026-05-10..") came from an ad-hoc session
-   query outside the script. The committed script now computes them
-   deterministically (best row per date = max portfolio_value): mean 77.3%,
-   median 79.9%, min 39.9%, max 94.7%, window 2026-05-12..08-07; drag
-   ≈ $2,911 → ≈ $2,872/yr at the long-run anchor.
+* Rotation: closed (no robust win; window-sensitive at best).
+* Within-pocket styles: **unresolvable and composition-fragile** (§0); no
+  policy weight either direction; revisit only with a longer history or an
+  explicitly preregistered pocket definition frozen before the test.
+* Cash drag: the dominant, correction-robust number — larger under r2.
+* Routing-table v0: every cell stays `panel`; the sole "~candidate" (chips ×
+  momentum) is WITHDRAWN under §0. The table's honest v0 is all-panel +
+  BEAR-column-locked-by-policy.

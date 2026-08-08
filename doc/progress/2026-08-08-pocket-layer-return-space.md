@@ -1,44 +1,35 @@
-# Pocket layer in return space — rotation closed, cash drag is the P0
+# Pocket layer return space — r2: both review fixes + a fragility finding
 
-STATUS:    delivered as a research record. No config, pin, or production
-           surface touched. Visible corrections inside: the same-day 27-date
-           rotation gradient (reversed by the full series, §1) and the
-           review-r1 corrections (same-window claim, top-K turnover costing,
-           cash-stat provenance — §5).
+STATUS:    delivered (r2). Both codex findings on orch#914 fixed; the fixes
+           surfaced a composition-fragility finding that withdraws the r1
+           "chips are a trend pocket" read in BOTH directions.
 
-WHAT:      doc/research/2026-08-08-pocket-layer-return-space.md + the
-           provenance derivation script (machine-local OHLCV inputs, marked
-           NOT repo-reproducible — the #913 lesson applied at authoring time).
+WHAT:      research doc rewritten as r2: (1) rotation turnover now counts
+           full-basket membership changes (r1 missed 54 top-2 changes);
+           (2) cash drag benchmarked on its own 62-day window (universe
+           +11.63% total there -> missed ~$998 in the window, ~$4,839/yr at
+           the window rate — LARGER than r1's cross-window figure);
+           (3) NEW: restoring 43 names silently dropped by a missing
+           dividend column (bare-except defect, mine) flips every
+           within-pocket style spread — ai_chip momentum +16pp -> −18pp,
+           reversal −24pp -> +28pp, all |t|<=0.2. Style spreads carry no
+           policy weight in either direction.
 
-WHY/DIR:   Operator redirected the MoE goal to a pocket×style allocation
-           machine judged in return space. This is the return-space
-           foundation: rotation tested and closed, pocket×style magnitudes
-           recorded with honest uncertainty, and the dominant lever
-           identified — the book averaged 77.3% cash over the 63 snapshot
-           dates while the universe ran +40.2% ann (Sharpe 3.04) on exactly
-           those dates.
+WHY/DIR:   codex review r1 (two blocking findings) + the composition
+           discovery during the fix. The routing-table candidate (chips x
+           momentum) is WITHDRAWN; routing table v0 is honestly all-panel.
 
-EVIDENCE:  artifact:      OHLCV tree (114 names, 1910 days) via the
-                          production TR primitive; live_state_snapshots for
-                          the cash series; pinned sector_map
-           prod or exp:   experiment — read-only over prod data
-           existing data: no return-space pocket analysis existed; all prior
-                          MoE measurement was IC-space (orch#911/#913)
-           best-known?:   yes — first full-depth rotation/style/cash-drag
-                          quantification; supersedes the same-day 27-date
-                          rotation probe (visibly corrected inside)
-           scope:         research only. Numbers (post review-r1 correction,
-                          research doc §5): rotation top-1 net +8.2% / top-2
-                          net +18.5% vs hold +33.9% (full-basket turnover
-                          costing); chips momentum +16pp (t +0.19); cash
-                          drag ≈ $2,872/yr on a $10,962 book at the long-run
-                          +33.9% anchor (same-window rate +40.2% → ≈ $3,406).
+EVIDENCE:  artifact:      corrected derivation script (provenance-only,
+                          machine-local OHLCV, 157 names, 1910 days)
+           prod or exp:   experiment — read-only
+           existing data: supersedes r1 of this same record
+           best-known?:   yes — r2 replaces r1 wholesale; r1's style table
+                          is withdrawn inside the doc, visibly
+           scope:         research + this progress doc; no production surface
 
-TESTS:     none — research record. The derivation script is committed as
-           provenance and clearly marked machine-local.
+TESTS:     none — research. The script reruns end-to-end on this machine;
+           numbers in the doc are its verbatim output.
 
-NEXT:      G-E (task #24) as the return-space P0: sequence the three measured
-           deployment blockers (wash-sale mass block materiality floor,
-           integer-share floor / fractional enablement, anti-high-price tilt)
-           by dollar impact and drive the first one to a reviewed fix —
-           pending operator confirmation of the pivot.
+NEXT:      Land this r2, then drive G-E (task #24) as the return-space P0 —
+           the cash drag is the only correction-robust large number in the
+           record — pending operator confirmation.
