@@ -51,9 +51,14 @@ EVIDENCE:  artifact:      emitted replay matrix (1685 dates, lane
            panel+clf+slow-momentum [VERIFIED — config read]; no separate
            mean-reversion scorer exists to replay.
 
-TESTS:     the derivation script is committed and re-runnable; steps 1/2/4
-           recompute from the committed CSV alone, step 3 from its r_top3
-           column. The emitter itself carries 5 tests (bt#110, merged).
+TESTS:     the committed script's default (verify) mode recomputes all four
+           gate steps for both rows from the committed CSV alone
+           (`python doc/research/data/2026-08-08-s10-confirmatory-derivation.py`);
+           rerun this session reproduced every reported number above. The
+           original derivation sits behind `--derive`, marked provenance-only
+           — it needs uncommitted machine-local inputs (replay parquets,
+           Stage −1 JSON, labels DB) and is not runnable from the repo alone.
+           The emitter itself carries 5 tests (bt#110, merged).
 
 NEXT:      clf (fwd60) is the one unexplored challenger: per §10.4 it needs
            its own diagnostic → dated amendment naming ONE primary (with the

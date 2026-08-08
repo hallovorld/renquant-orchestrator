@@ -18,7 +18,10 @@ outcome, and this record is the deliverable.**
 
 Derivation artifacts are IN THIS PR (the #911 review requirement):
 `data/2026-08-08-s10-confirmatory-rows.csv` (280 rows: date, ic_p, ic_b, delta,
-r_top3, contaminated) and `data/2026-08-08-s10-confirmatory-derivation.py`.
+r_top3, contaminated) and `data/2026-08-08-s10-confirmatory-derivation.py`. The
+script's default (verify) mode recomputes all four gate steps from the
+committed CSV alone; the derivation itself is provenance-only behind
+`--derive` (it needs uncommitted machine-local inputs).
 
 ## The governed row (purged, n=278, n_eff=13.9)
 
@@ -30,8 +33,9 @@ r_top3, contaminated) and `data/2026-08-08-s10-confirmatory-derivation.py`.
 | 4 level guard | mean IC_blend ≥ mean IC_panel | +0.0323 vs +0.0431 | **FAIL** |
 
 Full-sample row (descriptive, 280 dates): same shape (−0.0101, all three fail).
-`[VERIFIED — derivation script output, this session; reproducible from the
-committed CSV for steps 1/2/4 and from the CSV's r_top3 column for step 3]`
+`[VERIFIED — script verify-mode rerun this session; all four steps recompute
+from the committed CSV alone via
+python data/2026-08-08-s10-confirmatory-derivation.py]`
 
 ## What this means
 
