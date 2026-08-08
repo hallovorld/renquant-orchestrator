@@ -1,10 +1,18 @@
 # Scorer identity monitor — a retired/added lane is not a silent scorer swap
 
-STATUS:    MERGED-READY. Behaviour change is wording + a new `lifecycle` field.
+STATUS:    delivered. Behaviour change is wording + a new `lifecycle` field.
            NO severity changes: a lineup change with no recorded event is still
            CRITICAL. Nothing is silenced and no gate is loosened.
 
-WHY:       Five CRITICAL "silent scorer swap" alerts were open. Four of them are
+WHAT:      `scorer_identity_monitor.LaneChange` gains a `lifecycle` field
+           ("added" | "retired" | None) derived from the existing `_ABSENT`
+           sentinel. A lane leaving or joining the lineup now reports a
+           distinct CRITICAL line naming the transition instead of the
+           self-contradicting "swap ... (lane not stamped)" text; a genuine
+           same-lane substitution keeps the original "silent scorer swap"
+           wording unchanged.
+
+WHY/DIR:   Five CRITICAL "silent scorer swap" alerts were open. Four of them are
            not swaps. Two are append-only ledger appends (a separate fix, see
            NOT IN THIS PR); the other two are a lane leaving the lineup and a
            lane joining it. The alert asserted "swap" while printing
@@ -83,3 +91,7 @@ NOT IN THIS PR (each is separately specified and separately gated):
      event, and if nothing records it, that is a gap worth its own decision rather
      than an auto-INFO. Defaulting to "explained" here would have been the same
      mistake as silencing.
+
+NEXT:      Fix the fail-open shadow-receipt fan-out (item 1 above) BEFORE any new
+           receipt writer lands, since new receipts would otherwise feed the same
+           hole. Ledger-append receipts (item 2) are blocked on that fix.
