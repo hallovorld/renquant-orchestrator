@@ -1,78 +1,90 @@
-# MoE revision 2 — a power gate that can kill the line, and soft sector membership
+# MoE revision 3 — champion/challenger per sector, with every threshold frozen
 
-STATUS:    DESIGN, operator-directed. Nothing deployed, nothing measured beyond
-           the arithmetic below. Adds two BLOCKING stages ahead of the existing
-           Stage 0, both runnable today because neither needs the served matrix.
+STATUS:    DESIGN. Supersedes revision 2 in the same file, addressing both codex
+           P1s and an operator architecture correction. Nothing deployed.
+           Stages -1 and 0' run on data that already exists.
 
-WHAT:      (a) Stage -1 power gate: the effective sample size for a date-level
-           claim under a 20-day label, the resulting MDE, and a kill condition
-           if the MDE exceeds the plausible effect.
-           (b) Stage 0' positive control with an empirical power curve — the
-           design had a placebo but no positive control at all.
-           (c) Sector membership becomes a soft vector from published ETF
-           holdings instead of a hand-written thematic partition.
+WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
+           (fast momentum / slow momentum / mean reversion / classifier), not
+           additive corrections on one base. Panel is the per-sector champion by
+           default; a challenger takes a sector only by clearing a frozen gate.
+           (b) Every Stage -1 threshold frozen numerically BEFORE it runs.
+           (c) Stage 0' fully specified: membership vintage, fold-local
+           injection point, delta grid, replicate count, embargoed-only
+           evaluation.
 
-WHY/DIR:   Operator asked whether the design is optimal and whether the
-           experiments and data are right. Two answers, both negative and both
-           arithmetic rather than opinion:
-           - The motivating measurement sits at its own detection threshold.
-           - The hand labels are not a partition; four of the fifteen describe
-             one correlated block, and a name that is genuinely in three of them
-             must pick one.
+WHY/DIR:   Two independent corrections.
+           OPERATOR: revision 2's additive delta cannot express "chips use fast
+           momentum, mega-cap tech uses mean reversion" -- those are different
+           functional forms, not offsets. The correction form could never have
+           expressed the hypothesis being tested.
+           CODEX (orch#910, 2x CHANGES_REQUESTED, both P1): the MDE comparison
+           target and the dIC->bps transfer were deferred, so the analyst could
+           pick the threshold after seeing the result -- the kill condition was
+           not falsifiable. Stage 0' froze none of the choices that decide
+           whether the control measures recovery or leaks an outcome-shaped
+           treatment across the split.
 
-EVIDENCE:  artifact:      strategy_config.json `sector_map` (159 names, 15
-                          labels); the per-regime IC table in revision 1
-                          (orch#904) read from
-                          panel-ltr.alpha158_fund.weekly_20260706T230931Z.staging.json
-           prod or exp:   prod — the live sector map and the gate's own stamped
-                          per-regime profile
-           existing data: no power analysis, no effective-sample-size
-                          calculation, and no positive control exist anywhere in
-                          revision 1 or its progress doc
-           best-known?:   yes for the n_eff and MDE figures — first time either
-                          has been computed for this line. The per-date IC
-                          autocorrelation was measured earlier (the skill-gate
-                          kill); this doc is the first to carry it through to a
-                          power statement.
-           scope:         design document only. No code, no config, no pin, no
+EVIDENCE:  artifact:      runs.alpaca.db candidate_scores(role='candidate') join
+                          ticker_forward_returns.fwd_20d; per-DB coverage query
+                          over RenQuant/data/runs.alpaca*.db; strategy_config
+                          shadow_models inventory
+           prod or exp:   prod -- the live runs DB, the live shadow lane DBs and
+                          the pinned strategy config
+           existing data: no power analysis, no effective-sample-size figure, no
+                          positive control and no frozen threshold existed in
+                          revision 1 or 2
+           best-known?:   yes -- first measurement of sd(IC_t) from served
+                          scores, and first per-lane coverage census. Supersedes
+                          this doc's own revision-2 numbers, which used an
+                          ASSUMED sd of 0.15.
+           scope:         design document only. No code, config, pin or
                           production surface.
 
-           n_eff = n_dates / H, H = 20:
-             BULL_CALM 454 -> 22.7   BEAR 55 -> 2.8
-             BULL_VOLATILE 41 -> 2.0   CHOPPY 41 -> 2.0
-           MDE = 2.8 * sd(IC_t) / sqrt(n_eff); at sd = 0.15, BEAR MDE = 0.253.
-           Reported BEAR genuine IC at 1x = +0.245. The motivating number is AT
-           the noise floor.
+           MEASURED, live 33-date series (2026-05-04..07-10, median 71 names):
+             sd(IC_t) = 0.1233     panel mean IC = +0.0223
+           FROZEN ceiling: dIC = 0.05 (= 2.2x the panel's ENTIRE mean IC)
+           MDE = 2.8 * sd / sqrt(n_eff):
+             live 33 dates   n_eff  1.65   MDE 0.269   KILL
+             full DB 541     n_eff 27.05   MDE 0.066   KILL
+             need MDE<0.05   n_eff 47.7    -> 953 dates
+           So the UNPAIRED comparison is dead on every history this book has.
+           The gate therefore reduces to ONE measurable inequality:
+             sd(paired dIC) < 0.0929 on the frozen 541-date history.
 
-           This is consistent with, and quantifies, something revision 1
-           observed but could only call implausible: the BEAR placebo swinging
-           +0.108 -> +0.016 -> -0.122 across shift multiples is sampling noise on
-           fewer than three effective observations.
+           LANE COVERAGE (why the sector x expert matrix cannot be built from
+           live shadow data -- absence of data, not lack of power):
+             panel 541 | clf 38 | blend 9 | momentum 4 | rb_mom 4
+             momentum_fast 0 | rb_fast 0
+           Those lanes activated 2026-08-02/04. The unblock is OFFLINE REPLAY of
+           each challenger over the 541-date history, which needs no served
+           matrix and is not blocked by orch#905.
 
-THE REORDERING THIS FORCES: revision 1 calls regime "the ONLY well-populated
-           axis". True of dates, false of information. A regime effect is a
-           date-level quantity (every name on a date shares the regime), so it is
-           identified only across dates -> n_eff 2-3 in three of four regimes. A
-           sector effect varies WITHIN a date. The axis treated as safe is the
-           weak one; regime x sector inherits the worse of the two.
+VISIBLE CORRECTIONS in this revision:
+           * revision 2 used an ASSUMED sd(IC_t) = 0.15; the measured value is
+             0.1233. Direction of the conclusion is unchanged (sqrt(n_eff)
+             dominates), but the assumed figure is withdrawn.
+           * An earlier probe reported 4 usable dates and sd = 0.0953. That used
+             "first run per date", and many runs persist ZERO candidate rows.
+             Taking the run with the most candidates per date gives 33 dates.
+           * An earlier statement that live history is 80 dates was the
+             run_type='live' subset. runs.alpaca.db holds 541 scored dates back
+             to 2024-01-02.
 
-TESTS:     none — design only. The arithmetic in the doc is reproducible from
-           n_dates and H; the empirical n_eff (block bootstrap, gap >= H) is
-           specified as Stage -1's first deliverable rather than asserted here.
+TESTS:     none -- design only. Every figure above is reproducible from the two
+           tables named under EVIDENCE; the paired sd(dIC) that decides the gate
+           is Stage -1's first deliverable and is deliberately NOT asserted here.
 
-NEXT:      Run Stage -1, the power gate: estimate n_eff empirically per regime
-           via block bootstrap (gap >= H), take min(rule-of-thumb, bootstrap),
-           convert the MDE to bps via the section 4 transfer function, and
-           apply the kill condition. Runs today — not blocked by orch#905.
+NEXT:      Run Stage -1: replay each challenger over the frozen 541-date
+           history, compute sd(dIC) per (sector, challenger) pair, and apply the
+           frozen inequality sd(dIC) < 0.0929. Produce the dIC->bps transfer in
+           the same pass. Blocked by nothing.
 
 NOT DECIDED HERE:
-
-  * Whether to shorten the label horizon for the gating question, extend
-    history, or drop regime conditioning and test membership pooled. Stage -1's
-    output chooses; deciding in advance is what this doc exists to prevent.
-  * Universe expansion. Breadth helps every date immediately, but NO amount of
-    universe expansion changes n_eff — only history depth or label horizon does.
-    Expansion is also a live-system change (traded universe, shadow config
-    fingerprint re-stamp, history backfill) with its own gates.
-  * orch#905 still blocks Stages 0-4. Stages -1 and 0' deliberately do not
-    depend on it.
+  * Which challenger wins any sector. The routing table is selected inside each
+    fold and frozen before embargoed dates; choosing now is the failure mode
+    section 6 exists to prevent.
+  * Universe expansion: breadth helps every date immediately, but NO expansion
+    changes n_eff -- only dates do. It is also a live-system change (traded
+    universe, shadow config fingerprint re-stamp, history backfill).
+  * orch#905 still blocks Stages 1-4. Stages -1 and 0' deliberately do not.

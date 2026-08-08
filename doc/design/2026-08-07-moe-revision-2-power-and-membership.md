@@ -1,296 +1,287 @@
-# Sector × Regime MoE — revision 2
+# MoE revision 3 — champion/challenger per sector, with every threshold frozen
 
-## Two changes, both of which can kill the line before any modelling
+Supersedes revision 2 in this same file. Revision 1
+(`2026-08-07-sector-regime-moe.md`, orch#904) stands only where this document
+does not override it.
 
-1. **A power gate that fires before Stage 0.** The design's motivating
-   measurement sits at its own detection threshold. That was never computed.
-2. **Sector membership is soft and externally defined**, not a hand-written
-   partition into thematic buckets that overlap by construction.
+Two changes since revision 2, one from the operator and one from codex review:
 
-Revision 1 (`2026-08-07-sector-regime-moe.md`, orch#904) stands except where
-this document overrides it. What it got right — additive shrunk corrections on a
-shared base, nested/temporal group formation, a soft regime gate, kill conditions
-written before each stage — is retained verbatim and is not restated here.
+* **The architecture was wrong.** Revision 2 made experts additive corrections
+  `δ` on one shared base. A correction cannot express "chips use fast momentum,
+  mega-cap tech uses mean reversion" — those are different functional forms, not
+  offsets. §2 replaces it.
+* **The kill gate was not falsifiable.** Codex, correctly: the MDE comparison
+  target and the `ΔIC→bps` transfer were both deferred, so the analyst could
+  choose the threshold after seeing the result. §4 freezes every number, and §5
+  fully specifies the positive control.
 
 ---
 
-## 1. The calculation revision 1 never did
+## 1. Bottom line
 
-The label is `fwd_20d`. Two consecutive dates share 19 of the 20 days in their
-forward window, so **per-date IC is not an independent observation**. The number
-of effectively independent observations for any *time-averaged* claim is
+**Default is the panel. A challenger takes a sector only by clearing a frozen
+gate. A sector with no winning challenger keeps the panel, and that is a
+successful outcome, not a failed one.**
+
+The worst case of this design is today's system. That property is the reason to
+prefer it — but it holds **only if the gate is honest**. An in-sample gate will
+swap noise into production and the worst case becomes worse than today. §4 and
+§6 are therefore the load-bearing sections; the architecture in §2 is the easy
+part.
+
+---
+
+## 2. Architecture: champion / challenger, per sector
 
 ```
-n_eff  ≈  n_dates / H        H = 20 (the label horizon)
+for each sector s:
+      ┌── CHAMPION ────────────────────────────────┐
+      │  panel-ltr.alpha158_fund   (today's model) │ ◄── default, always eligible
+      └────────────────────────────────────────────┘
+                          ▲
+                          │  replaced ONLY if a challenger clears the §4 gate
+                          │  on embargoed validation folds
+      ┌── CHALLENGERS (already trained, already running) ──┐
+      │  momentum_fast     fast momentum                   │
+      │  momentum          slow momentum                   │
+      │  rb / rb_mom       mean reversion                  │
+      │  panel-clf         top-decile classifier           │
+      │  (optional) a model trained on sector s alone      │
+      └────────────────────────────────────────────────────┘
 ```
 
-`[DERIVED — n_dates ÷ 20. Consistent with the measured autocorrelation: the
-per-date IC series shows no significant dependence at lag 20/25/30/40
-(p = 0.452/0.344/0.315/0.065; block bootstrap L=60, n=465), i.e. independence
-arrives at roughly the label horizon and not before.]`
+Scores are combined on **rank**, not raw score: the lanes are on different
+scales (the panel is z-scale, the calibrated output is a probability), and a
+rank blend is invariant to that. This is not a modelling choice, it is the
+existing measured fact that mixing the two scales is what saturated the drift
+alarm.
 
-| regime | n_dates | **n_eff** |
+**Why this beats revision 2's shrinkage form.** Both fall back to the panel when
+a cell has no signal. Only this one can *switch hypothesis class*, which is the
+thing being tested. Revision 2's `δ` could never have expressed the operator's
+actual hypothesis.
+
+**Why it does not need training.** Every challenger listed above already exists
+as a trained artifact and already scores the live universe:
+
+| lane | artifact | live scored dates |
 |---|---|---|
-| BULL_CALM | 454 | **22.7** |
-| BEAR | 55 | **2.8** |
-| BULL_VOLATILE | 41 | **2.0** |
-| CHOPPY | 41 | **2.0** |
-| (all dates) | 465 | **23.2** |
+| panel (champion) | `artifacts/prod/panel-ltr.alpha158_fund.json` | **541** |
+| clf top-decile | `artifacts/shadow/panel-clf.top-decile.fwd60.json` | 38 |
+| blend | `runs.alpaca_shadow_blend.db` | 9 |
+| momentum (slow) | `runs.alpaca_shadow_blend_mom.db` | **4** |
+| mean reversion | `runs.alpaca_shadow_blend_rb_mom.db` | **4** |
+| momentum_fast | `runs.alpaca_shadow_blend_mom_fast.db` | **0** |
+| rb_fast | `runs.alpaca_shadow_blend_rb_fast.db` | **0** |
 
-Minimum detectable effect for a mean-IC claim, 80% power, α=0.05 two-sided,
-`MDE ≈ 2.8 · sd(IC_t) / √n_eff`:
+`[VERIFIED — per-DB query over RenQuant/data/runs.alpaca*.db, 2026-08-08]`
 
-| sd(IC_t) | BEAR MDE | BULL_CALM MDE |
+**So the sector × expert matrix cannot be built from live shadow data.** Two
+lanes have zero observations and two have four; those lanes activated
+2026-08-02/04. This is not a power problem, it is an absence of data.
+
+**The unblock is offline replay, not waiting.** Each challenger is a model and
+can score the historical feature matrix over the full 541-date history. That is
+Stage 1's first task and it does **not** depend on orch#905.
+
+---
+
+## 3. What is actually being estimated
+
+Per sector `s` and challenger `c`, the quantity is a **paired** per-date
+difference against the champion, on the same names and the same dates:
+
+```
+Δ_{s,c,t}  =  IC_s( challenger c , t )  −  IC_s( panel , t )
+```
+
+Pairing is not a convenience. The common market factor is the dominant term in
+`IC_t` and it is *identical* in both arms, so differencing removes it. §4 shows
+the entire viability of this line rests on how much it removes.
+
+---
+
+## 4. Stage −1 — the kill gate, every number frozen before it runs
+
+### 4.1 Frozen inputs (fixed here; changing any of them voids the prereg)
+
+| input | frozen value | source |
 |---|---|---|
-| 0.10 | 0.169 | 0.059 |
-| 0.15 | **0.253** | 0.088 |
-| 0.20 | 0.338 | 0.118 |
+| label horizon `H` | 20 trading days | `fwd_20d`, the traded label |
+| `n_eff` rule | `n_dates / H` | independence arrives at the label horizon |
+| `sd(IC_t)` | **0.1233** | measured, live 33-date series |
+| panel mean IC | **+0.0223** | measured, same series |
+| history for the gate | **541 dates**, 2024-01-02 .. 2026-08-07 | `runs.alpaca.db` |
+| `n_eff` at that history | **27.05** | 541 / 20 |
+| power / α | 80% / 0.05 two-sided | `MDE = 2.8 · sd / √n_eff` |
 
-**The reported BEAR genuine IC is +0.245 at 1x.** At a plausible
-`sd(IC_t) = 0.15` the MDE is **0.253**. The motivating number is *at* the noise
-floor, not above it.
+`[VERIFIED — candidate_scores(role='candidate') ⋈ ticker_forward_returns.fwd_20d,
+33 usable dates 2026-05-04..07-10, median 71 names/date]`
 
-This also explains, quantitatively, the thing revision 1 noticed and could only
-gesture at: the BEAR placebo swinging +0.108 → +0.016 → −0.122 across shift
-multiples is not the leakage floor moving. **It is sampling noise on fewer than
-three effective observations.**
+### 4.2 The frozen plausible-effect ceiling
 
-### 1.1 The consequence that reorders the whole design
+**`ΔIC_ceiling = 0.05`.**
 
-Revision 1 calls regime "the ONLY well-populated axis (42–489 dates each)". That
-is true of *dates* and false of *information*.
+Justification, fixed in advance: the panel's *entire* measured mean IC is
+`+0.0223`. A ceiling of 0.05 asserts that a sector-routing rule could plausibly
+add **2.2× the whole existing edge of the model**. That is already generous. Any
+experiment whose MDE exceeds it cannot distinguish a real effect from noise
+inside the range of effects worth having.
 
-* **A regime effect is a date-level quantity.** Every name on a date shares the
-  regime, so it is identified only from variation *across* dates → `n_eff` 2–3
-  inside any regime except BULL_CALM.
-* **A sector effect varies within a date.** Different names on the same day sit
-  in different groups, so the cross-section carries real information about
-  between-group differences at every date.
+### 4.3 The frozen ΔIC → bps transfer
 
-So the axis revision 1 treats as safe is the weak one, and the axis it treats as
-the risky addition is the better-identified one. **The regime × sector
-interaction is the worst of both** — it inherits the 2–3 effective observations
-of the regime axis.
-
-**This does not make the sector axis free.** A claim about the *time-averaged*
-sector effect is still bounded by `n_eff ≈ 23` overall. The cross-section
-sharpens each date's estimate; it does not manufacture independent dates.
-
----
-
-## 2. Stage −1 (NEW, blocking, cheap): the power gate
-
-Runs before Stage 0. Needs no new data source, so it is **not blocked by
-orch#905**, unlike everything downstream.
-
-1. Measure `sd(IC_t)` per regime on the existing per-date IC series.
-2. Estimate `n_eff` **empirically** rather than by the `n/H` rule of thumb:
-   block bootstrap the per-date IC series with gap ≥ H, and take
-   `n_eff = (sd(IC_t) / se_boot(mean IC))²`. The rule of thumb is the prior; the
-   bootstrap is the measurement. **Report both and use the smaller.**
-3. Convert MDE from IC units to basis points via the transfer function in §4.
-4. Compare the MDE in bps to round-trip cost.
-
-**KILL CONDITION.** If the MDE in bps exceeds the realistic effect size — and
-the honest prior for a sector-group correction on a scorer that already sees
-sector features is *small* — the experiment cannot answer its own question and
-the line stops here. This is the G1 EW precedent: that prereg was blocked
-because power at the MDE was ≈ α, and shipping it anyway would have produced an
-uninterpretable null.
-
-**A null result without this gate is uninterpretable**: "no effect" and "no
-power to see an effect" are the same output.
-
----
-
-## 3. Stage 0′ (NEW, blocking): positive control
-
-Revision 1 has a placebo (it estimates the leakage floor) but **no positive
-control**. A placebo proves the pipeline does not hallucinate signal. It does
-not prove the pipeline can *find* signal that is there.
-
-**Procedure.** Inject a synthetic sector-group effect of known magnitude δ into
-the forward returns of one group in one regime, run the entire unmodified
-pipeline end to end, and record the recovered estimate and its CI. Repeat over a
-grid of δ and over seeds.
-
-**Three things it must produce:**
-
-* **Recovery** — the point estimate tracks the injected δ with no systematic
-  attenuation the design does not already expect from shrinkage.
-* **Calibration** — the 95% CI covers the true δ in ≈95% of seeds. An
-  under-covering CI means the effective-n estimate in §2 is wrong, and the whole
-  power gate is wrong with it.
-* **An empirical power curve** — the smallest δ recovered at 80% power. If this
-  disagrees with the analytic MDE from §2, **the analytic MDE is the one that is
-  wrong** and §2's kill condition is re-evaluated against the empirical curve.
-
-**KILL CONDITION.** The pipeline fails to recover an injected effect at twice
-the analytic MDE, or CI coverage is below 90%.
-
----
-
-## 4. State the economic transfer BEFORE measuring anything
-
-`ΔIC → Δbps` must be written down first, so the MDE can be expressed in the
-units the decision is actually made in. Otherwise the experiment optimises a
-quantity nobody trades.
-
-The precedent is on file: the Phase −1 intraday line measured a real IC of 0.03
-and a **net edge of −6.4 bps** — a genuine signal that did not clear costs. An
-IC improvement that maps below round-trip cost is not a small win, it is a loss.
-
-**Deliverable of this section, produced before Stage 1:** the mapping from ΔIC
-to Δbps at this book's turnover, position count, and cost model, plus the
-break-even ΔIC. If the §2 MDE is above break-even but the *plausible* effect is
-below it, the line stops for the same reason as §2.
-
----
-
-## 5. Sector membership: soft, external, and overlapping by design
-
-### 5.1 The current labels are not a partition
-
-Measured from the live `sector_map` `[VERIFIED — strategy_config.json,
-159 names, 15 labels]`:
+Committed before Stage −1, computed from this book's own realised selection, not
+from a textbook formula:
 
 ```
-software 26 · industrial 21 · finance 20 · ai_chip 19 · consumer 16
-datacenter_hw 14 · healthcare 12 · giant_tech 9 · energy 8 · utility 6
-real_estate 3 · commodity 2 · benchmark 1 · defensive_bonds 1 · telecom 1
+regress   r_topN,t   on   IC_t     over the frozen 541-date history
+                                    (topN = the book's actual buy rule)
+transfer  β̂  =  bps of realised top-N return per 1.0 of IC
+break-even ΔIC  =  round_trip_cost_bps / β̂
 ```
 
-`software + ai_chip + datacenter_hw + giant_tech = 68 names` across four labels
-that describe **one correlated block** under different themes. A single name is
-routinely all of: a chip company, an AI-infrastructure company, and a mega-cap
-technology company. Forcing one label per name **discards the fact that it
-belongs to several** — and that fact is the information a sector model would
-want.
+`round_trip_cost_bps` is taken from the live execution cost model at the pinned
+config, read once and recorded in the Stage −1 output. **If `β̂` is not
+significantly positive, the transfer is undefined and the line stops there** —
+an IC that does not move this book's realised return is not worth routing.
 
-Two further problems with hand themes:
+Precedent for why this must be stated first: the Phase −1 intraday line measured
+a real IC of 0.03 and a **net edge of −6.4 bps**. A genuine signal that does not
+clear costs is a loss, not a small win.
 
-* They drift with narrative. "AI infrastructure" did not exist as a category
-  three years ago; a label whose meaning changes over the sample is a
-  time-varying treatment masquerading as a fixed one.
-* They are unauditable. There is no external referent to check an assignment
-  against, so a disputed name has no resolution procedure.
+### 4.4 The gate, as one falsifiable inequality
 
-### 5.2 Replace the partition with a membership vector
+Unpaired, at the frozen inputs:
 
-Let `w_i ∈ R^K` be name `i`'s membership across `K` reference baskets, taken
-from **published ETF holdings weights** (mainstream, external, versioned,
-auditable) with GICS as the fallback for names no basket holds.
+| series | n_dates | n_eff | MDE | verdict |
+|---|---|---|---|---|
+| live scored | 33 | 1.65 | 0.269 | **KILL** |
+| full DB history | 541 | 27.05 | 0.066 | **KILL** |
+| *needed for MDE < 0.05* | *953* | *47.7* | *0.050* | threshold |
 
-The expert correction becomes a weighted sum instead of a lookup:
+**So the unpaired comparison is already dead at the frozen ceiling**, and no
+universe expansion changes it — only dates do.
 
-```
-revision 1:   δ_{r, g(i)}            g(i) = one hard bucket
-revision 2:   Σ_k  w_{i,k} · δ_{r,k}    w_i = membership weights, Σ_k w_{i,k} = 1
-```
+The line survives only through pairing (§3), and that reduces the entire gate to
+**one measurable quantity**:
 
-This is the **same softening already applied to the regime axis** — revision 1
-uses `π_r = p(regime | data)` rather than a hard regime label, for exactly the
-reason that a hard assignment treats an estimate as ground truth. Revision 2
-makes both axes soft. A hard partition is the special case `w` one-hot.
+> **GATE.** `MDE(Δ) = 2.8 · sd(Δ_{s,c,t}) / √27.05 < 0.05`
+> ⟺ **`sd(Δ_{s,c,t}) < 0.0929`**
+> measured on the frozen 541-date history, per (sector, challenger) pair.
 
-**Consequences, all deliberate:**
+| `sd(Δ)` | MDE | verdict |
+|---|---|---|
+| 0.1233 (= no cancellation at all) | 0.0664 | KILL |
+| 0.0900 | 0.0485 | PASS |
+| 0.0600 | 0.0323 | PASS |
 
-* A name in three baskets contributes to three corrections, proportionally. No
-  arbitration is needed because none is forced.
-* Membership is **versioned and dated**: ETF holdings are published on a
-  schedule, so `w_i` is a point-in-time quantity and can be lagged to avoid
-  look-ahead. A hand map has no vintage at all.
-* The three degenerate labels stop being a special case. `telecom` n=1 is only
-  degenerate because it is a *bucket*; as a membership dimension it is simply a
-  column with little mass, and shrinkage handles that with no hand rule.
-* Basket selection is itself a design choice and must be preregistered — the
-  baskets are fixed before any effect is estimated, exactly as the clustering
-  rule is in revision 1.
+**KILL CONDITION.** A (sector, challenger) pair whose `sd(Δ)` on the frozen
+history is ≥ 0.0929 is dropped before any modelling. If **no** pair clears it,
+the line stops and the answer is "keep the panel everywhere" — which §1 already
+declared a valid outcome.
 
-### 5.3 What this does NOT change
-
-The clustering in revision 1 §4.1(b) stays. Baskets define membership;
-clustering still runs **inside each fold on training dates only and is frozen
-before the embargoed validation dates**. The post-selection flaw codex caught on
-orch#897 is not reintroduced: an externally-defined membership is not fitted to
-the outcome, which makes it strictly safer than a partition the analyst chose.
+Stage −1 needs no served matrix and no new artifact. It is one query plus one
+replay over data that exists.
 
 ---
 
-## 6. Expanding the universe: what would actually help
+## 5. Stage 0′ — positive control, fully specified
 
-Adding names is a real lever but "≥20 per sector" is the wrong target.
+A placebo proves the pipeline does not hallucinate signal. It does **not** prove
+the pipeline can find signal that is there. Revision 1 had only the placebo.
 
-* **The binding constraint is ticker-DAYS, not ticker count.** A name added
-  today contributes zero history and cannot retroactively create BEAR
-  observations. The cell floor is 500 ticker-days.
-* **Breadth helps every date immediately**, independent of sectors: more names
-  per date is a less noisy cross-sectional Spearman. This is the one benefit
-  that does not wait for the MoE.
-* **`n_eff` does not improve at all.** Adding names does not add independent
-  dates. **No amount of universe expansion fixes §1.** Only a longer history,
-  or a shorter label horizon, moves `n_eff`.
+**Frozen specification** (codex P1 #2; each item fixed here, not at run time):
 
-Under §5.2 the "which bucket" question dissolves, so the remaining criterion for
-adding a name is: does it extend *coverage* (history depth, or mass in a
-membership dimension that currently has almost none), not does it fill a quota.
+| item | frozen choice |
+|---|---|
+| membership source | published ETF holdings, **as-of the fold's training end**, never a later vintage |
+| membership version | the holdings snapshot is recorded by publish date + digest in the Stage 0′ output |
+| injection point | **inside the fold, on training dates only**, after the split and before any fitting |
+| injection target | `fwd_20d` of the names in one membership dimension |
+| δ grid | **{0, 0.01, 0.02, 0.05, 0.10}** in IC units, fixed |
+| replicates | **200 seeds per δ** |
+| evaluation | **embargoed validation folds only**; training-fold recovery is never reported as evidence |
 
-**This is a live-system change**, not a research action: the traded universe
-changes, watchlist growth re-stamps the shadow config fingerprint, and the new
-names need history backfilled. It carries its own gates.
+**Three required outputs:**
+
+1. **Recovery** — point estimate tracks injected δ with no attenuation beyond
+   what shrinkage predicts.
+2. **Calibration** — the 95% CI covers the true δ in ≥90% of the 200 seeds.
+3. **Empirical power curve** — smallest δ recovered at 80% power.
+
+**KILL CONDITION.** No recovery at `δ = 0.10` (twice the §4.2 ceiling), or CI
+coverage below 90%.
+
+**Precedence rule, fixed now:** if the empirical power curve disagrees with the
+§4.4 analytic MDE, **the empirical curve wins** and §4.4's gate is re-evaluated
+against it. The analytic MDE is a prior; the control is a measurement.
 
 ---
 
-## 7. Revised kill-condition ladder
+## 6. Routing-table discipline
 
-| stage | question | kill if | blocked by |
+15 sectors × 5 challengers = **75 cells**. Taking each sector's best challenger
+is 75 implicit comparisons, and the winner of 75 noise draws looks exactly like
+a discovery.
+
+**Rules, all frozen:**
+
+* The **entire routing table** is selected **inside each walk-forward fold, on
+  training dates only**, then frozen before the fold's embargoed validation
+  dates are touched.
+* Fold-to-fold routing agreement is reported (adjusted Rand index). **A table
+  that does not survive its own folds is evidence against a stable
+  sector↔model correspondence**, and is reported as such rather than averaged
+  away.
+* A sector with insufficient data never gets a challenger and keeps the panel by
+  construction — `telecom` (n=1), `commodity` (n=2), `real_estate` (n=3) need no
+  hand rule.
+* The **primary endpoint is one number**: the pooled paired increment of the
+  routed book over the panel-everywhere book, on embargoed dates, CI from a
+  block bootstrap with gap ≥ H. Per-cell numbers are description and carry no
+  decision weight.
+
+---
+
+## 7. Combiner ladder, ordered by what the data can afford
+
+| | combiner | free params | affordable at n_eff ≈ 27 |
 |---|---|---|---|
-| **−1 power** | can this experiment answer its question? | MDE(bps) above the plausible effect | nothing — runs today |
-| **0′ control** | can the pipeline find an effect that is there? | no recovery at 2× MDE, or CI coverage < 90% | nothing |
-| 0 eligibility | is there data to estimate on? | no membership dimension forms a viable cell | orch#905 |
-| 1 regime-only | does the regime axis beat pooled? | fails on the paired held-out increment | orch#905 |
-| 2 + membership | does the sector axis add anything? | CI for Δ covers zero | Stage 1 |
-| 3 economics | does it survive costs? | net bps ≤ 0 | Stage 2 |
-| 4 shadow | does it hold live? | shadow disagrees with backtest | Stage 3 |
+| **C0** | panel alone | 0 | **control arm, prespecified** |
+| C1 | equal-weight rank blend | 0 | yes |
+| C2 | inverse-variance weights | 0 fitted | yes |
+| C3 | sector routing table | 15 discrete choices | marginal — needs §6 |
+| C4 | sector × regime routing | 60 | **no** (regime `n_eff` 2–3) |
 
-Stages −1 and 0′ are new, blocking, and **runnable now** — they need no served
-matrix. Everything downstream still waits on orch#905.
-
----
-
-## 8. One primary endpoint, fixed before any run
-
-Four regimes × K membership dimensions is a large implicit comparison surface.
-Reporting per-cell effects invites reading the maximum as the result.
-
-**The primary endpoint is a single pre-specified number**: the paired held-out
-increment of Stage 2 over Stage 1, pooled across all cells, with its CI from a
-block bootstrap with gap ≥ H. Per-cell numbers are reported as *description*
-and carry no decision weight. Any decision on a per-cell number requires FWER
-control declared in advance.
+C4 is out on arithmetic, not taste: a regime effect is a date-level quantity, so
+it is identified only across dates, giving `n_eff` of 2.8 (BEAR), 2.0
+(BULL_VOLATILE), 2.0 (CHOPPY). A sector effect varies *within* a date. **The
+axis revision 1 called "the only well-populated one" is the weak one.**
 
 ---
 
-## 9. Honest statement of where this leaves the line
+## 8. Execution order
 
-Under §1 the regime axis inside BEAR, BULL_VOLATILE and CHOPPY has 2–3 effective
-observations. **No amount of modelling sophistication recovers information that
-the label horizon has already destroyed.** The most likely outcome of Stage −1
-is that the regime-conditional part of this design is not estimable on the
-current history, and the honest response is to say so rather than to run four
-stages and report a null.
+1. **Stage −1** — replay each challenger over the frozen 541-date history;
+   compute `sd(Δ_{s,c,t})` per pair; apply §4.4. Also produce the §4.3 transfer.
+   *Blocked by nothing.*
+2. **Stage 0′** — the §5 control, on pairs that survived. *Blocked by nothing.*
+3. **Stage 1** — C0 vs C1 vs C2 on embargoed folds.
+4. **Stage 2** — C3 under §6, evaluated as a paired increment over the best of
+   Stage 1.
+5. **Stage 3** — economics via §4.3. Net bps ≤ 0 kills regardless of IC.
+6. **Stage 4** — shadow lane, then a gated promotion.
 
-What would change that, in order of cost:
+Steps 1 and 2 run on existing data. orch#905 blocks only what follows.
 
-1. **A shorter label horizon** for the *gating* question only — `n_eff` scales
-   as `n/H`, so H=5 quadruples it. The cost is that the strategy trades a
-   multi-day horizon, so this measures a different quantity and must be
-   justified, not assumed equivalent.
-2. **More history.** `n_eff ≈ 23` overall needs roughly an order of magnitude
-   more dates before per-regime work is viable.
-3. **Drop the regime conditioning** and test the membership axis pooled, where
-   `n_eff ≈ 23` rather than 2–3. This is the version of the design most likely
-   to survive its own power gate.
+---
 
-Recommendation: **run Stage −1 now**, and let its output choose among these
-three rather than deciding in advance.
+## 9. Honest statement
+
+At the frozen ceiling the **unpaired** comparison is already dead on every
+history this book has, including the full 541 dates. The line lives or dies on
+whether pairing pulls `sd(Δ)` below **0.0929**, which is a measurement, not an
+argument — and it is the first thing Stage −1 produces.
+
+If it does not clear, the answer is *keep the panel everywhere*. That is the
+outcome §1 was built to make safe, and reporting it is the deliverable.
