@@ -432,3 +432,82 @@ argument — and it is the first thing Stage −1 produces.
 
 If it does not clear, the answer is *keep the panel everywhere*. That is the
 outcome §1 was built to make safe, and reporting it is the deliverable.
+
+---
+
+## 10. AMENDMENT 2026-08-08 — the confirmatory blend prereg, frozen before the 541-date matrix exists
+
+Status of the inputs: the 33-date diagnostics (orch#911) generated a blend
+hypothesis. The 541-date served matrix does not exist yet (orch#905 wiring
+pending). **This section freezes the confirmatory protocol in the window where
+freezing is still possible** — after the matrix lands, any choice of weight or
+winner rule could be steered by it.
+
+### 10.1 One primary endpoint, named now
+
+```
+PRIMARY:   challenger = slow momentum (v0, 252/21)
+           combiner   = rank blend, w = 0.25
+           score(i)   = 0.75·rank(panel) + 0.25·rank(slow_momentum)
+           quantity   = paired per-date ΔIC vs the panel alone, whole book
+```
+
+**There is exactly one primary.** No weight grid is searched, no challenger
+menu is scored against the primary bar. Everything else that gets computed
+(w = 0.50, the fast clock, rb, clf, any sector slice) is **descriptive,
+carries no decision weight, and cannot be promoted to primary retroactively**
+— a new primary requires a new dated amendment BEFORE its confirmatory data
+exists, the same way this one works.
+
+Why w = 0.25 and slow momentum: the 33-date diagnostic generated exactly this
+hypothesis. That is hypothesis-generating use of data, stated openly — the
+protection is not pretending otherwise, it is (a) one primary instead of a
+menu, and (b) the contamination sensitivity in §10.3.
+
+### 10.2 The pass rule for the primary — all four, in order, no substitutions
+
+1. **Measurability** — `sd(Δ) < 0.0929` (§4.4) on the 541-date paired series,
+   sample SD (ddof=1, §4.4 amendment).
+2. **Effect** — paired `mean Δ > 0` with **n_eff-adjusted t ≥ 2.0**
+   (`se·√(n/n_eff)`, `n_eff = n/H`, §4.3 amendment), plus a block-bootstrap
+   CI (gap ≥ H = 20) whose lower bound exceeds zero. Both, not either.
+3. **Economics** — the §4.3 transfer re-run on the 541-date matrix must itself
+   clear (β̂ adjusted t ≥ 2.0), and `mean Δ · β̂` must exceed the recorded
+   round-trip cost. A cleared effect that does not clear costs is a kill,
+   not a caveat (Phase −1 precedent).
+4. **No degradation guard** — the blended book's own IC series must not show
+   `mean IC` below the panel's on the same dates (a positive Δ driven by
+   dates where both arms are negative but the blend is less negative is
+   still a pass — this guard only excludes the pathological case where the
+   pairing sign and the level disagree because of missing-name asymmetry;
+   the check is `mean IC_blend ≥ mean IC_panel` on the common dates, which
+   is Δ ≥ 0 restated on levels — kept as an explicit row so the report
+   cannot omit it).
+
+Fail any → the answer is "keep the panel alone", recorded as a successful
+outcome per §1. **No re-tries at other weights.**
+
+### 10.3 Contamination handling, fixed now
+
+The 541-date matrix **contains** the 33 hypothesis-generating dates (6.1% of
+rows). The confirmatory report must carry, as a mandatory sensitivity row, the
+primary's §10.2 quantities recomputed on the **541 − 33 = 508 disjoint dates**.
+If the full-sample result passes and the disjoint-sample result does not, the
+verdict is **NOT CLEARED** — the disjoint row governs in any disagreement.
+
+### 10.4 Standing pattern for future challengers
+
+rb and clf (and any later challenger) follow the same two-step this amendment
+instantiates: **diagnostic generates → dated amendment preregisters ONE
+primary → the disjoint-governed confirmatory run decides.** A challenger whose
+diagnostic never happened cannot skip to a primary. The fast clock is not
+excluded by rule — it simply has no amendment naming it, and none is planned
+on current evidence.
+
+### 10.5 What executes this
+
+The §10.2 run requires the 541-date served matrix — orch#905's wiring
+(emission point recorded on that issue: `wf_sanity_paired.run_wf`, before the
+`cs_ic` collapse). Until it lands, this amendment is intentionally inert: it
+exists so that when the data arrives, every judgement it enables was already
+signed.
