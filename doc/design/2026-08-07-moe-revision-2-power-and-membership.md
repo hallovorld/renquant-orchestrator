@@ -157,6 +157,19 @@ Precedent for why this must be stated first: the Phase −1 intraday line measur
 a real IC of 0.03 and a **net edge of −6.4 bps**. A genuine signal that does not
 clear costs is a loss, not a small win.
 
+> **AMENDMENT 2026-08-08 (spec defect found by the first run; see
+> `doc/research/2026-08-08-moe-stage-minus1-results.md`).** This section froze
+> "β̂ significantly positive" without freezing WHICH standard error. The first
+> run produced `t(iid) = +3.17` and `t(n_eff-adjusted) = +0.71` — one passes,
+> one fails, and choosing after seeing both is the exact failure this design's
+> review history names. Ruling for that run: the gate is **NOT CLEARED** (and
+> not a line-kill; the ambiguity is a spec defect, not evidence). Frozen for
+> ALL future runs: significance is judged on the **n_eff-adjusted** standard
+> error (`se · √(n/n_eff)`, `n_eff = n_dates / H`), threshold t ≥ 2.0. This
+> paragraph is an amendment, not a retroactive reread — the first run's verdict
+> stands as NOT CLEARED regardless of what the frozen convention would have
+> said.
+
 ### 4.4 The gate, as one falsifiable inequality
 
 Unpaired, at the frozen inputs:
