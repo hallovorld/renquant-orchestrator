@@ -593,12 +593,33 @@ class LaneChange:
     def describe(self) -> str:
         return f"{self.lane}: {self.prev.describe()} -> {self.curr.describe()}"
 
+    @property
+    def lifecycle(self) -> str | None:
+        """"added"/"retired" for a lineup change, None for a same-lane swap.
+
+        A lane leaving the lineup (real digest -> _ABSENT) and a lane joining it
+        (_ABSENT -> real digest) both change key(), so both surface as changes —
+        but neither is one scorer being substituted for another. Measured on
+        2026-07-31 -> 2026-08-03: PatchTST retired and the momentum ledger lane
+        was added. Both were reported as "silent scorer swap" while the very same
+        line printed "(lane not stamped)". The severity is unchanged; only the
+        wording stops asserting something the transition contradicts.
+        """
+        was_absent = self.prev.artifact_sha == _ABSENT
+        is_absent = self.curr.artifact_sha == _ABSENT
+        if was_absent and not is_absent:
+            return "added"
+        if is_absent and not was_absent:
+            return "retired"
+        return None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "lane": self.lane,
             "prev": self.prev.as_dict(),
             "curr": self.curr.as_dict(),
             "explained": self.explained,
+            "lifecycle": self.lifecycle,
             "events": [ev.as_dict() for ev in self.events],
             "note": self.note,
         }
@@ -768,6 +789,14 @@ def evaluate(
                 lines.append(
                     f"INFO: {change.describe()} between {boundary.prev_run.run_id} and "
                     f"{boundary.curr_run.run_id} — explained by {evidence}{note}"
+                )
+            elif (lifecycle := change.lifecycle) is not None:
+                # Same severity as a swap — a lineup change with no recorded
+                # event is still unaccounted for. Only the diagnosis differs.
+                lines.append(
+                    f"CRITICAL: {change.describe()} between {boundary.prev_run.run_id} "
+                    f"and {boundary.curr_run.run_id} with NO recorded lineup-change "
+                    f"event in the boundary window — shadow lane {lifecycle}"
                 )
             else:
                 lines.append(

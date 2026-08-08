@@ -719,3 +719,80 @@ def test_a_lane_REPLACED_IN_PLACE_is_still_a_swap(tmp_path, dirs):
     assert report["status"] == sim.STATUS_CRITICAL
     (boundary,) = report["boundaries"]
     assert any(c["lane"] == f"shadow:{CLF}" for c in boundary["changes"])
+
+
+# --- lane lifecycle is not a scorer swap (measured 2026-07-31 -> 2026-08-03) ---
+
+
+def _shadow_run(run_id: str, day: str, lanes: dict[str, str]) -> sim.RunIdentity:
+    """A run stamping only the given shadow lanes. A lane omitted from `lanes` is
+    ABSENT from the lineup, which is how a retirement/addition actually appears."""
+    return sim.RunIdentity(
+        run_id=run_id,
+        run_date=day,
+        created_at=datetime.fromisoformat(f"{day}T12:00:00+00:00"),
+        lanes={
+            name: sim.LaneIdentity(lane=name, artifact_sha=sha)
+            for name, sha in lanes.items()
+        },
+        usable=True,
+    )
+
+
+_PATCHTST = "shadow:artifacts/patchtst/hf_patchtst_all_seed44_model.pt"
+_CLF = "shadow:artifacts/shadow/panel-clf.top-decile.fwd60.json"
+_MOMENTUM = "shadow:artifacts/momentum/momentum_artifact_ledger.jsonl"
+
+
+def test_retired_lane_is_not_called_a_silent_scorer_swap():
+    """PatchTST left the lineup on 2026-08-02. The alert called that a swap while
+    printing "(lane not stamped)" on the same line."""
+    prev = _shadow_run("r1", "2026-07-31", {_PATCHTST: "sha256:07046963", _CLF: "sha256:1e644354"})
+    curr = _shadow_run("r2", "2026-08-03", {_CLF: "sha256:1e644354"})
+
+    report = sim.evaluate([prev, curr], [])
+
+    retired = [ln for ln in report["lines"] if _PATCHTST in ln]
+    assert len(retired) == 1
+    assert "shadow lane retired" in retired[0]
+    assert "silent scorer swap" not in retired[0]
+    # The diagnosis changed; the severity did NOT.
+    assert retired[0].startswith("CRITICAL:")
+
+
+def test_added_lane_is_not_called_a_silent_scorer_swap():
+    prev = _shadow_run("r1", "2026-07-31", {_CLF: "sha256:1e644354"})
+    curr = _shadow_run("r2", "2026-08-03", {_CLF: "sha256:1e644354", _MOMENTUM: "sha256:9aa2d8c9"})
+
+    report = sim.evaluate([prev, curr], [])
+
+    added = [ln for ln in report["lines"] if _MOMENTUM in ln]
+    assert len(added) == 1
+    assert "shadow lane added" in added[0]
+    assert "silent scorer swap" not in added[0]
+    assert added[0].startswith("CRITICAL:")
+
+
+def test_a_genuine_same_lane_substitution_is_still_called_a_silent_scorer_swap():
+    """The guard against over-reach: reclassifying lifecycle events must not
+    weaken the case the detector exists for."""
+    prev = _shadow_run("r1", "2026-07-31", {_CLF: "sha256:1e644354"})
+    curr = _shadow_run("r2", "2026-08-03", {_CLF: "sha256:deadbeef"})
+
+    report = sim.evaluate([prev, curr], [])
+
+    swapped = [ln for ln in report["lines"] if _CLF in ln]
+    assert len(swapped) == 1
+    assert "silent scorer swap" in swapped[0]
+    assert "shadow lane" not in swapped[0]
+    assert swapped[0].startswith("CRITICAL:")
+
+
+def test_lifecycle_is_none_for_a_same_lane_substitution():
+    change = sim.LaneChange(
+        lane=_CLF,
+        prev=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:1e644354"),
+        curr=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:deadbeef"),
+    )
+    assert change.lifecycle is None
+    assert change.as_dict()["lifecycle"] is None
