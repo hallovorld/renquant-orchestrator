@@ -98,6 +98,11 @@ difference against the champion, on the same names and the same dates:
 Δ_{s,c,t}  =  IC_s( challenger c , t )  −  IC_s( panel , t )
 ```
 
+`IC_s(·, t)` is the per-date **Spearman rank correlation** between the arm's
+scores and `fwd_20d` over sector `s`'s member names, per the fold's membership
+snapshot — rank, because §2 combines on rank. This definition binds every stage
+below, including the §5 control and the §6 selection rule.
+
 Pairing is not a convenience. The common market factor is the dominant term in
 `IC_t` and it is *identical* in both arms, so differencing removes it. §4 shows
 the entire viability of this line rests on how much it removes.
@@ -220,34 +225,70 @@ artifacts and their `sd(Δ)` output** — they do not run the replay here.
 A placebo proves the pipeline does not hallucinate signal. It does **not** prove
 the pipeline can find signal that is there. Revision 1 had only the placebo.
 
-**Frozen specification** (codex P1 #2, 2026-08-08 first pass; tightened again
-after the revision-3 review caught the injection scope and the unit
-mislabeling below — each item fixed here, not at run time):
+**Revision history of this section** (each item fixed here, not at run time):
+codex P1 #2 (2026-08-08 first pass) froze the original choices; the revision-3
+review caught the injection scope and unit mislabeling; the revision-4 review
+caught that the control still evaluated revision 2's "routed correction" —
+undefined under the §2 champion/challenger architecture — and that a
+**uniform** return shift is rank-inert: it can leave within-sector ranks
+unchanged, so the §3 paired rank statistic could legitimately stay at zero
+with the injected effect present. The control below injects a **score-tied,
+rank-active** effect and exercises the actual §2/§6 selection path.
+
+### 5.1 Fold-local synthetic DGP (the known truth)
 
 | item | frozen choice |
 |---|---|
-| membership source | published ETF holdings, **as-of the fold's training end**, never a later vintage |
-| membership version | the holdings snapshot is recorded by publish date + digest in the Stage 0′ output |
-| injection scope | **the entire fold — training AND embargoed validation partitions, perturbed identically.** A positive control needs the true effect present wherever recovery is measured. Injecting training dates only (this doc's prior text) leaves nothing to recover on validation — indistinguishable from a correctly-fitted model scoring an unperturbed target, the exact failure codex caught. |
-| fitting boundary | unchanged from §4.1(b)/§5.3: clustering and the routed correction are FIT on training-partition rows only, frozen before validation is touched — even though validation rows carry the same injected effect. That gap (fit blind to validation, effect present in validation) is what makes recovery-on-validation a real test rather than a tautology. |
-| injection unit | **return units, not "IC units" applied directly to `fwd_20d`.** The grid is an additive percent shift to `fwd_20d` for every name in the chosen membership dimension; any IC-equivalent reading is derived for interpretability, never the primitive being injected. |
-| δ grid | `δ_k = k · δ_top` for `k ∈ {0, 0.1, 0.2, 0.5, 1.0}`, where `δ_top = 2 · ΔIC_ceiling(0.05) · β̂` (bps) — `β̂` is §4.3's own frozen transfer (bps of realised top-N return per 1.0 of IC), substituted mechanically the moment Stage −1 reports it. The grid's shape (`k`) is fixed now; only its scale (`δ_top`) is a formula output, so no discretion is exercised after data is seen. |
-| replicates | **200 seeds per δ** |
-| evaluation | **embargoed validation partition only** — compare the routed correction's out-of-fold estimate against the KNOWN injected `δ_k` on those same validation dates (not against zero); training-fold recovery is never reported as evidence |
+| membership source | published ETF holdings, **as-of the fold's training end**, never a later vintage; the snapshot is recorded by publish date + digest in the Stage 0′ output |
+| target cell `s*` | the sector with the **highest median member count per date** over the frozen 541-date history — deterministic given data, no discretion; identity recorded in the output. The protocol also runs at every other §6-routable sector, reported as per-sector power curves (descriptive, no decision weight) |
+| synthetic score draw | `g_{i,t} = Φ⁻¹(u_{i,t})`, where `u_{i,t}` is the first 8 bytes of `SHA-256(fold_id ‖ r ‖ t ‖ ticker_i)` mapped to (0,1) — counter-based, no RNG state, bit-reproducible anywhere |
+| seed list | `r ∈ {1, …, 200}`, frozen |
+| synthetic challenger `c*` | inside `s*` (per the fold's membership snapshot): score `= g_{i,t}`. Outside `s*`: score `=` the champion's score, so `c*` can differ from the panel **only** in the target cell. During the control, the fold's challenger set is the real challengers plus `c*` |
+| tie handling | hash-derived scores are tie-free almost surely; any residual tie in a rank computation breaks by ticker lexicographic order |
+| outcome perturbation | `fwd_20d′_{i,t} = fwd_20d_{i,t} + δ_k(t) · ĝ_{i,t}` for names in `s*` only, where `ĝ` is `g` z-scored within the `(t, s*)` cell. The primitive stays an additive **return-unit** (bps) shift, as the revision-3 fix required — but its cross-sectional shape is the challenger's own score, which is what makes it rank-active |
+| injected size | `δ_k(t) = IC_k · σ̂_y(t) / √(1 − IC_k²)`, with `IC_k = k · 0.10` and `σ̂_y(t)` = the cross-sectional sd of the **unperturbed** `fwd_20d` within the cell at date `t`. By construction the population Pearson correlation of `c*` with the perturbed outcome inside the cell is exactly `IC_k` `[DERIVED — inverting corr(ĝ, y + δ·ĝ) = δ/√(σ_y² + δ²)]`. Top of grid `IC_{k=1.0} = 0.10` `[DERIVED — 2 × the §4.2 ceiling 0.05]` |
+| `k` grid | `k ∈ {0, 0.1, 0.2, 0.5, 1.0}`; `k = 0` **is the placebo arm** |
+| injection scope | the **entire fold** — training AND embargoed validation partitions, perturbed by the same fold-local construction (same `g`, same per-date `δ_k(t)`), re-applied independently after each split, per fold and per seed. A positive control needs the true effect present wherever recovery is measured |
+| fitting boundary | clustering, the §6 selection rule, and every fitted quantity read **training-partition rows only**, frozen before validation is touched — even though validation rows carry the same injected effect. That gap (fit blind to validation, effect present in validation) is what makes recovery-on-validation a real test rather than a tautology |
 
-**Three required outputs:**
+### 5.2 The exact statistic under test
 
-1. **Recovery** — point estimate tracks injected δ with no attenuation beyond
-   what shrinkage predicts.
-2. **Calibration** — the 95% CI covers the true δ in ≥90% of the 200 seeds.
-3. **Empirical power curve** — smallest δ recovered at 80% power.
+Stage 0′ exercises the **actual C3 selection path**, not a proxy:
 
-**KILL CONDITION.** No recovery at `k = 1.0` (`δ_top`, by construction 2× the
-§4.2 ceiling in IC-equivalent terms), or CI coverage below 90%.
+1. Add `c*` to the fold's challenger set; run the frozen **§6 selection rule**
+   on training-partition rows only; freeze the routing table.
+2. On the fold's embargoed validation dates, compute the §3 paired cell
+   statistic `Δ̂ = mean_t [ IC_{s*}(c*, t) − IC_{s*}(panel, t) ]` — `IC` is the
+   §3 Spearman definition, evaluated on the perturbed `fwd_20d′` — with its
+   95% CI from a block bootstrap over validation dates, gap ≥ H (the same
+   bootstrap §6 uses). §6's pooled routed-book endpoint is reported
+   descriptively alongside.
+3. The **oracle truth** `Δ*` for the same (fold, seed, k) is the statistic in
+   step 2 computed by the harness **with knowledge of `c*`**, on the same
+   perturbed validation dates. Pass/fail compares the pipeline's estimate to
+   `Δ*`, so no distributional approximation (Pearson→Spearman, non-normal
+   returns) enters the criterion; the closed-form `IC_k` relationship in §5.1
+   is for interpretation only.
+
+### 5.3 Numerical pass/fail, all frozen
+
+| output | statistic | kill threshold |
+|---|---|---|
+| **Detection (power)** | fraction of the 200 seeds in which the frozen selection routes `s*` → `c*`, per `k`; the empirical power curve is the smallest `k` reaching 80% | **< 80% at `k = 1.0`** at the primary sector `[DERIVED — §4.1 frozen power 80%]` |
+| **Recovery** | mean over seeds of `(Δ̂ − Δ*)` at each `k` | **\|mean\| > 0.005** `[DERIVED — 10% of the §4.2 ceiling]` |
+| **Calibration** | share of seeds whose 95% CI (step 2) covers `Δ*`, per `k` | **< 90% at any `k`** |
+| **Null discipline** | share of seeds at `k = 0` in which `s*` is routed to `c*` (routing to a *real* challenger at `k = 0` is data, not a control failure) | **> 8%** (16/200) `[DERIVED — one-sided 95% binomial bound of a true 5% rate at n = 200: 0.05 + 1.645·√(0.05·0.95/200) = 0.075]` |
+
+**KILL CONDITION.** Any row's kill threshold fires at the primary sector `s*`.
 
 **Precedence rule, fixed now:** if the empirical power curve disagrees with the
 §4.4 analytic MDE, **the empirical curve wins** and §4.4's gate is re-evaluated
 against it. The analytic MDE is a prior; the control is a measurement.
+
+**Ownership.** Same boundary as §4.5: implementation lives in
+`renquant-model` / `renquant-backtesting` inside the walk-forward harness;
+this document preregisters the protocol and this repo consumes the output.
+Nothing here requires orchestrator production code.
 
 ---
 
@@ -262,6 +303,16 @@ a discovery.
 * The **entire routing table** is selected **inside each walk-forward fold, on
   training dates only**, then frozen before the fold's embargoed validation
   dates are touched.
+* **The selection rule, stated exactly (frozen).** Within a fold, challenger
+  `c` takes sector `s` iff **(a)** the pair's training-partition `sd(Δ_{s,c,t})`
+  clears §4.4's inequality; **(b)** the training-partition paired mean is
+  positive with a one-sided paired t-test at `p < 0.05 / n_c` — Bonferroni over
+  the `n_c` challengers still eligible in that sector after (a)
+  `[DERIVED — §4.1 frozen α 0.05 ÷ the cell's challenger count]` — using
+  `n_eff = n_train_dates / H` per §4.1; and **(c)** `c` maximises the
+  training-partition paired mean among the challengers passing (a)+(b).
+  Otherwise the sector keeps the panel. Stage 0′ (§5) exercises this exact
+  rule.
 * Fold-to-fold routing agreement is reported (adjusted Rand index). **A table
   that does not survive its own folds is evidence against a stable
   sector↔model correspondence**, and is reported as such rather than averaged

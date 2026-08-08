@@ -1,8 +1,10 @@
 # MoE revision 3 — champion/challenger per sector, with every threshold frozen
 
 STATUS:    DESIGN. Supersedes revision 2 in the same file, addressing both codex
-           P1s, an operator architecture correction, and a second codex
-           CHANGES_REQUESTED pass on revision 3 (2 more P1s, now fixed).
+           P1s, an operator architecture correction, a second codex
+           CHANGES_REQUESTED pass on revision 3 (2 more P1s), and a third codex
+           pass (1 HIGH: Stage 0' was not a runnable positive control for the
+           champion/challenger path — now fully preregistered).
            Nothing deployed. Stages -1 and 0' run on data that already exists.
 
 WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
@@ -12,12 +14,20 @@ WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
            (b) Every Stage -1 threshold frozen numerically BEFORE it runs, and
            the replay is now required to be walk-forward/point-in-time, not
            today's artifacts scored retroactively over 2024-2026.
-           (c) Stage 0' fully specified: membership vintage, delta grid in
-           return units (not "IC units" applied directly), replicate count,
-           embargoed-only evaluation -- and the injection now covers BOTH the
-           training and validation partitions of the fold (fitting still reads
-           training only), fixing a control that previously had nothing to
-           recover on validation.
+           (c) Stage 0' rebuilt as a preregistered positive control for the
+           ACTUAL champion/challenger selection path: a deterministic
+           hash-seeded synthetic challenger score (seed list 1..200, tie rule
+           frozen), an outcome perturbation TIED to that score within the
+           target sector cell (rank-active, still return-unit bps as the
+           primitive), the exact out-of-fold routed-vs-panel Spearman
+           statistic and its oracle truth, and numeric pass/fail rules
+           (detection >=80% at k=1.0, |recovery error| <= 0.005, CI coverage
+           >= 90%, k=0 false-routing <= 8%). Injection covers BOTH partitions
+           of the fold, re-applied independently after each split; fitting
+           reads training rows only. Section 6 now also freezes the exact
+           selection rule (sd(delta) gate + Bonferroni one-sided paired t +
+           argmax) that Stage 0' exercises, and section 3 pins IC as per-date
+           Spearman rank correlation.
 
 WHY/DIR:   Three corrections, one operator and two codex passes.
            OPERATOR: revision 2's additive delta cannot express "chips use fast
@@ -38,6 +48,15 @@ WHY/DIR:   Three corrections, one operator and two codex passes.
            challenger artifacts scored retroactively, which is not
            point-in-time and can manufacture the very variance reduction the
            gate is supposed to detect honestly.
+           CODEX round 3 (2026-08-08T07:37:08Z, 1 HIGH): Stage 0' still
+           evaluated revision 2's "routed correction" -- undefined under the
+           champion/challenger architecture -- and its uniform per-sector
+           return shift is RANK-INERT: within-sector ranks can be unchanged,
+           so the paired rank-IC routing statistic can legitimately stay at
+           zero with the effect present. Its recovery language ("tracks
+           injected delta", "no attenuation beyond what shrinkage predicts")
+           named no statistic and no threshold. Fixed by preregistering the
+           full fold-local DGP and numeric pass/fail in section 5.
 
 EVIDENCE:  artifact:      runs.alpaca.db candidate_scores(role='candidate') join
                           ticker_forward_returns.fwd_20d; per-DB coverage query
@@ -99,6 +118,24 @@ VISIBLE CORRECTIONS in this revision:
              a verified pre-cutoff artifact), owned by
              renquant-model/renquant-backtesting -- the orchestrator consumes
              pinned output only.
+           * Stage 0' previously injected a UNIFORM return shift per
+             membership dimension and measured recovery by an undefined
+             "routed correction"; a uniform shift is rank-inert (within-sector
+             ranks unchanged), so the paired rank statistic need not move at
+             all. Corrected to a score-tied injection whose cross-sectional
+             shape is a preregistered synthetic challenger score, evaluated
+             through the exact frozen selection rule and paired Spearman
+             statistic, against an oracle truth.
+           * The recovery phrases "tracks injected delta" / "no attenuation
+             beyond what shrinkage predicts" are withdrawn as decision rules:
+             no shrinkage estimator exists in the champion/challenger path, so
+             the predicted attenuation was undefined. Replaced by the four
+             numeric kill thresholds in section 5.3.
+           * Stage 0's delta grid no longer routes through the section-4.3
+             transfer beta-hat; the injection is parameterised directly by the
+             target within-cell IC via the measured per-date cross-sectional
+             sd of unperturbed fwd_20d. beta-hat remains in Stage 3 economics
+             only.
 
 TESTS:     none -- design only. Every figure above is reproducible from the two
            tables named under EVIDENCE; the paired sd(dIC) that decides the gate
