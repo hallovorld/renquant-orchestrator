@@ -6,8 +6,12 @@ STATUS:    design. Supersedes the offline routing-table FRAME as the target
 
 WHAT:      doc/design/2026-08-08-allocation-machine.md — three layers:
            L1 deployment controller (exposure = f(vol, regime posterior);
-           ships first; solves the measured ≈$4,820/yr cash drag BY DESIGN and
-           moves G-B to the size dial), L2 online expert allocation
+           ships first; addresses the measured ≈$4,820/yr cash-drag
+           DEPLOYMENT problem by design — exposure becomes a designed,
+           monitored target with an owned target-minus-achieved gap; whether
+           the drag is actually recovered is decided only by the layer's
+           full-history evaluation, design §6.1 — and moves G-B to the size
+           dial), L2 online expert allocation
            (Hedge/EG over the registry experts' paper books, champion floor
            w_panel >= 0.5, regret bounds replace unreachable offline power;
            the weight state IS the routing table, alive), L3 meta-label
@@ -52,9 +56,11 @@ EVIDENCE:  artifact:      committed records, exact paths. AGAINST the old
            scope:         design doc + this record. orch#917 (BEAR exit
                           prereg) demoted to complementary line, stays open.
 
-TESTS:     none — architecture. Each layer carries a constructive floor
-           (E_min/E_max clip; champion floor; shadow-first) rather than a
-           significance claim.
+TESTS:     none — architecture. Each layer ships with operational
+           containment (E_min/E_max exposure clip; champion floor;
+           shadow-first) — containment bounds exposure and allocation, not
+           returns or drag recovery; performance conclusions come only from
+           the design §6 evaluations.
 
 NEXT:      L1 spec + 1910-day evaluation (frozen parameters, return-space
            report, #913 reproducibility standard) — the measured dollar
