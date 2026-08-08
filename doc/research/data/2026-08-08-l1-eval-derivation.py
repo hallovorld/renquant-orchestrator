@@ -4,7 +4,9 @@
 Underlying = universe EW (the investable proxy; the accidental live book has
 only 63 observable days and is compared separately on its own window).
 Regime input = the committed 2026-08-08-regime-posteriors.csv beside this file
-(production HMM posteriors snapshot); OHLCV stays machine-local (provenance)."""
+(production HMM posteriors snapshot, written %.17g / read round_trip so the
+float64 values are bit-exact — the #916 cube contract; do not rewrite it);
+OHLCV stays machine-local (provenance)."""
 import json, sys
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
@@ -20,7 +22,7 @@ for t in [x for x,s in sec.items() if s not in ('benchmark','defensive_bonds')]:
         rets[t]=total_return_close(df['close'],div).pct_change()
     except FileNotFoundError: pass
 uni=pd.DataFrame(rets).loc['2017-01-01':].mean(axis=1).dropna()
-reg=pd.read_csv(HERE/'2026-08-08-regime-posteriors.csv', index_col=0)
+reg=pd.read_csv(HERE/'2026-08-08-regime-posteriors.csv', index_col=0, float_precision='round_trip')
 reg.index=pd.to_datetime(reg.index)
 pb=reg['regime_p_bear'].reindex(uni.index).ffill().fillna(0)
 pv=reg['regime_p_bull_volatile'].reindex(uni.index).ffill().fillna(0)
