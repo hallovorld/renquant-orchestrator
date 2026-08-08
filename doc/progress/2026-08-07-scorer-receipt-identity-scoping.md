@@ -83,3 +83,10 @@ NOT IN THIS PR:
     straight into the fan-out.
   * What should authorise a lineup change (orch#908 item 3), still deliberately
     unanswered.
+
+NEXT:      Give ledger-append writers their own receipt carrying
+           `identity_before`/`identity_after`, now that this PR closes the
+           fan-out those new receipts would otherwise have fed. Then re-run the
+           probe against the live `logs/promote_shadow_patchtst/` receipts to
+           confirm the 2 remaining original alerts (of 5) resolve to explained
+           or genuinely CRITICAL.
