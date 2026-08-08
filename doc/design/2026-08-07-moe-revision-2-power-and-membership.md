@@ -82,7 +82,10 @@ lanes have zero observations and two have four; those lanes activated
 
 **The unblock is offline replay, not waiting.** Each challenger is a model and
 can score the historical feature matrix over the full 541-date history. That is
-Stage 1's first task and it does **not** depend on orch#905.
+Stage 1's first task and it does **not** depend on orch#905 — but it must be a
+**walk-forward, point-in-time replay** (§4.5), not today's artifacts scored
+retroactively, and it is `renquant-model`/`renquant-backtesting` work, not
+orchestrator work.
 
 ---
 
@@ -181,7 +184,34 @@ the line stops and the answer is "keep the panel everywhere" — which §1 alrea
 declared a valid outcome.
 
 Stage −1 needs no served matrix and no new artifact. It is one query plus one
-replay over data that exists.
+replay over data that exists — **provided the replay is point-in-time valid**
+(§4.5).
+
+### 4.5 The replay must be walk-forward, not retrospective (codex P1, revision-3 review)
+
+The challenger artifacts in §2's table are **today's** artifacts. Scoring the
+full 2024-2026 feature matrix with them retrospectively is not point-in-time:
+a model whose training window overlaps or postdates part of the replay
+history would score early dates with information unavailable at the time.
+That can manufacture exactly the kind of paired variance reduction
+(`sd(Δ)` collapsing below 0.0929) the gate exists to detect honestly — the
+gate would then pass for the wrong reason.
+
+**Frozen requirement.** Every scored date in the 541-date replay uses a
+challenger artifact trained only through that date's fold training cutoff —
+either genuinely retrained per walk-forward fold, or scored from an artifact
+whose training cutoff is verified to precede the scored date. A currently-live
+artifact may never be applied retroactively to dates before its own training
+cutoff. The **same cutoff rule applies to the panel arm** of the pairing, or
+the pairing stops being apples-to-apples and §3's cancellation argument no
+longer holds.
+
+**Ownership, not a new rule.** This replay is model/backtesting work — it
+belongs in `renquant-model` (training internals) and `renquant-backtesting`
+(the walk-forward harness), the same boundary revision 1 §8 already states:
+the orchestrator owns orchestration and does not grow model internals. This
+document and this repo consume the resulting **pinned, point-in-time
+artifacts and their `sd(Δ)` output** — they do not run the replay here.
 
 ---
 
@@ -190,17 +220,20 @@ replay over data that exists.
 A placebo proves the pipeline does not hallucinate signal. It does **not** prove
 the pipeline can find signal that is there. Revision 1 had only the placebo.
 
-**Frozen specification** (codex P1 #2; each item fixed here, not at run time):
+**Frozen specification** (codex P1 #2, 2026-08-08 first pass; tightened again
+after the revision-3 review caught the injection scope and the unit
+mislabeling below — each item fixed here, not at run time):
 
 | item | frozen choice |
 |---|---|
 | membership source | published ETF holdings, **as-of the fold's training end**, never a later vintage |
 | membership version | the holdings snapshot is recorded by publish date + digest in the Stage 0′ output |
-| injection point | **inside the fold, on training dates only**, after the split and before any fitting |
-| injection target | `fwd_20d` of the names in one membership dimension |
-| δ grid | **{0, 0.01, 0.02, 0.05, 0.10}** in IC units, fixed |
+| injection scope | **the entire fold — training AND embargoed validation partitions, perturbed identically.** A positive control needs the true effect present wherever recovery is measured. Injecting training dates only (this doc's prior text) leaves nothing to recover on validation — indistinguishable from a correctly-fitted model scoring an unperturbed target, the exact failure codex caught. |
+| fitting boundary | unchanged from §4.1(b)/§5.3: clustering and the routed correction are FIT on training-partition rows only, frozen before validation is touched — even though validation rows carry the same injected effect. That gap (fit blind to validation, effect present in validation) is what makes recovery-on-validation a real test rather than a tautology. |
+| injection unit | **return units, not "IC units" applied directly to `fwd_20d`.** The grid is an additive percent shift to `fwd_20d` for every name in the chosen membership dimension; any IC-equivalent reading is derived for interpretability, never the primitive being injected. |
+| δ grid | `δ_k = k · δ_top` for `k ∈ {0, 0.1, 0.2, 0.5, 1.0}`, where `δ_top = 2 · ΔIC_ceiling(0.05) · β̂` (bps) — `β̂` is §4.3's own frozen transfer (bps of realised top-N return per 1.0 of IC), substituted mechanically the moment Stage −1 reports it. The grid's shape (`k`) is fixed now; only its scale (`δ_top`) is a formula output, so no discretion is exercised after data is seen. |
 | replicates | **200 seeds per δ** |
-| evaluation | **embargoed validation folds only**; training-fold recovery is never reported as evidence |
+| evaluation | **embargoed validation partition only** — compare the routed correction's out-of-fold estimate against the KNOWN injected `δ_k` on those same validation dates (not against zero); training-fold recovery is never reported as evidence |
 
 **Three required outputs:**
 
@@ -209,8 +242,8 @@ the pipeline can find signal that is there. Revision 1 had only the placebo.
 2. **Calibration** — the 95% CI covers the true δ in ≥90% of the 200 seeds.
 3. **Empirical power curve** — smallest δ recovered at 80% power.
 
-**KILL CONDITION.** No recovery at `δ = 0.10` (twice the §4.2 ceiling), or CI
-coverage below 90%.
+**KILL CONDITION.** No recovery at `k = 1.0` (`δ_top`, by construction 2× the
+§4.2 ceiling in IC-equivalent terms), or CI coverage below 90%.
 
 **Precedence rule, fixed now:** if the empirical power curve disagrees with the
 §4.4 analytic MDE, **the empirical curve wins** and §4.4's gate is re-evaluated
@@ -262,7 +295,9 @@ axis revision 1 called "the only well-populated one" is the weak one.**
 
 ## 8. Execution order
 
-1. **Stage −1** — replay each challenger over the frozen 541-date history;
+1. **Stage −1** — replay each challenger over the frozen 541-date history,
+   walk-forward and point-in-time (§4.5, owned by `renquant-model`/
+   `renquant-backtesting`; orchestrator consumes the pinned output);
    compute `sd(Δ_{s,c,t})` per pair; apply §4.4. Also produce the §4.3 transfer.
    *Blocked by nothing.*
 2. **Stage 0′** — the §5 control, on pairs that survived. *Blocked by nothing.*

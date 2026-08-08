@@ -1,29 +1,43 @@
 # MoE revision 3 — champion/challenger per sector, with every threshold frozen
 
 STATUS:    DESIGN. Supersedes revision 2 in the same file, addressing both codex
-           P1s and an operator architecture correction. Nothing deployed.
-           Stages -1 and 0' run on data that already exists.
+           P1s, an operator architecture correction, and a second codex
+           CHANGES_REQUESTED pass on revision 3 (2 more P1s, now fixed).
+           Nothing deployed. Stages -1 and 0' run on data that already exists.
 
 WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
            (fast momentum / slow momentum / mean reversion / classifier), not
            additive corrections on one base. Panel is the per-sector champion by
            default; a challenger takes a sector only by clearing a frozen gate.
-           (b) Every Stage -1 threshold frozen numerically BEFORE it runs.
-           (c) Stage 0' fully specified: membership vintage, fold-local
-           injection point, delta grid, replicate count, embargoed-only
-           evaluation.
+           (b) Every Stage -1 threshold frozen numerically BEFORE it runs, and
+           the replay is now required to be walk-forward/point-in-time, not
+           today's artifacts scored retroactively over 2024-2026.
+           (c) Stage 0' fully specified: membership vintage, delta grid in
+           return units (not "IC units" applied directly), replicate count,
+           embargoed-only evaluation -- and the injection now covers BOTH the
+           training and validation partitions of the fold (fitting still reads
+           training only), fixing a control that previously had nothing to
+           recover on validation.
 
-WHY/DIR:   Two independent corrections.
+WHY/DIR:   Three corrections, one operator and two codex passes.
            OPERATOR: revision 2's additive delta cannot express "chips use fast
            momentum, mega-cap tech uses mean reversion" -- those are different
            functional forms, not offsets. The correction form could never have
            expressed the hypothesis being tested.
-           CODEX (orch#910, 2x CHANGES_REQUESTED, both P1): the MDE comparison
-           target and the dIC->bps transfer were deferred, so the analyst could
-           pick the threshold after seeing the result -- the kill condition was
-           not falsifiable. Stage 0' froze none of the choices that decide
-           whether the control measures recovery or leaks an outcome-shaped
-           treatment across the split.
+           CODEX round 1 (orch#910, 2x CHANGES_REQUESTED, both P1): the MDE
+           comparison target and the dIC->bps transfer were deferred, so the
+           analyst could pick the threshold after seeing the result -- the kill
+           condition was not falsifiable. Stage 0' froze none of the choices
+           that decide whether the control measures recovery or leaks an
+           outcome-shaped treatment across the split.
+           CODEX round 2, on revision 3 (2026-08-08T07:15:04Z, 2 more P1):
+           (i) Stage 0' injected the effect on training dates only, then asked
+           for recovery on validation dates where the effect was absent --
+           indistinguishable from a correctly-fitted model scoring an
+           unperturbed target. (ii) the 541-date offline replay used TODAY's
+           challenger artifacts scored retroactively, which is not
+           point-in-time and can manufacture the very variance reduction the
+           gate is supposed to detect honestly.
 
 EVIDENCE:  artifact:      runs.alpaca.db candidate_scores(role='candidate') join
                           ticker_forward_returns.fwd_20d; per-DB coverage query
@@ -70,15 +84,33 @@ VISIBLE CORRECTIONS in this revision:
            * An earlier statement that live history is 80 dates was the
              run_type='live' subset. runs.alpaca.db holds 541 scored dates back
              to 2024-01-02.
+           * Stage 0' previously injected the synthetic effect on training
+             dates only; corrected to inject identically across the ENTIRE
+             fold (training + embargoed validation) while fitting still reads
+             training rows only -- otherwise validation held no true effect to
+             recover.
+           * Stage 0's delta grid previously mixed units ("IC units" injected
+             directly into a return series); corrected to an explicit
+             return-unit (bps) grid, with any IC-equivalent reading derived
+             from Stage -1's own frozen transfer, never the primitive.
+           * Stage -1's 541-date replay previously implied scoring the full
+             history with today's live challenger artifacts; corrected to
+             require a walk-forward, point-in-time replay (retrain per fold or
+             a verified pre-cutoff artifact), owned by
+             renquant-model/renquant-backtesting -- the orchestrator consumes
+             pinned output only.
 
 TESTS:     none -- design only. Every figure above is reproducible from the two
            tables named under EVIDENCE; the paired sd(dIC) that decides the gate
            is Stage -1's first deliverable and is deliberately NOT asserted here.
 
-NEXT:      Run Stage -1: replay each challenger over the frozen 541-date
-           history, compute sd(dIC) per (sector, challenger) pair, and apply the
-           frozen inequality sd(dIC) < 0.0929. Produce the dIC->bps transfer in
-           the same pass. Blocked by nothing.
+NEXT:      Run Stage -1 as a walk-forward, point-in-time replay (owned by
+           renquant-model/renquant-backtesting): replay each challenger over
+           the frozen 541-date history using only artifacts trained through
+           each date's fold cutoff (same cutoff rule for the panel arm),
+           compute sd(dIC) per (sector, challenger) pair, and apply the frozen
+           inequality sd(dIC) < 0.0929. Produce the dIC->bps transfer in the
+           same pass. Blocked by nothing.
 
 NOT DECIDED HERE:
   * Which challenger wins any sector. The routing table is selected inside each
