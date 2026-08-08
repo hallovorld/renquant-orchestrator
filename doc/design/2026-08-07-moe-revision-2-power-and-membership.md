@@ -297,10 +297,16 @@ Stage 0′ exercises the **actual C3 selection path**, not a proxy:
 
 | output | statistic | kill threshold |
 |---|---|---|
-| **Detection (power)** | fraction of the 200 seeds in which the frozen selection routes `s*` → `c*`, per `k`; the empirical power curve is the smallest `k` reaching 80% | **< 80% at `k = 1.0`** at the primary sector `[DERIVED — §4.1 frozen power 80%]` |
+| **Detection (power)** | fraction of the 200 seeds in which the frozen selection routes `s*` → `c*`, per `k`; the empirical power curve is the smallest `k` reaching 80%, written `k_80` | **< 80% at `k = 0.5`** (injected `IC = 0.05`, the §4.2 decision ceiling) at the primary sector — equivalently `k_80 > 0.5` `[DERIVED — §4.1 frozen power 80% at the §4.2 ceiling ΔIC = 0.05]` |
 | **Null discipline** | share of seeds at `k = 0` in which `s*` is routed to `c*` (routing to a *real* challenger at `k = 0` is data, not a control failure) | **> 8%** (16/200) `[DERIVED — one-sided 95% binomial bound of a true 5% rate at n = 200: 0.05 + 1.645·√(0.05·0.95/200) = 0.075]` |
 
 **KILL CONDITION.** Any row's kill threshold fires at the primary sector `s*`.
+
+`k = 1.0` stays in the grid as an **upper-bound diagnostic only**, with no
+independent pass value: 80% detection at `k = 1.0` (injected `IC = 0.10`,
+2× the ceiling) while `k_80 > 0.5` is a **kill**, because a selector that
+resolves only effects twice the §4.2 ceiling cannot see the largest
+increment the §4.4 gate declares decision-relevant (revision-6 review).
 
 **Descriptive outputs, no decision weight:** routed attenuation
 `mean_seeds(Δ̂ − Δ*)` and the share of seeds whose 95% CI (§5.2 step 2)

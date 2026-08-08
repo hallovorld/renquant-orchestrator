@@ -7,7 +7,10 @@ STATUS:    DESIGN. Supersedes revision 2 in the same file, addressing both codex
            champion/challenger path — now fully preregistered), and a fourth
            codex pass (1 HIGH: the recovery/calibration kill rows were
            tautological — estimand now defined through the frozen routed
-           policy; detection + null discipline are the decision rows).
+           policy; detection + null discipline are the decision rows), and a
+           fifth codex pass (1 P1/HIGH: detection power was gated only at
+           k=1.0 = 2x the frozen ceiling — primary kill moved to k=0.5,
+           k=1.0 demoted to upper-bound diagnostic).
            Nothing deployed. Stages -1 and 0' run on data that already exists.
 
 WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
@@ -25,7 +28,9 @@ WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
            primitive), the routed-vs-panel Spearman increment DELIVERED BY THE
            FROZEN ROUTING TABLE (zero for the target cell when the panel is
            kept) against the oracle increment under the known synthetic
-           routing, and numeric pass/fail rules (detection >=80% at k=1.0,
+           routing, and numeric pass/fail rules (detection >=80% at k=0.5 —
+           injected IC = 0.05, the frozen decision ceiling; k=1.0 kept as an
+           upper-bound diagnostic with no independent pass value;
            k=0 false-routing <= 8%; routed attenuation and CI coverage are
            reported descriptively with no kill weight). Injection covers BOTH partitions
            of the fold, re-applied independently after each split; fitting
@@ -78,6 +83,17 @@ WHY/DIR:   Three corrections, one operator and two codex passes.
            selection event's information, so the recovery/calibration kill
            rows are withdrawn (descriptive only) and detection + null
            discipline remain the decision-bearing controls.
+           CODEX round 5 (2026-08-08T08:08:14Z, 1 HIGH): the detection gate
+           accepted power only at k=1.0, an injected IC of 0.10 -- explicitly
+           2x the frozen plausible-effect ceiling of section 4.2 (dIC=0.05).
+           A selector reaching 80% power at 0.10 but not at 0.05 would have
+           passed the control while unable to resolve the largest effect the
+           section-4.4 gate declares decision-relevant, and the precedence
+           rule ("empirical curve re-evaluates the analytic MDE") named no
+           fail outcome, so it did not close the gap. Fixed by making the
+           primary kill threshold < 80% detection at k=0.5 (equivalently
+           k_80 > 0.5); k=1.0 stays in the grid as an upper-bound diagnostic
+           with no independent pass value.
 
 EVIDENCE:  artifact:      runs.alpaca.db candidate_scores(role='candidate') join
                           ticker_forward_returns.fwd_20d; per-DB coverage query
@@ -166,6 +182,11 @@ VISIBLE CORRECTIONS in this revision:
              and the rows validated nothing. Routed attenuation and CI
              coverage stay as descriptive outputs; detection and null
              discipline are the decision-bearing controls.
+           * The detection kill threshold previously fired only below 80%
+             power at k=1.0 (injected IC = 0.10, 2x the frozen ceiling);
+             corrected to fire below 80% at k=0.5 (injected IC = 0.05, the
+             section-4.2 ceiling itself), with k=1.0 demoted to an
+             upper-bound diagnostic carrying no pass value.
 
 TESTS:     none -- design only. Every figure above is reproducible from the two
            tables named under EVIDENCE; the paired sd(dIC) that decides the gate
