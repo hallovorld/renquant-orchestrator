@@ -1,13 +1,15 @@
-# The pocket layer in return space — r2: corrected turnover, same-window drag, and a fragility finding
+# The pocket layer in return space — r3: measured cash stats; corrected turnover, same-window drag, and a fragility finding
 
 Operator direction (2026-08-08): judge the pocket×style machine in RETURN
-space. This is r2 of the record, after codex review of orch#914 found two
-defects — both fixed — and the fixes surfaced a third finding that outranks
-the numbers they correct.
+space. This is r3 of the record: r2 fixed the two codex findings on orch#914
+(turnover, same-window drag) and surfaced a fragility finding; r3 fixes a
+third codex finding — the live cash statistics were hardcoded in the script,
+they are now measured inside the committed derivation (§2 correction).
 
 Derivation: `data/2026-08-08-pocket-layer-derivation.py` — PROVENANCE ONLY
 (machine-local OHLCV, **157 names**, 1910 days 2019-01-02..2026-08-07,
-production TR primitive). All numbers `[VERIFIED — script output, r2 run]`.
+production TR primitive; live cash stats via read-only query of
+`live_state_snapshots`). All numbers `[VERIFIED — script output, r3 run]`.
 
 ## 0. THE FINDING THAT OUTRANKS THE TABLES — style spreads flip with universe composition
 
@@ -53,10 +55,21 @@ itself (2026-05-11..08-07, 62 trading days):
 
 ```
 universe EW on the cash window: +11.63% total, ann +56.4%, Sharpe 3.42, maxDD −5.0%
-book: mean cash 78.3% (median 80.6%, max 94.7%)  [VERIFIED — live_state_snapshots]
-same-window missed return: ≈ $998 over the 62 days on the $10,962 book
-annualized at the window rate: ≈ $4,839/yr
+book: mean cash 78.0% (median 80.2%, max 94.7%; 61 snapshot days on the
+      benchmark's own dates)  [VERIFIED — measured in the committed script,
+      read-only live_state_snapshots query]
+same-window missed return: ≈ $994 over the window on the $10,961.59 book
+annualized at the window rate: ≈ $4,820/yr
 ```
+
+**r3 correction (visible, per LONG #10):** r2 stated mean cash 78.3% (median
+80.6%), missed ≈ $998 / ≈ $4,839/yr on a $10,962 book, but those cash stats
+were hardcoded constants in the script, not derived from the committed
+artifact (codex MED). The script now measures them from
+`live_state_snapshots` (best row per day = max portfolio_value; ties → the
+day's latest snapshot; dates restricted to the benchmark window's own
+trading days). Measured values: mean 78.0%, median 80.2%, book $10,961.59,
+missed ≈ $994 / ≈ $4,820/yr. No conclusion changes.
 
 The correction makes the drag LARGER, not smaller. Long-run proxy (2024..now
 universe +36.3%/yr → ≈ $3,000/yr) is retained, labelled as a proxy. Either
