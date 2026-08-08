@@ -33,6 +33,8 @@ TESTS:     none — research + registry-referencing design doc. Style proxies
            deliberately named *_proxy, not registry IDs.
 
 NEXT:      operator decisions queued: (a) G-E pivot (same-window cash drag
-           ~$4,839/yr is the record's only correction-robust large number);
+           ~$4,820/yr [VERIFIED — prior work, orch#914 r3,
+           doc/research/2026-08-08-pocket-layer-return-space.md] is the
+           record's only correction-robust large number);
            (b) whether any cube cell earns a policy-grade `~candidate` mark
            despite t<2 — flip rules and fragility guard are in the doc.
