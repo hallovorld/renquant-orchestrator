@@ -46,10 +46,13 @@ uses it.
 
 ## 1 · Layer 1 — the deployment controller (ship first)
 
-**Today the book's exposure is an accident.** Measured: 78.3% mean cash over
-63 days (median 80.6%, max 94.7%) while the universe ran +11.6% in the same
-window — ≈ $4.8k/yr forgone on a $11k book, the one number this week that
-got LARGER under every correction. No routing idea in the dead frame was
+**Today the book's exposure is an accident.** Measured: **78.0% mean cash**
+(median 80.2%, max 94.7%; 61 snapshot days on the benchmark window's own
+dates) while the universe ran +11.63% in the same window — **≈ $994 missed
+over the window, ≈ $4,820/yr at the window rate** on the $10,961.59 book
+`[VERIFIED — prior work, orch#914 r3,
+doc/research/2026-08-08-pocket-layer-return-space.md §2, script-measured from
+live_state_snapshots]`. No routing idea in the dead frame was
 within an order of magnitude of it.
 
 **Design: exposure becomes a designed quantity.**
@@ -81,9 +84,14 @@ E_max   cap (≤ 1: no leverage)
   controller makes the blockers' cost explicit run by run — `target minus
   achieved` becomes a monitored quantity with an owner, instead of an
   ambient accident.
-* **Fallback floor:** `g ≡ 1, σ*/σ̂ ≡ 1` reproduces a fully-invested book;
-  `E_min = today's achieved exposure` reproduces the status quo. The layer
-  cannot be worse than either bound by construction.
+* **Reproducible baselines (NOT a performance guarantee):** `g ≡ 1,
+  σ*/σ̂ ≡ 1` reproduces a fully-invested book; `E_min = today's achieved
+  exposure` reproduces the status quo. These are operational fallback
+  CONFIGURATIONS — a clip constrains exposure, not returns, and a chosen
+  controller can still underperform both baselines through vol/regime
+  estimation error, timing, cash-implementation friction, or the deployment
+  blockers themselves. **The full-history evaluation (§6.1) is the only
+  source of any performance conclusion about this layer.**
 
 ## 2 · Layer 2 — online expert allocation (the routing table becomes alive)
 
@@ -101,10 +109,26 @@ subject to  w_panel ≥ 0.5                       (champion floor)
   but a published daily state (ops report line), with its full history in
   the DB. The operator watches the machine reallocate instead of reading
   kill verdicts.
-* **Guarantees replace missing power:** the Hedge regret bound caps the gap
-  to the best expert in hindsight at `O(√(T ln N))`; the panel floor caps
-  the gap to today's system at a factor of 2 on the allocated half. Neither
-  requires any expert to clear an offline significance gate.
+* **Guarantees replace missing power — conditional on the following
+  frozen contract**, without which the update equation supplies no theorem:
+  1. *bounded loss transform*: the update consumes
+     `clip(r_i^paper, −c, +c)` with `c = 5%/day` frozen — the Hedge bound
+     holds for the transformed bounded series, and c is wide enough that
+     clipping a diversified paper book is rare (logged when it happens);
+  2. *feedback timing*: weights computed after day `t`'s paper marks are
+     final, applied from day `t+1`'s open — no same-day feedback;
+  3. *eligible-arm rule*: an arm with no honest mark that day (missing
+     price, stale score) receives NO update that day and is renormalized
+     with its weight carried; the exclusion is logged, never silent;
+  4. *costs*: in the shadow phase weights allocate paper capital only; any
+     live phase charges turnover costs INSIDE `r_i^paper` before the
+     transform, so the bound applies to net series;
+  5. the regret statement is then `O(√(T ln N))` versus the best FIXED
+     expert in hindsight on the transformed net series — and it is a bound
+     on regret, not a profitability claim.
+  The champion floor `w_panel ≥ 0.5` is containment, not the theorem: it
+  caps the allocation gap to today's system at the floored half regardless
+  of what the learner does.
 * Start whole-book. Regime-conditioned weights (a separate weight vector per
   regime — the operator's regime×model table, learned online) are **v2**,
   gated on L1 shipping first: one axis at a time.
