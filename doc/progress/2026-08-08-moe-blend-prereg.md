@@ -9,9 +9,13 @@ WHAT:      Design doc gains §10: the confirmatory blend protocol. ONE primary
            vs panel); a four-part pass rule (measurability → effect →
            economics → level guard) with the already-frozen conventions
            (ddof=1, n_eff-adjusted t ≥ 2.0, block-bootstrap gap ≥ H); a
-           contamination rule making the 508 disjoint dates govern any
+           frozen label-interval purge rule (r2: retain a date only if its
+           H=20 forward-label interval overlaps no hypothesis-generating
+           date's interval — date subtraction alone is not out-of-sample),
+           with the governing row's thresholds re-derived from the recorded
+           retained count n_ret and that embargoed row governing any
            disagreement with the full 541; and a standing two-step pattern
-           (diagnostic generates → dated amendment preregisters → disjoint-
+           (diagnostic generates → dated amendment preregisters → purge-
            governed confirmatory decides) that rb/clf must also follow.
 
 WHY/DIR:   orch#911's diagnostics generated the 75/25 hypothesis but the
@@ -36,8 +40,12 @@ EVIDENCE:  artifact:      doc/design/2026-08-07-moe-revision-2-power-and-members
                           no config, no production surface.
 
            Key numbers carried into the freeze (all previously published in
-           orch#911, none new): gate bound 0.0929 (ddof=1), ceiling 0.05,
-           contamination 33/541 = 6.1%, adjusted-t convention >= 2.0.
+           orch#911, none new): gate bound 0.0929 (ddof=1) for the full-541
+           primary row only, ceiling 0.05, contamination 33/541 = 6.1%,
+           adjusted-t convention >= 2.0. The embargoed row's bound is
+           0.05·sqrt(n_ret/20)/2.8 with n_ret recorded when the matrix lands
+           (illustration: 0.0900 at the naive 508-date count
+           [DERIVED — 0.05·sqrt(508/20)/2.8]).
 
 TESTS:     none — a prose contract. Its "test" is that the confirmatory run
            can be judged entirely by reading §10.2/§10.3 with no live choices.

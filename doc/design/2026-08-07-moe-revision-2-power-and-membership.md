@@ -487,19 +487,53 @@ menu, and (b) the contamination sensitivity in §10.3.
 Fail any → the answer is "keep the panel alone", recorded as a successful
 outcome per §1. **No re-tries at other weights.**
 
-### 10.3 Contamination handling, fixed now
+### 10.3 Contamination handling, fixed now — label-interval purge, not date subtraction
 
 The 541-date matrix **contains** the 33 hypothesis-generating dates (6.1% of
-rows). The confirmatory report must carry, as a mandatory sensitivity row, the
-primary's §10.2 quantities recomputed on the **541 − 33 = 508 disjoint dates**.
-If the full-sample result passes and the disjoint-sample result does not, the
-verdict is **NOT CLEARED** — the disjoint row governs in any disagreement.
+rows) — and under this design's own estimand, subtracting those as-of dates
+does not remove them (codex r2 finding on this PR). The label is an `H = 20`-day
+forward return, and the power model this document rests on says observations
+inside one horizon window are not independent (§4.4, `n_eff = n/H`). A retained
+date whose `fwd_20d` interval overlaps a diagnostic date's interval had its
+outcome **partially seen** when w = 0.25 was chosen: `541 − 33 = 508` counts
+distinct as-of dates, not unseen outcomes.
+
+**Frozen purge rule** (the purged-holdout construction of López de Prado,
+*Advances in Financial Machine Learning* 2018 ch. 7, applied to a fixed holdout
+rather than CV folds): let `D_diag` be the 33 hypothesis-generating as-of dates
+(orch#911), each carrying the label interval `[t+1, t+H]` in trading days. A
+matrix date `t′` is **retained** iff its own label interval `[t′+1, t′+H]`
+intersects no diagnostic label interval — equivalently, `|t′ − t| ≥ H` trading
+days for every `t ∈ D_diag`. Everything else is purged. The retained count
+`n_ret` is **recorded output, not chosen input**: it cannot be computed until
+the served matrix's date grid exists, and by construction `n_ret ≤ 508`.
+
+**The governing row is computed on the retained series with every threshold
+re-derived from `n_ret`** — no 541-date constant may be reused:
+
+1. **measurability** — `sd(Δ) < 0.05 · √(n_ret/H) / 2.8` (the §4.4 inequality
+   at `n_eff = n_ret/H`, ddof=1). Even before purging, the naive 508-date
+   count already lowers the bound to `0.05 · √(508/20) / 2.8 = 0.0900`, not
+   0.0929; purging lowers it further.
+2. **effect** — `mean Δ > 0` with adjusted `t ≥ 2.0` using `se · √(n/n_eff)`
+   at `n = n_ret`, `n_eff = n_ret/H`, plus the block-bootstrap CI (gap ≥ H)
+   recomputed on the retained series. Both, not either.
+3. **economics** — the retained-series `mean Δ` against the same `β̂` and
+   round-trip cost recorded by the §10.2 full-sample re-run. The transfer is a
+   property of the book, not of the challenger; contamination enters through
+   Δ, so β̂ is not re-estimated here.
+4. **level guard** — `mean IC_blend ≥ mean IC_panel` on the retained dates.
+
+The confirmatory report carries the full-541 primary row AND this embargoed
+row, with `n_ret` and the resulting thresholds stated. **The embargoed row
+governs**: if the full-sample result passes and the embargoed row does not,
+the verdict is **NOT CLEARED**.
 
 ### 10.4 Standing pattern for future challengers
 
 rb and clf (and any later challenger) follow the same two-step this amendment
 instantiates: **diagnostic generates → dated amendment preregisters ONE
-primary → the disjoint-governed confirmatory run decides.** A challenger whose
+primary → the purge-governed confirmatory run decides.** A challenger whose
 diagnostic never happened cannot skip to a primary. The fast clock is not
 excluded by rule — it simply has no amendment naming it, and none is planned
 on current evidence.
