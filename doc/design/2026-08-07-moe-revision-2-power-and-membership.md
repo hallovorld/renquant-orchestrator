@@ -232,8 +232,14 @@ caught that the control still evaluated revision 2's "routed correction" —
 undefined under the §2 champion/challenger architecture — and that a
 **uniform** return shift is rank-inert: it can leave within-sector ranks
 unchanged, so the §3 paired rank statistic could legitimately stay at zero
-with the injected effect present. The control below injects a **score-tied,
-rank-active** effect and exercises the actual §2/§6 selection path.
+with the injected effect present. The revision-5 review caught that the
+recovery/calibration criteria were tautological — the pipeline estimate and
+the oracle were the same statistic on the same perturbed validation data, so
+recovery bias was identically zero whether or not the selector worked. The
+control below injects a **score-tied, rank-active** effect, exercises the
+actual §2/§6 selection path, defines the pipeline estimate **through the
+frozen routed policy** (zero for the target cell when the panel is kept),
+and keeps detection + null discipline as the only decision-bearing rows.
 
 ### 5.1 Fold-local synthetic DGP (the known truth)
 
@@ -248,8 +254,8 @@ rank-active** effect and exercises the actual §2/§6 selection path.
 | outcome perturbation | `fwd_20d′_{i,t} = fwd_20d_{i,t} + δ_k(t) · ĝ_{i,t}` for names in `s*` only, where `ĝ` is `g` z-scored within the `(t, s*)` cell. The primitive stays an additive **return-unit** (bps) shift, as the revision-3 fix required — but its cross-sectional shape is the challenger's own score, which is what makes it rank-active |
 | injected size | `δ_k(t) = IC_k · σ̂_y(t) / √(1 − IC_k²)`, with `IC_k = k · 0.10` and `σ̂_y(t)` = the cross-sectional sd of the **unperturbed** `fwd_20d` within the cell at date `t`. By construction the population Pearson correlation of `c*` with the perturbed outcome inside the cell is exactly `IC_k` `[DERIVED — inverting corr(ĝ, y + δ·ĝ) = δ/√(σ_y² + δ²)]`. Top of grid `IC_{k=1.0} = 0.10` `[DERIVED — 2 × the §4.2 ceiling 0.05]` |
 | `k` grid | `k ∈ {0, 0.1, 0.2, 0.5, 1.0}`; `k = 0` **is the placebo arm** |
-| injection scope | the **entire fold** — training AND embargoed validation partitions, perturbed by the same fold-local construction (same `g`, same per-date `δ_k(t)`), re-applied independently after each split, per fold and per seed. A positive control needs the true effect present wherever recovery is measured |
-| fitting boundary | clustering, the §6 selection rule, and every fitted quantity read **training-partition rows only**, frozen before validation is touched — even though validation rows carry the same injected effect. That gap (fit blind to validation, effect present in validation) is what makes recovery-on-validation a real test rather than a tautology |
+| injection scope | the **entire fold** — training AND embargoed validation partitions, perturbed by the same fold-local construction (same `g`, same per-date `δ_k(t)`), re-applied independently after each split, per fold and per seed. A positive control needs the true effect present wherever the routed policy's consequences are measured |
+| fitting boundary | clustering, the §6 selection rule, and every fitted quantity read **training-partition rows only**, frozen before validation is touched — even though validation rows carry the same injected effect. That gap (fit blind to validation, effect present in validation) keeps the frozen routing decision blind to the rows on which its consequences are later measured |
 
 ### 5.2 The exact statistic under test
 
@@ -257,29 +263,55 @@ Stage 0′ exercises the **actual C3 selection path**, not a proxy:
 
 1. Add `c*` to the fold's challenger set; run the frozen **§6 selection rule**
    on training-partition rows only; freeze the routing table.
-2. On the fold's embargoed validation dates, compute the §3 paired cell
-   statistic `Δ̂ = mean_t [ IC_{s*}(c*, t) − IC_{s*}(panel, t) ]` — `IC` is the
-   §3 Spearman definition, evaluated on the perturbed `fwd_20d′` — with its
-   95% CI from a block bootstrap over validation dates, gap ≥ H (the same
-   bootstrap §6 uses). §6's pooled routed-book endpoint is reported
+2. The **pipeline estimate is the increment the frozen routed policy actually
+   delivers**, not a direct read of `c*`. Let `m̂(s*)` be the model the frozen
+   table assigns to the target cell — `c*`, a real challenger, or the panel.
+   On the fold's embargoed validation dates,
+   `Δ̂ = mean_t [ IC_{s*}(m̂(s*), t) − IC_{s*}(panel, t) ]` — `IC` is the §3
+   Spearman definition, evaluated on the perturbed `fwd_20d′` — with its 95%
+   CI from a block bootstrap over validation dates, gap ≥ H (the same
+   bootstrap §6 uses). When the table keeps the panel, `Δ̂ ≡ 0` with a
+   degenerate CI: that zero is the selection's consequence, and it is the
+   quantity under test. §6's pooled routed-book endpoint is reported
    descriptively alongside.
-3. The **oracle truth** `Δ*` for the same (fold, seed, k) is the statistic in
-   step 2 computed by the harness **with knowledge of `c*`**, on the same
-   perturbed validation dates. Pass/fail compares the pipeline's estimate to
-   `Δ*`, so no distributional approximation (Pearson→Spearman, non-normal
-   returns) enters the criterion; the closed-form `IC_k` relationship in §5.1
-   is for interpretation only.
+3. The **oracle truth** `Δ*` for the same (fold, seed, k) is the same
+   validation increment under the **known synthetic policy** that routes
+   `s* → c*`: `Δ* = mean_t [ IC_{s*}(c*, t) − IC_{s*}(panel, t) ]` on the
+   same perturbed validation dates. `Δ̂` and `Δ*` are distinct estimands —
+   they coincide **iff** the frozen selection routed `s* → c*`. A selector
+   that misses the injected effect leaves `Δ̂ = 0` against `Δ* > 0`; a
+   misroute to a real challenger `c′` leaves the gap
+   `mean_t [ IC_{s*}(c′, t) − IC_{s*}(c*, t) ]`. No distributional
+   approximation (Pearson→Spearman, non-normal returns) enters either side;
+   the closed-form `IC_k` relationship in §5.1 is for interpretation only.
+4. **What the Δ̂-vs-Δ* comparison licenses.** Because the two estimands
+   differ only through the routing, conditional on a correct route
+   `Δ̂ − Δ*` is zero **by construction** — the gap carries the selection
+   event's information and nothing more. It is therefore **not** an
+   out-of-fold recovery test of the estimator, and this protocol claims no
+   such test: routed attenuation and CI coverage are reported descriptively
+   (§5.3), while the decision-bearing controls are detection and null
+   discipline.
 
 ### 5.3 Numerical pass/fail, all frozen
 
 | output | statistic | kill threshold |
 |---|---|---|
 | **Detection (power)** | fraction of the 200 seeds in which the frozen selection routes `s*` → `c*`, per `k`; the empirical power curve is the smallest `k` reaching 80% | **< 80% at `k = 1.0`** at the primary sector `[DERIVED — §4.1 frozen power 80%]` |
-| **Recovery** | mean over seeds of `(Δ̂ − Δ*)` at each `k` | **\|mean\| > 0.005** `[DERIVED — 10% of the §4.2 ceiling]` |
-| **Calibration** | share of seeds whose 95% CI (step 2) covers `Δ*`, per `k` | **< 90% at any `k`** |
 | **Null discipline** | share of seeds at `k = 0` in which `s*` is routed to `c*` (routing to a *real* challenger at `k = 0` is data, not a control failure) | **> 8%** (16/200) `[DERIVED — one-sided 95% binomial bound of a true 5% rate at n = 200: 0.05 + 1.645·√(0.05·0.95/200) = 0.075]` |
 
 **KILL CONDITION.** Any row's kill threshold fires at the primary sector `s*`.
+
+**Descriptive outputs, no decision weight:** routed attenuation
+`mean_seeds(Δ̂ − Δ*)` and the share of seeds whose 95% CI (§5.2 step 2)
+covers `Δ*`, each per `k`. Under the champion/challenger architecture both
+are functions of the routing event (§5.2 step 4), so a kill threshold on
+them would either duplicate the detection row or fire mechanically at every
+`k` whose designed power is below 100%. The earlier recovery/calibration
+kill rows (`|bias| > 0.005`, coverage `< 90%`) are **withdrawn**: as
+previously defined, the pipeline estimate and the oracle were the same
+statistic on the same perturbed validation data, so the bias was identically
+zero and the rows validated nothing (revision-5 review).
 
 **Precedence rule, fixed now:** if the empirical power curve disagrees with the
 §4.4 analytic MDE, **the empirical curve wins** and §4.4's gate is re-evaluated

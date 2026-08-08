@@ -2,9 +2,12 @@
 
 STATUS:    DESIGN. Supersedes revision 2 in the same file, addressing both codex
            P1s, an operator architecture correction, a second codex
-           CHANGES_REQUESTED pass on revision 3 (2 more P1s), and a third codex
+           CHANGES_REQUESTED pass on revision 3 (2 more P1s), a third codex
            pass (1 HIGH: Stage 0' was not a runnable positive control for the
-           champion/challenger path — now fully preregistered).
+           champion/challenger path — now fully preregistered), and a fourth
+           codex pass (1 HIGH: the recovery/calibration kill rows were
+           tautological — estimand now defined through the frozen routed
+           policy; detection + null discipline are the decision rows).
            Nothing deployed. Stages -1 and 0' run on data that already exists.
 
 WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
@@ -19,10 +22,12 @@ WHAT:      (a) Architecture replaced: experts are DIFFERENT MODEL FAMILIES
            hash-seeded synthetic challenger score (seed list 1..200, tie rule
            frozen), an outcome perturbation TIED to that score within the
            target sector cell (rank-active, still return-unit bps as the
-           primitive), the exact out-of-fold routed-vs-panel Spearman
-           statistic and its oracle truth, and numeric pass/fail rules
-           (detection >=80% at k=1.0, |recovery error| <= 0.005, CI coverage
-           >= 90%, k=0 false-routing <= 8%). Injection covers BOTH partitions
+           primitive), the routed-vs-panel Spearman increment DELIVERED BY THE
+           FROZEN ROUTING TABLE (zero for the target cell when the panel is
+           kept) against the oracle increment under the known synthetic
+           routing, and numeric pass/fail rules (detection >=80% at k=1.0,
+           k=0 false-routing <= 8%; routed attenuation and CI coverage are
+           reported descriptively with no kill weight). Injection covers BOTH partitions
            of the fold, re-applied independently after each split; fitting
            reads training rows only. Section 6 now also freezes the exact
            selection rule (sd(delta) gate + Bonferroni one-sided paired t +
@@ -57,6 +62,22 @@ WHY/DIR:   Three corrections, one operator and two codex passes.
            injected delta", "no attenuation beyond what shrinkage predicts")
            named no statistic and no threshold. Fixed by preregistering the
            full fold-local DGP and numeric pass/fail in section 5.
+           CODEX round 4 (2026-08-08T07:53:32Z, 1 HIGH): the recovery and
+           calibration rows were tautological. The pipeline estimate read
+           IC(c*) - IC(panel) directly on validation whether or not the
+           frozen selector routed s* to c*, and the oracle was the SAME
+           statistic on the SAME perturbed dates, so recovery bias was
+           mechanically zero and CI coverage checked nothing -- the control
+           could not expose a broken selector/router. Fixed by defining the
+           pipeline estimate through the frozen routed policy (the increment
+           of whatever model the table assigns to s*; identically zero when
+           the panel is kept) and the oracle as the same validation increment
+           under the known synthetic routing s* -> c*. The two now coincide
+           IFF the selector routed correctly; since conditional on a correct
+           route their gap is zero by construction, the gap carries only the
+           selection event's information, so the recovery/calibration kill
+           rows are withdrawn (descriptive only) and detection + null
+           discipline remain the decision-bearing controls.
 
 EVIDENCE:  artifact:      runs.alpaca.db candidate_scores(role='candidate') join
                           ticker_forward_returns.fwd_20d; per-DB coverage query
@@ -129,13 +150,22 @@ VISIBLE CORRECTIONS in this revision:
            * The recovery phrases "tracks injected delta" / "no attenuation
              beyond what shrinkage predicts" are withdrawn as decision rules:
              no shrinkage estimator exists in the champion/challenger path, so
-             the predicted attenuation was undefined. Replaced by the four
-             numeric kill thresholds in section 5.3.
+             the predicted attenuation was undefined. Replaced by the numeric
+             kill thresholds in section 5.3 (two of which — recovery and
+             calibration — codex round 4 later exposed as tautological; see
+             the bullet below).
            * Stage 0's delta grid no longer routes through the section-4.3
              transfer beta-hat; the injection is parameterised directly by the
              target within-cell IC via the measured per-date cross-sectional
              sd of unperturbed fwd_20d. beta-hat remains in Stage 3 economics
              only.
+           * Stage 0's recovery/calibration kill rows (|bias| > 0.005, CI
+             coverage >= 90%) are WITHDRAWN: as previously defined the
+             pipeline estimate and the oracle were the same statistic on the
+             same perturbed validation data, so the bias was identically zero
+             and the rows validated nothing. Routed attenuation and CI
+             coverage stay as descriptive outputs; detection and null
+             discipline are the decision-bearing controls.
 
 TESTS:     none -- design only. Every figure above is reproducible from the two
            tables named under EVIDENCE; the paired sd(dIC) that decides the gate
