@@ -224,7 +224,14 @@ def test_shadow_swap_explained_by_receipt(tmp_path, dirs):
     _, _, receipts = dirs
     ts = BASE + timedelta(hours=30)
     (receipts / f"{ts.strftime('%Y-%m-%dT%H%M%SZ')}.json").write_text(
-        json.dumps({"promoted_at": ts.isoformat()}), encoding="utf-8"
+        json.dumps(
+            {
+                "promoted_at": ts.isoformat(),
+                "identity_before": {"expected_content_sha256": f"sha256:{SHA_SHADOW_1}"},
+                "identity_after": {"expected_content_sha256": f"sha256:{SHA_SHADOW_2}"},
+            }
+        ),
+        encoding="utf-8",
     )
     rows = [
         ("run-old", BASE, _bundle(shadow_sha=SHA_SHADOW_1)),
@@ -796,3 +803,95 @@ def test_lifecycle_is_none_for_a_same_lane_substitution():
     )
     assert change.lifecycle is None
     assert change.as_dict()["lifecycle"] is None
+
+
+# --- a receipt is evidence only for the identity transition it records ---
+
+
+def _receipt(receipts, ts, before: str | None, after: str | None) -> None:
+    payload: dict = {"promoted_at": ts.isoformat()}
+    if before is not None:
+        payload["identity_before"] = {"expected_content_sha256": before}
+    if after is not None:
+        payload["identity_after"] = {"expected_content_sha256": after}
+    (receipts / f"{ts.strftime('%Y-%m-%dT%H%M%SZ')}.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+
+def test_receipt_for_another_artifact_does_not_explain_this_lane(tmp_path, dirs):
+    """THE FAIL-OPEN THIS FIX EXISTS FOR. The receipt directory is
+    logs/promote_shadow_patchtst, so before this fix a patchtst promotion
+    explained a momentum lane change in the same window."""
+    _, _, receipts = dirs
+    other = "f" * 64
+    _receipt(receipts, BASE + timedelta(hours=30), f"sha256:{other}", f"sha256:{other}")
+    rows = [
+        ("run-old", BASE, _bundle(shadow_sha=SHA_SHADOW_1)),
+        ("run-new", BASE + timedelta(days=2), _bundle(shadow_sha=SHA_SHADOW_2)),
+    ]
+    report = _report(tmp_path, dirs, rows)
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_receipt_with_no_identity_block_explains_nothing(tmp_path, dirs):
+    """"Something was promoted that day" cannot say WHOSE lane it was."""
+    _, _, receipts = dirs
+    _receipt(receipts, BASE + timedelta(hours=30), None, None)
+    rows = [
+        ("run-old", BASE, _bundle(shadow_sha=SHA_SHADOW_1)),
+        ("run-new", BASE + timedelta(days=2), _bundle(shadow_sha=SHA_SHADOW_2)),
+    ]
+    report = _report(tmp_path, dirs, rows)
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_truncated_receipt_digest_still_matches_a_full_lane_digest(tmp_path, dirs):
+    """MEASURED: run bundles stamp 64 hex, receipts stamp a 16-hex truncation of
+    the SAME artifact. An equality test would match nothing and turn every
+    boundary CRITICAL — failing the other way, since an all-red alarm stops being
+    read."""
+    _, _, receipts = dirs
+    _receipt(
+        receipts,
+        BASE + timedelta(hours=30),
+        f"sha256:{SHA_SHADOW_1[:16]}",
+        f"sha256:{SHA_SHADOW_2[:16]}",
+    )
+    rows = [
+        ("run-old", BASE, _bundle(shadow_sha=SHA_SHADOW_1)),
+        ("run-new", BASE + timedelta(days=2), _bundle(shadow_sha=SHA_SHADOW_2)),
+    ]
+    report = _report(tmp_path, dirs, rows)
+    assert report["status"] == sim.STATUS_OK
+
+
+def test_a_digest_prefix_shorter_than_the_floor_is_refused(tmp_path, dirs):
+    """Below _MIN_DIGEST_PREFIX a prefix is a plausible collision, not an
+    identity. Refusing costs a CRITICAL a human reads; accepting would hand out
+    matches to unrelated artifacts."""
+    _, _, receipts = dirs
+    _receipt(
+        receipts,
+        BASE + timedelta(hours=30),
+        f"sha256:{SHA_SHADOW_1[:6]}",
+        f"sha256:{SHA_SHADOW_2[:6]}",
+    )
+    rows = [
+        ("run-old", BASE, _bundle(shadow_sha=SHA_SHADOW_1)),
+        ("run-new", BASE + timedelta(days=2), _bundle(shadow_sha=SHA_SHADOW_2)),
+    ]
+    report = _report(tmp_path, dirs, rows)
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_genesis_receipt_explains_a_lane_addition():
+    """Measured on the four real receipts: the genesis one carries
+    identity_before=None with a real identity_after. "The lane was absent" and
+    "the receipt names nothing" are the same claim and must match, or a
+    legitimate lane addition reports unexplained forever."""
+    assert sim._side_matches(sim._ABSENT, None) is True
+    assert sim._side_matches(None, None) is True
+    # The converse never matches: the receipt names an artifact the lane lacked.
+    assert sim._side_matches(sim._ABSENT, "sha256:" + "a" * 64) is False
+    assert sim._side_matches("sha256:" + "a" * 64, None) is False

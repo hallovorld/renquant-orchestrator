@@ -138,6 +138,10 @@ _PANEL_HASH_KEYS = ("panel", "ranking.panel_scoring.artifact_path")
 _CALIBRATOR_HASH_KEY = "global_calibration"
 _SHADOW_KEY_RE = re.compile(r"shadow_models\[\d+\]")
 _SHA_PREFIX = "sha256:"
+# Shortest digest prefix a receipt may use and still be trusted to identify one
+# artifact. Receipts observed in the wild stamp 16 hex; below 12 a prefix starts
+# being a plausible collision rather than an identity.
+_MIN_DIGEST_PREFIX = 12
 
 # Which promote-record families legitimize which lane. Promote logs carry no
 # family and count for both prod-chain lanes.
@@ -451,6 +455,11 @@ class PromoteEvent:
     event_date: date
     family: str | None = None
     detail: str | None = None
+    # Shadow receipts record WHICH identity transition they authorise. Without
+    # these, a receipt is only "something was promoted on this date", which is
+    # not enough to tell whose lane it was.
+    identity_before: str | None = None
+    identity_after: str | None = None
 
     def describe(self) -> str:
         family = f" family={self.family}" if self.family else ""
@@ -464,7 +473,68 @@ class PromoteEvent:
             "event_date": self.event_date.isoformat(),
             "family": self.family,
             "detail": self.detail,
+            "identity_before": self.identity_before,
+            "identity_after": self.identity_after,
         }
+
+
+def _receipt_digest(payload: dict[str, Any] | None, block_key: str) -> str | None:
+    """`payload[block_key]["expected_content_sha256"]`, or None if anything is
+    missing or not a non-empty string. Deliberately no `str()` coercion and no
+    default: a malformed receipt must read as "no identity recorded" (which keeps
+    the boundary CRITICAL), never as a digest that happens to compare equal."""
+    if not isinstance(payload, dict):
+        return None
+    block = payload.get(block_key)
+    if not isinstance(block, dict):
+        return None
+    value = block.get("expected_content_sha256")
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _side_matches(lane_sha: str | None, receipt_sha: str | None) -> bool:
+    """Does one side of a lane transition agree with one side of a receipt?
+
+    A receipt omits the digest on the side where there was no artifact: measured
+    on the four real receipts, the genesis one carries ``identity_before: None``
+    with a real ``identity_after``. So "the lane was absent" and "the receipt
+    names nothing" are the SAME claim and must match, or a legitimate lane
+    addition would report as unexplained forever.
+
+    The converse never matches: if the receipt names an artifact the lane did not
+    have (or vice versa), the receipt is about some other lane.
+    """
+    lane_absent = not lane_sha or lane_sha == _ABSENT
+    if receipt_sha is None:
+        return lane_absent
+    if lane_absent:
+        return False
+    return _digest_matches(lane_sha, receipt_sha)
+
+
+def _digest_matches(lane_sha: str | None, receipt_sha: str | None) -> bool:
+    """Compare a lane digest to a receipt digest on the SHORTER of the two.
+
+    Measured 2026-08-07: a run bundle stamps the full 64 hex
+    (``sha256:1e644354e0981f470d13161a...``) while the receipt stamps a 16-hex
+    truncation (``sha256:1e644354e0981f47``) of the SAME artifact. An equality
+    test matches nothing and turns every boundary CRITICAL — which fails the
+    other way, since an all-red alarm stops being read.
+
+    Below ``_MIN_DIGEST_PREFIX`` hex characters the comparison is refused rather
+    than loosened: a short prefix would start matching unrelated artifacts, and a
+    refusal only costs a CRITICAL that a human then reads.
+    """
+    if not lane_sha or not receipt_sha:
+        return False
+    left = lane_sha[len(_SHA_PREFIX):] if lane_sha.startswith(_SHA_PREFIX) else lane_sha
+    right = receipt_sha[len(_SHA_PREFIX):] if receipt_sha.startswith(_SHA_PREFIX) else receipt_sha
+    width = min(len(left), len(right))
+    if width < _MIN_DIGEST_PREFIX:
+        return False
+    return left[:width].lower() == right[:width].lower()
 
 
 def collect_promote_events(
@@ -541,16 +611,20 @@ def collect_promote_events(
     except OSError:
         receipt_entries = []
     for path in receipt_entries:
+        # Always read the payload: it carries the identity transition, which is
+        # what scopes the receipt to a lane. Previously it was parsed only when
+        # the filename lacked a date, so the scoping data was on disk and unread.
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            loaded = None
+        payload = loaded if isinstance(loaded, dict) else None
         event_date = None
         if match := _RECEIPT_NAME_RE.match(path.name):
             event_date = _parse_iso_date(match.group("date"))
-        if event_date is None:
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                promoted_at = payload.get("promoted_at") if isinstance(payload, dict) else None
-                event_date = _parse_iso_date(str(promoted_at)[:10]) if promoted_at else None
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-                event_date = None
+        if event_date is None and payload is not None:
+            promoted_at = payload.get("promoted_at")
+            event_date = _parse_iso_date(str(promoted_at)[:10]) if promoted_at else None
         if event_date is None:
             continue
         events.append(
@@ -560,6 +634,8 @@ def collect_promote_events(
                 event_date=event_date,
                 family=None,
                 detail="shadow promotion receipt",
+                identity_before=_receipt_digest(payload, "identity_before"),
+                identity_after=_receipt_digest(payload, "identity_after"),
             )
         )
 
@@ -656,24 +732,37 @@ def diff_runs(prev: RunIdentity, curr: RunIdentity) -> list[LaneChange]:
     return changes
 
 
-def _lane_events(lane: str, window_events: list[PromoteEvent]) -> list[PromoteEvent]:
-    if lane in _LANE_FAMILY_PREFIXES:
-        prefixes = _LANE_FAMILY_PREFIXES[lane]
+def _lane_events(change: LaneChange, window_events: list[PromoteEvent]) -> list[PromoteEvent]:
+    if change.lane in _LANE_FAMILY_PREFIXES:
+        prefixes = _LANE_FAMILY_PREFIXES[change.lane]
         return [
             ev
             for ev in window_events
             if ev.kind in ("staging", "rollback", "promote_log")
             and (ev.family is None or ev.family.startswith(prefixes))
         ]
-    # shadow lanes: only a persisted promotion receipt is direct evidence.
-    return [ev for ev in window_events if ev.kind == "shadow_receipt"]
+    # Shadow lanes: a persisted promotion receipt is direct evidence ONLY for the
+    # identity transition it actually records.
+    #
+    # Matching on `kind` alone made every receipt in the window explain EVERY
+    # shadow lane change in it, so one lane's legitimate promotion laundered
+    # another lane's genuine silent swap. That is not hypothetical: the receipt
+    # directory is `logs/promote_shadow_patchtst`, so patchtst receipts were
+    # explaining momentum lanes. Confirmed by execution 2026-08-07.
+    return [
+        ev
+        for ev in window_events
+        if ev.kind == "shadow_receipt"
+        and _side_matches(change.prev.artifact_sha, ev.identity_before)
+        and _side_matches(change.curr.artifact_sha, ev.identity_after)
+    ]
 
 
 def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
     """Mark each lane change explained/unexplained in place."""
     window = events_in_window(events, boundary.prev_run, boundary.curr_run)
     for change in boundary.changes:
-        matched = _lane_events(change.lane, window)
+        matched = _lane_events(change, window)
         if matched:
             change.explained = True
             change.events = matched
