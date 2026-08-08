@@ -42,7 +42,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from .runtime_paths import default_repo_root
+from .runtime_paths import default_data_root, default_strategy_config_path
 
 LAMBDA = 0.94
 SIGMA_STAR = 0.15
@@ -161,9 +161,10 @@ def append_row(log_dir: Path, row: dict) -> Path:
 
 
 def main(argv=None) -> int:
-    repo_root = default_repo_root()
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--repo-root", type=Path, default=repo_root)
+    ap.add_argument("--repo-root", type=Path, default=None,
+                    help="explicit umbrella override; defaults resolve through "
+                         "default_data_root()/default_strategy_config_path()")
     ap.add_argument("--db", type=Path, default=None)
     ap.add_argument("--ohlcv-root", type=Path, default=None)
     ap.add_argument("--sector-map-config", type=Path, default=None,
@@ -174,12 +175,16 @@ def main(argv=None) -> int:
                          "(the row records snapshot_run_date either way)")
     args = ap.parse_args(argv)
 
-    root = args.repo_root
-    db = args.db or root / "data" / "runs.alpaca.db"
-    ohlcv = args.ohlcv_root or root / "data" / "ohlcv"
-    log_dir = args.log_dir or root.joinpath(*DEFAULT_LOG_SUBDIR)
+    # Canonical runtime contract (codex on orch#920): data/state resolve through
+    # default_data_root() (RENQUANT_DATA_ROOT first, umbrella fallback), and the
+    # universe comes from the PINNED strategy-config resolver — never a
+    # hardcoded sibling working tree. --repo-root stays as explicit override.
+    data_root = default_data_root(args.repo_root)
+    db = args.db or data_root / "data" / "runs.alpaca.db"
+    ohlcv = args.ohlcv_root or data_root / "data" / "ohlcv"
+    log_dir = args.log_dir or data_root.joinpath(*DEFAULT_LOG_SUBDIR)
     cfg_path = (args.sector_map_config
-                or Path("/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json"))
+                or default_strategy_config_path(repo_root=args.repo_root))
 
     try:
         sector_map = json.loads(cfg_path.read_text(encoding="utf-8"))["sector_map"]
