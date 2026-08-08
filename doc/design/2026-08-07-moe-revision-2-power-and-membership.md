@@ -201,6 +201,16 @@ history is ≥ 0.0929 is dropped before any modelling. If **no** pair clears it,
 the line stops and the answer is "keep the panel everywhere" — which §1 already
 declared a valid outcome.
 
+> **AMENDMENT 2026-08-08 (second spec defect found by the first run; see
+> `doc/research/2026-08-08-moe-stage-minus1-results.md`).** This section froze
+> `sd(Δ) < 0.0929` without freezing WHICH sd estimator. The first run's record
+> used the population SD (ddof=0); the sample SD (ddof=1) differs at 33
+> overlap dates (whole-book slow 0.1725 vs 0.1752, fast 0.1484 vs 0.1507 —
+> no outcome in that record changes under either). Frozen for ALL future
+> runs, including the 541-date gate run: **sample SD (ddof=1)**, the
+> conservative (larger) estimator. Same ruling class as the §4.3 amendment:
+> an amendment, not a retroactive reread.
+
 Stage −1 needs no served matrix and no new artifact. It is one query plus one
 replay over data that exists — **provided the replay is point-in-time valid**
 (§4.5).
