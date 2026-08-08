@@ -9,11 +9,19 @@ built this week is retained, demoted to promotion-guard duty (§5).
 
 Two days of measurement produced an apparatus that kills ideas and a routing
 table whose honest content is "change nothing." The measurements were correct
-— whole-book switching dead, per-sector switching 3–5× over the gate bound,
-120-cube all |t| < 0.8, blend sign-reversed out of sample — but the FRAME was
+— whole-book switching dead and per-sector switching 3–5× over the gate
+bound `[VERIFIED — prior work,
+doc/research/2026-08-08-moe-stage-minus1-results.md, diagnostics 1–2]`,
+120-cube all |t| < 0.8 (strongest cell t = +0.76) `[VERIFIED — prior work,
+doc/design/2026-08-08-routing-table-v0.md]`, blend sign-reversed out of
+sample `[VERIFIED — prior work,
+doc/research/2026-08-08-moe-s10-confirmatory-kill.md]` — but the FRAME was
 wrong: it demanded **offline per-cell proof of edge** from a history that
-mathematically cannot supply it (regime n_eff 2–4; label overlap divides all
-date counts by 20). A frame whose only possible outputs are "no" is not a
+mathematically cannot supply it (regime n_eff 2–4 `[VERIFIED — prior work,
+doc/design/2026-08-07-moe-revision-2-power-and-membership.md §7 combiner
+ladder (2–3); doc/design/2026-08-08-bear-exit-prereg.md (BEAR n_eff ≈ 4)]`;
+label overlap divides all date counts by 20 — the frozen `n_dates / H` rule,
+H = 20). A frame whose only possible outputs are "no" is not a
 design; it is a veto. The operator asked for a machine that makes money, not
 a machine that refuses noise.
 
@@ -74,8 +82,11 @@ E_max   cap (≤ 1: no leverage)
   continuous decision needing no per-name selection and no 77-day-sample
   exit rule. orch#917's exit prereg stays open as a complementary line, no
   longer the G-B main line.
-* **It is estimable on 1910 days, not 77.** The controller is defined every
-  day; its backtest does not condition on rare regimes. Vol-managed exposure
+* **It is estimable on 1910 days, not 77** `[VERIFIED — prior work,
+  doc/research/2026-08-08-pocket-layer-return-space.md (1910-day OHLCV
+  panel); doc/design/2026-08-08-bear-exit-prereg.md (~77 BEAR days)]`. The
+  controller is defined every day; its backtest does not condition on rare
+  regimes. Vol-managed exposure
   has first-rank academic support. `[knowledge anchor — Moreira & Muir 2017
   "Volatility-Managed Portfolios"; Barroso & Santa-Clara 2015]`
 * **Interaction with the deployment blockers (G-E):** the controller sets the
@@ -138,10 +149,16 @@ subject to  w_panel ≥ 0.5                       (champion floor)
 
 ## 3 · Layer 3 — the meta-label entry filter
 
-The repo's own measured history: sim shows 76% win rate / +9.4% expectancy
-while the live book is flat — and the standing memory names **meta-labeling
-as the honest lever** (precision via selection, not curve-fit thresholds),
-with the exit-side foundation already merged.
+The repo's own measured history: the "76% win rate" headline was **sim**,
+while the live record (35 closed trades, payoff 0.89) ranked names no
+better than chance `[VERIFIED — prior work,
+doc/research/2026-06-21-gate-calibration-results.md]` — exactly the
+precision gap meta-labeling exists to close (selection, not curve-fit
+thresholds), and the standing memory already names a meta-label **entry**
+filter as the next lever (`doc/memory/mid-term/win-rate-payoff.md`), with
+the exit-side foundation merged. *(Correction, visible per LONG #10: r1 of
+this doc quoted "+9.4% expectancy" — no committed artifact carries that
+number, so it is removed rather than tagged.)*
 
 * A second-layer classifier on the panel's proposed entries:
   `P(win | regime posterior, vol state, score dispersion, breadth, name

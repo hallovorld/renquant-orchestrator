@@ -6,7 +6,7 @@ STATUS:    design. Supersedes the offline routing-table FRAME as the target
 
 WHAT:      doc/design/2026-08-08-allocation-machine.md — three layers:
            L1 deployment controller (exposure = f(vol, regime posterior);
-           ships first; solves the measured $4.8k/yr cash drag BY DESIGN and
+           ships first; solves the measured ≈$4,820/yr cash drag BY DESIGN and
            moves G-B to the size dial), L2 online expert allocation
            (Hedge/EG over the registry experts' paper books, champion floor
            w_panel >= 0.5, regret bounds replace unreachable offline power;
@@ -23,13 +23,26 @@ WHY/DIR:   Operator rejected the defensive frame: two days of kill-machinery
            allocate adaptively under regret guarantees, filter with
            trade-outcome labels.
 
-EVIDENCE:  artifact:      the week's own measurements (cash 78.3%/63d,
-                          cube 120 cells all |t|<0.8, blend sign reversal)
-                          as the case AGAINST the old frame; the repo's
-                          multi-panel-ensemble-references memory (AlphaMix
-                          two-stage MoE = L2's shape; Two-Level Uncertainty
-                          2025 = L1's shape) and win-rate memory
-                          (meta-labeling lever) as the case FOR the layers
+EVIDENCE:  artifact:      committed records, exact paths. AGAINST the old
+                          frame:
+                          doc/research/2026-08-08-pocket-layer-return-space.md
+                          §2 r3 — mean cash 78.0% (median 80.2%), ≈$994
+                          missed on the 62-day window ⇒ ≈$4,820/yr on the
+                          $10,961.59 book [VERIFIED — prior work,
+                          script-measured from live_state_snapshots];
+                          doc/design/2026-08-08-routing-table-v0.md — 120
+                          cells, 0 with |t| ≥ 2, strongest t = +0.76
+                          [VERIFIED — prior work];
+                          doc/research/2026-08-08-moe-s10-confirmatory-kill.md
+                          — the 75/25 blend sign-reverses out of sample
+                          [VERIFIED — prior work]. FOR the layers:
+                          doc/research/2026-07-12-multi-panel-opensource-references.md
+                          (unmerged branch
+                          research/multi-panel-opensource-references) —
+                          AlphaMix two-stage MoE = L2's shape, Two-Level
+                          Uncertainty 2025 = L1's shape; and
+                          doc/memory/mid-term/win-rate-payoff.md — names a
+                          meta-label entry filter as the next lever
            prod or exp:   experiment — design only
            existing data: no exposure controller exists (exposure is an
                           accident); shadow lanes already produce the paper
