@@ -36,9 +36,7 @@ EVIDENCE:  artifact:      committed records, exact paths. AGAINST the old
                           doc/research/2026-08-08-moe-s10-confirmatory-kill.md
                           — the 75/25 blend sign-reverses out of sample
                           [VERIFIED — prior work]. FOR the layers:
-                          doc/research/2026-07-12-multi-panel-opensource-references.md
-                          (unmerged branch
-                          research/multi-panel-opensource-references) —
+                          the survey inlined in the design doc §0 (arXiv:2207.07578, arXiv:2603.13252, MarketRegimeNet) —
                           AlphaMix two-stage MoE = L2's shape, Two-Level
                           Uncertainty 2025 = L1's shape; and
                           doc/memory/mid-term/win-rate-payoff.md — names a

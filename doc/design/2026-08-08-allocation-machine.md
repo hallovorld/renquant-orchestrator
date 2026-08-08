@@ -45,12 +45,15 @@ need **less** data than the dead frame, not more:
    repo's own memory already names this "the honest win-rate lever" with a
    built foundation: meta-label-exit.json, pipeline #23/#24]`
 
-The repo's own reference file (`multi-panel-ensemble-references`, collected
-earlier) independently points the same way: **AlphaMix** (train experts
-independently → LEARN the routing) is layer 2's shape; **Two-Level
-Uncertainty (2025)** (strategy-level regime gate + position-level cap) is
-layer 1's shape. The research was already in the house; this design finally
-uses it.
+Prior survey work done for this system independently points the same way
+(references inlined here so this document is self-contained): **AlphaMix**
+`[knowledge anchor — arXiv:2207.07578]` — train experts independently, then
+LEARN the routing — is layer 2's shape; **Two-Level Uncertainty (2025)**
+`[knowledge anchor — arXiv:2603.13252]` — a strategy-level regime gate plus a
+position-level cap — is layer 1's shape; **MarketRegimeNet**
+`[knowledge anchor — github.com/lu8848/MarketRegimeNet]` is the closest
+runnable analog (regime-aware multi-model ensemble over Alpha158 features).
+The research was already in the house; this design finally uses it.
 
 ## 1 · Layer 1 — the deployment controller (ship first)
 
