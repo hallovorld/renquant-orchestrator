@@ -60,6 +60,11 @@ TESTS:     none — design only. The arithmetic in the doc is reproducible from
            n_dates and H; the empirical n_eff (block bootstrap, gap >= H) is
            specified as Stage -1's first deliverable rather than asserted here.
 
+NEXT:      Run Stage -1, the power gate: estimate n_eff empirically per regime
+           via block bootstrap (gap >= H), take min(rule-of-thumb, bootstrap),
+           convert the MDE to bps via the section 4 transfer function, and
+           apply the kill condition. Runs today — not blocked by orch#905.
+
 NOT DECIDED HERE:
 
   * Whether to shorten the label horizon for the gating question, extend
