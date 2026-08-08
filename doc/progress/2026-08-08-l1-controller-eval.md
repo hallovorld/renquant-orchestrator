@@ -24,9 +24,14 @@ EVIDENCE:  artifact:      committed CSV (2412 rows) + verifier; derivation
                           nothing
            scope:         research only. Headline: ann +17.1% / Sharpe 1.38 /
                           maxDD −17.4% vs full-invest +25.5% / 1.21 / −34.6%;
-                          high-bear days cut from −37.3% pace & −29.9% DD to
-                          −14.1% & −10.2% [VERIFIED — verifier + derivation
-                          outputs]. Mean exposure 76%, turnover 4.6x/yr.
+                          bear-signal days (CORRECTED to the controller's own
+                          lagged signal after codex caught a future-aligned
+                          mask): segment DD capped −25.2% → −7.8%, at an
+                          upside cost (+222.1% → +47.8% pace) in this
+                          rebound-heavy history — the dial is PROTECTION,
+                          priced into the headline numbers, not a return
+                          enhancer [VERIFIED — corrected derivation output].
+                          Mean exposure 76%, turnover 4.6x/yr.
 
 TESTS:     the committed verifier reproduces every headline number from the
            CSV alone (run this session). The derivation is single-frozen-set

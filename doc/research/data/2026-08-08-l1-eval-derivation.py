@@ -2,13 +2,15 @@
    lambda=0.94 (RiskMetrics EWMA) | sigma*=0.15 | kappa_bear=0.5
    kappa_vol=0.25 | E_min=0.3 | E_max=1.0 | cost=10bps per unit |dE|
 Underlying = universe EW (the investable proxy; the accidental live book has
-only 63 observable days and is compared separately on its own window)."""
+only 63 observable days and is compared separately on its own window).
+Regime input = the committed 2026-08-08-regime-posteriors.csv beside this file
+(production HMM posteriors snapshot); OHLCV stays machine-local (provenance)."""
 import json, sys
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
 from renquant_model_common.total_return import total_return_close
 LAM, SSTAR, KB, KV, EMIN, EMAX, COST = 0.94, 0.15, 0.5, 0.25, 0.3, 1.0, 10/1e4
-SP='/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad'
+HERE=__import__('pathlib').Path(__file__).parent
 sec=json.load(open('/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json'))['sector_map']
 rets={}
 for t in [x for x,s in sec.items() if s not in ('benchmark','defensive_bonds')]:
@@ -18,7 +20,7 @@ for t in [x for x,s in sec.items() if s not in ('benchmark','defensive_bonds')]:
         rets[t]=total_return_close(df['close'],div).pct_change()
     except FileNotFoundError: pass
 uni=pd.DataFrame(rets).loc['2017-01-01':].mean(axis=1).dropna()
-reg=pd.read_parquet(f'{SP}/regime_posteriors.parquet')
+reg=pd.read_csv(HERE/'2026-08-08-regime-posteriors.csv', index_col=0)
 reg.index=pd.to_datetime(reg.index)
 pb=reg['regime_p_bear'].reindex(uni.index).ffill().fillna(0)
 pv=reg['regime_p_bull_volatile'].reindex(uni.index).ffill().fillna(0)
@@ -41,9 +43,9 @@ for span in ('2024-01-01','2022-01-01'):
     stats(uni.loc[span:],f'  full-invest {span[:4]}..')
     stats(ctrl.loc[span:],f'  controller  {span[:4]}..')
 # BEAR-day behavior
-bearmask=(pb.shift(-1)>0.5).reindex(uni.index).fillna(False)
+bearmask=(pb.shift(1)>0.5).reindex(uni.index).fillna(False)  # the SIGNAL the controller acted on — same lag, no future alignment
 if bearmask.sum()>10:
     stats(uni[bearmask],'  full-invest on HIGH-bear days')
     stats(ctrl[bearmask],'  controller  on HIGH-bear days')
-pd.DataFrame({'ret_uni':uni,'exposure':expo,'ret_ctrl':ctrl}).to_csv(f'{SP}/l1_eval_daily.csv')
+pd.DataFrame({'ret_uni':uni,'exposure':expo,'ret_ctrl':ctrl}).to_csv(HERE/'2026-08-08-l1-eval-daily.csv')
 print('daily series saved')

@@ -12,10 +12,12 @@ live book has only ~63 observable days and is compared on its own window
 below). Regime posteriors = the production HMM series.
 
 Reproducibility (the #913 standard): `data/2026-08-08-l1-eval-daily.csv`
-(2412 daily rows: ret_uni, exposure, ret_ctrl) +
-`data/2026-08-08-l1-eval-verify.py` (recomputes every number below from the
-CSV alone) + `data/2026-08-08-l1-eval-derivation.py` (provenance-only:
-machine-local OHLCV + regime artifact).
+(2412 daily rows) + `data/2026-08-08-l1-eval-verify.py` (recomputes every
+headline number from the CSV alone) + `data/2026-08-08-l1-eval-derivation.py`,
+which is now REPO-RELATIVE: it reads the committed
+`data/2026-08-08-regime-posteriors.csv` (production-HMM snapshot, 2388 rows)
+and regenerates the committed daily CSV in place; only the OHLCV tree remains
+machine-local (stated provenance).
 
 ## Results `[VERIFIED — verifier output from the committed CSV]`
 
@@ -30,11 +32,22 @@ machine-local OHLCV + regime artifact).
 
 Mean exposure 76%; turnover 4.6×/yr (cost drag negligible at 10 bps/unit).
 
-**The BEAR dial does its job** `[VERIFIED — derivation output, high-bear-day
-segment]`: on days entering with bear posterior > 0.5, the fully-invested arm
-bleeds at a −37.3% annualized pace with −29.9% within-segment drawdown; the
-controller cuts that to **−14.1% / −10.2%**. This is G-B's size-dial route
-functioning: the regime signal scales HOW MUCH is at risk.
+**The BEAR dial — risk claim only, and a visible correction.** The first
+draft selected "bear days" with a future-aligned mask (`shift(-1)`: tomorrow's
+posterior), which picked the crash days themselves and made the controller
+look like it saves money in crashes (−37.3% → −14.1% pace). Codex caught the
+timing; recomputed with the SAME lagged signal the controller acts on
+(`shift(1)`), the segment flips `[VERIFIED — derivation output, corrected
+timing]`: lagged-bear-signal days in this history were REBOUND-heavy — the
+fully-invested arm ran at a +222.1% annualized pace there with −25.2%
+within-segment drawdown, and the de-risked controller captured only +47.8%
+while capping the segment drawdown at **−7.8%**. So the honest statement is:
+**the dial reliably cuts risk on bear-signal days (−25.2% → −7.8% segment
+DD), and in this rebound-heavy history it PAID an upside cost for that
+protection.** The full-period numbers above already include that cost — the
+controller's overall +17.1% / 1.38 Sharpe / −17.4% maxDD is net of it. G-B's
+size-dial route functions as PROTECTION, not as a return enhancer, and any
+promotion argument must rest on the risk-adjusted whole, not the segment.
 
 ## The three-way decision picture
 
