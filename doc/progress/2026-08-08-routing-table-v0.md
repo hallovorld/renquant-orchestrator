@@ -6,9 +6,13 @@ STATUS:    delivered. The operator's requested final artifact exists: one
            policy-locked.
 
 WHAT:      doc/design/2026-08-08-routing-table-v0.md (the table + flip
-           rules), data/2026-08-08-cube-v1.csv (120 cells) + derivation
-           (provenance-only, machine-local OHLCV + production regime
-           posteriors).
+           rules; one row per sector_map sector — ten cube sectors plus
+           three sub-floor sectors footnoted), data/2026-08-08-cube-v1.csv
+           (120 cells) + re-runnable derivation: regime-posterior input
+           committed as data/2026-08-08-regime-posteriors.csv, output
+           written repo-relative; OHLCV stays read-only machine-local.
+           Re-run regenerates the committed cube CSV byte-identically
+           [VERIFIED — git diff clean after re-run, 2026-08-08].
 
 WHY/DIR:   Operator: "最终应该有一个table来记录什么regime什么sector用哪个
            model" and "每个sector在每种regime下每个模型都应该试一下". Both

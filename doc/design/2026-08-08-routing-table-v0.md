@@ -16,7 +16,17 @@ Cells reference only registry IDs (`2026-08-08-expert-naming-registry.md`).
 | finance | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
 | consumer | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
 | healthcare | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
-| energy / utility / rest | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+| energy | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+| utility | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+| commodity † | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+| real_estate † | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+| telecom † | `xgb_rank_60d` | `xgb_rank_60d` | POLICY: no trade |
+
+† below the cube's ≥6-name floor (2 / 3 / 1 names in the strategy-104
+`sector_map`), so no cube cell exists for them — routed to the panel default
+by policy, flippable only via the same rules below. The first ten rows map
+one-to-one onto the cube CSV's ten sectors. `benchmark` and
+`defensive_bonds` are excluded from the derivation and are not routed.
 
 Notes: the production HMM's argmax never selects choppy on 2017-2026 (0 of
 2347 days), so the operative regime axis is three states; `bear` totals 77
@@ -24,7 +34,10 @@ days and is locked by strategy policy (G-B), not by modelling.
 
 ## Why every cell is the panel — the cube, not a refusal
 
-`data/2026-08-08-cube-v1.csv` (+ derivation, machine-local OHLCV provenance):
+`data/2026-08-08-cube-v1.csv` (+ derivation; regime-posterior input committed
+as `data/2026-08-08-regime-posteriors.csv`, OHLCV read-only from the
+machine-local production store — the committed script regenerates the
+committed CSV byte-identically):
 **120 cells** = 10 sectors × 3 regimes × 4 style proxies (`mom63_proxy`,
 `mom252_proxy`, `rev21_proxy`, `lowvol63_proxy` — trailing-price proxies,
 deliberately NOT registry IDs), 2017-01..2026-05 daily, spread vs own-sector
