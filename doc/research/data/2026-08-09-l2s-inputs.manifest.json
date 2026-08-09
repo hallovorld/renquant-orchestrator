@@ -1,0 +1,9 @@
+{
+  "schema": "l2s_backtest_inputs.v1",
+  "ohlcv_universe": {
+    "root": "/Users/renhao/git/github/RenQuant/data/ohlcv",
+    "digest_of_digests": "7ff1c3774e3111d30d778f890022f3143117f9aed89638e4abc34e19fa697101",
+    "n_files": 157
+  },
+  "static_inputs_verified_against": "2026-08-09-l2-backtest-inputs.manifest.json"
+}

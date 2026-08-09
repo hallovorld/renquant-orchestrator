@@ -1,0 +1,89 @@
+{
+  "verdict": "RECORD-ONLY",
+  "leg_sharpe_floor": true,
+  "leg_maxdd": true,
+  "leg_sector_tilt": false,
+  "leg_placebo": false,
+  "composite": {
+    "ann": 0.42145568615055673,
+    "sharpe": 1.518923454237093,
+    "maxdd": -0.276043441850399
+  },
+  "global_only": {
+    "ann": 0.31432988185936206,
+    "sharpe": 0.9141165778615431,
+    "maxdd": -0.30125166019198935
+  },
+  "pure_local": {
+    "ann": 0.42103903634927176,
+    "sharpe": 1.5176114571532244,
+    "maxdd": -0.2760657675242556
+  },
+  "real_delta": 0.60480687637555,
+  "placebo_p95": 0.8178025421140135,
+  "n_days": 541,
+  "per_sector_arm_net_sharpe": {
+    "software": {
+      "panel": 0.598,
+      "mom_slow": 1.311,
+      "mom_fast": 0.707
+    },
+    "industrial": {
+      "panel": 0.962,
+      "mom_slow": 1.515,
+      "mom_fast": 1.06
+    },
+    "finance": {
+      "panel": 0.652,
+      "mom_slow": 0.904,
+      "mom_fast": 0.012
+    },
+    "ai_chip": {
+      "panel": 1.961,
+      "mom_slow": 1.484,
+      "mom_fast": 1.107
+    },
+    "consumer": {
+      "panel": -0.019,
+      "mom_slow": 0.009,
+      "mom_fast": 0.282
+    },
+    "datacenter_hw": {
+      "panel": 2.493,
+      "mom_slow": 1.618,
+      "mom_fast": 1.109
+    }
+  },
+  "final_local_weights": {
+    "software": {
+      "panel": 0.48,
+      "mom_slow": 0.276,
+      "mom_fast": 0.245
+    },
+    "industrial": {
+      "panel": 0.488,
+      "mom_slow": 0.264,
+      "mom_fast": 0.248
+    },
+    "finance": {
+      "panel": 0.52,
+      "mom_slow": 0.249,
+      "mom_fast": 0.231
+    },
+    "ai_chip": {
+      "panel": 0.513,
+      "mom_slow": 0.254,
+      "mom_fast": 0.234
+    },
+    "consumer": {
+      "panel": 0.496,
+      "mom_slow": 0.249,
+      "mom_fast": 0.255
+    },
+    "datacenter_hw": {
+      "panel": 0.53,
+      "mom_slow": 0.243,
+      "mom_fast": 0.227
+    }
+  }
+}
