@@ -95,8 +95,43 @@ not assumed away.
 One backtest, executed once after this design merges, at the #926/#927
 reproducibility standard (committed daily CSV per sector×arm book + hedge
 paths, verifier that re-runs every recursion and the mixture arithmetic,
-hash-pinned input manifest; the #927 cost model verbatim: 10 bps one-way,
-name swap = 2/3 book).
+hash-pinned input manifest).
+
+**Cost model (frozen; generalizes #927 — review r2, with one visible
+correction to the review's literal formula)**: #927's "name swap = 2/3
+book" shortcut is exact only for a one-name replacement in a full
+equal-weight top-3 book; §3's top-2 books and cash-shortfall states break
+it (a one-name swap in a top-2 book trades the whole book, and entering or
+leaving the cash state re-weights every retained name uncharged). The
+frozen general rule, applied to EVERY book in this design:
+
+```
+cost(t) = 10 bps × Σ_{j ∈ names} |h_{j,t} − h_{j,t−1}|
+```
+
+— the sum runs over NAME holdings only, no ½ factor, and the cash sleeve
+is deliberately EXCLUDED from the sum: every cash change is the mirror of
+name changes already counted, so including it would double-charge pure
+cash transitions. Reduction check `[DERIVED]`: full top-3 one-swap gives
+Σ|Δh| = ⅓ + ⅓ = ⅔ → cost = ⅔ × 10 bps, exactly #927's committed identity
+`cost == names_changed/3 · 2 · 10bps` (its verifier asserts this
+row-by-row). Full liquidation to cash gives 1.0 × 10 bps (one leg), and
+re-weighting among retained names is charged on their |Δh|.
+
+VISIBLE CORRECTION to the review's literal prescription: "10 bps ×
+0.5·Σ|Δh| including cash" yields ⅓ × 10 bps for the top-3 one-swap — a
+factor-2 SHORTFALL against the #927 convention it is required to reduce
+to (and the cash-inclusive sum with ½ would in turn be correct only for
+pure cash transitions). The structure of the review's rule (turnover-based,
+cash states charged, no set-difference shortcut) is adopted; the constant
+is fixed so the reduction actually holds.
+
+Initial convention `[ASSUMED — frozen here]`: `h_{·,0}` is all-cash and
+day 0 pays the full entry cost (Σ|h_0| = the invested fraction × 10 bps),
+so no book starts with free inventory. The committed daily artifacts
+expose per-sector×arm turnover and cost columns, and the verifier
+re-derives cost from the committed holdings paths — cost is never a
+scalar summary only.
 
 Books compared, all net of costs:
 1. **L2-S composite**: capital splits by name count (frozen): each
