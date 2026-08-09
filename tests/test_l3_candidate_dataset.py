@@ -19,7 +19,7 @@ def _db(tmp_path: Path) -> Path:
                     " rank_score REAL, mu REAL, sigma REAL,"
                     " expected_return REAL, sector TEXT, active_scorer TEXT,"
                     " selected INTEGER, blocked_by TEXT, kelly_target_pct REAL)")
-        con.execute("CREATE TABLE live_state_snapshots (run_date TEXT,"
+        con.execute("CREATE TABLE live_state_snapshots (run_id TEXT, run_date TEXT,"
                     " regime TEXT, confidence REAL, created_at TEXT)")
         con.execute("CREATE TABLE ticker_forward_returns (ticker TEXT,"
                     " as_of_date TEXT, fwd_20d REAL, fwd_60d REAL)")
@@ -42,7 +42,7 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
         ("candidate_scores", ("r-small", "ZZZ", "candidate", 9.0, 1, 1, 0.1, 0.2, 0.05, "software", "xgb", 0, None, 0.1)),
         ("candidate_scores", ("r-wide", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
         ("candidate_scores", ("r-wide", "MSFT", "candidate", 1.0, 1, 1, 0.0, 0.2, 0.01, "giant_tech", "xgb", 0, "wash_sale", 0.0)),
-        ("live_state_snapshots", ("2026-01-05", "BULL_CALM", 0.7, "2026-01-05 21:00:00")),
+        ("live_state_snapshots", ("r-wide", "2026-01-05", "BULL_CALM", 0.7, "2026-01-05 21:00:00")),
         ("ticker_forward_returns", ("AAPL", "2026-01-05", 0.03, 0.08)),
         # MSFT has no forward row -> excluded and counted
     ])
@@ -51,7 +51,7 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
     r = rows[0]
     assert r["ticker"] == "AAPL" and r["run_id"] == "r-wide"
     assert r["win"] == 1 and r["fwd_60d"] == 0.08
-    assert r["regime"] == "BULL_CALM" and r["regime_source"] == "snapshot"
+    assert r["regime"] == "BULL_CALM" and r["regime_source"] == "same_run_snapshot"
     assert r["selected"] == 1 and r["n_candidates_that_date"] == 2
     assert manifest["rows_by_run_type"] == {"live": 1}
 
@@ -128,3 +128,38 @@ def test_equal_width_equal_created_at_tie_breaks_to_run_id(tmp_path):
     assert len(rows) == 1
     assert rows[0]["run_id"] == "r-b"            # latest run_id wins the tie
     assert rows[0]["panel_score"] == 1.1         # its payload, not r-a's
+
+
+def test_regime_joins_by_run_identity_not_date(tmp_path):
+    """codex P0 line: another run's same-day snapshot must NOT supply regime;
+    only THE SAME run's snapshot is causal (its regime was computed before
+    that run scored candidates — structural, not timestamp-inferred)."""
+    db = _db(tmp_path)
+    _fill(db, [
+        ("pipeline_runs", ("r1", "2026-01-08", "live", "2026-01-08 14:00:00")),
+        ("pipeline_runs", ("r2", "2026-01-08", "live", "2026-01-08 15:00:00")),
+        ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
+        # r1 has ITS OWN snapshot (BEAR); r2's later same-day snapshot says BULL_CALM
+        ("live_state_snapshots", ("r1", "2026-01-08", "BEAR", 0.9, "2026-01-08 14:30:00")),
+        ("live_state_snapshots", ("r2", "2026-01-08", "BULL_CALM", 0.9, "2026-01-08 15:30:00")),
+        ("ticker_forward_returns", ("AAPL", "2026-01-08", 0.01, 0.02)),
+    ])
+    rows, _ = l3c.build_candidate_rows(db)
+    r = rows[0]
+    assert r["run_id"] == "r1"
+    assert r["regime"] == "BEAR"                       # r1's own, not the date's latest
+    assert r["regime_snapshot_created_at"] == "2026-01-08 14:30:00"
+    assert r["regime_source"] == "same_run_snapshot"
+
+
+def test_run_without_its_own_snapshot_is_absent(tmp_path):
+    db = _db(tmp_path)
+    _fill(db, [
+        ("pipeline_runs", ("r1", "2026-01-09", "live", "2026-01-09 14:00:00")),
+        ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
+        # only ANOTHER run's snapshot exists that date
+        ("live_state_snapshots", ("rX", "2026-01-09", "BULL_CALM", 0.9, "2026-01-09 15:30:00")),
+        ("ticker_forward_returns", ("AAPL", "2026-01-09", 0.01, 0.02)),
+    ])
+    rows, _ = l3c.build_candidate_rows(db)
+    assert rows[0]["regime"] is None and rows[0]["regime_source"] == "absent"
