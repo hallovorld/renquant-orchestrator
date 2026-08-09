@@ -82,7 +82,11 @@ a general prioritization rule; the re-ranking below is scoped accordingly.
 ## 3 · The root behind the biggest blocker — orch#942
 
 `regime_admission:failed:BULL_CALM` is not noise: the SERVED prod panel
-(`artifacts/prod/panel-ltr.alpha158_fund.json`, trained 2026-08-02)
+— repo-qualified path
+`RenQuant:backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json`
+(umbrella repo `hallovorld/RenQuant`, tracked file; `trained_date`
+2026-08-02, sha256 `6461b827ab23…` `[VERIFIED — read + shasum -a 256 this
+session; working tree matches umbrella HEAD blob]`) —
 carries trade-monotonicity stamps that admit buys in **zero** of its three
 stamped regimes (BULL_CALM eligible-but-failed; BULL_VOLATILE and CHOPPY
 not eligible) `[VERIFIED — artifact stamps read, this session]`. The
