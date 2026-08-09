@@ -10,6 +10,13 @@ WHAT:      src/renquant_orchestrator/l3_dataset_builder.py + 4 tests. One row
            and the realized outcome of the round trip it opened (win/pnl_pct/
            hold_days/exit_reason from the paired sell).
 
+WHY/DIR:   Step 1 of the L3 meta-label entry filter — the allocation-machine
+           track's honest win-rate lever (L1 exposure shadow and L2 paper
+           bandit already merged). The classifier can only be as honest as
+           its dataset, so the dataset ships first, with provenance as an
+           explicit column the trainer must choose over — never an implicit
+           default.
+
 TWO MEASURED FACTS THE FIRST DRAFT GOT WRONG (fixed before PR, with tests):
   1. trade_date is NULL on 12,391/12,493 real rows (sim rows never stamp it);
      the run_id prefix is a valid date on ALL rows. Dates use
