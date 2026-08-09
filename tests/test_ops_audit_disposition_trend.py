@@ -154,7 +154,13 @@ def test_the_LIVE_audit_is_what_the_record_describes():
     ACK_MAX_AGE_DAYS=14, so a zero-ack window recurs by design. What must
     hold from now on is that the RECORD acknowledges the transition — a
     reader of the 2026-08-05 record must not inherit "the mechanism is
-    unused" after it stopped being true."""
+    unused" after it stopped being true.
+
+    r2 (codex P1 on orch#933): the marker is prose; the retained dated logs
+    are the immutable evidence. While they remain on disk, the marker must
+    be SUPPORTED by them — a wrong or fabricated date must not pass on the
+    document alone. Retention will eventually prune those logs; each
+    evidence check falls back to the document-only binding exactly then."""
     from ops_audit_disposition_trend import LOGS
 
     if not LOGS.is_dir():
@@ -171,3 +177,35 @@ def test_the_LIVE_audit_is_what_the_record_describes():
         encoding="utf-8"), (
         "the GOAL-1 record no longer acknowledges that dispositioning began "
         "on 2026-08-06 — re-derive it rather than reverting it", s)
+    # [codex on orch#933] The marker alone is fabricatable prose. While the
+    # dated logs straddling the transition are still retained, they are
+    # immutable historical evidence and must SUPPORT the marker: 2026-08-05
+    # printed 0 acks, 2026-08-06 printed the first ack. Only pruning excuses
+    # this check — expiry of CURRENT acks never re-fires it, because the
+    # historical logs do not change when the ledger does.
+    by_date = {r.get("date"): r for r in rows if r.get("parsed")}
+    day_of = by_date.get("2026-08-06")
+    if day_of is None:
+        pytest.skip("the 2026-08-06 log is no longer retained — the marker "
+                    "stands on the record alone")
+    assert (day_of["n_acks"] or 0) >= 1, (
+        "the retained 2026-08-06 log does not show the ack the record's "
+        "marker claims — the marker is unsupported", day_of)
+    day_before = by_date.get("2026-08-05")
+    if day_before is not None and day_before["n_acks"] is not None:
+        assert day_before["n_acks"] == 0, (
+            "2026-08-05 already shows acks — FIRST-OBSERVED is misdated",
+            day_before)
+    by_date = {r["date"]: r
+               for r in read_runs(days=len(dated_logs()) or 1)
+               if r.get("parsed")}
+    first = by_date.get("2026-08-06")
+    if first is not None and first["n_acks"] is not None:
+        assert first["n_acks"] >= 1, (
+            "the retained 2026-08-06 log does not record the disposition "
+            "the marker claims", first)
+    prev = by_date.get("2026-08-05")
+    if prev is not None and prev["n_acks"] is not None:
+        assert prev["n_acks"] == 0, (
+            "the retained 2026-08-05 run already shows an ack — the "
+            "FIRST-OBSERVED date in the record is wrong", prev)

@@ -21,7 +21,13 @@ WHAT:      make test went 10-red after the weekend's merges and jobs moved
                (1 ack, reason recorded, INFO still printed); record carries
                DISPOSITION-FIRST-OBSERVED marker; the live test now binds
                the record to the transition, not the ack count (acks expire
-               after 14 days — a zero-ack window recurs by design).
+               after 14 days — a zero-ack window recurs by design). r2
+               (codex P1): the marker alone is prose — while the dated
+               2026-08-06 / 2026-08-05 logs remain on disk the test parses
+               them and asserts the transition itself (08-06 records ≥1
+               ack, the preceding retained run records 0), so a fabricated
+               or misdated marker cannot pass; when retention prunes those
+               logs the check falls back to the document-only binding.
 
 WHY/DIR:   All four are the same class: a committed record bound to a live
            surface, and the surface moved. The discipline is re-derive,
@@ -51,7 +57,9 @@ EVIDENCE:  artifact:      suite run under the make-equivalent PYTHONPATH
                           operator grant; the red test is the reminder.
 
 TESTS:     targeted five-file run 109 passed / 1 designed-red; full make
-           test expected 1 red (from 10).
+           test expected 1 red (from 10). r2: the live GOAL-1 binding
+           re-run after the evidence-support change — passes on this box
+           (08-05 log parses to 0 acks, 08-06 to 1).
 
 NEXT:      ask the operator for the alerts.py umbrella sync grant (one-line
            batch, revert = restore the 2026-05-24 copy); on grant, sync +
