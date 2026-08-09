@@ -15,12 +15,34 @@ WHY/DIR:   The operator's Phase-3 asked for the deployable-cash
            served model (#942). Simulating switch relaxations before #942
            would be theater.
 
-EVIDENCE:  artifact:      the Pareto table [VERIFIED — runs DB, 41 live
-                          sessions]; artifact stamps [VERIFIED — prod
-                          panel JSON read]; 3 selection events (0 broker
-                          receipts) / 5,040 blocks.
+EVIDENCE:  artifact:      committed under doc/research/data/ [VERIFIED —
+                          each re-run by the committed verifier, exit 0]:
+                          2026-08-09-funnel-summary.json (both paretos,
+                          run structure, receipt chain),
+                          …-funnel-candidates.csv (all 5,040+ block-event
+                          rows with run_id/run_type/commit_sha/
+                          training_cutoff/model_content_sha256/
+                          is_canonical), …-funnel-selections.csv (the 3
+                          selection events with has_trade_row/
+                          has_broker_receipt = 3/3/0),
+                          …-funnel-sessions.csv, …-funnel-cash.csv (mean
+                          cash 79.1%), via …-funnel-derivation.py and
+                          …-funnel-verify.py. The zero-admissible claim
+                          reads the SERVED artifact
+                          RenQuant/backtesting/renquant_104/artifacts/
+                          prod/panel-ltr.alpha158_fund.json
+                          (wf_gate_metadata.trade_monotonicity.regimes)
+                          [VERIFIED — read this session; recorded in
+                          orch#942].
            prod or exp:   read-only measurement
-           existing data: entirely
+           existing data: supersedes-in-part the July capital diagnosis
+                          (task #14 / pipeline#223 / pipeline#224 /
+                          orch#608: wash-sale mass block, integer-share
+                          flooring) — real then, not the binding
+                          constraint on THIS window; and corrects the G-E
+                          "$4,820/yr" drag quote (priced at the
+                          unattainable replay rate) to ~$680/yr at 8%
+                          ASSUMED
            best-known?:   yes — §5 states what is NOT shown (per-gate
                           relaxation P&L needs a post-#942 backtest)
            scope:         GRANT PACKAGE, re-ranked (operator's single
