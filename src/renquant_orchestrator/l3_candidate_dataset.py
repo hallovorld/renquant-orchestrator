@@ -25,16 +25,26 @@ RUN PROVENANCE: run_type (live/sim/…) from pipeline_runs is a column. The
 2024-2025 "sim" runs carry 1–13 candidates/day (measured); n-per-date is in
 the row so a consumer can floor cross-section width explicitly.
 
-REGIME — CAUSAL JOIN BY RUN IDENTITY (r2, codex P0 on the classifier
-prereg): candidate_scores does not stamp regime. Joining "the date's latest
-snapshot" leaks (a later same-day snapshot postdates the scoring), and
-joining by timestamp inequality fails the other way (the snapshot ROW is
-written at run END, after scoring, so created_at comparisons void the field
-entirely). The causal source is structural: ``live_state_snapshots`` carries
-``run_id`` — THE SAME RUN's snapshot records the regime that run computed
-BEFORE scoring its candidates. The join is therefore by run_id; rows carry
-``regime_snapshot_created_at`` and ``regime_source`` =
-'same_run_snapshot' | 'absent', auditable per row, never assumed.
+REGIME — EXCLUDED (r3, codex producer trace on orch#930): candidate_scores
+does not stamp regime, and no existing artifact proves the field was
+available when the score was produced. Every consumer-side join was refuted
+in turn:
+* the date's latest snapshot LEAKS (a later same-day snapshot postdates the
+  scoring);
+* timestamp inequality VOIDS the field (snapshot rows are written at run
+  end, so created_at comparisons all fail);
+* same-run identity proves ATTRIBUTION only — the producer documents
+  ``live_state_snapshots`` as a close-of-run audit row ("what did
+  live_state look like at the close of run R?", RenQuant
+  ``backtesting/renquant_104/kernel/persistence.py``) and
+  ``RunnerAdapter.commit()`` writes ``record_candidate_scores`` BEFORE
+  ``record_live_state_snapshot`` (``adapters/runner.py``), so "same run"
+  cannot establish entry-time availability.
+This dataset therefore carries NO regime-derived column. Readmission
+requires the producer to stamp regime/confidence into ``candidate_scores``
+at scoring time (or persist an immutable score-time feature artifact) with
+score-time provenance and producer-side ordering tests — and a new dated
+prereg admitting the block.
 """
 from __future__ import annotations
 
@@ -73,11 +83,6 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
                 best[rdate] = (n, created or "", rid)
         run_meta = {rid: (rt, created) for rid, rt, created in con.execute(
             "SELECT run_id, run_type, created_at FROM pipeline_runs")}
-        snaps_by_run: dict[str, tuple] = {}
-        for rid_, reg, conf, created in con.execute(
-                "SELECT run_id, regime, confidence, created_at "
-                "FROM live_state_snapshots ORDER BY created_at"):
-            snaps_by_run[rid_] = (reg, conf, created)   # last per run wins
         fwd = {}
         for t, d, f20, f60 in con.execute(
                 "SELECT ticker, as_of_date, fwd_20d, fwd_60d "
@@ -88,12 +93,6 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
         n_no_label = 0
         for rdate in sorted(best):
             n_date, _, rid = best[rdate]
-            # causal by construction: the SAME run's snapshot — its regime
-            # was computed inside run `rid` before candidate scoring (codex
-            # P0; a same-DATE join in either direction is wrong: latest leaks,
-            # timestamp-inequality voids the field because snapshots are
-            # written at run end).
-            reg = snaps_by_run.get(rid)
             for r in con.execute(
                     f"SELECT ticker, {cols} FROM candidate_scores "
                     "WHERE run_id=? AND role='candidate' "
@@ -107,10 +106,6 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
                 row = {"run_date": rdate, "ticker": ticker, "run_id": rid,
                        "run_type": (run_meta.get(rid) or (None, None))[0],
                        "n_candidates_that_date": n_date,
-                       "regime": reg[0] if reg else None,
-                       "regime_confidence": reg[1] if reg else None,
-                       "regime_snapshot_created_at": reg[2] if reg else None,
-                       "regime_source": "same_run_snapshot" if reg else "absent",
                        "fwd_20d": f20, "fwd_60d": f60,
                        "win": int(f20 > 0)}
                 row.update(dict(zip(FEATURES, feats)))

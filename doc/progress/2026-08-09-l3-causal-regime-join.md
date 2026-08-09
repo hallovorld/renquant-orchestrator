@@ -1,45 +1,73 @@
-# L3 dataset — regime joins by run identity (the only causal construction)
+# L3 dataset — regime EXCLUDED: no causal score-time source exists   (PR #930)
 
-STATUS:    delivered for review (orch#930). Resolves the P0 on the classifier
-           prereg (orch#929): the prereg's regime feature is gated on this
-           merging.
+STATUS:    delivered for review (orch#930), r3. The r1 "causal join by run
+           identity" construction is WITHDRAWN (see CORRECTION below); this
+           PR now removes regime from the dataset entirely.
 
-WHAT:      src/renquant_orchestrator/l3_candidate_dataset.py — regime joins
-           live_state_snapshots by RUN_ID (the same run's snapshot, whose
-           regime that run computed BEFORE scoring its candidates); rows
-           carry regime_snapshot_created_at and regime_source =
-           same_run_snapshot | absent. Plus 2 new tests (run-identity beats
-           same-date; no-own-snapshot is absent).
+WHAT:      src/renquant_orchestrator/l3_candidate_dataset.py — the regime
+           join is REMOVED: no regime / regime_confidence /
+           regime_snapshot_created_at / regime_source columns in rows or
+           manifest. A regression guard pins the exclusion: snapshot rows,
+           even the same run's own, must not surface in any output column.
 
-WHY/DIR:   Both same-DATE joins are wrong in opposite directions:
-           * date-latest snapshot LEAKS — a later same-day snapshot postdates
-             the scoring (the codex P0);
-           * timestamp-inequality VOIDS the field — snapshots are written at
-             run END (fixture with realistic times: run created 14:05,
-             snapshot 21:00 → every comparison fails).
-           The causal source is structural, not temporal: the snapshot's
-           run_id ties it to the exact process whose scoring it precedes.
+WHY/DIR:   codex's r2/r3 producer trace refuted the run-identity premise,
+           and this session re-verified it read-only in RenQuant:
+           * live_state_snapshots is documented as an append-only audit
+             trail — "what did live_state look like at the close of run
+             R?" — backtesting/renquant_104/kernel/persistence.py:189-205
+             [VERIFIED — read this session];
+           * RunnerAdapter.commit() calls record_candidate_scores at
+             adapters/runner.py:2179 BEFORE record_live_state_snapshot at
+             adapters/runner.py:2342, and the snapshot is built from the
+             post-run state [VERIFIED — read this session].
+           Same-run identity therefore proves ATTRIBUTION, not availability
+           at candidate-score time. With date-latest (leaks), timestamp
+           inequality (voids the field), and run identity (attribution
+           only) all refuted, NO consumer-side join is causal — exclusion
+           is the only honest construction; anything else licenses leakage
+           into a 20-day-label experiment.
+           Readmission path (producer-side, out of this PR's scope): stamp
+           regime/confidence into candidate_scores at scoring time — or an
+           immutable score-time feature artifact — with score-time
+           provenance and producer-side ordering tests; admitting the block
+           is then a NEW dated prereg.
 
-EVIDENCE:  artifact:      read-only build against runs.alpaca.db this session
+EVIDENCE:  artifact:      src/renquant_orchestrator/l3_candidate_dataset.py
+                          (this branch); read-only rebuild against
+                          RenQuant/data/runs.alpaca.db (mode=ro, CSV +
+                          manifest under /tmp) this session
            prod or exp:   experiment — read-only over prod data
-           existing data: the merged builder (orch#928) used the date-latest
-                          join this PR replaces
-           best-known?:   yes — regime_source distribution under the causal
-                          join: {same_run_snapshot: 2184, absent: 4983} of
-                          7167 rows [VERIFIED — module run this session;
-                          independently reproduced by codex's own read-only
-                          validation on the PR head]. The split maps ~1:1 to
-                          live (2,189) vs sim (4,978) rows: SIM RUNS WRITE NO
-                          SNAPSHOTS, so regime is honestly a live-only
-                          feature — recorded absent elsewhere, never invented.
+           existing data: merged orch#928 emits regime via the leaky
+                          date-latest join; r1 of this PR replaced it with
+                          the run-identity join, now also refuted
+           best-known?:   yes — manifest after exclusion: 7,167 rows / 523
+                          dates / 1,275 excluded / 135 selected / win rate
+                          0.6307 / live 2,189 vs sim 4,978 [VERIFIED —
+                          module stdout, this session], identical to the
+                          canonical #928 record: the removal changes
+                          columns only, never row selection. CSV header
+                          carries no regime-derived column [VERIFIED —
+                          head -1 of the rebuilt CSV, this session].
            scope:         one module + tests; no production surface. The
-                          classifier prereg (relocating to renquant-model per
-                          its P1) freezes regime/confidence GATED on this
-                          construction.
+                          prereg (renquant-model#207) freezes the 6 base
+                          features with regime excluded; orch#929's pointer
+                          doc carries the same exclusion.
 
-TESTS:     7 passed — incl. another run's same-day snapshot must NOT supply
-           regime (run-identity, not date), and a run without its own
-           snapshot is absent.
+TESTS:     pytest -q tests/test_l3_candidate_dataset.py → 6 passed [this
+           session], incl. the exclusion regression guard
+           (test_regime_is_excluded_even_when_snapshots_exist).
 
-NEXT:      merge; then the prereg relocation commit on the orch#929 branch
-           points its regime-feature contract at this construction.
+NEXT:      merge; the producer-side score-time stamp is the only path that
+           readmits regime, under a new dated prereg.
+
+## CORRECTION (r3, 2026-08-09 — visible per LONG row 10, no silent overwrite)
+
+r1 of this doc claimed the same-run snapshot was "the only causal
+construction" and told the classifier prereg to gate its regime block on
+this PR merging. That claim was WRONG: the producer trace above shows the
+snapshot row is written after the run's candidate scores, from post-run
+state — run identity proves which run wrote the row, not that its fields
+existed at score time. The r1 evidence figures (regime_source
+{same_run_snapshot: 2184, absent: 4983}) were accurate measurements of the
+withdrawn construction and remain in git history; they do not describe this
+PR's output, which carries no regime columns at all.

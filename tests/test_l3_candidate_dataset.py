@@ -1,5 +1,5 @@
 """Candidate-level L3 dataset: label join, exclusion counting, widest-run
-selection, regime join semantics. Tmp DBs only."""
+selection, regime exclusion. Tmp DBs only."""
 from __future__ import annotations
 
 import json
@@ -51,7 +51,6 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
     r = rows[0]
     assert r["ticker"] == "AAPL" and r["run_id"] == "r-wide"
     assert r["win"] == 1 and r["fwd_60d"] == 0.08
-    assert r["regime"] == "BULL_CALM" and r["regime_source"] == "same_run_snapshot"
     assert r["selected"] == 1 and r["n_candidates_that_date"] == 2
     assert manifest["rows_by_run_type"] == {"live": 1}
 
@@ -83,7 +82,7 @@ def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
     assert manifest["n_rows"] == 2 and manifest["n_dates"] == 1
 
 
-def test_absent_regime_is_recorded_not_invented(tmp_path):
+def test_negative_forward_return_labels_win_zero(tmp_path):
     db = _db(tmp_path)
     _fill(db, [
         ("pipeline_runs", ("r1", "2026-01-06", "sim", "2026-01-06 14:00:00")),
@@ -91,7 +90,6 @@ def test_absent_regime_is_recorded_not_invented(tmp_path):
         ("ticker_forward_returns", ("AAPL", "2026-01-06", -0.01, -0.02)),
     ])
     rows, _ = l3c.build_candidate_rows(db)
-    assert rows[0]["regime"] is None and rows[0]["regime_source"] == "absent"
     assert rows[0]["win"] == 0
 
 
@@ -130,36 +128,24 @@ def test_equal_width_equal_created_at_tie_breaks_to_run_id(tmp_path):
     assert rows[0]["panel_score"] == 1.1         # its payload, not r-a's
 
 
-def test_regime_joins_by_run_identity_not_date(tmp_path):
-    """codex P0 line: another run's same-day snapshot must NOT supply regime;
-    only THE SAME run's snapshot is causal (its regime was computed before
-    that run scored candidates — structural, not timestamp-inferred)."""
+def test_regime_is_excluded_even_when_snapshots_exist(tmp_path):
+    """AUDIT REGRESSION GUARD (codex r3 on orch#930): live_state_snapshots is
+    a close-of-run audit row written AFTER record_candidate_scores in
+    RunnerAdapter.commit, so NO consumer-side join — date-latest, timestamp
+    inequality, or same-run identity — proves score-time availability. The
+    dataset must emit no regime-derived column until the producer stamps
+    regime at scoring time; even the same run's own snapshot must not
+    surface."""
     db = _db(tmp_path)
     _fill(db, [
         ("pipeline_runs", ("r1", "2026-01-08", "live", "2026-01-08 14:00:00")),
-        ("pipeline_runs", ("r2", "2026-01-08", "live", "2026-01-08 15:00:00")),
         ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
-        # r1 has ITS OWN snapshot (BEAR); r2's later same-day snapshot says BULL_CALM
+        # the run's OWN snapshot exists, and so does a later same-day one —
+        # neither may appear in any output column
         ("live_state_snapshots", ("r1", "2026-01-08", "BEAR", 0.9, "2026-01-08 14:30:00")),
-        ("live_state_snapshots", ("r2", "2026-01-08", "BULL_CALM", 0.9, "2026-01-08 15:30:00")),
+        ("live_state_snapshots", ("rX", "2026-01-08", "BULL_CALM", 0.9, "2026-01-08 15:30:00")),
         ("ticker_forward_returns", ("AAPL", "2026-01-08", 0.01, 0.02)),
     ])
-    rows, _ = l3c.build_candidate_rows(db)
-    r = rows[0]
-    assert r["run_id"] == "r1"
-    assert r["regime"] == "BEAR"                       # r1's own, not the date's latest
-    assert r["regime_snapshot_created_at"] == "2026-01-08 14:30:00"
-    assert r["regime_source"] == "same_run_snapshot"
-
-
-def test_run_without_its_own_snapshot_is_absent(tmp_path):
-    db = _db(tmp_path)
-    _fill(db, [
-        ("pipeline_runs", ("r1", "2026-01-09", "live", "2026-01-09 14:00:00")),
-        ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
-        # only ANOTHER run's snapshot exists that date
-        ("live_state_snapshots", ("rX", "2026-01-09", "BULL_CALM", 0.9, "2026-01-09 15:30:00")),
-        ("ticker_forward_returns", ("AAPL", "2026-01-09", 0.01, 0.02)),
-    ])
-    rows, _ = l3c.build_candidate_rows(db)
-    assert rows[0]["regime"] is None and rows[0]["regime_source"] == "absent"
+    rows, manifest = l3c.build_candidate_rows(db)
+    assert rows and not any(k.startswith("regime") for k in rows[0])
+    assert not any(k.startswith("regime") for k in manifest)
