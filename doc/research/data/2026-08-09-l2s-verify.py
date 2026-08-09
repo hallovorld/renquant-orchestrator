@@ -2,7 +2,9 @@
 Re-runs every Hedge recursion (global floored, local unfloored) and the
 mixture arithmetic from the daily CSV's book columns; re-derives every
 book's cost from the committed holdings paths (10bps x names-only |dh|,
-no half); recomputes all four legs and the verdict. Exits 1 on any drift."""
+no half); re-derives every placebo seed's ticker->label map from its seed
+per the frozen rule and checks it against the committed maps; recomputes
+the rank-190 p95, all four legs and the verdict. Exits 1 on any drift."""
 import json, sys
 from pathlib import Path
 import numpy as np, pandas as pd
@@ -16,7 +18,7 @@ TOTAL, ARM_ORDER = 159, ['panel', 'mom_slow', 'mom_fast']
 S = json.load(open(HERE / '2026-08-09-l2s-summary.json'))
 D = pd.read_csv(HERE / '2026-08-09-l2s-daily.csv', index_col='date')
 H = pd.read_csv(HERE / '2026-08-09-l2s-holdings.csv')
-P = pd.read_csv(HERE / '2026-08-09-l2s-placebo.csv')['placebo_delta_sharpe']
+P = pd.read_csv(HERE / '2026-08-09-l2s-placebo.csv')
 bad = []
 
 # 1 cost re-derivation from holdings paths, every book
@@ -56,7 +58,26 @@ for name, mine, col in (('composite', comp, 'composite_net'),
                         ('pure_local', plocal, 'pure_local_net')):
     if not np.allclose(mine, D[col], atol=1e-9): bad.append(f'series {name}')
 
-# 3 stats + legs + verdict
+# 3 placebo: seed enumeration, frozen per-seed map re-derivation, rank-190 p95
+TM = pd.read_csv(HERE / '2026-08-09-l2s-true-map.csv')
+M = pd.read_csv(HERE / '2026-08-09-l2s-placebo-maps.csv')
+tickers, labels = TM['ticker'].tolist(), TM['label'].tolist()
+if len(tickers) != TOTAL or tickers != sorted(tickers): bad.append('true-map enumeration')
+if P['seed'].tolist() != list(range(200)): bad.append('placebo seeds')
+lab_by_seed = {s: dict(zip(g['ticker'], g['label'])) for s, g in M.groupby('seed')}
+for seed in range(200):
+    pi = np.random.default_rng(seed).permutation(TOTAL)
+    if {tickers[i]: labels[pi[i]] for i in range(TOTAL)} != lab_by_seed.get(seed, {}):
+        bad.append(f'map seed {seed}'); break
+# structural caveat (recorded, not drift): the frozen permutation ranges over
+# all 159 names incl the untradable benchmark/defensive tickers, so permuted
+# eligible books can lose investable names -- the leg gates RECORD-ONLY but is
+# inadmissible for label-content inference (report section 2).
+excl = [t for t, l in zip(tickers, labels) if l in ('benchmark', 'defensive_bonds')]
+n_leak = sum(1 for s in range(200)
+             if any(lab_by_seed[s][t] in ELIGIBLE for t in excl))
+
+# 4 stats + legs + verdict
 def sharpe(x):
     x = pd.Series(x); a = (1 + x).prod() ** (252 / len(x)) - 1
     v = x.std() * np.sqrt(252); return a / v if v > 0 else 0.0
@@ -65,7 +86,7 @@ def maxdd(x):
 sc, sg = sharpe(comp), sharpe(gonly)
 if abs(sc - S['composite']['sharpe']) > 1e-9: bad.append('sharpe comp')
 if abs(sg - S['global_only']['sharpe']) > 1e-9: bad.append('sharpe glob')
-p95 = float(np.quantile(P, 0.95))
+p95 = float(np.sort(P['placebo_delta_sharpe'].values)[189])  # frozen: 190th ascending value
 if abs(p95 - S['placebo_p95']) > 1e-12: bad.append('p95')
 legs = {'leg_sharpe_floor': sc >= sg - 0.05,
         'leg_maxdd': maxdd(comp) <= maxdd(gonly) + 0.05,
@@ -76,6 +97,9 @@ for k, v in legs.items():
 verdict = 'ADOPT-for-shadow' if all(legs.values()) else 'RECORD-ONLY'
 if verdict != S['verdict']: bad.append('verdict')
 if bad: print('DRIFT:', bad); sys.exit(1)
-print(f'VERIFIED — recursions, mixtures, holdings-derived costs, legs and '
-      f'verdict all reproduce: {verdict} (comp {sc:.3f} vs glob {sg:.3f}, '
-      f'delta {sc-sg:.3f} vs p95 {p95:.3f})')
+print(f'VERIFIED — recursions, mixtures, holdings-derived costs, placebo '
+      f'maps, legs and verdict all reproduce: {verdict} (comp {sc:.3f} vs '
+      f'glob {sg:.3f}, delta {sc-sg:.3f} vs p95 {p95:.3f})')
+print(f'NOTE — placebo leg gates but is inadmissible for label-content '
+      f'inference: {n_leak}/200 seeds assign an eligible label to an '
+      f'untradable name ({", ".join(excl)}); see report section 2.')

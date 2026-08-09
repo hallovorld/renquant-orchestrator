@@ -205,16 +205,19 @@ print('final LOCAL hedge weights:', json.dumps(tilts), flush=True)
 # ---- placebo: frozen permutation maps, delta(sigma) = permuted composite Sharpe - global Sharpe
 tickers_sorted = sorted(SEC_MAP)      # all 159 incl benchmark/defensive per doc enumeration
 true_labels = [SEC_MAP[t] for t in tickers_sorted]
-deltas = []
+deltas = []; map_rows = []
 for seed in range(200):
     pi = np.random.default_rng(seed).permutation(TOTAL)
     lab = {tickers_sorted[i]: true_labels[pi[i]] for i in range(TOTAL)}
+    map_rows += [(seed, t, lab[t]) for t in tickers_sorted]
     mem = {s: {t for t, sec in lab.items() if sec == s} for s in ELIGIBLE}
     sb, _ = run_book_set(mem, kmap)
     c, _, _ = composite_run(sb, g_net_arms, ELIGIBLE)
     deltas.append(sharpe(c) - sharpe(g_only))
     if seed % 25 == 24: print(f'placebo {seed+1}/200', flush=True)
-p95 = float(np.quantile(deltas, 0.95))
+# frozen gate: p95 = the 190th ascending value (ceil(.95*200) order
+# statistic), NOT an interpolating quantile (review r2)
+p95 = float(np.sort(np.array(deltas))[189])
 real_delta = sharpe(comp) - sharpe(g_only)
 leg_placebo = bool(real_delta > p95)
 
@@ -245,6 +248,11 @@ daily.index = [t.date().isoformat() for t in daily.index]
 daily.to_csv(HERE / '2026-08-09-l2s-daily.csv', index_label='date')
 pd.DataFrame(shold + ghold, columns=['date', 'sector', 'arm', 'ticker', 'weight']).to_csv(
     HERE / '2026-08-09-l2s-holdings.csv', index=False)
-pd.Series(deltas, name='placebo_delta_sharpe').to_csv(HERE / '2026-08-09-l2s-placebo.csv', index=False)
+pd.DataFrame({'seed': range(200), 'placebo_delta_sharpe': deltas}).to_csv(
+    HERE / '2026-08-09-l2s-placebo.csv', index=False)
+pd.DataFrame(map_rows, columns=['seed', 'ticker', 'label']).to_csv(
+    HERE / '2026-08-09-l2s-placebo-maps.csv', index=False)
+pd.DataFrame({'ticker': tickers_sorted, 'label': true_labels}).to_csv(
+    HERE / '2026-08-09-l2s-true-map.csv', index=False)
 print(json.dumps({k: summary[k] for k in ('verdict', 'real_delta', 'placebo_p95')}, default=float), flush=True)
 print('artifacts saved', flush=True)

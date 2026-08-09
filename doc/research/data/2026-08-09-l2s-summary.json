@@ -20,7 +20,7 @@
     "maxdd": -0.2760657675242556
   },
   "real_delta": 0.60480687637555,
-  "placebo_p95": 0.8178482130041907,
+  "placebo_p95": 0.8178025421140135,
   "n_days": 541,
   "per_sector_arm_net_sharpe": {
     "software": {

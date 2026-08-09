@@ -7,16 +7,23 @@ WHAT:      doc/research/2026-08-09-l2s-backtest.md + committed artifacts
            under doc/research/data/ (derivation — provenance record of
            the one run, its inputs are machine-local + digest-pinned and
            NOT re-runnable from the repo; daily CSV with all book series
-           and weight paths; full holdings CSV; placebo deltas; summary
-           JSON; verifier — the durable repo-only re-check).
+           and weight paths; full holdings CSV; placebo seed+delta CSV,
+           per-seed ticker→label maps and the frozen 159-name
+           enumeration; summary JSON; verifier — the durable repo-only
+           re-check, incl. re-deriving every placebo map from its seed).
 
 WHY/DIR:   The §4 frozen rule requires all four legs; two failed. Sharpe
            floor and maxDD pass decisively (composite 1.52/−27.6% vs
            global 0.91/−30.1%) but the sector-tilt leg fails (max ending
            non-champion local weight 0.276 < 0.40) and the placebo leg
-           fails (real delta +0.605 < permuted p95 +0.818): the
-           composite's edge is the BOOK STRUCTURE, not the sector labels.
-           The global L2 stands; the per-sector×arm table publishes.
+           fails (real delta +0.605 < permuted p95 +0.818, the frozen
+           rank-190 order statistic). Per review r2/r3 the placebo leg
+           GATES the verdict but is inadmissible for label-content
+           inference — the frozen permutation assigns eligible labels to
+           untradable SPY/TLT in 189/200 seeds — so the book-structure
+           effect is real, and whether the labels carry information stays
+           OPEN (report §2/§6). The global L2 stands; the per-sector×arm
+           table publishes.
 
 EVIDENCE:  artifact:      2026-08-09-l2s-summary.json [VERIFIED — verifier
                           re-ran every recursion, re-derived every cost
@@ -43,8 +50,10 @@ EVIDENCE:  artifact:      2026-08-09-l2s-summary.json [VERIFIED — verifier
                           new sector mechanism = NEW dated design. The
                           global L2 shadow-grant request is unchanged.
 
-TESTS:     data/2026-08-09-l2s-verify.py — exit 0 [VERIFIED — run this
-           session]; P0 sweep done pre-publication (no open P0 touches
+TESTS:     data/2026-08-09-l2s-verify.py — exit 0 [VERIFIED — re-run
+           after the r2/r3 fixes: recursions, costs, all 200 placebo
+           maps re-derived from seeds, rank-190 p95, legs and verdict
+           reproduce]; P0 sweep done pre-publication (no open P0 touches
            this line).
 
 NEXT:      operator reads §3's table (his original MoE question, answered
