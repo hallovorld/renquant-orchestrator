@@ -1,8 +1,29 @@
 """L2 bandit backtest over point-in-time replay arms.
 FROZEN before output: deployed eta=0.21; clip C=0.05; floor 0.5 on the panel
-arm; top-3 books; t->t+1 timing; score forward-fill <= 5 trading days.
+arm; top-3 books; t->t+1 timing; score staleness <= 7 CALENDAR days (single rule; matches code and report).
 Sensitivity grid {0.05,0.1,0.21,0.5,1.0} is DESCRIPTIVE ONLY."""
-import json, glob, sys
+import glob, hashlib, json, sys
+from pathlib import Path
+
+# r1 P1: verify the committed input manifest BEFORE deriving; REFUSE on any
+# digest mismatch — the CSV must be regenerable only from the declared,
+# hash-pinned inputs.
+def _fsha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+def _dirsha(files):
+    h = hashlib.sha256()
+    for f in sorted(files):
+        h.update(f.split('/')[-1].encode()); h.update(_fsha(f).encode())
+    return h.hexdigest(), len(files)
+def verify_manifest():
+    man = json.load(open(Path(__file__).with_name('2026-08-09-l2-backtest-inputs.manifest.json')))
+    ins = man['inputs']
+    assert _fsha(ins['momentum_dense_scores.json']['path']) == ins['momentum_dense_scores.json']['sha256'], 'momentum scores digest mismatch'
+    files = glob.glob(ins['panel_replay_matrix']['dir'] + '/*/wf_replay_panel__*.parquet')
+    d, n = _dirsha(files)
+    assert (d, n) == (ins['panel_replay_matrix']['digest_of_digests'], ins['panel_replay_matrix']['n_files']), 'panel replay matrix digest mismatch'
+    assert _fsha(ins['sector_map_config']['path']) == ins['sector_map_config']['sha256'], 'sector map digest mismatch'
+    print('input manifest verified (momentum scores, panel matrix, sector map)')
+verify_manifest()
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
 from renquant_model_common.total_return import total_return_close

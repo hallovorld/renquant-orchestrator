@@ -18,8 +18,9 @@ the dense momentum rescore).
 
 Arms `i ∈ {panel, mom_slow, mom_fast}`, N = 3. Each arm holds, each trading
 day `t`, the equal-weighted **investable top-3** of its own score
-cross-section: names ranked by the arm's most recent score dated ≤ t−1 (age
-≤ 7 calendar days), restricted FIRST to names with a live price return at
+cross-section: names ranked by the arm's most recent score dated ≤ t−1 (age ≤ 7
+CALENDAR days — the single staleness rule; the derivation header and code
+both carry it), restricted FIRST to names with a live price return at
 `t`, THEN ranked (§6 records the failure that ordering the other way causes).
 Arm returns `r_i(t)` are total-return, from the production TR primitive.
 
@@ -35,26 +36,50 @@ The portfolio realizes `Σ_i w_i(t) · r_i(t)` with weights formed strictly
 from information through `t−1` (rule 2 of the §2 contract). Baselines:
 champion-only (`w ≡ e_panel`), uniform (`w ≡ 1/3`), and each arm standalone.
 
-## 2 · The theorem, instantiated with this experiment's constants
+## 2 · The theorem — corrected after review (r1 P0), and the correction is a proof
 
-Hedge over losses bounded in an interval of width `2C` guarantees, for ANY
-return sequence (no stochastic assumptions),
+**The first draft claimed the unconstrained Hedge bound while deploying a
+champion floor. Codex's counterexample is exact**: with clipped returns
+panel = −0.05 and mom_slow = +0.05 every day, the floored portfolio earns at
+most 0/day while the best arm earns +0.05/day — regret 27.05 at T = 541,
+far above any O(√T)-flavoured claim. **No bound versus the unconstrained
+best arm exists for this algorithm.** The unconstrained comparison is kept
+below as description only.
+
+**What the deployed algorithm actually is — and the guarantee it actually
+has.** `apply_champion_floor` rescales non-champion weights proportionally
+onto the face `{w_panel = 0.5}`. That rescale IS the Bregman (KL) projection
+onto the constraint set `K = {w ∈ Δ² : w_panel ≥ 0.5}`: minimising
+`Σ w_i ln(w_i/w̃_i)` subject to `w_panel = c, Σ w_i = 1` gives, by the
+Lagrangian first-order condition `ln(w_i/w̃_i) + 1 + λ = 0` for `i ≠ panel`,
+`w_i ∝ w̃_i` — proportional rescaling exactly. (Numerically confirmed against
+an SLSQP projection to solver tolerance this session.)
+
+The engine is therefore **online mirror descent with the KL divergence and
+Bregman projection onto K**, and the standard OMD guarantee applies against
+the best comparator IN K:
 
 ```
-Regret_T = max_i Σ_t clip(r_i) − Σ_t Σ_i w_i(t)·clip(r_i)
-         ≤ ln(N)/η + η·T·(2C)²/8
-         = ln(3)/0.21 + 0.21·541·0.01/8
-         = 5.231 + 0.142 = 5.37        (cumulative clipped return units)
+∀ u ∈ K:  Σ_t u·clip(r_t) − Σ_t w_t·clip(r_t)
+          ≤ D_KL(u‖w₁)/η + η·T·(2C)²/8
+          ≤ ln2/0.21 + 0.21·541·(0.1)²/8      (D_KL max at vertex (1,0,0))
+          = 3.301 + 0.142 = 3.443
 ```
 
-`[knowledge anchor — Freund–Schapire 1997; the bound is on the TRANSFORMED
-series per the §2 contract, and it is a regret bound, not profitability]`
+`[knowledge anchor — projected OMD / exponentiated gradient regret; the
+D_KL(u‖w₁) ≤ ln 2 step maximises over K's vertices (1,0,0), (½,½,0),
+(½,0,½) with w₁ = (½,¼,¼)]`
 
-**Measured realized regret: 0.119** — 45× inside the bound. Two honest notes:
-(a) the bound is worst-case over adversarial sequences; benign markets sit
-far inside it, so "≪ bound" is expected, not impressive; (b) at η = 0.21 the
-first term dominates (5.23 of 5.37), i.e. the deployed rate buys slow
-adaptation in exchange for a tolerable worst case — §5 quantifies the price.
+**Measured** `[VERIFIED — verifier recomputation from the committed CSV]`:
+
+| comparator | cumulative clipped regret | valid bound |
+|---|---|---|
+| best fixed weights IN K (the theorem's benchmark) | **0.0754** | **3.443** |
+| best unconstrained single arm (DESCRIPTION ONLY — no theorem) | 0.1194 | none exists (counterexample above) |
+
+The same two honest notes stand: the bound is adversarial worst-case, so
+"well inside" is expected in benign markets; and at η = 0.21 the divergence
+term dominates — slow adaptation bought against a bounded worst case.
 
 ## 3 · Assumptions, enumerated
 

@@ -34,8 +34,14 @@ for _, row in df.iterrows():
         w[1:] *= (1 - FLOOR) / (1 - w[0]); w[0] = FLOOR
 clipped = df[arms].clip(-C, C)
 wpath = df[[f'w_{a}' for a in arms]].to_numpy(dtype=float)
-regret = clipped.sum().max() - float((wpath * clipped.to_numpy()).sum())
-T, N = len(df), len(arms)
-bound = np.log(N)/ETA + ETA*T*(2*C)**2/8
+hedge_cum = float((wpath * clipped.to_numpy()).sum())
+cum = clipped.sum()
+# r1 P0: the theorem's benchmark is the best comparator IN K (w_panel >= 0.5);
+# no bound exists vs the unconstrained best arm (counterexample in the doc).
+best_in_K = max(cum['panel'],
+                FLOOR * cum['panel'] + (1 - FLOOR) * max(cum['mom_slow'], cum['mom_fast']))
+T = len(df)
+bound_K = np.log(2)/ETA + ETA*T*(2*C)**2/8
 print(f'recursion check: max weight err {max_w_err:.2e}, max book err {max_b_err:.2e}')
-print(f'realized regret {regret:.4f}  vs bound {bound:.4f}  (T={T}, N={N})')
+print(f'regret vs best-in-K (valid benchmark) {best_in_K - hedge_cum:.4f}  vs bound {bound_K:.4f}  (T={T})')
+print(f'regret vs best unconstrained arm (DESCRIPTIVE, no theorem) {cum.max() - hedge_cum:.4f}')
