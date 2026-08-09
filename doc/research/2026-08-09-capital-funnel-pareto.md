@@ -5,7 +5,10 @@ from recorded history only (`ticker_daily_state` × `pipeline_runs`,
 mode=ro): what actually blocks capital deployment on the CURRENT window,
 41 live sessions 2026-05-20..08-07.
 
-Auditability (review r1): the derivation is COMMITTED —
+Auditability (reviews r1+r2): the derivation is COMMITTED with full
+semantics in its docstring (block-EVENT vs unique-candidate counts, as-of
+rule, buy definition, gate-order ownership, dedup policy; per-row run_id +
+commit_sha + training_cutoff + model_content_sha256) —
 `data/2026-08-09-funnel-derivation.py` (versioned read-only query contract)
 with its machine-readable outputs (`…-funnel-candidates.csv`, all 5,040+
 candidate rows with blocker labels; `…-funnel-sessions.csv`, per-session
@@ -27,9 +30,16 @@ not prose.
 | kelly_zero:mu_le_min_edge | 57 | 0 |
 | broker_pending_submitted | 56 | 3.9 |
 
-Bottom line: **3 buys in 41 sessions**; 5,040 candidate-blocks; the book
-holds ~78% cash (~$4,820/yr drag at current equity `[VERIFIED — G-E
-record]`).
+Bottom line: **3 buys in 41 sessions**; 5,040 block-events; mean cash
+fraction **79.1%** `[VERIFIED — live_state_snapshots derivation, committed]`.
+
+VISIBLE CORRECTION (r2): this note first quoted the G-E record's
+"~$4,820/yr" cash drag. That figure priced idle cash at the replay panel's
+backtest return — the exact rate this same day's work (orch#937/#938)
+established as unattainable by the live system. The committed derivation
+prices drag at an 8% ASSUMED opportunity rate instead: **~$680/yr** on
+mean idle cash. The idle-capital PROBLEM is unchanged (79.1% of the book
+does nothing); its dollar cost was overstated ~7× by the old convention.
 
 ## 2 · The July diagnosis is stale for this window
 

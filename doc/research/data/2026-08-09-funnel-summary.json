@@ -3,69 +3,85 @@
     "2026-05-20",
     "2026-08-07"
   ],
+  "semantics": "see module docstring",
   "n_sessions": 41,
-  "n_candidate_rows": 5043,
-  "n_blocked": 5040,
+  "n_block_events": 5040,
+  "n_unique_candidate_tickers": 115,
   "n_selected_buys": 3,
+  "mean_cash_frac": 0.7909,
+  "mean_cash_usd": 8495.86,
+  "cash_drag_usd_yr_at_8pct_ASSUMED": 679.67,
   "pareto": [
     {
       "blocked_by": "veto:rank_score_below_floor",
-      "n": 2390,
+      "n_events": 2390,
+      "n_unique_tickers": 107,
       "kelly_pp": 0.0
     },
     {
       "blocked_by": "regime_admission:failed:BULL_CALM",
-      "n": 1155,
+      "n_events": 1155,
+      "n_unique_tickers": 78,
       "kelly_pp": 0.0
     },
     {
       "blocked_by": "not_selected",
-      "n": 737,
+      "n_events": 737,
+      "n_unique_tickers": 94,
       "kelly_pp": 5.607700868782895
     },
     {
       "blocked_by": "conviction:mu_below_floor",
-      "n": 277,
+      "n_events": 277,
+      "n_unique_tickers": 57,
       "kelly_pp": 0.0
     },
     {
       "blocked_by": "qp_delta_below_min_dw",
-      "n": 149,
+      "n_events": 149,
+      "n_unique_tickers": 53,
       "kelly_pp": 12.64884149557643
     },
     {
       "blocked_by": "panel_fundamentals_missing",
-      "n": 72,
+      "n_events": 72,
+      "n_unique_tickers": 72,
       "kelly_pp": 0.0
     },
     {
       "blocked_by": "kelly_zero:mu_le_min_edge",
-      "n": 57,
+      "n_events": 57,
+      "n_unique_tickers": 22,
       "kelly_pp": 0.0
     },
     {
       "blocked_by": "broker_pending_submitted",
-      "n": 56,
+      "n_events": 56,
+      "n_unique_tickers": 30,
       "kelly_pp": 3.883496068260373
     },
     {
       "blocked_by": "qp_admission_expected_return",
-      "n": 25,
+      "n_events": 25,
+      "n_unique_tickers": 5,
       "kelly_pp": 2.2245966433751008
     },
     {
       "blocked_by": "qp_no_trade_band",
-      "n": 23,
+      "n_events": 23,
+      "n_unique_tickers": 12,
       "kelly_pp": 2.029983676570192
     },
     {
       "blocked_by": "qp_admission_no_slot",
-      "n": 20,
+      "n_events": 20,
+      "n_unique_tickers": 4,
       "kelly_pp": 1.4166368506706202
     },
     {
       "blocked_by": "correlation",
-      "n": 20,
+      "n_events": 20,
+      "n_unique_tickers": 5,
       "kelly_pp": 0.9143007442021538
     }
   ]
