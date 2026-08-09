@@ -47,7 +47,7 @@ FEATURES = ("panel_score", "raw_score", "rank_score", "mu", "sigma",
             "blocked_by", "kelly_target_pct")
 
 
-def build_rows(db_path: Path) -> tuple[list[dict], dict]:
+def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         # widest run per date, candidates only; equal-width ties break to the
@@ -132,7 +132,7 @@ def main(argv=None) -> int:
     data_root = args.data_root or default_data_root()
     db = args.db or data_root / "data" / "runs.alpaca.db"
     try:
-        rows, manifest = build_rows(db)
+        rows, manifest = build_candidate_rows(db)
         if not rows:
             raise RuntimeError("zero labelled candidate rows — refusing an "
                                "empty dataset")

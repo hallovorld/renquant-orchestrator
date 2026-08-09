@@ -46,7 +46,7 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
         ("ticker_forward_returns", ("AAPL", "2026-01-05", 0.03, 0.08)),
         # MSFT has no forward row -> excluded and counted
     ])
-    rows, manifest = l3c.build_rows(db)
+    rows, manifest = l3c.build_candidate_rows(db)
     assert manifest["n_rows"] == 1 and manifest["n_candidates_without_forward_row_excluded"] == 1
     r = rows[0]
     assert r["ticker"] == "AAPL" and r["run_id"] == "r-wide"
@@ -75,7 +75,7 @@ def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
         ("ticker_forward_returns", ("MSFT", "2026-01-05", 0.01, 0.02)),
         ("ticker_forward_returns", ("NVDA", "2026-01-05", 0.02, 0.04)),
     ])
-    rows, manifest = l3c.build_rows(db)
+    rows, manifest = l3c.build_candidate_rows(db)
     assert {r["run_id"] for r in rows} == {"r-late"}
     assert {r["ticker"] for r in rows} == {"AAPL", "NVDA"}
     aapl = next(r for r in rows if r["ticker"] == "AAPL")
@@ -90,7 +90,7 @@ def test_absent_regime_is_recorded_not_invented(tmp_path):
         ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
         ("ticker_forward_returns", ("AAPL", "2026-01-06", -0.01, -0.02)),
     ])
-    rows, _ = l3c.build_rows(db)
+    rows, _ = l3c.build_candidate_rows(db)
     assert rows[0]["regime"] is None and rows[0]["regime_source"] == "absent"
     assert rows[0]["win"] == 0
 
@@ -122,7 +122,7 @@ def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
         ("candidate_scores", ("r-late",  "AAPL", "candidate", 1.1, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
         ("ticker_forward_returns", ("AAPL", "2026-01-07", 0.02, 0.05)),
     ])
-    rows, _ = l3c.build_rows(db)
+    rows, _ = l3c.build_candidate_rows(db)
     assert len(rows) == 1
     assert rows[0]["run_id"] == "r-late"        # later canonical run wins
     assert rows[0]["panel_score"] == 1.1         # its payload, not r-early's
