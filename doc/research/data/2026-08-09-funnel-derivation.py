@@ -6,9 +6,13 @@ SEMANTICS (review r2 — every term defined here, not in prose):
   OWN run (run_id) — rows are (run, ticker) BLOCK-EVENTS. A ticker blocked
   in two runs on one date counts twice in event counts; unique-candidate
   counts are reported separately. No cross-run dedup is applied to events.
-* DECISION UNITS (r3, the P0 fix — BOTH committed): the window's live runs
-  are INTRADAY DECISION CYCLES (mean ~35/day), not rerun snapshots — each
-  cycle can place orders, so UNIT A (every run = one decision attempt) is
+* DECISION UNITS (r3, the P0 fix — BOTH committed; cadence corrected r5):
+  the population's 70 candidate-bearing live runs are intraday decision
+  cycles (mean 1.7 per candidate date, max 10 — see summary runs_per_day;
+  r3's "~35/day" wrongly quoted the TOTAL live pipeline cadence, which is
+  dominated by runs carrying no buy-candidate rows and outside this
+  population), not rerun snapshots — each cycle can place orders, so
+  UNIT A (every run = one decision attempt) is
   the primary funnel; UNIT B is the last run per date — the
   live run with the LATEST created_at (ties → run_id, a total order); rerun
   snapshots are EXCLUDED from every count. Same canonical rule as the merged
@@ -16,7 +20,10 @@ SEMANTICS (review r2 — every term defined here, not in prose):
 * As-of rule (SUPERSEDED by the decision unit above): ALL live runs in the window are included (not just the widest
   per date); run_id, run created_at, and the run's artifact fingerprint
   (commit_sha, training_cutoff, model_content_sha256) are carried per row so any slice can be re-cut.
-* Buy definition: selected=1 on the row (a BUY order was placed that bar).
+* Selection definition (relabeled r4): selected=1 on the row is a PIPELINE
+  SELECTION STATE — the run was willing to place a buy that bar. Broker
+  execution is cross-checked separately against the trades table (see the
+  selections CSV; zero broker_order_id receipts in this window).
 * Gate-evaluation order: owned by the kernel
   (panel_pipeline/admission_tasks.py; portfolio_qp/tasks.py) — blocked_by
   records the FIRST gate that dropped the row; this derivation counts, it

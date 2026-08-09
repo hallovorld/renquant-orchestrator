@@ -39,16 +39,28 @@ every capital-deployment claim here is about the pipeline's willingness to
 deploy, not confirmed fills. Also: 5,040 block-events; mean cash fraction **79.1%** `[VERIFIED —
 live_state_snapshots derivation, committed]`.
 
-DECISION UNITS (r3, review P0): the window's live runs are INTRADAY
-DECISION CYCLES — mean ~35 per day `[VERIFIED — committed summary]` — each
-able to place orders, so the primary funnel counts every run as a decision
-attempt (UNIT A); the last-run-per-date slice (UNIT B) is committed
+DECISION UNITS (r3, review P0; cadence corrected r5): the funnel's
+population is the window's 70 candidate-bearing live runs — mean 1.7 per
+candidate date, max 10, and 9 of the 41 dates have more than one
+`[VERIFIED — committed summary runs_per_day + candidates CSV]` — each
+with buy-order authority, so the primary funnel counts every such run as
+a decision attempt (UNIT A); the last-run-per-date slice (UNIT B) is committed
 alongside as sensitivity, with an is_canonical flag on every row. Rank 1
 (the rank-score floor) is IDENTICAL under both units (2,390 / 1,563
 events); ranks 2-3 swap (BULL_CALM admission concentrates in intraday
 cycles: 1,155 under A vs 368 under B) — stated; and the #942 root cause is
 unit-independent (the artifact's stamps admit buys in zero regimes
 regardless of which run you count).
+
+VISIBLE CORRECTION (r5): the r3 push (this note, the derivation
+docstring, its commit message, and two PR comments) stated the cycle
+cadence as "mean ~35 per day `[VERIFIED — committed summary]`". The
+committed summary says **1.7**. The ~35/day figure is the TOTAL live
+pipeline cadence — 1,835 runs over the window, ≈33/day `[VERIFIED —
+read-only pipeline_runs count, this session]` — dominated by runs that
+carry no buy-candidate rows (the intraday sell-only cadence) and are
+outside this population. No committed number changes; the prose and its
+tag were wrong, not the data.
 
 VISIBLE CORRECTION (r2): this note first quoted the G-E record's
 "~$4,820/yr" cash drag. That figure priced idle cash at the replay panel's
@@ -83,7 +95,8 @@ UNKNOWN, shadow 180d).
 
 * **⑨ (sizing redesign) is re-scoped BEHIND #942**: sizing governs how
   much to buy; nothing sizes zero admissions. Its prereg waits until a
-  buy-admissible model serves.
+  buy-admissible model serves — a provisional, current-window triage
+  ordering (review P1), not a standing law.
 * **The grant package re-ranks** (see the package table in the progress
   doc): first authority needed is the #942 decision fork (repair the
   retrain/promote lane vs re-examine the monotonicity bar), plus the
@@ -94,6 +107,8 @@ UNKNOWN, shadow 180d).
 ## 5 · What this does not show
 
 Whether relaxing the rank floor or qp_delta threshold would have MADE
-money — that requires the per-gate relaxation backtest, which is only
-meaningful after #942 (today it would simulate feeding a model that
-cannot buy).
+money — that requires the per-gate relaxation backtest. Per review, its
+timing-safe read-only DESIGN (conditioned on the exact served artifact
+and historical availability) can be drafted now; its execution is
+interpretable only after #942 (today it would simulate feeding a model
+that cannot buy), and it must not feed promotion.

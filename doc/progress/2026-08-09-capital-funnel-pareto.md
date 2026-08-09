@@ -3,7 +3,8 @@
 STATUS:    measurement + plan re-scope; read-only; Phase-3 step 8.
 
 WHAT:      doc/research/2026-08-09-capital-funnel-pareto.md — the current
-           window's blocker Pareto (3 buys / 41 sessions; rank floor
+           window's blocker Pareto (3 selection events, 0 broker
+           receipts / 41 sessions; rank floor
            2,390; BULL_CALM admission 1,155; qp threshold 12.6pp Kelly),
            the staleness of the July diagnosis, the #942 root-cause link,
            and the visible re-scoping of step 9 behind #942.
@@ -16,7 +17,8 @@ WHY/DIR:   The operator's Phase-3 asked for the deployable-cash
 
 EVIDENCE:  artifact:      the Pareto table [VERIFIED — runs DB, 41 live
                           sessions]; artifact stamps [VERIFIED — prod
-                          panel JSON read]; 3 buys / 5,040 blocks.
+                          panel JSON read]; 3 selection events (0 broker
+                          receipts) / 5,040 blocks.
            prod or exp:   read-only measurement
            existing data: entirely
            best-known?:   yes — §5 states what is NOT shown (per-gate
