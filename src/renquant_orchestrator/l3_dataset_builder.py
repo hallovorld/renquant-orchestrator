@@ -17,11 +17,20 @@ rows never stamp it); the run_id prefix is a valid date on ALL rows. Dates
 therefore use COALESCE(trade_date, substr(run_id,1,10)) — recorded here so
 the choice is reviewable, not silent.
 
-PAIRING RULE (v1, deliberately minimal and stated): a buy pairs with the NEXT
-sell row of the same ticker with a later trade_date. Buys with no subsequent
-sell (still-open or truncated) are EXCLUDED AND COUNTED — the count is in the
-manifest line, never silent. Multiple concurrent lots of one ticker pair
-first-buy-to-first-sell; the ambiguity count is reported.
+PAIRING RULE (v1, deliberately minimal and stated): FIFO — a buy pairs with
+the NEXT unconsumed sell of the same ticker dated after it; ordering is
+(date, rowid) in BOTH queries, so the assignment is deterministic. Buys with
+no subsequent sell (still-open or truncated) are EXCLUDED AND COUNTED.
+
+AMBIGUITY IS A COLUMN (codex on orch#924; measured: 6,084 buys occur while an
+earlier same-ticker buy is still open). With no lot identity on the labelled
+sells, FIFO is a surrogate, not ground truth. Every row therefore carries
+``pairing_ambiguous = 1`` iff its [entry_date, exit_date] interval overlaps
+ANY other lot of the same ticker (a paired lot before/after it, or a
+still-open buy) — the symmetric definition: when episodes overlap, WHICH exit
+belongs to WHICH entry is unobservable, so both sides are flagged. The
+manifest reports the count; a downstream experiment must CHOOSE to include
+these rows — the builder never chooses silently.
 
 Features carried (entry-time, from the buy row itself — nothing recomputed):
 regime, confidence, panel_score, mu, sigma, expected_return, sector,
@@ -53,12 +62,12 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
         buys = con.execute(
             f"SELECT rowid, ticker, {date_expr}, broker_order_id, {cols} "
             f"FROM trades WHERE action='buy' AND {date_expr} IS NOT NULL "
-            f"ORDER BY {date_expr}").fetchall()
+            f"ORDER BY {date_expr}, rowid").fetchall()
         sells = con.execute(
             f"SELECT ticker, {date_expr}, pnl_pct, hold_days, exit_reason, "
             f"broker_order_id FROM trades WHERE action='sell' AND "
             f"{date_expr} IS NOT NULL AND pnl_pct IS NOT NULL "
-            f"ORDER BY {date_expr}").fetchall()
+            f"ORDER BY {date_expr}, rowid").fetchall()
     finally:
         con.close()
 
@@ -68,6 +77,8 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
 
     rows: list[dict] = []
     n_unclosed = 0
+    open_by_ticker: dict[str, list[str]] = {}   # unclosed buys' entry dates
+    lots_by_ticker: dict[str, list[tuple[str, str, int]]] = {}  # (entry, exit, row_idx)
     used: dict[str, int] = {}   # ticker -> index of next unconsumed sell
     for rowid, ticker, bdate, order_id, *feats in buys:
         pool = sells_by_ticker.get(ticker, [])
@@ -77,6 +88,7 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
         if i >= len(pool):
             used[ticker] = i
             n_unclosed += 1
+            open_by_ticker.setdefault(ticker, []).append(bdate)
             continue
         sdate, pnl, hold, reason, sell_oid = pool[i]
         used[ticker] = i + 1
@@ -88,12 +100,27 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
                "win": int(pnl > 0), "pnl_pct": pnl, "hold_days": hold,
                "exit_reason": reason}
         row.update(dict(zip(FEATURES, feats)))
+        lots_by_ticker.setdefault(ticker, []).append((bdate, sdate, len(rows)))
         rows.append(row)
+
+    # symmetric overlap flag: a lot is ambiguous iff its interval overlaps any
+    # other lot (paired or still open) of the same ticker
+    n_ambiguous = 0
+    for ticker, lots in lots_by_ticker.items():
+        opens = open_by_ticker.get(ticker, [])
+        for j, (entry, exit_, idx) in enumerate(lots):
+            overlap = any(
+                (o_entry <= exit_ and entry <= o_exit)
+                for k, (o_entry, o_exit, _) in enumerate(lots) if k != j)
+            overlap = overlap or any(o <= exit_ for o in opens)
+            rows[idx]["pairing_ambiguous"] = int(overlap)
+            n_ambiguous += int(overlap)
 
     manifest = {
         "schema": SCHEMA,
         "n_rows": len(rows),
         "n_unclosed_buys_excluded": n_unclosed,
+        "n_pairing_ambiguous": n_ambiguous,
         "provenance_counts": {
             "live": sum(1 for r in rows if r["provenance"] == "live"),
             "sim": sum(1 for r in rows if r["provenance"] == "sim"),
@@ -103,7 +130,7 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
                       / max(1, sum(1 for r in rows if r["provenance"] == p)), 4))
             for p in ("live", "sim")
         },
-        "pairing_rule": "first-buy-to-first-later-sell per ticker, v1",
+        "pairing_rule": "FIFO by (date,rowid), v1; pairing_ambiguous flags symmetric interval overlap",
     }
     return rows, manifest
 

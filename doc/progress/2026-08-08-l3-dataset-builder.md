@@ -40,9 +40,15 @@ EVIDENCE:  artifact:      real-DB build this session (read-only, scratch out):
            best-known?:   yes — first entry-labeled dataset; the honest
                           eval set remains trade_evaluations (64 rows,
                           forward-labeled)
-           scope:         orchestrator module + tests. Pairing rule v1
-                          (first-buy-to-first-later-sell per ticker) stated
-                          in the docstring with ambiguity counts reported.
+           scope:         orchestrator module + tests. Pairing = FIFO by
+                          (date, rowid), deterministic in both queries.
+                          AMBIGUITY IS A COLUMN (r1): pairing_ambiguous=1 iff
+                          the lot's interval overlaps any other lot of the
+                          same ticker (paired or still open) — symmetric,
+                          because with no lot identity on the sells, WHICH
+                          exit belongs to WHICH entry is unobservable. The
+                          manifest counts them; a downstream experiment must
+                          CHOOSE to include them.
 
 TESTS:     4 passed — pairing + provenance + counts; the NULL-date run_id
            fallback (the production path); no backwards pairing; CSV+manifest

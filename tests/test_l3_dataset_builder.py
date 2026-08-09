@@ -74,6 +74,39 @@ def test_sell_before_buy_never_pairs_backwards(tmp_path):
     assert rows[0]["exit_date"] == "2026-02-01" and rows[0]["win"] == 0
 
 
+def test_concurrent_lots_are_flagged_ambiguous_both_sides(tmp_path):
+    """Two overlapping AAPL lots: FIFO assigns deterministically, but WHICH
+    exit belongs to WHICH entry is unobservable -- BOTH rows flagged."""
+    db = _db(tmp_path / "runs.db", [
+        ("AAPL", "buy",  "2026-01-01", None, None, None, 1.0),
+        ("AAPL", "buy",  "2026-01-05", None, None, None, 2.0),   # overlaps lot 1
+        ("AAPL", "sell", "2026-01-20", None, 0.05, None, None),
+        ("AAPL", "sell", "2026-02-10", None, -0.01, None, None),
+        ("MSFT", "buy",  "2026-01-01", None, None, None, 3.0),   # clean lot
+        ("MSFT", "sell", "2026-01-15", None, 0.02, None, None),
+    ])
+    rows, manifest = l3.build_rows(db)
+    assert manifest["n_rows"] == 3 and manifest["n_pairing_ambiguous"] == 2
+    aapl = [r for r in rows if r["ticker"] == "AAPL"]
+    assert all(r["pairing_ambiguous"] == 1 for r in aapl)
+    msft = [r for r in rows if r["ticker"] == "MSFT"]
+    assert msft[0]["pairing_ambiguous"] == 0
+    # deterministic FIFO: first buy got the first sell
+    first = min(aapl, key=lambda r: r["entry_date"])
+    assert first["exit_date"] == "2026-01-20" and first["win"] == 1
+
+
+def test_open_buy_overlapping_a_paired_lot_flags_it(tmp_path):
+    db = _db(tmp_path / "runs.db", [
+        ("AAPL", "buy",  "2026-01-01", None, None, None, 1.0),
+        ("AAPL", "sell", "2026-02-01", None, 0.05, None, None),
+        ("AAPL", "buy",  "2026-01-15", None, None, None, 2.0),  # stays open, overlaps
+    ])
+    rows, manifest = l3.build_rows(db)
+    assert manifest["n_rows"] == 1 and manifest["n_unclosed_buys_excluded"] == 1
+    assert rows[0]["pairing_ambiguous"] == 1
+
+
 def test_cli_writes_csv_and_manifest_or_refuses_empty(tmp_path, capsys):
     db = _db(tmp_path / "runs.db", [
         ("AAPL", "buy", "2026-01-01", None, None, None, None),   # unclosed only
