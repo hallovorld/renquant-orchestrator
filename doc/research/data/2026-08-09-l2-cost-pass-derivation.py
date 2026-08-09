@@ -30,6 +30,8 @@ def verify_manifest():
     assert (d, n) == (ins['ohlcv_universe']['digest_of_digests'], ins['ohlcv_universe']['n_files']), 'ohlcv universe digest mismatch'
     print('input manifest verified (momentum scores, panel matrix, sector map, ohlcv universe)')
 verify_manifest()
+sys.path.insert(0, str(Path(__file__).parent))   # canonical helpers beside this file
+from l2_staleness import is_fresh                # r1 P2: the single staleness rule
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
 from renquant_model_common.total_return import total_return_close
@@ -58,22 +60,29 @@ def book(scores_by_date):
         ts=t.date().isoformat()
         while si<len(sdates) and sdates[si]<ts:
             cur=scores_by_date[sdates[si]]; cur_d=sdates[si]; si+=1
-        if cur is None or (pd.Timestamp(ts)-pd.Timestamp(cur_d)).days>7: continue
+        if cur is None or not is_fresh(pd.Timestamp(ts), pd.Timestamp(cur_d)): continue
         row=R.loc[t]
         elig={n:v for n,v in cur.items() if n in R.columns and row[n]==row[n]}
         if len(elig)<3: continue
         names=set(n for n,_ in sorted(elig.items(),key=lambda kv:-kv[1])[:3])
         changed=len(names-prev) if prev else 0
         gross=row[list(names)].mean()
-        out[t]=gross-(changed/3)*2*COST1W
-        names_out[t]=changed
+        cost=(changed/3)*2*COST1W
+        out[t]=(gross, cost, gross-cost, changed)
         prev=names
-    return pd.Series(out), pd.Series(names_out)
-net={}; churn={}
+    idx=list(out)
+    import pandas as _pd
+    return (_pd.Series({k:v[2] for k,v in out.items()}),
+            _pd.Series({k:v[3] for k,v in out.items()}),
+            _pd.Series({k:v[0] for k,v in out.items()}),
+            _pd.Series({k:v[1] for k,v in out.items()}))
+net={}; churn={}; gross={}; costc={}
 for a,s in ARMS.items():
-    net[a],churn[a]=book(s)
+    net[a],churn[a],gross[a],costc[a]=book(s)
 arm=pd.DataFrame(net).dropna()
 ch=pd.DataFrame(churn).reindex(arm.index)
+gr=pd.DataFrame(gross).reindex(arm.index)
+co=pd.DataFrame(costc).reindex(arm.index)
 def run_hedge(rets):
     w=np.array([FLOOR,(1-FLOOR)/2,(1-FLOOR)/2]); ws=[]; port=[]
     for _,r in rets.iterrows():
@@ -92,8 +101,9 @@ print('\n== NET of arm-level costs ==')
 for a in arm: stats(arm[a],a)
 stats(hedge,'HEDGE net (floor 0.5)')
 stats(arm.mean(axis=1),'uniform 1/3 net')
-pd.concat([arm.add_suffix('_net'), ch.add_suffix('_churn'),
+pd.concat([arm.add_suffix('_net'), gr.add_suffix('_gross'), co.add_suffix('_cost'),
+           ch.add_suffix('_churn'),
            hedge.rename('hedge_net'),
            pd.DataFrame(ws,index=arm.index,columns=[f'w_{c}' for c in arm.columns])],axis=1)\
-  .to_csv(f'{SP}/l2_cost_pass_daily.csv')
+  .to_csv(Path(__file__).with_name('2026-08-09-l2-cost-pass-daily.csv'))
 print('CSV saved')

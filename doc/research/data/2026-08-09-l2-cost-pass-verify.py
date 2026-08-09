@@ -6,6 +6,14 @@ ETA, C, FLOOR = 0.21, 0.05, 0.5
 df = pd.read_csv(Path(__file__).with_name('2026-08-09-l2-cost-pass-daily.csv'),
                  index_col=0, parse_dates=True)
 arms = ['panel', 'mom_slow', 'mom_fast']
+
+# r1 P1: the cost identities are ASSERTED from the committed columns before
+# any statistic is trusted: net == gross - cost and cost == churn/3 * 2 * 10bps.
+for a in arms:
+    cost_expected = df[a + '_churn'] / 3 * 2 * 0.0010
+    assert np.allclose(df[a + '_cost'], cost_expected, atol=1e-12), f'{a}: cost != churn/3*2*10bps'
+    assert np.allclose(df[a + '_net'], df[a + '_gross'] - df[a + '_cost'], atol=1e-12), f'{a}: net != gross - cost'
+print('cost identities verified: net == gross - cost, cost == churn/3*2*0.001 (all arms, all days)')
 def stats(s, name):
     a=(1+s).prod()**(252/len(s))-1; vol=s.std()*np.sqrt(252)
     cum=(1+s).cumprod(); dd=(cum/cum.cummax()-1).min()
