@@ -1,8 +1,14 @@
-"""L3 meta-label dataset builder (allocation machine, orch#918 L3).
+"""Paired-trade descriptive audit for the L3 research track.
 
-Builds the ENTRY-labeled dataset for the meta-label filter: one row per BUY
-with its entry-time features and the realized outcome of the round trip it
-opened. Read-only over the runs DB; writes one CSV.
+Builds a descriptive, FIFO-paired view of BUY rows and later sells. It is
+read-only over the runs DB and writes one CSV.
+
+THIS IS NOT AN L3 TRAINING DATASET. The source trades table does not identify
+lots: the measured production build marks 99.7% of paired rows as ambiguous.
+The CLI therefore refuses unless the caller explicitly acknowledges that it is
+requesting a surrogate-label audit. A valid L3 training label must be built
+point-in-time from ``candidate_scores`` joined to
+``ticker_forward_returns`` at an explicitly chosen horizon.
 
 PROVENANCE IS A COLUMN, NEVER A FILTER DEFAULT. The trades table commingles
 sim and live rows (measured: ~99% carry source=None and are sim; 36 rows are
@@ -29,13 +35,14 @@ sells, FIFO is a surrogate, not ground truth. Every row therefore carries
 ANY other lot of the same ticker (a paired lot before/after it, or a
 still-open buy) — the symmetric definition: when episodes overlap, WHICH exit
 belongs to WHICH entry is unobservable, so both sides are flagged. The
-manifest reports the count; a downstream experiment must CHOOSE to include
-these rows — the builder never chooses silently.
+manifest reports the count; an audit caller must CHOOSE to include these rows
+— the builder never chooses silently.
 
 Features carried (entry-time, from the buy row itself — nothing recomputed):
 regime, confidence, panel_score, mu, sigma, expected_return, sector,
-active_scorer, rank_score, kelly_target_pct. Label: win = sell.pnl_pct > 0,
-plus pnl_pct and hold_days as continuous targets.
+active_scorer, rank_score, kelly_target_pct. Paired outcome fields: win =
+sell.pnl_pct > 0, plus pnl_pct and hold_days. They are descriptive fields,
+not valid L3 supervised-learning targets.
 """
 from __future__ import annotations
 
@@ -48,7 +55,7 @@ from pathlib import Path
 
 from .runtime_paths import default_data_root
 
-SCHEMA = "l3_meta_label_dataset.v1"
+SCHEMA = "paired_trade_audit.v1"
 FEATURES = ("regime", "confidence", "panel_score", "mu", "sigma",
             "expected_return", "sector", "active_scorer", "rank_score",
             "kelly_target_pct")
@@ -140,7 +147,21 @@ def main(argv=None) -> int:
     ap.add_argument("--data-root", type=Path, default=None)
     ap.add_argument("--db", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument(
+        "--allow-surrogate-paired-labels",
+        action="store_true",
+        help=("acknowledge this is a descriptive FIFO-pairing audit, not an "
+              "L3 training-label dataset"),
+    )
     args = ap.parse_args(argv)
+    if not args.allow_surrogate_paired_labels:
+        print(json.dumps({
+            "status": "REFUSED",
+            "why": ("paired FIFO outcomes are surrogate labels; this audit cannot "
+                    "supply L3 training labels. Use candidate_scores joined to "
+                    "ticker_forward_returns with a declared forward horizon."),
+        }, indent=2))
+        return 2
     data_root = args.data_root or default_data_root()
     db = args.db or data_root / "data" / "runs.alpaca.db"
     try:

@@ -112,13 +112,25 @@ def test_cli_writes_csv_and_manifest_or_refuses_empty(tmp_path, capsys):
         ("AAPL", "buy", "2026-01-01", None, None, None, None),   # unclosed only
     ])
     out = tmp_path / "ds" / "meta.csv"
-    assert l3.main(["--db", str(db), "--out", str(out)]) == 1
+    assert l3.main(["--db", str(db), "--out", str(out),
+                    "--allow-surrogate-paired-labels"]) == 1
     assert "zero paired rows" in capsys.readouterr().out
     db2 = _db(tmp_path / "runs2.db", [
         ("AAPL", "buy",  "2026-01-01", None, None, None, None),
         ("AAPL", "sell", "2026-02-01", None, 0.05, None, None),
     ])
-    assert l3.main(["--db", str(db2), "--out", str(out)]) == 0
+    assert l3.main(["--db", str(db2), "--out", str(out),
+                    "--allow-surrogate-paired-labels"]) == 0
     assert out.exists() and out.with_suffix(".manifest.json").exists()
     m = json.loads(out.with_suffix(".manifest.json").read_text())
     assert m["schema"] == l3.SCHEMA and m["n_rows"] == 1
+
+
+def test_cli_refuses_surrogate_labels_without_explicit_ack(tmp_path, capsys):
+    db = _db(tmp_path / "runs.db", [
+        ("AAPL", "buy", "2026-01-01", None, None, None, None),
+        ("AAPL", "sell", "2026-02-01", None, 0.05, None, None),
+    ])
+    assert l3.main(["--db", str(db), "--out", str(tmp_path / "meta.csv")]) == 2
+    output = capsys.readouterr().out
+    assert "candidate_scores" in output and "ticker_forward_returns" in output
