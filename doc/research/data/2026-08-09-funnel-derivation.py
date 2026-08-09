@@ -72,11 +72,27 @@ pareto = _pareto(rows)                          # UNIT A: every live run = one d
 pareto_canon = _pareto(rows[rows.is_canonical == 1])   # UNIT B: last run per date (sensitivity)
 runs_per_day = rows.groupby("date")["run_id"].nunique()
 buy_runs = rows[rows.selected == 1][["date", "run_id"]].drop_duplicates()
+# r4 (review P1): selected=1 is a PIPELINE SELECTION STATE, not an executed
+# buy. Cross-check each selection against the trades table and carry the
+# broker receipt status; execution beyond the trades row is NOT provable
+# from this DB (broker_order_id is the only receipt field and it is empty
+# on every row in the window).
+con2 = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+sel = rows[rows.selected == 1][["date", "ticker", "run_id"]]
+tr = pd.read_sql_query(
+    "SELECT run_id, ticker, broker_order_id FROM trades WHERE action=\'buy\'", con2)
+con2.close()
+sel = sel.merge(tr, on=["run_id", "ticker"], how="left", indicator=True)
+sel["has_trade_row"] = sel["_merge"] == "both"
+sel["has_broker_receipt"] = sel.broker_order_id.notna() & (sel.broker_order_id != "")
+sel.drop(columns="_merge").to_csv(HERE / "2026-08-09-funnel-selections.csv", index=False)
 summary = {"window": [W0, W1], "semantics": "see module docstring",
            "n_sessions": int(rows.date.nunique()),
            "n_block_events": int(rows.blocked.sum()),
            "n_unique_candidate_tickers": int(rows.ticker.nunique()),
-           "n_selected_buys": int(rows.selected.sum()),
+           "n_selection_events": int(rows.selected.sum()),
+           "n_selection_trade_rows": int(sel.has_trade_row.sum()),
+           "n_selection_broker_receipts": int(sel.has_broker_receipt.sum()),
            "mean_cash_frac": round(float(cash.cash_frac.mean()), 4),
            "mean_cash_usd": round(float(cash.cash.mean()), 2),
            "cash_drag_usd_yr_at_8pct_ASSUMED": round(float(cash.cash.mean() * R_OPP), 2),
@@ -86,4 +102,4 @@ summary = {"window": [W0, W1], "semantics": "see module docstring",
                              "max": int(runs_per_day.max())},
            "buying_runs": buy_runs.to_dict("records")}
 (HERE / "2026-08-09-funnel-summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-print(json.dumps({k: summary[k] for k in ("n_sessions", "n_block_events", "n_selected_buys", "mean_cash_frac", "cash_drag_usd_yr_at_8pct_ASSUMED")}))
+print(json.dumps({k: summary[k] for k in ("n_sessions", "n_block_events", "n_selection_events", "n_selection_broker_receipts", "mean_cash_frac", "cash_drag_usd_yr_at_8pct_ASSUMED")}))

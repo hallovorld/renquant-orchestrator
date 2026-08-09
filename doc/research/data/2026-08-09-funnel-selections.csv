@@ -1,0 +1,4 @@
+date,ticker,run_id,broker_order_id,has_trade_row,has_broker_receipt
+2026-05-22,BAC,2026-05-22-live-ff554178,,True,False
+2026-05-22,D,2026-05-22-live-ff554178,,True,False
+2026-05-22,WFC,2026-05-22-live-ff554178,,True,False

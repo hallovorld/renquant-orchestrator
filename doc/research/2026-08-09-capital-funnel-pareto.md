@@ -30,8 +30,13 @@ not prose.
 | kelly_zero:mu_le_min_edge | 57 | 0 |
 | broker_pending_submitted | 56 | 3.9 |
 
-Bottom line: **3 buys in 41 sessions — all three from a SINGLE run on
-2026-05-22**; 5,040 block-events; mean cash fraction **79.1%** `[VERIFIED —
+Bottom line: **3 SELECTION EVENTS in 41 sessions — all from a single run
+on 2026-05-22 (BAC, D, WFC), each with a trades-table row and ZERO broker
+order receipts** `[VERIFIED — trades join, committed selections CSV]`.
+"selected=1" is a pipeline state; execution at the broker is NOT provable
+from this DB (broker_order_id is empty on every buy row in the window), so
+every capital-deployment claim here is about the pipeline's willingness to
+deploy, not confirmed fills. Also: 5,040 block-events; mean cash fraction **79.1%** `[VERIFIED —
 live_state_snapshots derivation, committed]`.
 
 DECISION UNITS (r3, review P0): the window's live runs are INTRADAY
