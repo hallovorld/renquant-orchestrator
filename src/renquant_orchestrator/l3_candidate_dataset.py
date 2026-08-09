@@ -3,7 +3,9 @@
 The valid L3 label construction the paired audit's refusal message prescribes:
 ``candidate_scores`` joined point-in-time to ``ticker_forward_returns`` at an
 EXPLICITLY DECLARED horizon. One row per (run_date, ticker) from the widest
-run of each date; the outcome is the market's forward return from that date —
+run of each date (equal-width ties: latest ``created_at`` wins — the
+canonical same-day run); the outcome is the market's forward return from
+that date —
 not the book's realized round trip — so there is no lot pairing and therefore
 no ambiguity, by construction.
 
@@ -48,15 +50,19 @@ FEATURES = ("panel_score", "raw_score", "rank_score", "mu", "sigma",
 def build_rows(db_path: Path) -> tuple[list[dict], dict]:
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        # widest run per date, candidates only
+        # widest run per date, candidates only; equal-width ties break to the
+        # latest created_at — the canonical same-day run (the same dedup rule
+        # as doc/research/2026-07-02-m3-haircut-replay.md), never SQLite row
+        # order, which could silently train on a superseded retry
         best = {}
-        for rdate, rid, n in con.execute(
-                "SELECT p.run_date, cs.run_id, COUNT(*) FROM pipeline_runs p "
+        for rdate, rid, created, n in con.execute(
+                "SELECT p.run_date, cs.run_id, p.created_at, COUNT(*) "
+                "FROM pipeline_runs p "
                 "JOIN candidate_scores cs ON cs.run_id = p.run_id "
                 "WHERE cs.role='candidate' AND cs.panel_score IS NOT NULL "
                 "GROUP BY p.run_date, cs.run_id"):
-            if n > best.get(rdate, (0, ""))[0]:
-                best[rdate] = (n, rid)
+            if (n, created or "") > best.get(rdate, (0, "", ""))[:2]:
+                best[rdate] = (n, created or "", rid)
         run_type = dict(con.execute(
             "SELECT run_id, run_type FROM pipeline_runs"))
         regime = {}
@@ -73,7 +79,7 @@ def build_rows(db_path: Path) -> tuple[list[dict], dict]:
         rows: list[dict] = []
         n_no_label = 0
         for rdate in sorted(best):
-            n_date, rid = best[rdate]
+            n_date, _, rid = best[rdate]
             reg = regime.get(rdate)
             for r in con.execute(
                     f"SELECT ticker, {cols} FROM candidate_scores "

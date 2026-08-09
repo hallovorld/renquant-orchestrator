@@ -13,7 +13,7 @@ def _db(tmp_path: Path) -> Path:
     db = tmp_path / "runs.db"
     with sqlite3.connect(db) as con:
         con.execute("CREATE TABLE pipeline_runs (run_id TEXT, run_date TEXT,"
-                    " run_type TEXT)")
+                    " run_type TEXT, created_at TEXT)")
         con.execute("CREATE TABLE candidate_scores (run_id TEXT, ticker TEXT,"
                     " role TEXT, panel_score REAL, raw_score REAL,"
                     " rank_score REAL, mu REAL, sigma REAL,"
@@ -36,8 +36,8 @@ def _fill(db, rows):
 def test_label_join_widest_run_and_exclusion_count(tmp_path):
     db = _db(tmp_path)
     _fill(db, [
-        ("pipeline_runs", ("r-small", "2026-01-05", "live")),
-        ("pipeline_runs", ("r-wide", "2026-01-05", "live")),
+        ("pipeline_runs", ("r-small", "2026-01-05", "live", "2026-01-05 14:00:00")),
+        ("pipeline_runs", ("r-wide", "2026-01-05", "live", "2026-01-05 14:05:00")),
         # small run: 1 candidate; wide run: 2 -> wide must win
         ("candidate_scores", ("r-small", "ZZZ", "candidate", 9.0, 1, 1, 0.1, 0.2, 0.05, "software", "xgb", 0, None, 0.1)),
         ("candidate_scores", ("r-wide", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
@@ -56,10 +56,37 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
     assert manifest["rows_by_run_type"] == {"live": 1}
 
 
+def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
+    """AUDIT REGRESSION GUARD: equal-width same-date runs must resolve to the
+    latest created_at (the canonical run), never SQLite group order — else
+    training silently reads a superseded retry's payload."""
+    db = _db(tmp_path)
+    _fill(db, [
+        # r-early sorts first lexically AND by insertion; only the created_at
+        # tie-break makes r-late win
+        ("pipeline_runs", ("r-early", "2026-01-05", "live", "2026-01-05 14:00:00")),
+        ("pipeline_runs", ("r-late", "2026-01-05", "live", "2026-01-05 21:00:00")),
+        # both runs: width 2, materially different payloads
+        ("candidate_scores", ("r-early", "AAPL", "candidate", 9.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
+        ("candidate_scores", ("r-early", "MSFT", "candidate", 8.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
+        ("candidate_scores", ("r-late", "AAPL", "candidate", 2.0, 1, 1, 0.3, 0.2, 0.07, "giant_tech", "xgb", 1, None, 0.2)),
+        ("candidate_scores", ("r-late", "NVDA", "candidate", 1.0, 1, 1, 0.2, 0.2, 0.06, "giant_tech", "xgb", 0, None, 0.1)),
+        ("ticker_forward_returns", ("AAPL", "2026-01-05", 0.03, 0.08)),
+        ("ticker_forward_returns", ("MSFT", "2026-01-05", 0.01, 0.02)),
+        ("ticker_forward_returns", ("NVDA", "2026-01-05", 0.02, 0.04)),
+    ])
+    rows, manifest = l3c.build_rows(db)
+    assert {r["run_id"] for r in rows} == {"r-late"}
+    assert {r["ticker"] for r in rows} == {"AAPL", "NVDA"}
+    aapl = next(r for r in rows if r["ticker"] == "AAPL")
+    assert aapl["panel_score"] == 2.0 and aapl["selected"] == 1
+    assert manifest["n_rows"] == 2 and manifest["n_dates"] == 1
+
+
 def test_absent_regime_is_recorded_not_invented(tmp_path):
     db = _db(tmp_path)
     _fill(db, [
-        ("pipeline_runs", ("r1", "2026-01-06", "sim")),
+        ("pipeline_runs", ("r1", "2026-01-06", "sim", "2026-01-06 14:00:00")),
         ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
         ("ticker_forward_returns", ("AAPL", "2026-01-06", -0.01, -0.02)),
     ])
@@ -74,7 +101,7 @@ def test_cli_writes_and_refuses_empty(tmp_path, capsys):
     assert l3c.main(["--db", str(db), "--out", str(out)]) == 1
     assert "zero labelled candidate rows" in capsys.readouterr().out
     _fill(db, [
-        ("pipeline_runs", ("r1", "2026-01-05", "live")),
+        ("pipeline_runs", ("r1", "2026-01-05", "live", "2026-01-05 14:00:00")),
         ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
         ("ticker_forward_returns", ("AAPL", "2026-01-05", 0.03, 0.08)),
     ])
