@@ -12,13 +12,15 @@ WHAT:      doc/design/2026-08-09-l3-classifier-prereg.md is now the
            #207** (`doc/design/2026-08-09-l3-classifier-prereg.md` there),
            the repo that owns model-experiment contracts. This repo records
            what it serves: schema `l3_candidate_dataset.v1`, the canonical
-           manifest, and the regime gate.
+           manifest, and the REGIME EXCLUSION (no causal score-time source
+           exists; see the r3 CORRECTION).
 
 WHY/DIR:   The dataset (orch#928) is merged; the classifier experiment must
            be frozen before results exist to steer it — the same window
            discipline as orch#912 §10 and the BEAR exit prereg. Review
-           round 2 relocated the prereg (P1, ownership) and gated its
-           regime features (P0, causality) — see CORRECTIONS below.
+           round 2 relocated the prereg (P1, ownership); review round 3
+           replaced the r2 regime gate with a full exclusion (the producer
+           trace refuted the run-identity join) — see CORRECTIONS below.
 
 EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
                           1,275 excluded / selected 135 / base rate 0.6307 /
@@ -27,11 +29,9 @@ EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
                           module rebuild, DB mode=ro, output under /tmp,
                           figures from module stdout; identical to the
                           canonical post-r1/r3 record in
-                          doc/progress/2026-08-09-l3-candidate-dataset.md].
-                          Regime availability under the orch#930 causal
-                          join: 2,184 live rows same_run_snapshot / all sim
-                          rows absent [VERIFIED — read-only rebuild on the
-                          #930 head, this session].
+                          doc/progress/2026-08-09-l3-candidate-dataset.md;
+                          re-confirmed unchanged on the #930 regime-removal
+                          head — columns only, never row selection].
            prod or exp:   experiment — design docs only
            existing data: no meta-label entry classifier has ever been
                           trained in this system; the exit-side foundation
@@ -44,8 +44,9 @@ EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
                           merge.
 
 TESTS:     none — prose contracts; the prereg's test is that the run can be
-           judged entirely from its §2/§3 with zero live choices (the
-           regime gate resolves from external merge state, not judgment).
+           judged entirely from its §2/§3 with zero live choices. The
+           dataset-side exclusion is pinned by a regression test on the
+           orch#930 branch (no regime-derived column may surface).
 
 CORRECTION (review r1, Codex MED): the frozen evidence block cited the
            superseded pre-tie-break base rate 0.6311 from before orch#928's
@@ -71,8 +72,28 @@ CORRECTION (review r2, Codex P0 + P1): (a) the r1 doc froze regime +
            producer/consumer ownership boundary; it moved to renquant-model
            PR #207 and this PR shrank to the dataset-contract pointer.
 
-NEXT:      merge alongside orch#930 and renquant-model#207; then execute the
-           experiment exactly as frozen there (derivation + committed
-           artifacts at the #913/#926 reproducibility standard), report
-           PASS/KILL; on PASS, propose the shadow lane as its own granted
-           batch.
+CORRECTION (review r3, Codex BLOCKER — visible per LONG row 10): the r2
+           "gate on orch#930" was itself wrong, because #930's run-identity
+           join is NOT causal. The producer trace, re-verified read-only
+           this session: live_state_snapshots is documented as a
+           close-of-run audit row (RenQuant backtesting/renquant_104/
+           kernel/persistence.py:189-205) and RunnerAdapter.commit() writes
+           record_candidate_scores (adapters/runner.py:2179) BEFORE
+           record_live_state_snapshot (adapters/runner.py:2342), from
+           post-run state — so same-run identity proves attribution, never
+           availability at candidate-score time, and a merge-state gate
+           built on it would license leakage. The pointer now records
+           regime as EXCLUDED entirely; orch#930 was rewritten to remove
+           the regime columns from the dataset. The r2 measurement (2,184
+           live rows same_run_snapshot / all sim rows absent) described the
+           withdrawn construction and no longer appears as evidence for any
+           frozen feature. Readmission = producer-side score-time stamp
+           (regime/confidence into candidate_scores at scoring time, or an
+           immutable score-time artifact) with provenance + ordering tests,
+           then a NEW dated prereg.
+
+NEXT:      merge alongside orch#930 (regime removal) and renquant-model#207
+           (6 base features); then execute the experiment exactly as frozen
+           there (derivation + committed artifacts at the #913/#926
+           reproducibility standard), report PASS/KILL; on PASS, propose
+           the shadow lane as its own granted batch.

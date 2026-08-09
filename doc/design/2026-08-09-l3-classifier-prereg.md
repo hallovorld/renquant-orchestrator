@@ -23,18 +23,25 @@ contract that prereg consumes, and nothing else.
   stdout]`: 7,167 rows / 523 dates / 1,275 candidates without a forward
   row excluded-and-counted / selected 135 / base win rate 0.6307 /
   live 2,189 vs sim 4,978.
-* **REGIME — causal join gated on orch#930:** the merged #928 join takes
-  the run_date's latest `live_state_snapshots` row, which is NOT causal
-  (a later same-day snapshot postdates the scoring — codex P0). orch#930
-  replaces it with the join by RUN IDENTITY (the same run's snapshot,
-  computed before that run scored its candidates), carrying
-  `regime_source = same_run_snapshot | absent` and
-  `regime_snapshot_created_at` per row. Under that join regime is
-  honestly live-only: 2,184 of 2,189 live rows carry it, all 4,978 sim
-  rows are `absent` `[VERIFIED — read-only rebuild on the orch#930 head,
-  this session]`. **Regime-based features are excluded from the prereg
-  unless orch#930 is merged when the training run starts** — the
-  deterministic gate is frozen in the renquant-model prereg §2, not
-  decided at run time.
+* **REGIME — EXCLUDED (r3; no causal score-time source exists):**
+  regime-based features may not be consumed from this dataset at all.
+  The producer trace refutes every consumer-side join:
+  `live_state_snapshots` is documented as a close-of-run audit row
+  ("what did live_state look like at the close of run R?", RenQuant
+  `backtesting/renquant_104/kernel/persistence.py:189-205`) and
+  `RunnerAdapter.commit()` writes `record_candidate_scores`
+  (`adapters/runner.py:2179`) BEFORE `record_live_state_snapshot`
+  (`adapters/runner.py:2342`), from post-run state `[VERIFIED — read
+  this session]`. So the date-latest join leaks, timestamp inequality
+  voids the field, and same-run identity (the r2 construction) proves
+  ATTRIBUTION only — never availability at candidate-score time.
+  orch#930 accordingly REMOVES the regime columns from the dataset,
+  with a regression test pinning the exclusion. Readmission requires
+  the producer to stamp regime/confidence into `candidate_scores` at
+  scoring time (or an immutable score-time feature artifact) with
+  score-time provenance and producer-side ordering tests — and a NEW
+  dated prereg admitting the block. The renquant-model prereg (#207)
+  freezes the 6 base features unconditionally: no regime block, no
+  merge-state gate.
 * **External test:** the 64 `trade_evaluations` rows `[VERIFIED — sqlite
   ro count, this session]`, consumed once-only per the prereg.
