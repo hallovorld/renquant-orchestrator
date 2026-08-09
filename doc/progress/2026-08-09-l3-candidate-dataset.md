@@ -3,10 +3,11 @@
 STATUS:    delivered for review. Read-only over the runs DB; writes one CSV +
            manifest wherever pointed. No production surface.
 
-WHAT:      src/renquant_orchestrator/l3_candidate_dataset.py + 4 tests. One
+WHAT:      src/renquant_orchestrator/l3_candidate_dataset.py + 5 tests. One
            row per (run_date, ticker) from each date's WIDEST candidate run
            (equal-width ties: latest created_at wins — the canonical same-day
-           run, the same dedup rule as the M3 haircut replay);
+           run, the same dedup rule as the M3 haircut replay; exact
+           created_at ties fall to the latest run_id — a total order);
            label = market forward return at the score date (fwd_20d primary —
            declared frozen horizon; fwd_60d carried for the 60d thesis);
            NO pairing, therefore NO lot ambiguity by construction — exactly
@@ -37,9 +38,11 @@ EVIDENCE:  artifact:      real-DB build, post-tie-break [VERIFIED — module
                           n_candidates_that_date is a row column for explicit
                           width flooring by consumers.
 
-TESTS:     4 passed — widest-run selection + label join + exclusion count;
+TESTS:     5 passed — widest-run selection + label join + exclusion count;
            equal-width tie-break regression guard (fails on the pre-fix
-           module [VERIFIED — stash run]); absent-regime recorded not
+           module [VERIFIED — stash run]); equal-created_at run_id
+           total-order guard (fails on the pre-r3 module [VERIFIED — this
+           session, run before the module fix]); absent-regime recorded not
            invented; CLI empty-refusal + manifest.
 
 CORRECTION (review r1, Codex MED): the initial build had NO tie-break on
@@ -53,6 +56,23 @@ CORRECTION (review r1, Codex MED): the initial build had NO tie-break on
            the pre-fix selection; manifest deltas vs the figures previously
            stated here: selected 136 → 135, base win rate 0.6311 → 0.6307
            (rows / dates / exclusions unchanged: 7,167 / 523 / 1,275).
+
+CORRECTION (review r3, Codex P1): the r1 fix comment and this doc claimed a
+           run_id "final total-order guard" that the code did NOT have — the
+           comparison sliced run_id away ([:2]), so equal-width runs with
+           EQUAL created_at would still resolve by SQLite iteration order.
+           Fixed: the selection now compares the full (count, created_at,
+           run_id) tuple, and a distinct fixture pins the equal-created_at
+           case (latest run_id wins, carrying its payload; fails pre-fix
+           [VERIFIED — this session]). The duplicate
+           test_equal_width_tie_breaks_to_latest_created_at definition —
+           which Python silently overwrote, holding collection at 4 — was
+           renamed into that fixture; collection is now 5. Real-DB effect:
+           NONE — manifest re-measured after the fix [VERIFIED — module
+           stdout, this session]: 7,167 rows / 523 dates / 1,275 excluded /
+           live 2,189 / sim 4,978 / selected 135 / win rate 0.6307,
+           identical to the r1 figures (consistent with the reviewer's
+           read-only audit of 0 exact-created_at ties on the current DB).
 
 NEXT:      the L3 classifier experiment on this dataset (small model,
            provenance-explicit training choice, evaluated against the 64

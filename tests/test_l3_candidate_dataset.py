@@ -110,19 +110,21 @@ def test_cli_writes_and_refuses_empty(tmp_path, capsys):
     assert m["schema"] == l3c.SCHEMA and m["primary_horizon"] == "fwd_20d"
 
 
-def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
-    """r1 fixture: two same-date runs with EQUAL width but disagreeing
-    payloads — the later created_at run must win, deterministically."""
+def test_equal_width_equal_created_at_tie_breaks_to_run_id(tmp_path):
+    """AUDIT REGRESSION GUARD (review r3): equal width AND equal created_at
+    must fall to the lexicographically-latest run_id — the documented final
+    total-order guard — never SQLite group iteration order."""
     db = _db(tmp_path)
     _fill(db, [
-        ("pipeline_runs", ("r-early", "2026-01-07", "live", "2026-01-07 14:00:00")),
-        ("pipeline_runs", ("r-late",  "2026-01-07", "live", "2026-01-07 21:00:00")),
+        # identical created_at; only the run_id total-order guard decides
+        ("pipeline_runs", ("r-a", "2026-01-07", "live", "2026-01-07 14:00:00")),
+        ("pipeline_runs", ("r-b", "2026-01-07", "live", "2026-01-07 14:00:00")),
         # equal width (1 candidate each), materially different payloads
-        ("candidate_scores", ("r-early", "AAPL", "candidate", 9.9, 1, 1, 0.9, 0.2, 0.5, "giant_tech", "xgb", 1, None, 0.9)),
-        ("candidate_scores", ("r-late",  "AAPL", "candidate", 1.1, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
+        ("candidate_scores", ("r-a", "AAPL", "candidate", 9.9, 1, 1, 0.9, 0.2, 0.5, "giant_tech", "xgb", 1, None, 0.9)),
+        ("candidate_scores", ("r-b", "AAPL", "candidate", 1.1, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 0, None, 0.1)),
         ("ticker_forward_returns", ("AAPL", "2026-01-07", 0.02, 0.05)),
     ])
     rows, _ = l3c.build_candidate_rows(db)
     assert len(rows) == 1
-    assert rows[0]["run_id"] == "r-late"        # later canonical run wins
-    assert rows[0]["panel_score"] == 1.1         # its payload, not r-early's
+    assert rows[0]["run_id"] == "r-b"            # latest run_id wins the tie
+    assert rows[0]["panel_score"] == 1.1         # its payload, not r-a's

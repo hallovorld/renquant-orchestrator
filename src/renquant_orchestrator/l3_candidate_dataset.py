@@ -4,7 +4,8 @@ The valid L3 label construction the paired audit's refusal message prescribes:
 ``candidate_scores`` joined point-in-time to ``ticker_forward_returns`` at an
 EXPLICITLY DECLARED horizon. One row per (run_date, ticker) from the widest
 run of each date (equal-width ties: latest ``created_at`` wins — the
-canonical same-day run); the outcome is the market's forward return from
+canonical same-day run; exact ``created_at`` ties fall to the latest
+``run_id``, a total order); the outcome is the market's forward return from
 that date —
 not the book's realized round trip — so there is no lot pairing and therefore
 no ambiguity, by construction.
@@ -52,8 +53,9 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
     try:
         # widest run per date, candidates only; equal-width ties break to the
         # latest created_at — the canonical same-day run (the same dedup rule
-        # as doc/research/2026-07-02-m3-haircut-replay.md), never SQLite row
-        # order, which could silently train on a superseded retry
+        # as doc/research/2026-07-02-m3-haircut-replay.md) — and exact
+        # created_at ties fall to the latest run_id: a total order, never
+        # SQLite row order, which could silently train on a superseded retry
         best = {}
         for rdate, rid, created, n in con.execute(
                 "SELECT p.run_date, cs.run_id, p.created_at, COUNT(*) "
@@ -61,7 +63,7 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
                 "JOIN candidate_scores cs ON cs.run_id = p.run_id "
                 "WHERE cs.role='candidate' AND cs.panel_score IS NOT NULL "
                 "GROUP BY p.run_date, cs.run_id"):
-            if (n, created or "") > best.get(rdate, (0, "", ""))[:2]:
+            if (n, created or "", rid) > best.get(rdate, (0, "", "")):
                 best[rdate] = (n, created or "", rid)
         run_type = dict(con.execute(
             "SELECT run_id, run_type FROM pipeline_runs"))
