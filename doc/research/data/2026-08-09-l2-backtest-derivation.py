@@ -1,9 +1,12 @@
 """L2 bandit backtest over point-in-time replay arms.
 FROZEN before output: deployed eta=0.21; clip C=0.05; floor 0.5 on the panel
-arm; top-3 books; t->t+1 timing; score staleness <= 7 CALENDAR days (single rule; matches code and report).
+arm; top-3 books; t->t+1 timing; score staleness <= 7 CALENDAR days (single
+rule, l2_staleness.py; matches code, report, and test).
 Sensitivity grid {0.05,0.1,0.21,0.5,1.0} is DESCRIPTIVE ONLY."""
-import glob, hashlib, json, sys
+import glob, hashlib, json, os, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+from l2_staleness import is_fresh
 
 # r1 P1: verify the committed input manifest BEFORE deriving; REFUSE on any
 # digest mismatch — the CSV must be regenerable only from the declared,
@@ -22,7 +25,16 @@ def verify_manifest():
     d, n = _dirsha(files)
     assert (d, n) == (ins['panel_replay_matrix']['digest_of_digests'], ins['panel_replay_matrix']['n_files']), 'panel replay matrix digest mismatch'
     assert _fsha(ins['sector_map_config']['path']) == ins['sector_map_config']['sha256'], 'sector map digest mismatch'
-    print('input manifest verified (momentum scores, panel matrix, sector map)')
+    # r1 P1 completeness: the ohlcv digest was declared but not checked. Same
+    # file set the derivation loads: sector-map universe minus benchmark /
+    # defensive_bonds, existing files only.
+    smap = json.load(open(ins['sector_map_config']['path']))['sector_map']
+    root = ins['ohlcv_universe']['root']
+    ofiles = [f'{root}/{t}/1d.parquet' for t, s in smap.items()
+              if s not in ('benchmark', 'defensive_bonds') and os.path.exists(f'{root}/{t}/1d.parquet')]
+    d, n = _dirsha(ofiles)
+    assert (d, n) == (ins['ohlcv_universe']['digest_of_digests'], ins['ohlcv_universe']['n_files']), 'ohlcv universe digest mismatch'
+    print('input manifest verified (momentum scores, panel matrix, sector map, ohlcv universe)')
 verify_manifest()
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
@@ -50,7 +62,8 @@ fast={r['date']:r['fast'] for r in mom if isinstance(r.get('fast'),dict) and 'er
 ARMS={'panel':panel,'mom_slow':slow,'mom_fast':fast}
 
 def top3_series(scores_by_date):
-    """daily book return: top-3 by the latest score dated <= t-1, ffill <=5 bd."""
+    """daily book return: top-3 by the latest score dated <= t-1, staleness
+    cap 7 CALENDAR days (l2_staleness.is_fresh -- the single rule, r1 P2)."""
     sdates=sorted(scores_by_date)
     out={}
     si=0; cur=None; cur_d=None
@@ -58,7 +71,7 @@ def top3_series(scores_by_date):
         ts=t.date().isoformat()
         while si<len(sdates) and sdates[si]<ts:
             cur=scores_by_date[sdates[si]]; cur_d=sdates[si]; si+=1
-        if cur is None or (pd.Timestamp(ts)-pd.Timestamp(cur_d)).days>7: continue
+        if cur is None or not is_fresh(pd.Timestamp(ts), pd.Timestamp(cur_d)): continue
         # INVESTABLE top-3: filter to names with a price return TODAY first,
         # THEN rank. (r2 fix: ranking before filtering dropped any day whose
         # unfiltered top-3 contained a non-universe/delisted name — 135-day
@@ -103,13 +116,18 @@ stats(arm_ret.mean(axis=1),'uniform 1/3')
 stats(arm_ret['panel'],'champion only')
 best=arm_ret.apply(ann).idxmax()
 print(f'best arm in hindsight: {best}')
-# regret ON THE TRANSFORMED series (the contract's claim)
+# regret ON THE TRANSFORMED series. r1 P0: the theorem's benchmark is the
+# best comparator IN K = {w_panel >= FLOOR}; no bound exists vs the
+# unconstrained best arm (counterexample in the doc), so that gap is
+# printed as description only.
 clipped=arm_ret.clip(-C,C)
-hedge_clipped=(pd.DataFrame(ws,index=arm_ret.index,columns=arm_ret.columns)*clipped).sum(axis=1)
-regret=clipped.sum().max()-hedge_clipped.sum()
-T,N=len(arm_ret),3
-bound=np.log(N)/ETA + ETA*T*(2*C)**2/8
-print(f'\nrealized regret (transformed) = {regret:.4f}  vs bound ln(N)/eta + eta*T*(2C)^2/8 = {bound:.4f}  (T={T}, N={N})')
+hedge_clipped=float((pd.DataFrame(ws,index=arm_ret.index,columns=arm_ret.columns)*clipped).sum(axis=1).sum())
+cum=clipped.sum()
+best_in_K=max(cum['panel'], FLOOR*cum['panel']+(1-FLOOR)*max(cum['mom_slow'],cum['mom_fast']))
+T=len(arm_ret)
+bound_K=np.log(2)/ETA + ETA*T*(2*C)**2/8
+print(f'\nregret vs best-in-K (valid benchmark) = {best_in_K-hedge_clipped:.4f}  vs bound ln2/eta + eta*T*(2C)^2/8 = {bound_K:.4f}  (T={T})')
+print(f'regret vs best unconstrained arm (DESCRIPTIVE, no theorem) = {cum.max()-hedge_clipped:.4f}')
 print(f'final weights: {dict(zip(arm_ret.columns, ws[-1].round(4)))}')
 print('\n== eta sensitivity (DESCRIPTIVE; deployed value stays 0.21) ==')
 for e in (0.05,0.1,0.21,0.5,1.0):

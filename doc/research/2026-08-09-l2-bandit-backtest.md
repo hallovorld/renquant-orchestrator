@@ -12,7 +12,12 @@ three arms' book returns, the Hedge book return, and the full weight path) +
 AND re-runs the Hedge recursion from the arm columns alone, verifying the
 committed weight path) + `data/2026-08-09-l2-backtest-derivation.py`
 (provenance-only: machine-local OHLCV, the emitted panel replay matrix, and
-the dense momentum rescore).
+the dense momentum rescore) + `data/2026-08-09-l2-backtest-inputs.manifest.json`
+(r1 P1: every machine-local input hash-pinned — momentum scores sha256, panel
+replay matrix digest-of-digests ×1685, OHLCV universe ×157, sector-map sha,
+sibling repo HEADs; the derivation verifies every digest BEFORE deriving and
+refuses on mismatch) + `data/l2_staleness.py` (r1 P2: the singular
+7-calendar-day staleness rule, pinned by `tests/test_l2_backtest_staleness.py`).
 
 ## 1 · Formal setup
 
