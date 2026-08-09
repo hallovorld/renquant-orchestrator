@@ -1,0 +1,31 @@
+{
+  "inputs": {
+    "momentum_dense_scores.json": {
+      "path": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/momentum_dense_scores.json",
+      "sha256": "490d39328a4fe0d9add1354a9a15501687bf24770f3751da8ab5b318dbe76fed"
+    },
+    "ohlcv_universe": {
+      "digest_of_digests": "3c9287e03c3914e34adc5baf661e1cf46202cd889a1df307041dd6ad35e4f182",
+      "n_files": 157,
+      "root": "/Users/renhao/git/github/RenQuant/data/ohlcv"
+    },
+    "panel_replay_matrix": {
+      "digest_of_digests": "fefa75d54218e42a3f4bb5eba2a112233371bab5f7c276246b153babc0952c6d",
+      "dir": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/served_matrix_replay",
+      "n_files": 1685,
+      "produced_by": "bt#110 emitter, run wfreplay-2026-08-08, config on orch#905"
+    },
+    "sector_map_config": {
+      "path": "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json",
+      "sha256": "43cbb9b2021a1c68d45ad937ef2ed3854778e743713babe329929abf21901d77"
+    }
+  },
+  "note": "machine-local immutable snapshot; the derivation verifies every digest and REFUSES on mismatch",
+  "schema": "l2_backtest_inputs.v1",
+  "sibling_repo_heads": {
+    "_note": "RECORDED CONTEXT at derivation time, not verified by the derivation (sibling repos advance)",
+    "renquant-model": "a3d8287cf59c660fe0b4f238066eb87fb839a6f2",
+    "renquant-orchestrator": "7e47b3db5006c769fe0de322113b92dcfdf85138",
+    "renquant-strategy-104": "aa775931a7f13d0abf68c70581971213e2247400"
+  }
+}
