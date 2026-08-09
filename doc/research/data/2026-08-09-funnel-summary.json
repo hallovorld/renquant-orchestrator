@@ -11,7 +11,7 @@
   "mean_cash_frac": 0.7909,
   "mean_cash_usd": 8495.86,
   "cash_drag_usd_yr_at_8pct_ASSUMED": 679.67,
-  "pareto": [
+  "pareto_all_runs": [
     {
       "blocked_by": "veto:rank_score_below_floor",
       "n_events": 2390,
@@ -83,6 +83,90 @@
       "n_events": 20,
       "n_unique_tickers": 5,
       "kelly_pp": 0.9143007442021538
+    }
+  ],
+  "pareto_canonical": [
+    {
+      "blocked_by": "veto:rank_score_below_floor",
+      "n_events": 1563,
+      "n_unique_tickers": 104,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "not_selected",
+      "n_events": 391,
+      "n_unique_tickers": 92,
+      "kelly_pp": 4.605327040140933
+    },
+    {
+      "blocked_by": "regime_admission:failed:BULL_CALM",
+      "n_events": 368,
+      "n_unique_tickers": 78,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "conviction:mu_below_floor",
+      "n_events": 230,
+      "n_unique_tickers": 50,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "qp_delta_below_min_dw",
+      "n_events": 89,
+      "n_unique_tickers": 52,
+      "kelly_pp": 7.569678003799688
+    },
+    {
+      "blocked_by": "broker_pending_submitted",
+      "n_events": 42,
+      "n_unique_tickers": 24,
+      "kelly_pp": 2.9858545915550057
+    },
+    {
+      "blocked_by": "kelly_zero:mu_le_min_edge",
+      "n_events": 37,
+      "n_unique_tickers": 22,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "size_insufficient_cash",
+      "n_events": 18,
+      "n_unique_tickers": 9,
+      "kelly_pp": 1.2653327717214917
+    },
+    {
+      "blocked_by": "correlation",
+      "n_events": 15,
+      "n_unique_tickers": 5,
+      "kelly_pp": 0.6877717192146137
+    },
+    {
+      "blocked_by": "qp_no_trade_band",
+      "n_events": 13,
+      "n_unique_tickers": 10,
+      "kelly_pp": 1.1471757335893566
+    },
+    {
+      "blocked_by": "nonpositive_expected_return_no_long",
+      "n_events": 5,
+      "n_unique_tickers": 3,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "wash_sale",
+      "n_events": 3,
+      "n_unique_tickers": 3,
+      "kelly_pp": 0.0
+    }
+  ],
+  "runs_per_day": {
+    "mean": 1.7,
+    "max": 10
+  },
+  "buying_runs": [
+    {
+      "date": "2026-05-22",
+      "run_id": "2026-05-22-live-ff554178"
     }
   ]
 }
