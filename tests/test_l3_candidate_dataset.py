@@ -1,5 +1,5 @@
 """Candidate-level L3 dataset: label join, exclusion counting, widest-run
-selection, regime join semantics. Tmp DBs only."""
+selection, regime exclusion. Tmp DBs only."""
 from __future__ import annotations
 
 import json
@@ -19,7 +19,7 @@ def _db(tmp_path: Path) -> Path:
                     " rank_score REAL, mu REAL, sigma REAL,"
                     " expected_return REAL, sector TEXT, active_scorer TEXT,"
                     " selected INTEGER, blocked_by TEXT, kelly_target_pct REAL)")
-        con.execute("CREATE TABLE live_state_snapshots (run_date TEXT,"
+        con.execute("CREATE TABLE live_state_snapshots (run_id TEXT, run_date TEXT,"
                     " regime TEXT, confidence REAL, created_at TEXT)")
         con.execute("CREATE TABLE ticker_forward_returns (ticker TEXT,"
                     " as_of_date TEXT, fwd_20d REAL, fwd_60d REAL)")
@@ -42,7 +42,7 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
         ("candidate_scores", ("r-small", "ZZZ", "candidate", 9.0, 1, 1, 0.1, 0.2, 0.05, "software", "xgb", 0, None, 0.1)),
         ("candidate_scores", ("r-wide", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
         ("candidate_scores", ("r-wide", "MSFT", "candidate", 1.0, 1, 1, 0.0, 0.2, 0.01, "giant_tech", "xgb", 0, "wash_sale", 0.0)),
-        ("live_state_snapshots", ("2026-01-05", "BULL_CALM", 0.7, "2026-01-05 21:00:00")),
+        ("live_state_snapshots", ("r-wide", "2026-01-05", "BULL_CALM", 0.7, "2026-01-05 21:00:00")),
         ("ticker_forward_returns", ("AAPL", "2026-01-05", 0.03, 0.08)),
         # MSFT has no forward row -> excluded and counted
     ])
@@ -51,7 +51,6 @@ def test_label_join_widest_run_and_exclusion_count(tmp_path):
     r = rows[0]
     assert r["ticker"] == "AAPL" and r["run_id"] == "r-wide"
     assert r["win"] == 1 and r["fwd_60d"] == 0.08
-    assert r["regime"] == "BULL_CALM" and r["regime_source"] == "snapshot"
     assert r["selected"] == 1 and r["n_candidates_that_date"] == 2
     assert manifest["rows_by_run_type"] == {"live": 1}
 
@@ -83,7 +82,7 @@ def test_equal_width_tie_breaks_to_latest_created_at(tmp_path):
     assert manifest["n_rows"] == 2 and manifest["n_dates"] == 1
 
 
-def test_absent_regime_is_recorded_not_invented(tmp_path):
+def test_negative_forward_return_labels_win_zero(tmp_path):
     db = _db(tmp_path)
     _fill(db, [
         ("pipeline_runs", ("r1", "2026-01-06", "sim", "2026-01-06 14:00:00")),
@@ -91,7 +90,6 @@ def test_absent_regime_is_recorded_not_invented(tmp_path):
         ("ticker_forward_returns", ("AAPL", "2026-01-06", -0.01, -0.02)),
     ])
     rows, _ = l3c.build_candidate_rows(db)
-    assert rows[0]["regime"] is None and rows[0]["regime_source"] == "absent"
     assert rows[0]["win"] == 0
 
 
@@ -128,3 +126,29 @@ def test_equal_width_equal_created_at_tie_breaks_to_run_id(tmp_path):
     assert len(rows) == 1
     assert rows[0]["run_id"] == "r-b"            # latest run_id wins the tie
     assert rows[0]["panel_score"] == 1.1         # its payload, not r-a's
+
+
+def test_regime_is_excluded_even_when_snapshots_exist(tmp_path):
+    """AUDIT REGRESSION GUARD (codex r3 on orch#930): live_state_snapshots is
+    a close-of-run audit row written AFTER record_candidate_scores in
+    RunnerAdapter.commit, so NO consumer-side join — date-latest, timestamp
+    inequality, or same-run identity — proves score-time availability. The
+    dataset must emit no regime-derived column until the producer stamps
+    regime at scoring time; even the same run's own snapshot must not
+    surface."""
+    db = _db(tmp_path)
+    _fill(db, [
+        ("pipeline_runs", ("r1", "2026-01-08", "live", "2026-01-08 14:00:00")),
+        ("candidate_scores", ("r1", "AAPL", "candidate", 2.0, 1, 1, 0.1, 0.2, 0.05, "giant_tech", "xgb", 1, None, 0.1)),
+        # the run's OWN snapshot exists, and so does a later same-day one —
+        # neither may appear in any output column
+        ("live_state_snapshots", ("r1", "2026-01-08", "BEAR", 0.9, "2026-01-08 14:30:00")),
+        ("live_state_snapshots", ("rX", "2026-01-08", "BULL_CALM", 0.9, "2026-01-08 15:30:00")),
+        ("ticker_forward_returns", ("AAPL", "2026-01-08", 0.01, 0.02)),
+    ])
+    rows, manifest = l3c.build_candidate_rows(db)
+    assert rows and not any(k.startswith("regime") for k in rows[0])
+    assert not any(k.startswith("regime") for k in manifest)
+    # v1 -> v2 bump is part of the same contract: v1 (orch#928) published
+    # the regime fields, so the regime-free export must not reuse v1
+    assert manifest["schema"] == "l3_candidate_dataset.v2"
