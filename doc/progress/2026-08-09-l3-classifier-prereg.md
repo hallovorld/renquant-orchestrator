@@ -1,21 +1,24 @@
-# L3 classifier prereg — frozen before any training run exists
+# L3 classifier prereg — relocated to renquant-model; this PR keeps the dataset contract
 
 STATUS:    design only. No training has been run; that is the point. The
            experiment executes only as specified or not at all.
 
-WHAT:      doc/design/2026-08-09-l3-classifier-prereg.md — model class
-           (logistic L2 C=1.0; depth-2 GBDT descriptive-only), frozen feature
-           list with stated exclusions, expanding walk-forward with
-           20-trading-day embargo, ALL-rows training with run_type-split
-           metrics mandatory (live-only as a declared prereg variant),
-           tau in {0.5, 0.6}, expectancy uplift as the primary metric,
-           within-date label-shuffle placebo x200, the 64 trade_evaluations
-           rows as a once-only external test, four-leg deterministic
-           PASS/KILL, shadow-only stakes on PASS.
+WHAT:      doc/design/2026-08-09-l3-classifier-prereg.md is now the
+           DATASET-CONTRACT POINTER: the full preregistration (logistic L2
+           C=1.0; frozen features; expanding walk-forward + 20-trading-day
+           embargo; τ ∈ {0.5, 0.6}; expectancy uplift primary; within-date
+           placebo ×200; 64-row once-only external test; four-leg
+           PASS/KILL; shadow-only stakes) moved to **renquant-model PR
+           #207** (`doc/design/2026-08-09-l3-classifier-prereg.md` there),
+           the repo that owns model-experiment contracts. This repo records
+           what it serves: schema `l3_candidate_dataset.v1`, the canonical
+           manifest, and the regime gate.
 
 WHY/DIR:   The dataset (orch#928) is merged; the classifier experiment must
            be frozen before results exist to steer it — the same window
-           discipline as orch#912 §10 and the BEAR exit prereg.
+           discipline as orch#912 §10 and the BEAR exit prereg. Review
+           round 2 relocated the prereg (P1, ownership) and gated its
+           regime features (P0, causality) — see CORRECTIONS below.
 
 EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
                           1,275 excluded / selected 135 / base rate 0.6307 /
@@ -24,20 +27,25 @@ EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
                           module rebuild, DB mode=ro, output under /tmp,
                           figures from module stdout; identical to the
                           canonical post-r1/r3 record in
-                          doc/progress/2026-08-09-l3-candidate-dataset.md]
-           prod or exp:   experiment — design doc only
+                          doc/progress/2026-08-09-l3-candidate-dataset.md].
+                          Regime availability under the orch#930 causal
+                          join: 2,184 live rows same_run_snapshot / all sim
+                          rows absent [VERIFIED — read-only rebuild on the
+                          #930 head, this session].
+           prod or exp:   experiment — design docs only
            existing data: no meta-label entry classifier has ever been
                           trained in this system; the exit-side foundation
                           (meta-label-exit.json) is a different surface
            best-known?:   yes — first entry-filter prereg; anticipated
-                          failure modes (sim-feature drift, regime
-                          collinearity, base-rate drift) are in the doc so
-                          they cannot be discovered as surprises
-           scope:         design only; the experiment run is the next
-                          deliverable and follows this document verbatim.
+                          failure modes are frozen in the renquant-model doc
+                          so they cannot be discovered as surprises
+           scope:         design only; the experiment run follows the
+                          renquant-model prereg verbatim after both PRs
+                          merge.
 
-TESTS:     none — a prose contract; its test is that the run can be judged
-           entirely from §2/§3 with zero live choices.
+TESTS:     none — prose contracts; the prereg's test is that the run can be
+           judged entirely from its §2/§3 with zero live choices (the
+           regime gate resolves from external merge state, not judgment).
 
 CORRECTION (review r1, Codex MED): the frozen evidence block cited the
            superseded pre-tie-break base rate 0.6311 from before orch#928's
@@ -51,7 +59,20 @@ CORRECTION (review r1, Codex MED): the frozen evidence block cited the
            trade_evaluations rows and the 1,240-of-2,388 bull_calm days
            re-measured this session rather than recalled.
 
-NEXT:      execute the experiment exactly as frozen (derivation + committed
+CORRECTION (review r2, Codex P0 + P1): (a) the r1 doc froze regime +
+           regime_confidence against the merged #928 date-join, which is not
+           causal — a later same-day snapshot postdates the scoring; and a
+           committed doc saying "execute exactly as frozen" could be
+           followed verbatim against that leaky source. The regime block is
+           now GATED on orch#930 (run-identity causal join) in the frozen
+           contract itself: admitted only if #930 is merged when the run
+           starts, else excluded — resolved once, no mid-run choice.
+           (b) the full prereg was orchestrator-resident, crossing the
+           producer/consumer ownership boundary; it moved to renquant-model
+           PR #207 and this PR shrank to the dataset-contract pointer.
+
+NEXT:      merge alongside orch#930 and renquant-model#207; then execute the
+           experiment exactly as frozen there (derivation + committed
            artifacts at the #913/#926 reproducibility standard), report
            PASS/KILL; on PASS, propose the shadow lane as its own granted
            batch.
