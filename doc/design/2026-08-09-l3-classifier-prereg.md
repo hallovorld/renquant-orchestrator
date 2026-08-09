@@ -10,7 +10,10 @@ contract that prereg consumes, and nothing else.
 ## The dataset contract (what this repo serves)
 
 * **Producer:** `src/renquant_orchestrator/l3_candidate_dataset.py`
-  (merged orch#928), schema `l3_candidate_dataset.v1`. One row per
+  (merged orch#928; orch#930 pending), schema `l3_candidate_dataset.v2`
+  — v1 (merged #928) published the regime fields; v2 (orch#930) removes
+  them for causality, with a fail-closed build assertion refusing any
+  export in which a regime-derived column reappears. One row per
   (run_date, ticker) from each date's widest candidate run (equal-width
   ties: latest created_at, then latest run_id — a total order); label =
   market forward return at the score date, `fwd_20d` primary (frozen),

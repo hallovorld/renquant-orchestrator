@@ -11,7 +11,8 @@ WHAT:      doc/design/2026-08-09-l3-classifier-prereg.md is now the
            PASS/KILL; shadow-only stakes) moved to **renquant-model PR
            #207** (`doc/design/2026-08-09-l3-classifier-prereg.md` there),
            the repo that owns model-experiment contracts. This repo records
-           what it serves: schema `l3_candidate_dataset.v1`, the canonical
+           what it serves: schema `l3_candidate_dataset.v2` (v1 carried the
+           regime fields; v2 removes them for causality), the canonical
            manifest, and the REGIME EXCLUSION (no causal score-time source
            exists; see the r3 CORRECTION).
 
