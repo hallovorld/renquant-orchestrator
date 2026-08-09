@@ -23,6 +23,7 @@
   "note": "machine-local immutable snapshot; the derivation verifies every digest and REFUSES on mismatch",
   "schema": "l2_backtest_inputs.v1",
   "sibling_repo_heads": {
+    "_note": "RECORDED CONTEXT at derivation time, not verified by the derivation (sibling repos advance)",
     "renquant-model": "a3d8287cf59c660fe0b4f238066eb87fb839a6f2",
     "renquant-orchestrator": "7e47b3db5006c769fe0de322113b92dcfdf85138",
     "renquant-strategy-104": "aa775931a7f13d0abf68c70581971213e2247400"
