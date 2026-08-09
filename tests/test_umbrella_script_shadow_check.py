@@ -68,8 +68,11 @@ def test_the_measured_shape_is_pinned():
     """These counts ARE the finding. If one moves, the finding moved."""
     pairs = REG["pairs"]
     assert len(pairs) == 44
-    assert sum(1 for v in pairs.values() if v["class"] == sh.DIVERGED) == 26
-    assert sum(1 for v in pairs.values() if v["class"] == sh.IDENTICAL) == 18
+    # 26/18 -> 27/17 on 2026-08-09: wf_sanity_paired.py diverged when
+    # renquant-backtesting cae05e8 landed while the umbrella copy waits on the
+    # run-surface pin (orch#932; accepted_because carries the restore condition)
+    assert sum(1 for v in pairs.values() if v["class"] == sh.DIVERGED) == 27
+    assert sum(1 for v in pairs.values() if v["class"] == sh.IDENTICAL) == 17
     assert sum(1 for v in pairs.values()
                if v["referenced_by_a_scheduled_surface"]) == 12
 

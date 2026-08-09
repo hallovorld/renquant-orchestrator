@@ -78,3 +78,23 @@ Nor does it change any alarm: read-only, no schedule, no suppression.
 
 Suites: 16 tests, incl. one bound to the live logs that fails if the audit ever
 starts dispositioning · full suite green.
+
+### 2026-08-09: the tripwire fired — dispositioning has begun
+
+The live binding went red exactly as designed. Measured window 2026-08-03 …
+2026-08-07, 5/5 parsed `[VERIFIED — summarize() on the live logs, 2026-08-09
+session]`: `max_acks_seen_in_window = 1`, `no_ack_observed_in_window = False`.
+The first observed disposition appears in the 2026-08-06 run: ledger
+`renquant-orchestrator-run/ops/ops_audit_acks.json` (1 ack), reason recorded —
+"The 16 both-copy artifacts are historical and NONE IS SERVED" — and the INFO
+line still prints, so nothing is suppressed silently. The mechanism this
+record said was unused is now in use; the undifferentiated-alarms claim above
+stays true for the runs it measured and is not extended past 2026-08-05.
+
+Machine-readable binding for the live test (do not reword):
+
+DISPOSITION-FIRST-OBSERVED 2026-08-06
+
+The live test no longer asserts the no-ack state (an ack EXPIRES after
+ACK_MAX_AGE_DAYS=14, so a zero-ack window will recur by design and must not
+re-fire this alarm); it now asserts this record acknowledges the transition.

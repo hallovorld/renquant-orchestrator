@@ -146,8 +146,15 @@ class TestAbsenceReadsAsAbsence:
 
 
 def test_the_LIVE_audit_is_what_the_record_describes():
-    """Bound to reality: if the ops-audit starts dispositioning findings, the
-    GOAL-1 record must be re-derived rather than inherited."""
+    """Bound to reality — on the transition, not the count.
+
+    The first version asserted the NO-ack state and fired when dispositioning
+    began (2026-08-06, the transition it existed to catch). The count cannot
+    be the durable binding in either direction: acks EXPIRE after
+    ACK_MAX_AGE_DAYS=14, so a zero-ack window recurs by design. What must
+    hold from now on is that the RECORD acknowledges the transition — a
+    reader of the 2026-08-05 record must not inherit "the mechanism is
+    unused" after it stopped being true."""
     from ops_audit_disposition_trend import LOGS
 
     if not LOGS.is_dir():
@@ -158,6 +165,9 @@ def test_the_LIVE_audit_is_what_the_record_describes():
         pytest.skip(f"only {len(parsed)} parsed runs on this box")
     s = summarize(rows, n_dated_on_disk=len(dated_logs()))
     assert s["findings_max"] >= 8, s
-    assert s["no_ack_observed_in_window"] is True, (
-        "the ops-audit has started dispositioning findings — re-derive the "
-        "GOAL-1 alarm-fatigue record", s)
+    record = (Path(__file__).resolve().parent.parent / "doc" / "progress" /
+              "2026-08-05-goal1-ops-audit-disposition.md")
+    assert "DISPOSITION-FIRST-OBSERVED 2026-08-06" in record.read_text(
+        encoding="utf-8"), (
+        "the GOAL-1 record no longer acknowledges that dispositioning began "
+        "on 2026-08-06 — re-derive it rather than reverting it", s)

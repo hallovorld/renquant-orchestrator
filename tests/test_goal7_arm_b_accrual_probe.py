@@ -231,11 +231,20 @@ class TestAnUnknownRegimeIsNotThePrimaryOne:
 
 
 def test_the_LIVE_ledger_is_what_the_GOAL7_record_describes():
-    """Bound to reality: genesis only, one cutoff, nothing matured."""
+    """Bound to reality on the DECISION boundary, not the weekly accrual.
+
+    The first version pinned the genesis snapshot (n_rows == 1, cutoff
+    2026-08-02) and therefore broke the first time the Saturday job did its
+    job (2026-08-08 append) — an alarm on designed behaviour. What the
+    GOAL-7 record actually stakes is: nothing has MATURED yet, so the
+    registration's ~2027 estimate stands and no projection exists. Those are
+    the tripwires; accrual is expected, so only its floor is asserted.
+    """
     if not P.LEDGER.is_file():
         pytest.skip("umbrella ledger absent — the unit tests above still ran")
-    r = P.probe(dt.date(2026, 8, 5))
-    assert r["n_rows"] == 1 and r["newest_cutoff"] == "2026-08-02", r
+    r = P.probe(dt.date.today())
+    assert r["n_rows"] >= 2 and r["newest_cutoff"] >= "2026-08-08", (
+        "the ledger shrank or rewound — that is a lane incident, not accrual", r)
     assert r["n_primary_matured"] == 0, (
         "Arm B has started maturing — the registration's ~2027 estimate should "
         "be replaced by the probe's projection", r)
