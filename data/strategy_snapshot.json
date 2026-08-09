@@ -130,6 +130,7 @@
     "job_runner",
     "l1_exposure_shadow",
     "l2_paper_bandit",
+    "l3_candidate_dataset",
     "l3_dataset_builder",
     "ledger_attribution",
     "live_bridge",
