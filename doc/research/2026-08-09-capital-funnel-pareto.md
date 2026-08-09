@@ -5,6 +5,15 @@ from recorded history only (`ticker_daily_state` × `pipeline_runs`,
 mode=ro): what actually blocks capital deployment on the CURRENT window,
 41 live sessions 2026-05-20..08-07.
 
+Auditability (review r1): the derivation is COMMITTED —
+`data/2026-08-09-funnel-derivation.py` (versioned read-only query contract)
+with its machine-readable outputs (`…-funnel-candidates.csv`, all 5,040+
+candidate rows with blocker labels; `…-funnel-sessions.csv`, per-session
+counts; `…-funnel-summary.json`) and `data/2026-08-09-funnel-verify.py`,
+which re-asserts every quoted number from the committed rows
+`[VERIFIED — exit 0 this session]`. The table below is those artifacts,
+not prose.
+
 ## 1 · The Pareto `[VERIFIED — runs DB aggregation, this session]`
 
 | blocker | candidate-blocks | Kelly mass choked (pp) |

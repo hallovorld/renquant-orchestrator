@@ -1,0 +1,72 @@
+{
+  "window": [
+    "2026-05-20",
+    "2026-08-07"
+  ],
+  "n_sessions": 41,
+  "n_candidate_rows": 5043,
+  "n_blocked": 5040,
+  "n_selected_buys": 3,
+  "pareto": [
+    {
+      "blocked_by": "veto:rank_score_below_floor",
+      "n": 2390,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "regime_admission:failed:BULL_CALM",
+      "n": 1155,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "not_selected",
+      "n": 737,
+      "kelly_pp": 5.607700868782895
+    },
+    {
+      "blocked_by": "conviction:mu_below_floor",
+      "n": 277,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "qp_delta_below_min_dw",
+      "n": 149,
+      "kelly_pp": 12.64884149557643
+    },
+    {
+      "blocked_by": "panel_fundamentals_missing",
+      "n": 72,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "kelly_zero:mu_le_min_edge",
+      "n": 57,
+      "kelly_pp": 0.0
+    },
+    {
+      "blocked_by": "broker_pending_submitted",
+      "n": 56,
+      "kelly_pp": 3.883496068260373
+    },
+    {
+      "blocked_by": "qp_admission_expected_return",
+      "n": 25,
+      "kelly_pp": 2.2245966433751008
+    },
+    {
+      "blocked_by": "qp_no_trade_band",
+      "n": 23,
+      "kelly_pp": 2.029983676570192
+    },
+    {
+      "blocked_by": "qp_admission_no_slot",
+      "n": 20,
+      "kelly_pp": 1.4166368506706202
+    },
+    {
+      "blocked_by": "correlation",
+      "n": 20,
+      "kelly_pp": 0.9143007442021538
+    }
+  ]
+}
