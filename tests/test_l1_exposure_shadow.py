@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -45,9 +45,13 @@ def test_target_exposure_clips_both_ends():
 def test_build_row_carries_components_and_gap():
     snap = {"run_date": "2026-08-08", "regime": "BEAR", "confidence": 0.8,
             "cash": 8000.0, "portfolio_value": 10000.0}
+    cov = {"eligible_sessions": 620, "window_sessions": 500,
+           "breadth_floor": 30, "session_floor": 500,
+           "min_window_breadth": 31, "last_window_breadth": 32}
     row = l1.build_row(snapshot=snap, sigma_hat=0.25, asof=date(2026, 8, 8),
                        vol_input_cutoff=date(2026, 8, 8),
-                       vol_input_last_date=date(2026, 8, 7))
+                       vol_input_last_date=date(2026, 8, 7),
+                       vol_input_coverage=cov)
     assert row["schema"] == l1.SCHEMA
     assert row["g"] == pytest.approx(1 - 0.5 * 0.8)
     assert row["achieved_exposure"] == pytest.approx(0.2)
@@ -59,6 +63,8 @@ def test_build_row_carries_components_and_gap():
     # the temporal-integrity metadata is persisted, so the row is auditable
     assert row["vol_input_cutoff"] == "2026-08-08"
     assert row["vol_input_last_date"] == "2026-08-07"
+    # the comparability metadata is persisted verbatim (codex on orch#920 r6)
+    assert row["vol_input_coverage"] == cov
 
 
 def test_append_row_is_append_only_per_date(tmp_path):
@@ -152,20 +158,24 @@ def test_vol_input_stops_strictly_before_the_cutoff(tmp_path):
 
     # completed history only: sessions strictly before the snapshot date
     _write_ohlcv(tmp_path, {t: df.iloc[:30] for t, df in frames.items()})
-    base = l1.universe_ew_returns(tmp_path, tickers, cutoff=cutoff, min_names=3)
+    base, cov = l1.universe_ew_returns(tmp_path, tickers, cutoff=cutoff,
+                                       min_names=3, min_sessions=5)
     assert base.index.max() < pd.Timestamp(cutoff)
+    assert cov["eligible_sessions"] == len(base)
     sigma_base = l1.ewma_vol_annualized(base)
 
     # the tree then gains a bar ON the cutoff day (partial) plus later sessions
     _write_ohlcv(tmp_path, frames)
-    after = l1.universe_ew_returns(tmp_path, tickers, cutoff=cutoff, min_names=3)
+    after, cov_after = l1.universe_ew_returns(tmp_path, tickers, cutoff=cutoff,
+                                              min_names=3, min_sessions=5)
     pd.testing.assert_series_equal(after, base)
+    assert cov_after == cov
     assert l1.ewma_vol_annualized(after) == sigma_base
 
     # a cutoff with no completed session before it fails closed, never invents
     with pytest.raises(RuntimeError, match="no completed sessions"):
         l1.universe_ew_returns(tmp_path, tickers, cutoff=dates[0].date(),
-                               min_names=3)
+                               min_names=3, min_sessions=5)
 
 
 def test_future_ohlcv_cannot_change_the_row_for_a_fixed_snapshot_date(tmp_path):
@@ -174,8 +184,10 @@ def test_future_ohlcv_cannot_change_the_row_for_a_fixed_snapshot_date(tmp_path):
 
     today = date.today()
     tickers = [f"T{i:02d}" for i in range(32)]  # above the 30-name floor
+    # enough completed sessions to clear the production 500-session floor
+    # (the first cross-sectional return date is all-NaN, hence the +3 slack)
     completed = pd.bdate_range(end=pd.Timestamp(today) - pd.Timedelta(days=1),
-                               periods=34)
+                               periods=l1.VOL_WINDOW_DAYS + 3)
     extended = completed.append(pd.DatetimeIndex(
         [pd.Timestamp(today), pd.Timestamp(today) + pd.Timedelta(days=1)]))
     frames = _synthetic_closes(tickers, extended)
@@ -197,12 +209,55 @@ def test_future_ohlcv_cannot_change_the_row_for_a_fixed_snapshot_date(tmp_path):
 
     # run 1: only completed sessions exist on disk
     row1 = run("ohlcv_a", "logs_a",
-               {t: df.iloc[:34] for t, df in frames.items()})
+               {t: df.iloc[:len(completed)] for t, df in frames.items()})
     # run 2: the tree now also holds a same-day partial bar + a future bar
     row2 = run("ohlcv_b", "logs_b", frames)
 
     for key in ("sigma_hat", "target_exposure", "gap",
-                "vol_input_cutoff", "vol_input_last_date"):
+                "vol_input_cutoff", "vol_input_last_date",
+                "vol_input_coverage"):
         assert row1[key] == row2[key], key
     assert row1["vol_input_cutoff"] == today.isoformat()
     assert row1["vol_input_last_date"] == completed[-1].date().isoformat()
+    # the production floors are what actually ran, and every window session
+    # carried the full 32-name breadth
+    cov = row1["vol_input_coverage"]
+    assert cov["window_sessions"] == l1.VOL_WINDOW_DAYS
+    assert cov["session_floor"] == l1.VOL_WINDOW_DAYS
+    assert cov["breadth_floor"] == 30
+    assert cov["min_window_breadth"] == 32
+    assert cov["last_window_breadth"] == 32
+
+
+# --- comparability fail-closed (codex on orch#920 r6) --------------------------
+#
+# AUDIT REGRESSION GUARD: sigma_hat presents itself as the frozen
+# VOL_WINDOW_DAYS-session equal-weight >=30-name universe EWMA. A damaged or
+# newly populated OHLCV tree must REFUSE — never log that estimand from a
+# handful of dates or a handful of names.
+
+
+def test_refuses_when_files_exist_but_eligible_sessions_are_too_few(tmp_path):
+    import pandas as pd
+
+    tickers = [f"T{i:02d}" for i in range(32)]  # >= 30 files on disk
+    dates = pd.bdate_range("2026-07-01", periods=5)  # but almost no history
+    _write_ohlcv(tmp_path, _synthetic_closes(tickers, dates))
+    with pytest.raises(RuntimeError, match="comparability floor"):
+        l1.universe_ew_returns(tmp_path, tickers, cutoff=date(2026, 8, 8))
+
+
+def test_refuses_when_per_date_breadth_is_below_the_floor(tmp_path):
+    import pandas as pd
+
+    tickers = [f"T{i:02d}" for i in range(32)]  # >= 30 files on disk
+    dates = pd.bdate_range("2024-01-01", periods=l1.VOL_WINDOW_DAYS + 60)
+    frames = _synthetic_closes(tickers, dates)
+    # depth is ample, but only 20 names carry history — every session's
+    # cross-sectional breadth stays below the 30-name floor
+    thin = {t: (df if i < 20 else df.iloc[:1])
+            for i, (t, df) in enumerate(frames.items())}
+    _write_ohlcv(tmp_path, thin)
+    with pytest.raises(RuntimeError, match="comparability floor"):
+        l1.universe_ew_returns(tmp_path, tickers,
+                               cutoff=dates[-1].date() + timedelta(days=1))

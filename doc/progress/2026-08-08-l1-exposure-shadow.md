@@ -6,7 +6,7 @@ STATUS:    code delivered for review. Operator granted the shadow phase
            grant, with the launchd manifest updated in the same batch and a
            tracked issue carrying the revert steps (containment discipline).
 
-WHAT:      src/renquant_orchestrator/l1_exposure_shadow.py + 8 tests, plus
+WHAT:      src/renquant_orchestrator/l1_exposure_shadow.py + 10 tests, plus
            the data/strategy_snapshot.json baseline refresh the new source
            module requires (review r4; generate_strategy_snapshot.py --update).
            Computes target_exposure = clip((0.15/EWMA-vol)·g(regime), 0.3, 1)
@@ -52,11 +52,17 @@ EVIDENCE:  artifact:      dry-run against the real surfaces this session
            are persisted in every row (vol_input_cutoff /
            vol_input_last_date), and an end-to-end guard proves a same-day
            partial bar or later OHLCV refresh cannot change the row for a
-           fixed snapshot date.
+           fixed snapshot date; COMPARABILITY (review r6) — after the
+           strict cutoff a session counts toward the EWMA window only when
+           at least 30 names carry a return, fewer than 500 eligible
+           sessions REFUSE the estimate outright (a damaged or newly
+           populated OHLCV tree can never silently thin the frozen
+           orch#919 estimand), and the eligible-session count + per-date
+           breadth are persisted in every row (vol_input_coverage).
 
-TESTS:     tests/test_l1_exposure_shadow.py — 8 passed (pure math, append-
-           only, both CLI refusals, both temporal-integrity guards; tmp
-           dirs only).
+TESTS:     tests/test_l1_exposure_shadow.py — 10 passed (pure math,
+           append-only, both CLI refusals, both temporal-integrity guards,
+           both comparability fail-closed guards; tmp dirs only).
 
 NEXT:      after merge, under the SAME operator grant: install the daily
            launchd job (manifest updated in the same batch, tracked issue

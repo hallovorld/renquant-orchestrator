@@ -37,6 +37,14 @@ sessions STRICTLY BEFORE the snapshot's run date — a delayed run, a same-day
 partial bar, or a later OHLCV refresh can never change what the row would
 have said at snapshot time. The cutoff and the last session actually used
 are persisted in every row.
+
+COMPARABILITY (codex on orch#920 r6): sigma_hat presents itself as the frozen
+orch#919 estimand — a VOL_WINDOW_DAYS-session EWMA over an equal-weight
+universe of at least 30 names. A damaged or newly populated OHLCV tree must
+REFUSE rather than silently narrow that estimand: after the strict cutoff,
+a session counts only when at least 30 names have a return, and fewer than
+VOL_WINDOW_DAYS eligible sessions refuse the estimate outright. The
+eligible-session count and per-date breadth are persisted in every row.
 """
 from __future__ import annotations
 
@@ -62,14 +70,24 @@ SCHEMA = "l1_exposure_shadow.v1"
 
 
 def universe_ew_returns(ohlcv_root: Path, tickers: list[str], *,
-                        cutoff: date, min_names: int = 30) -> "object":
+                        cutoff: date, min_names: int = 30,
+                        min_sessions: int = VOL_WINDOW_DAYS) -> "tuple":
     """Equal-weight daily TR returns over the sector-map universe, restricted
-    to sessions STRICTLY BEFORE ``cutoff``.
+    to sessions STRICTLY BEFORE ``cutoff``, fail-closed on non-comparable
+    history.
 
     ``cutoff`` is the snapshot's run date: the exposure logged against a day-t
     snapshot must be computable from sessions completed before t (the orch#919
     evaluation's one-day lag), so bars on or after ``cutoff`` are dropped
-    BEFORE the EWMA window is taken.
+    BEFORE any eligibility check or windowing.
+
+    Comparability contract (codex on orch#920 r6): the caller logs the result
+    as the frozen ``VOL_WINDOW_DAYS``-session equal-weight universe EWMA, so
+    this helper must never silently deliver a thinner estimand. A session is
+    eligible only when at least ``min_names`` names have a return on it, and
+    fewer than ``min_sessions`` eligible sessions raise instead of returning
+    whatever survives. Returns ``(returns, coverage)`` where ``coverage`` is
+    the audit metadata persisted in the JSONL row.
 
     Import-light: pandas is imported here, not at module top, so the module
     stays cheap for callers that only need the pure helpers."""
@@ -89,12 +107,29 @@ def universe_ew_returns(ohlcv_root: Path, tickers: list[str], *,
         raise RuntimeError(
             f"only {len(frames)} of {len(tickers)} names have OHLCV — refusing "
             f"a vol estimate on a thin universe (floor {min_names})")
-    ew = pd.DataFrame(frames).mean(axis=1).dropna()
-    ew = ew[ew.index < pd.Timestamp(cutoff)]
-    if ew.empty:
+    panel = pd.DataFrame(frames)
+    panel = panel[panel.index < pd.Timestamp(cutoff)]
+    if panel.empty:
         raise RuntimeError(
             f"no completed sessions strictly before {cutoff} — refusing a vol estimate")
-    return ew.iloc[-VOL_WINDOW_DAYS:]
+    breadth = panel.notna().sum(axis=1)
+    eligible = panel.loc[breadth >= min_names]
+    if len(eligible) < min_sessions:
+        raise RuntimeError(
+            f"only {len(eligible)} of {len(panel)} completed sessions before "
+            f"{cutoff} have >= {min_names} names with a return — refusing a vol "
+            f"estimate below the {min_sessions}-session comparability floor")
+    window = eligible.iloc[-VOL_WINDOW_DAYS:]
+    window_breadth = breadth.loc[window.index]
+    coverage = {
+        "eligible_sessions": int(len(eligible)),
+        "window_sessions": int(len(window)),
+        "breadth_floor": int(min_names),
+        "session_floor": int(min_sessions),
+        "min_window_breadth": int(window_breadth.min()),
+        "last_window_breadth": int(window_breadth.iloc[-1]),
+    }
+    return window.mean(axis=1), coverage
 
 
 def ewma_vol_annualized(returns) -> float:
@@ -137,7 +172,8 @@ def latest_snapshot(db_path: Path) -> dict:
 
 
 def build_row(*, snapshot: dict, sigma_hat: float, asof: date,
-              vol_input_cutoff: date, vol_input_last_date: date) -> dict:
+              vol_input_cutoff: date, vol_input_last_date: date,
+              vol_input_coverage: dict) -> dict:
     g = regime_multiplier(snapshot.get("regime"), snapshot.get("confidence"))
     pv = snapshot.get("portfolio_value")
     cash = snapshot.get("cash")
@@ -150,6 +186,7 @@ def build_row(*, snapshot: dict, sigma_hat: float, asof: date,
         "sigma_hat": round(sigma_hat, 6),
         "vol_input_cutoff": vol_input_cutoff.isoformat(),
         "vol_input_last_date": vol_input_last_date.isoformat(),
+        "vol_input_coverage": vol_input_coverage,
         "regime": snapshot.get("regime"),
         "regime_confidence": snapshot.get("confidence"),
         "g": round(g, 6),
@@ -221,11 +258,12 @@ def main(argv=None) -> int:
         # SNAPSHOT's run date, not at whatever the OHLCV tree happens to hold —
         # an unparsable run_date fails closed via the except below.
         snap_date = date.fromisoformat(str(snap.get("run_date")))
-        rets = universe_ew_returns(ohlcv, tickers, cutoff=snap_date)
+        rets, coverage = universe_ew_returns(ohlcv, tickers, cutoff=snap_date)
         sigma_hat = ewma_vol_annualized(rets)
         row = build_row(snapshot=snap, sigma_hat=sigma_hat, asof=today,
                         vol_input_cutoff=snap_date,
-                        vol_input_last_date=rets.index[-1].date())
+                        vol_input_last_date=rets.index[-1].date(),
+                        vol_input_coverage=coverage)
         out = append_row(log_dir, row)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason on stdout
         print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))
