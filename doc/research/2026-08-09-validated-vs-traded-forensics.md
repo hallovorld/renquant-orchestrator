@@ -3,11 +3,25 @@
 Operator-ordered (2026-08-09 re-planning, Phase 1 step 1-2). All evidence
 below is from existing artifacts, measured today, re-runnable.
 
-## 1 · The measured divergence `[VERIFIED — runs DB mode=ro ⋈ replay matrix, this session]`
+Reproducibility (review r1): `data/2026-08-09-validated-vs-traded-rows.csv`
+(the per-shared-date table: widths, top-3 books, overlap, Spearman) +
+`data/2026-08-09-validated-vs-traded-derivation.py` (the rerun contract —
+exact SQL, digest-verified replay matrix, asserts every published number,
+refuses on input drift; run with the umbrella venv python). Inputs: served =
+`/Users/renhao/git/github/RenQuant/data/runs.alpaca.db` (sqlite `mode=ro`;
+`candidate_scores ⋈ pipeline_runs` on `run_id`, `run_type='live'`,
+`role='candidate'`, `run_date<='2026-08-07'`; score = `panel_score`,
+first-recorded-value-of-the-day per ticker); replay = the bt#110 served
+matrix (run wfreplay-2026-08-08), hash-pinned by
+`data/2026-08-09-l2-backtest-inputs.manifest.json` (digest-of-digests
+×1685); config facts read from git at the manifest-recorded
+renquant-strategy-104 commit `aa775931`.
+
+## 1 · The measured divergence `[VERIFIED — data/2026-08-09-validated-vs-traded-derivation.py, rerun clean 2026-08-09]`
 
 | axis | served (live) | replay (backtest arm) |
 |---|---|---|
-| daily scored cross-section RECORDED | mean **22** names (post-screen candidates only) | **148** names (full investable universe) |
+| daily scored cross-section RECORDED (mean width on the 5 shared dates) | **22.0** names (post-screen candidates only) | **147.8** names (full investable universe) |
 | top-3 picks overlap (5 shared dates) | — | **0/15** |
 | Spearman on intersection names | — | mean **0.144** (per-date 0.09/−0.42/0.67/0.18/0.20) |
 | shared dates available | 58 live dates (04-23..08-07) | replay ends 05-07 → **5** shared |
@@ -20,8 +34,12 @@ below is from existing artifacts, measured today, re-runnable.
    production artifact of a fixed vintage (`panel-ltr.alpha158_fund.json`;
    the config records its 2026-05-09 training and the 06-23 promotion). The
    replay arm is a sequence of **per-fold walk-forward xgboost boosters**,
-   each retrained at its fold boundary (bt#110 emitter) `[VERIFIED — pinned
-   strategy_config keys; artifact metadata]`. A near-zero score correlation
+   each retrained at its fold boundary (bt#110 emitter) `[VERIFIED —
+   renquant-strategy-104 configs/strategy_config.json @ aa775931:
+   ranking.panel_scoring.kind = "blend",
+   ranking.panel_scoring._2026_06_23_xgb_promotion (the 06-23 promotion),
+   panel_ltr._lookahead_days_reason_2026-05-10 ("trained 2026-05-09") —
+   re-read from git by the committed derivation]`. A near-zero score correlation
    between a fixed-vintage blend and rolling-fresh pure boosters is the
    expected outcome, not an anomaly.
 2. **The candidate screen thins the recorded cross-section 148 → ~22**, so
