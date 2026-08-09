@@ -38,3 +38,17 @@ TESTS:     drift check run twice this session: before the manifest edit it
 NEXT:      first scheduled row next trading day (Mon); confirm the row lands
            and the drift finding closes post-merge; then weekly gap digest
            in the ops report, and L2's paper-bandit engine.
+
+CORRECTIONS (review r1):
+           r1 caught the entry sitting at the manifest TOP LEVEL instead of
+           under "jobs" — the only surface the consumers read
+           (run_surface_drift_check.py and kernel_surface_census.py index
+           manifest["jobs"]), so at the r1 head the reviewed surface was
+           still missing the job and this doc's "finding closes post-merge"
+           claim was false. Fixed: entry moved under "jobs" (sorted
+           position; digest unchanged and re-verified against the checker's
+           recipe), and the same rewrite's accidental —-escaping of
+           unrelated entries reverted. Re-run on the fixed head:
+           check_launchd_loaded_undeclared = 0 problems, and
+           check_launchd_surface / check_launchd_loaded report no
+           l1-related findings [VERIFIED — in-session run, 2026-08-08].
