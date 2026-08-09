@@ -18,8 +18,13 @@ WHY/DIR:   The dataset (orch#928) is merged; the classifier experiment must
            discipline as orch#912 §10 and the BEAR exit prereg.
 
 EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
-                          base rate 0.6311 / live 2,189 vs sim 4,978)
-                          [VERIFIED — prior work, #928 real-DB build]
+                          1,275 excluded / selected 135 / base rate 0.6307 /
+                          live 2,189 vs sim 4,978)
+                          [VERIFIED — re-measured this session: read-only
+                          module rebuild, DB mode=ro, output under /tmp,
+                          figures from module stdout; identical to the
+                          canonical post-r1/r3 record in
+                          doc/progress/2026-08-09-l3-candidate-dataset.md]
            prod or exp:   experiment — design doc only
            existing data: no meta-label entry classifier has ever been
                           trained in this system; the exit-side foundation
@@ -33,6 +38,18 @@ EVIDENCE:  artifact:      orch#928 dataset manifest (7,167 rows / 523 dates /
 
 TESTS:     none — a prose contract; its test is that the run can be judged
            entirely from §2/§3 with zero live choices.
+
+CORRECTION (review r1, Codex MED): the frozen evidence block cited the
+           superseded pre-tie-break base rate 0.6311 from before orch#928's
+           r1 correction (canonical: selected 135 / base rate 0.6307). The
+           prereg is now re-frozen against a manifest re-measured this
+           session by a read-only rebuild [VERIFIED — module stdout]; rows /
+           dates / exclusions / run_type split unchanged (7,167 / 523 /
+           1,275 / live 2,189 vs sim 4,978). Same review round: every number
+           in the design doc now carries its LONG-row-10 provenance tag
+           ([VERIFIED]/[DERIVED]/[ASSUMED — frozen here]), with the 64
+           trade_evaluations rows and the 1,240-of-2,388 bull_calm days
+           re-measured this session rather than recalled.
 
 NEXT:      execute the experiment exactly as frozen (derivation + committed
            artifacts at the #913/#926 reproducibility standard), report
