@@ -47,7 +47,17 @@ VERIFIED-AT repo revision 5d41b31249dfe89c6b0b6ac71e5b098471bcee49
 VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
 VERIFIED-AT repo revision 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
 VERIFIED-AT repo revision 7477978c2ff4dc9747be220f82ab63fe84917751
+VERIFIED-AT repo revision 69bf71169cab883ccc44175d02c62f9fdff7360b
 ```
+
+### 2026-08-09: the guard fired again — re-derived at 69bf71169cab
+
+`renquant-pipeline`'s `main` advanced to `69bf71169cab`. Re-derived with
+`resolve_exports("renquant_pipeline")` against that checkout on the sibling
+path `[VERIFIED — live run, 2026-08-09 session]`: **20 exported duplicates /
+19 resolve-elsewhere / 0 resolve-to-counterpart — unchanged**, and
+`validate_order_attribution` still reports `differing-bodies`. The VERIFIED-AT
+line above is the machine-readable binding for this revision.
 
 ### 2026-08-07: the guard fired, and the result was re-derived rather than inherited
 

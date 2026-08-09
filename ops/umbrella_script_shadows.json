@@ -338,10 +338,11 @@
       "umbrella_bytes": 5408
     },
     "wf_sanity_paired.py": {
-      "class": "IDENTICAL",
+      "accepted_because": "subrepo advanced by renquant-backtesting cae05e8 (the orch#905 served-matrix emitter wiring, merged 2026-08-08); the umbrella copy intentionally lags until the run-surface pin advances past it \u2014 tracked by orch#932, which names the restore condition",
+      "class": "DIVERGED",
       "referenced_by_a_scheduled_surface": true,
       "subrepo": "renquant-backtesting",
-      "subrepo_bytes": 6555,
+      "subrepo_bytes": 11407,
       "subrepo_path": "src/renquant_backtesting/wf_gate/wf_sanity_paired.py",
       "umbrella_bytes": 6555
     },

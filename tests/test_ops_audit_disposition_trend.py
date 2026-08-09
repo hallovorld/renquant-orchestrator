@@ -146,8 +146,21 @@ class TestAbsenceReadsAsAbsence:
 
 
 def test_the_LIVE_audit_is_what_the_record_describes():
-    """Bound to reality: if the ops-audit starts dispositioning findings, the
-    GOAL-1 record must be re-derived rather than inherited."""
+    """Bound to reality — on the transition, not the count.
+
+    The first version asserted the NO-ack state and fired when dispositioning
+    began (2026-08-06, the transition it existed to catch). The count cannot
+    be the durable binding in either direction: acks EXPIRE after
+    ACK_MAX_AGE_DAYS=14, so a zero-ack window recurs by design. What must
+    hold from now on is that the RECORD acknowledges the transition — a
+    reader of the 2026-08-05 record must not inherit "the mechanism is
+    unused" after it stopped being true.
+
+    r2 (codex P1 on orch#933): the marker is prose; the retained dated logs
+    are the immutable evidence. While they remain on disk, the marker must
+    be SUPPORTED by them — a wrong or fabricated date must not pass on the
+    document alone. Retention will eventually prune those logs; each
+    evidence check falls back to the document-only binding exactly then."""
     from ops_audit_disposition_trend import LOGS
 
     if not LOGS.is_dir():
@@ -158,6 +171,34 @@ def test_the_LIVE_audit_is_what_the_record_describes():
         pytest.skip(f"only {len(parsed)} parsed runs on this box")
     s = summarize(rows, n_dated_on_disk=len(dated_logs()))
     assert s["findings_max"] >= 8, s
-    assert s["no_ack_observed_in_window"] is True, (
-        "the ops-audit has started dispositioning findings — re-derive the "
-        "GOAL-1 alarm-fatigue record", s)
+    record = (Path(__file__).resolve().parent.parent / "doc" / "progress" /
+              "2026-08-05-goal1-ops-audit-disposition.md")
+    assert "DISPOSITION-FIRST-OBSERVED 2026-08-06" in record.read_text(
+        encoding="utf-8"), (
+        "the GOAL-1 record no longer acknowledges that dispositioning began "
+        "on 2026-08-06 — re-derive it rather than reverting it", s)
+    # [codex on orch#933] The marker alone is fabricatable prose. While the
+    # dated logs straddling the transition are still retained, they are
+    # immutable historical evidence and must SUPPORT the marker: 2026-08-05
+    # printed 0 acks, 2026-08-06 printed the first ack. Only pruning excuses
+    # this check — expiry of CURRENT acks never re-fires it, because the
+    # historical logs do not change when the ledger does. The FULL retained
+    # window is scanned (not the default slice), so the check cannot lapse
+    # merely because retention grew past the default.
+    by_date = {r["date"]: r
+               for r in read_runs(days=len(dated_logs()) or 1)
+               if r.get("parsed")}
+    day_of = by_date.get("2026-08-06")
+    if day_of is None:
+        pytest.skip("the 2026-08-06 log is no longer retained — the marker "
+                    "stands on the record alone")
+    # n_acks None means the transition-day log carries no ledger line at all;
+    # that is NOT support for the marker, so it fails rather than skips.
+    assert (day_of["n_acks"] or 0) >= 1, (
+        "the retained 2026-08-06 log does not show the ack the record's "
+        "marker claims — the marker is unsupported", day_of)
+    day_before = by_date.get("2026-08-05")
+    if day_before is not None and day_before["n_acks"] is not None:
+        assert day_before["n_acks"] == 0, (
+            "the retained 2026-08-05 run already shows an ack — the "
+            "FIRST-OBSERVED date in the record is wrong", day_before)
