@@ -4,9 +4,11 @@ STATUS:    completed outcome. One execution, zero deviations from the
            merged design (orch#934 + #935).
 
 WHAT:      doc/research/2026-08-09-l2s-backtest.md + committed artifacts
-           under doc/research/data/ (derivation, daily CSV with all book
-           series and weight paths, full holdings CSV, placebo deltas,
-           summary JSON, verifier).
+           under doc/research/data/ (derivation — provenance record of
+           the one run, its inputs are machine-local + digest-pinned and
+           NOT re-runnable from the repo; daily CSV with all book series
+           and weight paths; full holdings CSV; placebo deltas; summary
+           JSON; verifier — the durable repo-only re-check).
 
 WHY/DIR:   The §4 frozen rule requires all four legs; two failed. Sharpe
            floor and maxDD pass decisively (composite 1.52/−27.6% vs

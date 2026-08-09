@@ -7,6 +7,10 @@ names-only holdings cost (10bps x sum|dh|, no half, cash excluded), composite
 = 0.730 sector-machinery + 0.270 global-only replica, placebo seeds 0..199
 with the frozen permutation map, four-leg ADOPT-for-shadow / RECORD-ONLY.
 Inputs are the #926/#927 machine-local snapshot, digest-verified before use.
+PROVENANCE RECORD, not a durable reproduction path: the scratchpad snapshot
+and sibling-repo checkouts below are machine-local (digest-pinned in the
+manifests); once they expire, re-derivation is impossible from the repo —
+the durable repo-only re-check is 2026-08-09-l2s-verify.py.
 Controls: the engine passed planted-expert positive and no-information null
 controls pre-run (two harness bugs found and fixed there: a floored local
 path and a missing score-to-trade lag)."""

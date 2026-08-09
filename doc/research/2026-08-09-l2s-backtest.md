@@ -6,16 +6,24 @@ tags #935), run 2026-08-09 with zero deviations. **Verdict under the frozen
 §4 rule: RECORD-ONLY** — the global L2 stands; the per-sector×arm table
 below publishes as the answer to "which sector likes which model".
 
-Reproducibility: `data/2026-08-09-l2s-backtest-derivation.py` (static
+Reproducibility — scoped honestly (review r1): the DURABLE, repo-only
+check is `data/2026-08-09-l2s-verify.py`, which from the committed
+artifacts alone re-runs every recursion, re-derives every cost from
+holdings, and recomputes legs and verdict `[VERIFIED — exit 0]`.
+`data/2026-08-09-l2s-backtest-derivation.py` is the PROVENANCE RECORD of
+the one execution, not a durable re-derivation path: it reads a
+machine-local scratchpad snapshot of the #926/#927 replay artifacts plus
+sibling-repo checkouts (digest-pinned in the committed manifests; static
 inputs digest-verified against the #926 manifest; OHLCV checked
 SUBSTANTIVELY — the rebuilt global gross series must reproduce #927's
-committed CSV day-by-day, `[VERIFIED — gate output]`) · committed
-`…-l2s-daily.csv` (541 rows: every sector×arm book gross/cost/net, global
-arm books, local + mixture weight paths, the three composite series) ·
-`…-l2s-holdings.csv` (every holding of every book, the cost ground truth) ·
-`…-l2s-placebo.csv` (200 seed deltas) · `…-l2s-summary.json` ·
-`data/2026-08-09-l2s-verify.py` re-runs every recursion, re-derives every
-cost from holdings, recomputes legs and verdict `[VERIFIED — exit 0]`.
+committed CSV day-by-day, `[VERIFIED — gate output]`). Once that
+scratchpad expires, the daily / holdings / placebo artifacts can no
+longer be re-derived from the repo — only re-verified. Committed
+artifacts: `…-l2s-daily.csv` (541 rows: every sector×arm book
+gross/cost/net, global arm books, local + mixture weight paths, the three
+composite series) · `…-l2s-holdings.csv` (every holding of every book,
+the cost ground truth) · `…-l2s-placebo.csv` (200 seed deltas) ·
+`…-l2s-summary.json`.
 
 ## 1 · The four legs `[VERIFIED — summary + verifier recomputation]`
 
