@@ -58,3 +58,30 @@ REVIEW r1: codex CHANGES_REQUESTED (2026-08-09), two MED — both hidden
               per-sector sub-books under global weights; rationale (no
               frozen k below 14 names; exact convex-mix attribution)
               stated in the doc.
+
+REVIEW r2: codex P1 (2026-08-09): the #927 "swap = 2/3 book" shortcut is
+           wrong for top-2 books and cash-shortfall transitions. Adopted
+           the general turnover rule with one VISIBLE correction to the
+           review's literal formula (§4): cost = 10 bps × names-only
+           holdings L1 change, no ½ factor, cash sleeve excluded — the
+           review's "0.5·Σ|Δh| incl. cash" gives ⅓ × 10 bps on the full
+           top-3 one-swap, a factor-2 shortfall vs the #927 identity it
+           must reduce to. All-cash h_0 with day-0 entry cost frozen;
+           per-book turnover/cost columns + verifier re-derivation from
+           holdings paths required. (This section records the r2 fix,
+           which shipped in the design doc only — repaired here in r3.)
+
+REVIEW r3: codex MED (2026-08-09): the placebo gate and the top-k rank
+           still carried runner discretion. Frozen in the design doc:
+           1. §4 placebo: seeds 0..199 via
+              numpy.random.default_rng(σ).permutation(159) over tickers
+              in ascending lexicographic order, one date-invariant map
+              per seed; delta(σ) = permuted-composite net Sharpe −
+              global-only net Sharpe; p95 = 190th ascending value of the
+              200 deltas (⌈0.95·200⌉ order statistic); pass iff observed
+              delta > p95 strictly; placebo fail demotes ADOPT-for-shadow
+              to RECORD-ONLY; every map + delta committed, verifier
+              recomputes the gate.
+           2. §3 tie-break: ranking into top-k by (−score, ticker) —
+              descending score, ties by ascending ticker — after the
+              staleness + investability filters.

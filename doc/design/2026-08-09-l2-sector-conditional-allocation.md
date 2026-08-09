@@ -77,7 +77,11 @@ Sector books: top-k equal-weight of the arm's freshest scores (staleness =
 the single 7-calendar-day rule, data/l2_staleness.py) restricted to the
 sector, filter-investable-FIRST (the #926 §6.1 lesson), k frozen at 3 for
 N_s ≥ 20 and 2 for 14 ≤ N_s < 20 `[ASSUMED — frozen here; k scales with
-width so the book never holds >21% of its sector]`.
+width so the book never holds >21% of its sector]`. Ranking into the
+top-k is by `(−score, ticker)` — descending score, ties broken by
+ascending ticker lexicographic order — applied AFTER the staleness and
+investability filters, so an equal-score pair can never create a book
+choice `[ASSUMED — frozen here; review r3]`.
 
 **Shortfall rule (frozen)**: if a sector×arm book has fewer than k
 investable fresh names on a day (after the staleness and investability
@@ -162,10 +166,33 @@ Decision rule `[ASSUMED — frozen here]`:
 * otherwise **RECORD-ONLY**: the per-sector×arm table publishes as the
   answer to "which sector likes which model", and the global L2 stands.
 No parameter may move after the first output; a re-attempt is a new dated
-design. Placebo `[ASSUMED — frozen here]`: sector labels randomly
-permuted across names (200 seeds, preserving tier sizes) — the composite's
-edge over global-only must exceed the permuted p95, else the "sector
-structure" is width arithmetic, not sector information.
+design.
+
+**Placebo `[ASSUMED — frozen here; review r3 pinned every constant]`**:
+sector labels permuted across names — if the composite's edge over
+global-only survives under permuted maps too, the "sector structure" is
+width arithmetic, not sector information. Zero runner discretion remains:
+
+* **Permutations**: seeds are the integers 0..199. For seed σ, with the
+  159 tickers enumerated once in ascending lexicographic order
+  t_0 < … < t_158, draw π = `numpy.random.default_rng(σ).permutation(159)`
+  and assign ticker t_i the TRUE sector label of ticker t_{π[i]}. The
+  map is drawn ONCE per seed and held fixed across ALL dates of that
+  seed's replay. A permutation preserves §2's sector-count vector by
+  construction, so the same six labels stay eligible at the same widths,
+  tiers (m_s), and k — only membership changes.
+* **Delta metric**: delta(σ) = net Sharpe of the seed-σ permuted
+  composite − net Sharpe of global-only, both on the identical 541-day
+  calendar under this section's cost rule. Global-only is
+  label-invariant, so it is computed once; the observed delta uses the
+  true map in the same formula.
+* **Gate**: sort the 200 deltas ascending; p95 = the 190th value
+  (the ⌈0.95·200⌉ order statistic). The placebo passes iff
+  observed delta > p95, strictly — observed = p95 fails. A placebo fail
+  demotes ADOPT-for-shadow to RECORD-ONLY.
+* **Artifacts**: every seed's full ticker→label map and its delta(σ) are
+  committed with the run, and the verifier re-derives each map from its
+  seed and recomputes the gate from the committed dailies.
 
 ## 5 · Failure modes anticipated (so they cannot be surprises)
 
