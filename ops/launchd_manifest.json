@@ -49,6 +49,14 @@
       ],
       "program_args_sha256": "955f3d81957073893d7bddfc387bea34002bc30243b951ad87d7566e27a3daa9"
     },
+    "com.renquant.l1-exposure-shadow": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "-m",
+        "renquant_orchestrator.l1_exposure_shadow"
+      ],
+      "program_args_sha256": "38a9fa00c579d558d569180316cb3f4b03499ffe376a2fec0e745bf3d79ca7b3"
+    },
     "com.renquant.momentum-train-weekly": {
       "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). This wrapper exec-redirects FIRST (the conditional-retrain silent-pre-exec-death lesson, orch#754 trail): every refusal lands in the dated log with an explicit REFUSED marker and every exit path writes a terminal marker, so log EXISTENCE proves the wrapper fired and log CONTENT carries the verdict.",
       "_schedule_comment": "weekly, Saturday 05:00 (StartCalendarInterval Weekday=6 Hour=5 Minute=0 in ops/renquant104/com.renquant.momentum-train-weekly.plist). WHY THIS SLOT: the design fixes a weekly cadence aligned with the WF world; weekly-wf-promote and weekly-fundamental-refresh both fire Saturday 04:00 (read from the installed plists, 2026-08-02), so 05:00 trains over fresh Friday-close surfaces after that refresh hour -- and stays clear of Saturday 05:30, the slot the retiring weekly-retrain-patchtst still occupies until its #755 bootout grant executes, so the two grants stay uncoupled.",
