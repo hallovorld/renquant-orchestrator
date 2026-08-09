@@ -5,19 +5,27 @@ Underlying = universe EW (the investable proxy; the accidental live book has
 only 63 observable days and is compared separately on its own window).
 Regime input = the committed 2026-08-08-regime-posteriors.csv beside this file
 (production HMM posteriors snapshot, written %.17g / read round_trip so the
-float64 values are bit-exact — the #916 cube contract; do not rewrite it);
-OHLCV stays machine-local (provenance)."""
-import json, sys
-sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
+float64 values are bit-exact — the #916 cube contract; do not rewrite it).
+EXTERNAL PREREQUISITES (resolved under the standard multi-repo sibling layout,
+each overridable by env var): renquant-model/src (RQ_MODEL_SRC; total-return
+helper code), renquant-strategy-104/configs/strategy_config.json
+(RQ_STRATEGY_CONFIG; universe = sector map), and the umbrella's OHLCV tree
+(RQ_OHLCV_ROOT; machine-local DATA, gitignored — the one non-clonable input)."""
+import json, os, sys
+from pathlib import Path
+HERE=Path(__file__).resolve().parent
+SIB=HERE.parents[2].parent  # siblings of renquant-orchestrator (multi-repo layout)
+sys.path.insert(0,os.environ.get('RQ_MODEL_SRC',str(SIB/'renquant-model'/'src')))
 import numpy as np, pandas as pd
 from renquant_model_common.total_return import total_return_close
 LAM, SSTAR, KB, KV, EMIN, EMAX, COST = 0.94, 0.15, 0.5, 0.25, 0.3, 1.0, 10/1e4
-HERE=__import__('pathlib').Path(__file__).parent
-sec=json.load(open('/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json'))['sector_map']
+CFG=Path(os.environ.get('RQ_STRATEGY_CONFIG',str(SIB/'renquant-strategy-104'/'configs'/'strategy_config.json')))
+OHLCV=Path(os.environ.get('RQ_OHLCV_ROOT',str(SIB/'RenQuant'/'data'/'ohlcv')))
+sec=json.load(open(CFG))['sector_map']
 rets={}
 for t in [x for x,s in sec.items() if s not in ('benchmark','defensive_bonds')]:
     try:
-        df=pd.read_parquet(f'/Users/renhao/git/github/RenQuant/data/ohlcv/{t}/1d.parquet')
+        df=pd.read_parquet(OHLCV/t/'1d.parquet')
         div=df['dividend'] if 'dividend' in df.columns else pd.Series(0.0,index=df.index)
         rets[t]=total_return_close(df['close'],div).pct_change()
     except FileNotFoundError: pass

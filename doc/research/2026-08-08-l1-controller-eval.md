@@ -13,13 +13,22 @@ below). Regime posteriors = the production HMM series.
 
 Reproducibility (the #913 standard): `data/2026-08-08-l1-eval-daily.csv`
 (2412 daily rows) + `data/2026-08-08-l1-eval-verify.py` (recomputes every
-headline number from the CSV alone) + `data/2026-08-08-l1-eval-derivation.py`,
-which is now REPO-RELATIVE: it reads the committed
-`data/2026-08-08-regime-posteriors.csv` (production-HMM snapshot, 2388 rows,
-written %.17g / read round_trip so the float64 values are bit-exact — the
-same snapshot and contract as #916's cube derivation) and regenerates the
-committed daily CSV **byte-identically** in place; only the OHLCV tree remains
-machine-local (stated provenance).
+headline number from the CSV alone) + `data/2026-08-08-l1-eval-derivation.py`.
+The derivation reads the committed `data/2026-08-08-regime-posteriors.csv`
+(production-HMM snapshot, 2388 rows, written %.17g / read round_trip so the
+float64 values are bit-exact — the same snapshot and contract as #916's cube
+derivation) and regenerates the committed daily CSV **byte-identically**
+`[VERIFIED — cmp clean in a scratch copy, review r3]`. Its EXTERNAL
+prerequisites (review r3 correction — the earlier "only OHLCV is
+machine-local" claim understated them) resolve under the standard multi-repo
+sibling layout, each overridable by env var: sibling `renquant-model/src`
+(`RQ_MODEL_SRC`; total-return helper code), sibling
+`renquant-strategy-104/configs/strategy_config.json` (`RQ_STRATEGY_CONFIG`;
+universe = sector map), and the umbrella `RenQuant/data/ohlcv` tree
+(`RQ_OHLCV_ROOT`). The first two exist on any machine that clones the
+sibling repos; the OHLCV tree is gitignored DATA and remains the one
+non-clonable, machine-local input. The committed CSV + verifier need none of
+these.
 
 ## Results `[VERIFIED — verifier output from the committed CSV]`
 

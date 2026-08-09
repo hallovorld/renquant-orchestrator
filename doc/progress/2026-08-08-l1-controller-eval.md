@@ -15,8 +15,13 @@ WHY/DIR:   orch#918's L1 is the machine's first layer and the operator's
            SAME RISK STORY (maxDD designed to −17.4% vs full-invest −34.6%).
 
 EVIDENCE:  artifact:      committed CSV (2412 rows) + verifier; derivation
-                          provenance-only (machine-local OHLCV + production
-                          regime posteriors)
+                          regenerates the CSV byte-identically from the
+                          committed regime snapshot + three sibling-resolved,
+                          env-overridable external inputs (review r3
+                          correction): renquant-model/src (code),
+                          renquant-strategy-104 strategy config (universe),
+                          umbrella OHLCV tree (the one machine-local,
+                          non-clonable input)
            prod or exp:   experiment — read-only research
            existing data: no exposure controller was ever evaluated; exposure
                           has never been a designed quantity in this system
