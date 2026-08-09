@@ -19,7 +19,10 @@ on every item):
      versus the best fixed arm in hindsight — never a profitability claim.
 
 FROZEN PARAMETERS:
-    η = 0.25          [DERIVED — Hedge rate √(8·lnN/T) at N=5 arms, T≈252]
+    η = 0.21          [DERIVED — Hedge rate √(8·lnN/T) at N=4 arms, T≈252;
+                       r1 visible correction: the first draft derived at N=5
+                       while the registry holds 4 arms — corrected BEFORE any
+                       consumer existed (no log rows deployed)]
     C = 0.05          per-day return clip
     W_CHAMPION = 0.5  the champion floor: containment, not the theorem
 
@@ -45,7 +48,7 @@ from pathlib import Path
 
 from .runtime_paths import default_data_root
 
-ETA = 0.25
+ETA = 0.21
 CLIP = 0.05
 W_CHAMPION_FLOOR = 0.5
 CHAMPION = "champion_live_blend"
@@ -89,7 +92,7 @@ def paper_returns(marks: dict[str, float]) -> dict[str, float]:
     return out
 
 
-def apply_floor(weights: dict[str, float]) -> dict[str, float]:
+def apply_champion_floor(weights: dict[str, float]) -> dict[str, float]:
     total = sum(weights.values())
     w = {k: v / total for k, v in weights.items()}
     short = W_CHAMPION_FLOOR - w[CHAMPION]
@@ -120,7 +123,7 @@ def hedge_step(weights: dict[str, float],
         if clipped != r:
             detail["clipped"].append(arm)
         updated[arm] = w * math.exp(ETA * clipped)
-    new = apply_floor(updated)
+    new = apply_champion_floor(updated)
     detail["returns"] = {a: (None if r is None else round(r, 6))
                          for a, r in returns.items()}
     return new, detail
@@ -132,7 +135,7 @@ def replay(arm_marks: dict[str, dict[str, float]]) -> list[dict]:
     calendar); other arms join on their marked dates per rule 3."""
     arm_rets = {a: paper_returns(m) for a, m in arm_marks.items()}
     calendar = sorted(arm_rets[CHAMPION])
-    weights = apply_floor({a: 1.0 for a in ARMS})
+    weights = apply_champion_floor({a: 1.0 for a in ARMS})
     rows: list[dict] = []
     for d in calendar:
         rets = {a: arm_rets[a].get(d) for a in ARMS}

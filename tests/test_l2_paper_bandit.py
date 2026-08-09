@@ -12,7 +12,7 @@ from renquant_orchestrator import l2_paper_bandit as l2
 
 
 def test_floor_holds_and_renormalises():
-    w = l2.apply_floor({l2.CHAMPION: 0.1, "a": 0.6, "b": 0.3})
+    w = l2.apply_champion_floor({l2.CHAMPION: 0.1, "a": 0.6, "b": 0.3})
     assert w[l2.CHAMPION] == pytest.approx(0.5)
     assert sum(w.values()) == pytest.approx(1.0)
     # proportionality among the others preserved
@@ -20,7 +20,7 @@ def test_floor_holds_and_renormalises():
 
 
 def test_hedge_step_clips_and_records(contract_c=l2.CLIP):
-    w0 = l2.apply_floor({l2.CHAMPION: 1.0, "a": 1.0})
+    w0 = l2.apply_champion_floor({l2.CHAMPION: 1.0, "a": 1.0})
     new, detail = l2.hedge_step(w0, {l2.CHAMPION: 0.0, "a": 0.30})  # 30% > clip
     assert "a" in detail["clipped"]
     # the update used the CLIPPED value: ratio bounded by exp(eta*C)
@@ -28,7 +28,7 @@ def test_hedge_step_clips_and_records(contract_c=l2.CLIP):
 
 
 def test_missing_mark_carries_weight_and_is_recorded():
-    w0 = l2.apply_floor({l2.CHAMPION: 1.0, "a": 1.0})
+    w0 = l2.apply_champion_floor({l2.CHAMPION: 1.0, "a": 1.0})
     new, detail = l2.hedge_step(w0, {l2.CHAMPION: 0.01, "a": None})
     assert "a" in detail["excluded"]
     # champion rose on its positive return; the floor then dominates anyway
