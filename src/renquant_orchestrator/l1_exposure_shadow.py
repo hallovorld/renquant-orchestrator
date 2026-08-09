@@ -31,6 +31,12 @@ FAIL-CLOSED: missing OHLCV, an unreadable DB, or a stale snapshot (not
 today's) produce a REFUSED row on stdout and exit 1 — never a silent skip,
 never an invented number. Idempotent per date: an existing row for the date
 refuses a rewrite (append-only log).
+
+TEMPORAL INTEGRITY (codex on orch#920): the vol estimate uses only OHLCV
+sessions STRICTLY BEFORE the snapshot's run date — a delayed run, a same-day
+partial bar, or a later OHLCV refresh can never change what the row would
+have said at snapshot time. The cutoff and the last session actually used
+are persisted in every row.
 """
 from __future__ import annotations
 
@@ -56,8 +62,14 @@ SCHEMA = "l1_exposure_shadow.v1"
 
 
 def universe_ew_returns(ohlcv_root: Path, tickers: list[str], *,
-                        min_names: int = 30) -> "object":
-    """Equal-weight daily TR returns over the sector-map universe.
+                        cutoff: date, min_names: int = 30) -> "object":
+    """Equal-weight daily TR returns over the sector-map universe, restricted
+    to sessions STRICTLY BEFORE ``cutoff``.
+
+    ``cutoff`` is the snapshot's run date: the exposure logged against a day-t
+    snapshot must be computable from sessions completed before t (the orch#919
+    evaluation's one-day lag), so bars on or after ``cutoff`` are dropped
+    BEFORE the EWMA window is taken.
 
     Import-light: pandas is imported here, not at module top, so the module
     stays cheap for callers that only need the pure helpers."""
@@ -77,7 +89,12 @@ def universe_ew_returns(ohlcv_root: Path, tickers: list[str], *,
         raise RuntimeError(
             f"only {len(frames)} of {len(tickers)} names have OHLCV — refusing "
             f"a vol estimate on a thin universe (floor {min_names})")
-    return pd.DataFrame(frames).mean(axis=1).dropna().iloc[-VOL_WINDOW_DAYS:]
+    ew = pd.DataFrame(frames).mean(axis=1).dropna()
+    ew = ew[ew.index < pd.Timestamp(cutoff)]
+    if ew.empty:
+        raise RuntimeError(
+            f"no completed sessions strictly before {cutoff} — refusing a vol estimate")
+    return ew.iloc[-VOL_WINDOW_DAYS:]
 
 
 def ewma_vol_annualized(returns) -> float:
@@ -119,7 +136,8 @@ def latest_snapshot(db_path: Path) -> dict:
     return dict(zip(("run_date", "regime", "confidence", "cash", "portfolio_value"), row))
 
 
-def build_row(*, snapshot: dict, sigma_hat: float, asof: date) -> dict:
+def build_row(*, snapshot: dict, sigma_hat: float, asof: date,
+              vol_input_cutoff: date, vol_input_last_date: date) -> dict:
     g = regime_multiplier(snapshot.get("regime"), snapshot.get("confidence"))
     pv = snapshot.get("portfolio_value")
     cash = snapshot.get("cash")
@@ -130,6 +148,8 @@ def build_row(*, snapshot: dict, sigma_hat: float, asof: date) -> dict:
         "asof": asof.isoformat(),
         "computed_at_utc": datetime.now(timezone.utc).isoformat(),
         "sigma_hat": round(sigma_hat, 6),
+        "vol_input_cutoff": vol_input_cutoff.isoformat(),
+        "vol_input_last_date": vol_input_last_date.isoformat(),
         "regime": snapshot.get("regime"),
         "regime_confidence": snapshot.get("confidence"),
         "g": round(g, 6),
@@ -197,9 +217,15 @@ def main(argv=None) -> int:
                               "snapshot_run_date": snap.get("run_date"),
                               "today": today.isoformat()}, indent=2))
             return 1
-        rets = universe_ew_returns(ohlcv, tickers)
+        # Temporal integrity (codex on orch#920): the vol input is cut at the
+        # SNAPSHOT's run date, not at whatever the OHLCV tree happens to hold —
+        # an unparsable run_date fails closed via the except below.
+        snap_date = date.fromisoformat(str(snap.get("run_date")))
+        rets = universe_ew_returns(ohlcv, tickers, cutoff=snap_date)
         sigma_hat = ewma_vol_annualized(rets)
-        row = build_row(snapshot=snap, sigma_hat=sigma_hat, asof=today)
+        row = build_row(snapshot=snap, sigma_hat=sigma_hat, asof=today,
+                        vol_input_cutoff=snap_date,
+                        vol_input_last_date=rets.index[-1].date())
         out = append_row(log_dir, row)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason on stdout
         print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))

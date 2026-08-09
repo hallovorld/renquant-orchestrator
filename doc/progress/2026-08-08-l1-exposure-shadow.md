@@ -44,10 +44,17 @@ EVIDENCE:  artifact:      dry-run against the real surfaces this session
            refused); REFUSED-STALE-SNAPSHOT unless --allow-stale-snapshot
            (the row records snapshot_run_date either way); thin-universe
            refusal (< 30 names with OHLCV) — never an invented vol; garbage
-           confidence degrades to g=1, never negative.
+           confidence degrades to g=1, never negative; TEMPORAL INTEGRITY
+           (review r3) — the vol input is truncated to sessions STRICTLY
+           BEFORE the snapshot's run date, the cutoff + last session used
+           are persisted in every row (vol_input_cutoff /
+           vol_input_last_date), and an end-to-end guard proves a same-day
+           partial bar or later OHLCV refresh cannot change the row for a
+           fixed snapshot date.
 
-TESTS:     tests/test_l1_exposure_shadow.py — 6 passed (pure math, append-
-           only, both CLI refusals; tmp dirs only).
+TESTS:     tests/test_l1_exposure_shadow.py — 8 passed (pure math, append-
+           only, both CLI refusals, both temporal-integrity guards; tmp
+           dirs only).
 
 NEXT:      after merge, under the SAME operator grant: install the daily
            launchd job (manifest updated in the same batch, tracked issue
