@@ -3,7 +3,7 @@
 STATUS:    code delivered for review. Read-only over the runs DB; writes one
            CSV + manifest sidecar wherever pointed. No production surface.
 
-WHAT:      src/renquant_orchestrator/l3_dataset_builder.py + 4 tests. One row
+WHAT:      src/renquant_orchestrator/l3_dataset_builder.py + 6 tests. One row
            per BUY with entry-time features (regime, confidence, panel_score,
            mu, sigma, expected_return, sector, active_scorer, rank_score,
            kelly_target_pct — from the buy row itself, nothing recomputed)
@@ -31,7 +31,10 @@ TWO MEASURED FACTS THE FIRST DRAFT GOT WRONG (fixed before PR, with tests):
 EVIDENCE:  artifact:      real-DB build this session (read-only, scratch out):
                           5,947 paired rows, 458 unclosed buys EXCLUDED AND
                           COUNTED, provenance {live: 0, sim: 5947}, sim win
-                          rate 0.7606 [VERIFIED — builder stdout]
+                          rate 0.7606, pairing_ambiguous on 5,928/5,947 rows
+                          (99.7% — FIFO labels are surrogates for nearly the
+                          whole set; the flag is why that is now visible)
+                          [VERIFIED — builder stdout]
            prod or exp:   experiment — read-only
            existing data: the 76% figure matches the standing memory
                           ("win rate is backtest not live") EXACTLY — the
@@ -42,7 +45,7 @@ EVIDENCE:  artifact:      real-DB build this session (read-only, scratch out):
                           forward-labeled)
            scope:         orchestrator module + tests. Pairing = FIFO by
                           (date, rowid), deterministic in both queries.
-                          AMBIGUITY IS A COLUMN (r1): pairing_ambiguous=1 iff
+                          AMBIGUITY IS A COLUMN (review r2): pairing_ambiguous=1 iff
                           the lot's interval overlaps any other lot of the
                           same ticker (paired or still open) — symmetric,
                           because with no lot identity on the sells, WHICH
@@ -50,9 +53,11 @@ EVIDENCE:  artifact:      real-DB build this session (read-only, scratch out):
                           manifest counts them; a downstream experiment must
                           CHOOSE to include them.
 
-TESTS:     4 passed — pairing + provenance + counts; the NULL-date run_id
+TESTS:     6 passed — pairing + provenance + counts; the NULL-date run_id
            fallback (the production path); no backwards pairing; CSV+manifest
-           write and empty-refusal.
+           write and empty-refusal; concurrent lots flagged ambiguous on BOTH
+           sides with deterministic FIFO; an open buy overlapping a paired
+           lot flags it.
 
 NEXT:      the L3 classifier itself (small, shallow, shadow-first) trains on
            this CSV with provenance as an EXPLICIT choice — the honest
