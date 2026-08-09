@@ -79,6 +79,17 @@ sector, filter-investable-FIRST (the #926 §6.1 lesson), k frozen at 3 for
 N_s ≥ 20 and 2 for 14 ≤ N_s < 20 `[ASSUMED — frozen here; k scales with
 width so the book never holds >21% of its sector]`.
 
+**Shortfall rule (frozen)**: if a sector×arm book has fewer than k
+investable fresh names on a day (after the staleness and investability
+filters), it holds the top min(k, available) names equal-weight; if
+available = 0 it holds cash and books a 0.0 return for that day, and the
+sector's Hedge recursion consumes that 0.0 unchanged — no skipped update,
+no re-normalization, no substitute names from outside the sector
+`[ASSUMED — frozen here; cash-at-zero is the only fallback that adds no
+new selection choice]`. The backtest artifacts commit a shortfall-day
+count per sector×arm book, so the frequency of this state is published,
+not assumed away.
+
 ## 4 · Evaluation (frozen before any number exists)
 
 One backtest, executed once after this design merges, at the #926/#927
@@ -88,8 +99,20 @@ hash-pinned input manifest; the #927 cost model verbatim: 10 bps one-way,
 name swap = 2/3 book).
 
 Books compared, all net of costs:
-1. **L2-S composite**: eligible sectors run w^s, ineligible capital follows
-   w^g, sector capital shares proportional to name count (frozen);
+1. **L2-S composite**: capital splits by name count (frozen): each
+   eligible sector s holds N_s/159 of capital in its own w^s-weighted
+   sector books; the nine ineligible sectors are POOLED into a single
+   bucket of 43/159 = 27.0% that replicates the unchanged global-only
+   book (whole-universe arm books weighted by w^g) — NOT per-sector
+   sub-books under global weights. Pinned this way because (i) sub-14-name
+   sectors have no frozen k, and a top-k book on a 1–3 name sector is a
+   single-name bucket (§5.1 amplified); (ii) the pool makes the composite
+   an exact convex mix, r_composite = 0.730·r_sector-machinery +
+   0.270·r_global-only, so the composite-vs-global delta is attributable
+   to the sector machinery alone `[DERIVED — capital shares from §2's
+   name counts]`. The pooled bucket's whole-universe books may hold
+   eligible-sector names; that overlap is accepted and stated — the pool
+   is a baseline replica, not a complement book;
 2. **global-only** (the merged L2 = today's design) on the same calendar;
 3. **pure-local** (m_s = 0 on eligible sectors) — prices the shrinkage;
 4. per-sector×arm standalone books (descriptive table — the operator's

@@ -44,3 +44,17 @@ TESTS:     none — prose contract; its test is §4's zero-live-choice
 NEXT:      operator veto window + codex review; on merge, execute the §4
            backtest once with committed artifacts + verifier; report
            ADOPT-for-shadow vs RECORD-ONLY exactly as frozen.
+
+REVIEW r1: codex CHANGES_REQUESTED (2026-08-09), two MED — both hidden
+           live choices, i.e. exactly the doc's own §4 executability
+           standard. Fixed in the design doc, no mechanism change:
+           1. shortfall state frozen (§3): a sector×arm book short of k
+              investable fresh names holds min(k, available) equal-weight;
+              at available = 0 it holds cash, books a 0.0 return, and the
+              Hedge recursion consumes the zero unchanged; shortfall-day
+              counts per book are committed backtest artifacts.
+           2. composite pinned (§4): the nine ineligible sectors POOL into
+              one 27.0% bucket replicating the global-only book — not
+              per-sector sub-books under global weights; rationale (no
+              frozen k below 14 names; exact convex-mix attribution)
+              stated in the doc.
