@@ -43,6 +43,10 @@ TESTS:     data/2026-08-09-validated-vs-traded-derivation.py run twice
            (emit, then verify-vs-committed-CSV): asserts every published
            number; refuses on replay-matrix digest drift.
 
-NEXT:      open the snapshot-module PR (step 3) and the retro-replay PR
-           (step 4) today; operator picks A/B/C (default C if silent, per
-           the charge order).
+NEXT:      default-C work (snapshot-module PR, step 3, scorer owned by
+           model/strategy per §4; retro-replay PR, step 4, mechanism-only
+           per §4) opens only AFTER this memo's corrected contract clears
+           review; operator picks A/B/C (default C if silent, per the
+           charge order). Neither this forensics PR nor any retro-replay
+           authorizes a production or shadow change — that requires its
+           own gate/grant chain.

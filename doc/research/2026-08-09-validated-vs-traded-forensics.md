@@ -68,27 +68,49 @@ walk-forward xgb line directly. The clean end-state, but a full promotion
 chain (gate + grants) — days, not hours.
 
 **C. RECOMMENDED — converge from both ends, backtest-first:**
-1. TODAY: a **full-universe scoring snapshot** lane — an orchestrator job
-   loads the SAME pinned artifacts the live run serves and records scores
-   for ALL ~150 investable names daily (the screen still governs trading;
-   it stops governing what is RECORDED). Research and production become
-   same-source going forward.
+1. TODAY: a **full-universe scoring snapshot** lane, split along the
+   multi-repo boundary: **renquant-model / renquant-strategy-104 own the
+   scorer** — the snapshot entry point and its pinned-artifact-loading
+   semantics (the SAME artifacts the live run serves) live there, not in
+   orchestrator. The **orchestrator only schedules** that model-owned
+   snapshot contract, pins its inputs, and persists the provenance/audit
+   output; it does not load artifacts or reimplement scoring. The snapshot
+   records scores for ALL ~150 investable names daily (the screen still
+   governs trading; it stops governing what is RECORDED). Research and
+   production become same-source going forward.
 2. TODAY (backtest-now evidence): a **retro-replay** of the CURRENT pinned
    blend over the historical calendar — the current scorer, applied
    offline to the full universe on past dates. Declared caveat: the xgb
-   component's training window overlaps that history, so retro numbers
-   carry in-sample optimism for the blend arm; they are valid for
-   MECHANISM comparisons (screen on/off, arm correlations, book overlap)
-   and directionally for arm ranking, and are labeled as such. Vintage
-   artifacts (`.previous`, artifact ledger) narrow this where they exist.
+   component's training window overlaps that history, so the retro run is
+   admissible for MECHANISM comparisons ONLY (screen on/off, score
+   correlations, book overlap) — NOT for arm-ranking or performance
+   conclusions; in-sample exposure can reverse rankings, so those need a
+   frozen vintage whose training ends before the evaluation interval, or
+   the prospective snapshot lane. Vintage artifacts (`.previous`, artifact
+   ledger) provide such pre-evaluation vintages where they exist.
 3. The replay-frame line (#926/#927/#936) closes as "mechanism research,
    absolute claims void" — no further absolute quotes from it.
 
 ## 5 · Acceptance (backtest-now, per the operator's rule)
 
-* The snapshot module's correctness is proven on HISTORY at review time:
-  pointed at past dates it must reproduce the exact `candidate_scores`
-  rows for the names the screen admitted (identity on the intersection).
-* The retro-replay ships with committed CSV + verifier; its first product
-  is the same-source overlap table re-measured (target ≥90% on the
-  historical window once same-source).
+Two separate checks — the full-universe snapshot and the screen-filtered
+trade path do NOT share identical top-3s by construction, so no top-k
+overlap number is an acceptance test here.
+
+* **(a) Identity on the screened intersection — the acceptance test.**
+  Pointed at a past date, the snapshot module must reproduce the served
+  `candidate_scores` rows for the names the screen admitted with **exact
+  score equality after canonicalization**. Frozen contract: comparator =
+  served `panel_score`, first recorded value of the day per
+  (`run_date`, ticker) ordered by `pipeline_runs.created_at` (same rule as
+  the committed derivation); as-of = the snapshot scores date D from the
+  same pinned artifact set and same input data as-of D that the live run
+  used; canonicalization = compare at the precision stored in
+  `candidate_scores` (float64 round-trip through sqlite). Tie semantics:
+  none needed — the check is per-name score equality, not a selection;
+  any top-k comparison falls under (b). Any inequality fails.
+* **(b) Full-universe overlap — descriptive only.** The retro-replay ships
+  with committed CSV + verifier and re-measures the overlap table on the
+  full universe. That number carries **no acceptance threshold** until its
+  comparator (universe, filter, date/as-of, tie rule) is explicitly
+  defined in the step-3/4 PRs.
