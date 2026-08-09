@@ -6,7 +6,9 @@ STATUS:    code delivered for review. Operator granted the shadow phase
            grant, with the launchd manifest updated in the same batch and a
            tracked issue carrying the revert steps (containment discipline).
 
-WHAT:      src/renquant_orchestrator/l1_exposure_shadow.py + 6 tests.
+WHAT:      src/renquant_orchestrator/l1_exposure_shadow.py + 8 tests, plus
+           the data/strategy_snapshot.json baseline refresh the new source
+           module requires (review r4; generate_strategy_snapshot.py --update).
            Computes target_exposure = clip((0.15/EWMA-vol)·g(regime), 0.3, 1)
            daily from the live surfaces (OHLCV universe vol; regime label +
            confidence from live_state_snapshots) and logs COMPONENTS —
