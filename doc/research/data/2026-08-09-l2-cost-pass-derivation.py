@@ -3,7 +3,33 @@ a top-3 name swap trades 2/3 notional (sell 1/3 + buy 1/3) -> cost_t =
 (names_changed/3) * 2 * 0.0010. Costs enter r_i BEFORE the clip transform
 (§2 contract rule 4). Hedge-layer reallocation cost ignored with statement:
 |dw| ~ 1e-3/day * 20bps round trip ~ 0.005bp/day, three orders below arm costs."""
-import glob, hashlib, json, sys
+import glob, hashlib, json, os, sys
+from pathlib import Path
+
+# review r1 fix: verify orch#926's committed input manifest BEFORE deriving;
+# REFUSE on any digest mismatch — "same replay arms as orch#926" is enforced
+# by this gate, not asserted. Same four checks as the #926 derivation.
+def _fsha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+def _dirsha(files):
+    h = hashlib.sha256()
+    for f in sorted(files):
+        h.update(f.split('/')[-1].encode()); h.update(_fsha(f).encode())
+    return h.hexdigest(), len(files)
+def verify_manifest():
+    man = json.load(open(Path(__file__).with_name('2026-08-09-l2-backtest-inputs.manifest.json')))
+    ins = man['inputs']
+    assert _fsha(ins['momentum_dense_scores.json']['path']) == ins['momentum_dense_scores.json']['sha256'], 'momentum scores digest mismatch'
+    d, n = _dirsha(glob.glob(ins['panel_replay_matrix']['dir'] + '/*/wf_replay_panel__*.parquet'))
+    assert (d, n) == (ins['panel_replay_matrix']['digest_of_digests'], ins['panel_replay_matrix']['n_files']), 'panel replay matrix digest mismatch'
+    assert _fsha(ins['sector_map_config']['path']) == ins['sector_map_config']['sha256'], 'sector map digest mismatch'
+    smap = json.load(open(ins['sector_map_config']['path']))['sector_map']
+    root = ins['ohlcv_universe']['root']
+    ofiles = [f'{root}/{t}/1d.parquet' for t, s in smap.items()
+              if s not in ('benchmark', 'defensive_bonds') and os.path.exists(f'{root}/{t}/1d.parquet')]
+    d, n = _dirsha(ofiles)
+    assert (d, n) == (ins['ohlcv_universe']['digest_of_digests'], ins['ohlcv_universe']['n_files']), 'ohlcv universe digest mismatch'
+    print('input manifest verified (momentum scores, panel matrix, sector map, ohlcv universe)')
+verify_manifest()
 sys.path.insert(0,"/Users/renhao/git/github/renquant-model/src")
 import numpy as np, pandas as pd
 from renquant_model_common.total_return import total_return_close
