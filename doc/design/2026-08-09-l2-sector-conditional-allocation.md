@@ -25,10 +25,16 @@ arms**. Each (sector, arm) pair keeps a paper book — a top-k concentrated
 portfolio of that arm's scores restricted to that sector — and the question
 is which ARM's sector book earns, judged on a 541-trading-day daily return
 series per book `[VERIFIED — #926 committed CSV span]`, not an IC on a
-daily 8–26 name width. Same data, ~20× longer evidence axis per decision
-`[DERIVED — 541 days vs a ~26-name maximum daily cross-section]`. The operator's "fast momentum for
-chips?" becomes: does mom_resid_63's ai_chip book beat the panel's ai_chip
-book net of costs over 541 days — answerable, falsifiable, and cheap.
+daily 8–26 name width. That is a statement about measurement SHAPE only —
+each decision is scored on one long book-return time series instead of a
+per-date thin cross-section. It is explicitly NOT an effective-sample-size
+or statistical-power claim: daily book returns are serially dependent,
+cross-sectional IC precision depends on dependence and dispersion, and
+days and names are different axes that do not convert into an evidence
+ratio. The §4 placebo and backtest remain the actual evidence. The
+operator's "fast momentum for chips?" becomes: does mom_resid_63's ai_chip
+book beat the panel's ai_chip book net of costs over 541 days —
+answerable, falsifiable, and cheap.
 
 ## 2 · Universe geometry `[VERIFIED — pinned strategy_config sector_map, sha 43cbb9b2…, read this session]`
 

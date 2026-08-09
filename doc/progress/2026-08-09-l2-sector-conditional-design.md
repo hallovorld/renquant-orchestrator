@@ -46,11 +46,13 @@ TESTS:     none — prose contract; its test is §4's zero-live-choice
            executability (the L3 lesson: every fold/guard/tie-break
            constant is IN the doc, not in a runner).
 
-NEXT:      (r4 provenance pass applied post-merge in a follow-up PR —
-           every quantitative claim in both documents now carries its
-           tag.) operator veto window + codex review; on merge, execute the §4
-           backtest once with committed artifacts + verifier; report
-           ADOPT-for-shadow vs RECORD-ONLY exactly as frozen.
+NEXT:      the design is already MERGED (#934). This follow-up PR is a
+           provenance/record repair only and authorizes NO execution. The
+           §4 backtest runs only as its own separately reviewed PR
+           executing the frozen contract (committed artifacts + verifier;
+           ADOPT-for-shadow vs RECORD-ONLY reported exactly as frozen).
+           No shadow or live action is implied by this PR or by the
+           merged design.
 
 REVIEW r1: codex CHANGES_REQUESTED (2026-08-09), two MED — both hidden
            live choices, i.e. exactly the doc's own §4 executability
@@ -92,3 +94,19 @@ REVIEW r3: codex MED (2026-08-09): the placebo gate and the top-k rank
            2. §3 tie-break: ranking into top-k by (−score, ticker) —
               descending score, ties by ascending ticker — after the
               staleness + investability filters.
+
+REVIEW r5: codex MED ×2 (2026-08-09) on the provenance follow-up (#935):
+           1. the "~20× longer evidence axis per decision" line turned a
+              ratio of unlike axes (time depth ÷ per-date name breadth)
+              into an evidentiary-strength claim; a `[DERIVED]` tag
+              documents the arithmetic, not the conclusion's validity.
+              The design doc (§1) now states measurement shape only —
+              541-day book-return series instead of a thin per-date IC —
+              with an explicit disclaimer that this is not an
+              effective-sample-size or power claim (serial dependence;
+              IC precision depends on dependence/dispersion); the §4
+              placebo/backtest remain the evidence.
+           2. NEXT was stale after #934 merged and ambiguously read as if
+              this provenance-only PR authorizes the backtest; rewritten
+              above — execution happens only in its own separately
+              reviewed backtest PR, no shadow/live action implied.
