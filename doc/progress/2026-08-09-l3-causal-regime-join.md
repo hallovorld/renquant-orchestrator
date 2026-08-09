@@ -9,6 +9,11 @@ WHAT:      src/renquant_orchestrator/l3_candidate_dataset.py — the regime
            regime_snapshot_created_at / regime_source columns in rows or
            manifest. A regression guard pins the exclusion: snapshot rows,
            even the same run's own, must not surface in any output column.
+           SCHEMA bumped v1 -> v2 (r4, codex P1): merged #928 published v1
+           WITH the regime fields, so the regime-free export is
+           l3_candidate_dataset.v2 — documented in the module, pinned by
+           test, and enforced by a fail-closed build assertion that refuses
+           any export in which a regime-derived column reappears.
 
 WHY/DIR:   codex's r2/r3 producer trace refuted the run-identity premise,
            and this session re-verified it read-only in RenQuant:
@@ -42,9 +47,10 @@ EVIDENCE:  artifact:      src/renquant_orchestrator/l3_candidate_dataset.py
                           the run-identity join, now also refuted
            best-known?:   yes — manifest after exclusion: 7,167 rows / 523
                           dates / 1,275 excluded / 135 selected / win rate
-                          0.6307 / live 2,189 vs sim 4,978 [VERIFIED —
-                          module stdout, this session], identical to the
-                          canonical #928 record: the removal changes
+                          0.6307 / live 2,189 vs sim 4,978, schema
+                          l3_candidate_dataset.v2 [VERIFIED — module
+                          stdout, this session], identical row figures to
+                          the canonical #928 record: the removal changes
                           columns only, never row selection. CSV header
                           carries no regime-derived column [VERIFIED —
                           head -1 of the rebuilt CSV, this session].

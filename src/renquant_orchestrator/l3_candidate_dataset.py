@@ -45,6 +45,14 @@ requires the producer to stamp regime/confidence into ``candidate_scores``
 at scoring time (or persist an immutable score-time feature artifact) with
 score-time provenance and producer-side ordering tests — and a new dated
 prereg admitting the block.
+
+SCHEMA v1 -> v2 (codex P1 on orch#930): merged orch#928 published
+``l3_candidate_dataset.v1`` WITH the regime fields (regime,
+regime_confidence, regime_source). Removing columns under the same version
+string would be a silent breaking producer-contract change, so this export
+is ``l3_candidate_dataset.v2``: regime fields removed for causality. A
+build-time assertion keeps v2 fail-closed — a regime-derived column in the
+output is a contract violation, not a feature.
 """
 from __future__ import annotations
 
@@ -57,7 +65,7 @@ from pathlib import Path
 
 from .runtime_paths import default_data_root
 
-SCHEMA = "l3_candidate_dataset.v1"
+SCHEMA = "l3_candidate_dataset.v2"   # v1 (orch#928) carried regime fields
 PRIMARY_HORIZON = "fwd_20d"
 FEATURES = ("panel_score", "raw_score", "rank_score", "mu", "sigma",
             "expected_return", "sector", "active_scorer", "selected",
@@ -112,6 +120,13 @@ def build_candidate_rows(db_path: Path) -> tuple[list[dict], dict]:
                 rows.append(row)
     finally:
         con.close()
+    # v2 contract, fail-closed (codex P1): regime fields were REMOVED in
+    # v1 -> v2 for causality; their reappearance is a violation, not a
+    # feature — refuse the export rather than silently re-publish them.
+    banned = sorted({k for r in rows[:1] for k in r if k.startswith("regime")})
+    if banned:
+        raise RuntimeError(f"{SCHEMA} contract violation: regime-derived "
+                           f"columns present: {banned}")
     n_live = sum(1 for r in rows if r["run_type"] == "live")
     manifest = {
         "schema": SCHEMA,

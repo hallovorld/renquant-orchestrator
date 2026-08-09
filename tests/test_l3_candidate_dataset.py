@@ -149,3 +149,6 @@ def test_regime_is_excluded_even_when_snapshots_exist(tmp_path):
     rows, manifest = l3c.build_candidate_rows(db)
     assert rows and not any(k.startswith("regime") for k in rows[0])
     assert not any(k.startswith("regime") for k in manifest)
+    # v1 -> v2 bump is part of the same contract: v1 (orch#928) published
+    # the regime fields, so the regime-free export must not reuse v1
+    assert manifest["schema"] == "l3_candidate_dataset.v2"
