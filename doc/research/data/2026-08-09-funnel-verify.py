@@ -21,6 +21,7 @@ if p.get("veto:rank_score_below_floor") != 2390: bad.append("rank-floor")
 if p.get("regime_admission:failed:BULL_CALM") != 1155: bad.append("bull-calm")
 if abs(S["mean_cash_frac"] - (k.cash / k.portfolio_value).mean()) > 1e-4: bad.append("cash-frac")
 if not c.run_id.notna().all(): bad.append("run-id-missing")
+if not (c.run_type == "live").all(): bad.append("non-live-rows")
 if bad: print("DRIFT:", bad); sys.exit(1)
 print(f"VERIFIED — {S['n_selection_events']} selection events ({S['n_selection_broker_receipts']} broker receipts) / {S['n_block_events']} block-events / "
       f"rank-floor {p['veto:rank_score_below_floor']} / BULL_CALM {p['regime_admission:failed:BULL_CALM']} / "

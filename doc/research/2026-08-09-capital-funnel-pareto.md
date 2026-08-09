@@ -70,14 +70,14 @@ prices drag at an 8% ASSUMED opportunity rate instead: **~$680/yr** on
 mean idle cash. The idle-capital PROBLEM is unchanged (79.1% of the book
 does nothing); its dollar cost was overstated ~7× by the old convention.
 
-## 2 · The July diagnosis is stale for this window
+## 2 · Current-window triage (provisional; NOT a cross-period conclusion)
 
 The July capital findings (wash-sale mass block, integer-share flooring —
 tasks #14, pipeline#223/#224, orch#608) do not appear in this window's top
-blockers: those frictions were real and their fixes remain right, but the
-funnel now chokes EARLIER — at the score floors and the regime admission
-gate. Any grant package ordered by the July picture would spend authority
-on non-binding constraints. VISIBLE RE-RANKING below.
+blockers: those frictions were real and their fixes remain right; ON THIS WINDOW the
+funnel chokes earlier — at the score floors and the regime admission gate.
+This is a provisional triage observation for the current window only, not
+a general prioritization rule; the re-ranking below is scoped accordingly.
 
 ## 3 · The root behind the biggest blocker — orch#942
 

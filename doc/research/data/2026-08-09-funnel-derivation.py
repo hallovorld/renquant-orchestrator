@@ -51,12 +51,13 @@ rows = pd.read_sql_query(f"""
                                 ORDER BY created_at DESC, run_id DESC) AS rn
       FROM pipeline_runs WHERE run_type='live') WHERE rn = 1)
   SELECT t.date, t.ticker, t.blocked_by, t.kelly_target_pct, t.selected,
-         t.run_id, (c.run_id IS NOT NULL) AS is_canonical, p.created_at AS run_created_at,
+         t.run_id, p.run_type, (c.run_id IS NOT NULL) AS is_canonical, p.created_at AS run_created_at,
          p.commit_sha, p.training_cutoff, p.model_content_sha256
   FROM ticker_daily_state t
   LEFT JOIN canonical c ON c.run_id = t.run_id
   JOIN pipeline_runs p ON p.run_id = t.run_id
-  WHERE t.in_candidates=1 AND t.date>='{W0}' AND t.date<='{W1}'""", con)
+  WHERE p.run_type='live' AND t.in_candidates=1
+    AND t.date>='{W0}' AND t.date<='{W1}'""", con)
 cash = pd.read_sql_query(f"""
   SELECT run_date, cash, portfolio_value FROM live_state_snapshots
   WHERE run_date>='{W0}' AND run_date<='{W1}' ORDER BY run_date""", con)
