@@ -14,18 +14,27 @@ continuous, data-governed dial.
 The original vision — a regime×sector→model table where each cell's model
 SCORES AND SELECTS names — was tested and its measurement collapsed
 (orch#910–#913): a per-sector selection signal is a Spearman IC on an 8–26
-name cross-section, 3–5× noisier than whole-book, and the one promising
-diagnostic (+0.0204, 33 days) sign-reversed out of sample (−0.0108, n=278
-governed). That kill stands FOR SELECTION-LEVEL routing.
+name cross-section `[VERIFIED — sector widths, #910 design record]`, 3–5×
+noisier than whole-book `[VERIFIED — #913 §10 record, sd ratios]`, and the
+one promising diagnostic (+0.0204, 33 days `[VERIFIED — #911 diagnostics]`)
+sign-reversed out of sample (−0.0108, n=278 governed `[VERIFIED — #913
+confirmatory record]`). That kill stands FOR SELECTION-LEVEL routing.
 
 This design measures a different estimand: **sector-level ALLOCATION among
 arms**. Each (sector, arm) pair keeps a paper book — a top-k concentrated
 portfolio of that arm's scores restricted to that sector — and the question
 is which ARM's sector book earns, judged on a 541-trading-day daily return
-series per book, not an IC on a daily 8–26 name width. Same data, ~20×
-longer evidence axis per decision. The operator's "fast momentum for
-chips?" becomes: does mom_resid_63's ai_chip book beat the panel's ai_chip
-book net of costs over 541 days — answerable, falsifiable, and cheap.
+series per book `[VERIFIED — #926 committed CSV span]`, not an IC on a
+daily 8–26 name width. That is a statement about measurement SHAPE only —
+each decision is scored on one long book-return time series instead of a
+per-date thin cross-section. It is explicitly NOT an effective-sample-size
+or statistical-power claim: daily book returns are serially dependent,
+cross-sectional IC precision depends on dependence and dispersion, and
+days and names are different axes that do not convert into an evidence
+ratio. The §4 placebo and backtest remain the actual evidence. The
+operator's "fast momentum for chips?" becomes: does mom_resid_63's ai_chip
+book beat the panel's ai_chip book net of costs over 541 days —
+answerable, falsifiable, and cheap.
 
 ## 2 · Universe geometry `[VERIFIED — pinned strategy_config sector_map, sha 43cbb9b2…, read this session]`
 
@@ -45,8 +54,9 @@ eligibility is a NEW dated design, not a knob.
 
 Notation: arms i ∈ {panel, mom_resid_252, mom_resid_63} (the merged L2
 registry); global weight path w^g(t) from the UNCHANGED merged engine
-(η=0.21, clip 0.05, champion floor w_panel ≥ 0.5 — its projected-OMD
-guarantee, #926 §2, is untouched).
+(η=0.21, clip 0.05, champion floor w_panel ≥ 0.5 `[VERIFIED — merged
+l2_paper_bandit.py constants]` — its projected-OMD guarantee, #926 §2, is
+untouched).
 
 For each eligible sector s:
 

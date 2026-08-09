@@ -6,10 +6,12 @@ STATUS:    design proposal only; no backtest has run; every threshold in
 WHAT:      doc/design/2026-08-09-l2-sector-conditional-allocation.md —
            sector-conditional expert allocation: per-sector Hedge paths on
            sector-book returns, shrunk toward the merged global L2 path by
-           frozen width tiers (m_s ∈ {0.5, 0.67, 1.0}); six eligible
-           sectors (≥14 names) covering 73.0% of the universe; four frozen
+           frozen width tiers (m_s ∈ {0.5, 0.67, 1.0} `[ASSUMED — frozen in the
+           design]`); six eligible sectors (≥14 names) covering 73.0% of
+           the universe `[DERIVED — pinned sector-map sums]`; four frozen
            comparison books; a frozen ADOPT/RECORD-ONLY rule; a
-           sector-permutation placebo ×200.
+           sector-permutation placebo ×200 `[ASSUMED — frozen in the
+           design]`.
 
 WHY/DIR:   Operator 2026-08-09: the three-layer machine lost sector
            awareness and that loss is unacceptable — the original MoE
@@ -17,16 +19,19 @@ WHY/DIR:   Operator 2026-08-09: the three-layer machine lost sector
            on measurement (#910–#913, IC on 8–26 names = noise); this
            design restores sector awareness at ALLOCATION granularity,
            where each decision rests on a 541-day book-return series
-           instead of a daily thin-cross-section IC. Both of the
+           `[VERIFIED — #926 committed CSV span]` instead of a daily
+           thin-cross-section IC `[VERIFIED — #913 record]`. Both of the
            operator's original shapes are endpoints of the shrinkage dial.
 
 EVIDENCE:  artifact:      pinned sector map (strategy_config sha
                           43cbb9b2…) [VERIFIED — read this session]:
                           159 names / 15 sectors; six ≥14-name sectors
                           hold 116 names = 73.0%. Prior-line numbers
-                          cited from merged records (#913 kill n=278;
-                          #926 Hedge +45.9%/1.33; #927 net panel
-                          +22.1%/0.49, churn drags 5.5–13.1pp).
+                          cited from merged records (#913 kill n=278 `[VERIFIED — #913 record]`;
+                          #926 Hedge +45.9%/1.33 `[VERIFIED — #926
+                          verifier output]`; #927 net panel +22.1%/0.49,
+                          churn drags 5.5–13.1pp `[VERIFIED — #927
+                          verifier output]`).
            prod or exp:   design doc only; nothing executes until it
                           merges and the backtest PR runs under §4.
            existing data: the #926 replay arms + sector map suffice for
@@ -41,9 +46,13 @@ TESTS:     none — prose contract; its test is §4's zero-live-choice
            executability (the L3 lesson: every fold/guard/tie-break
            constant is IN the doc, not in a runner).
 
-NEXT:      operator veto window + codex review; on merge, execute the §4
-           backtest once with committed artifacts + verifier; report
-           ADOPT-for-shadow vs RECORD-ONLY exactly as frozen.
+NEXT:      the design is already MERGED (#934). This follow-up PR is a
+           provenance/record repair only and authorizes NO execution. The
+           §4 backtest runs only as its own separately reviewed PR
+           executing the frozen contract (committed artifacts + verifier;
+           ADOPT-for-shadow vs RECORD-ONLY reported exactly as frozen).
+           No shadow or live action is implied by this PR or by the
+           merged design.
 
 REVIEW r1: codex CHANGES_REQUESTED (2026-08-09), two MED — both hidden
            live choices, i.e. exactly the doc's own §4 executability
@@ -85,3 +94,19 @@ REVIEW r3: codex MED (2026-08-09): the placebo gate and the top-k rank
            2. §3 tie-break: ranking into top-k by (−score, ticker) —
               descending score, ties by ascending ticker — after the
               staleness + investability filters.
+
+REVIEW r5: codex MED ×2 (2026-08-09) on the provenance follow-up (#935):
+           1. the "~20× longer evidence axis per decision" line turned a
+              ratio of unlike axes (time depth ÷ per-date name breadth)
+              into an evidentiary-strength claim; a `[DERIVED]` tag
+              documents the arithmetic, not the conclusion's validity.
+              The design doc (§1) now states measurement shape only —
+              541-day book-return series instead of a thin per-date IC —
+              with an explicit disclaimer that this is not an
+              effective-sample-size or power claim (serial dependence;
+              IC precision depends on dependence/dispersion); the §4
+              placebo/backtest remain the evidence.
+           2. NEXT was stale after #934 merged and ambiguously read as if
+              this provenance-only PR authorizes the backtest; rewritten
+              above — execution happens only in its own separately
+              reviewed backtest PR, no shadow/live action implied.
