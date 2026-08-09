@@ -128,6 +128,7 @@
     "intraday_session_runner",
     "intraday_session_scheduler",
     "job_runner",
+    "l1_exposure_shadow",
     "ledger_attribution",
     "live_bridge",
     "live_offboard_rehearsal",
