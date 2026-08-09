@@ -30,8 +30,20 @@ not prose.
 | kelly_zero:mu_le_min_edge | 57 | 0 |
 | broker_pending_submitted | 56 | 3.9 |
 
-Bottom line: **3 buys in 41 sessions**; 5,040 block-events; mean cash
-fraction **79.1%** `[VERIFIED — live_state_snapshots derivation, committed]`.
+Bottom line: **3 buys in 41 sessions — all three from a SINGLE run on
+2026-05-22**; 5,040 block-events; mean cash fraction **79.1%** `[VERIFIED —
+live_state_snapshots derivation, committed]`.
+
+DECISION UNITS (r3, review P0): the window's live runs are INTRADAY
+DECISION CYCLES — mean ~35 per day `[VERIFIED — committed summary]` — each
+able to place orders, so the primary funnel counts every run as a decision
+attempt (UNIT A); the last-run-per-date slice (UNIT B) is committed
+alongside as sensitivity, with an is_canonical flag on every row. Rank 1
+(the rank-score floor) is IDENTICAL under both units (2,390 / 1,563
+events); ranks 2-3 swap (BULL_CALM admission concentrates in intraday
+cycles: 1,155 under A vs 368 under B) — stated; and the #942 root cause is
+unit-independent (the artifact's stamps admit buys in zero regimes
+regardless of which run you count).
 
 VISIBLE CORRECTION (r2): this note first quoted the G-E record's
 "~$4,820/yr" cash drag. That figure priced idle cash at the replay panel's

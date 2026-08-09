@@ -9,7 +9,11 @@ k = pd.read_csv(HERE / "2026-08-09-funnel-cash.csv")
 bad = []
 if S["n_selected_buys"] != int(c.selected.sum()): bad.append("buys")
 if S["n_block_events"] != int((c.blocked_by.notna() & (c.blocked_by != "")).sum()): bad.append("blocks")
-p = {r["blocked_by"]: r["n_events"] for r in S["pareto"]}
+p = {r["blocked_by"]: r["n_events"] for r in S["pareto_all_runs"]}
+pc = {r["blocked_by"]: r["n_events"] for r in S["pareto_canonical"]}
+if list(p)[0] != "veto:rank_score_below_floor" or list(pc)[0] != "veto:rank_score_below_floor":
+    bad.append("rank1-instability")
+if pc.get("veto:rank_score_below_floor") != 1563: bad.append("canon-rank-floor")
 if p.get("veto:rank_score_below_floor") != 2390: bad.append("rank-floor")
 if p.get("regime_admission:failed:BULL_CALM") != 1155: bad.append("bull-calm")
 if abs(S["mean_cash_frac"] - (k.cash / k.portfolio_value).mean()) > 1e-4: bad.append("cash-frac")
