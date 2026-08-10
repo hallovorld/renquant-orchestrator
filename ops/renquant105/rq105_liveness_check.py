@@ -387,36 +387,53 @@ def _last_complete_jsonl_row(
 
 
 def _pairing_buyhalt_exempt(ok: bool, reason: str, last_row_date: str,
-                            today_iso: str, n_buys: "int | None") -> "tuple[bool, str]":
+                            today_iso: str,
+                            counts: "tuple[int, int] | None") -> "tuple[bool, str]":
     """Pure decision for the buy-halt exemption (unit-testable, no I/O).
 
-    Grants the exemption (returns ``(True, note)``) ONLY on a positive proof
-    of zero buy submissions (``n_buys == 0``). Any other value — including
-    ``None`` (undeterminable) or a positive count (buys happened but pairing
-    is stale, a REAL break) — leaves the original ``(ok, reason)`` untouched.
+    ``counts`` is ``(n_buys, n_any)`` from the trades ledger over the window,
+    or ``None`` when undeterminable. The exemption is granted (``(True,
+    note)``) ONLY on a JOINT positive proof:
+      * ``n_buys == 0`` — no live buy submission to pair, AND
+      * ``n_any > 0``  — the ledger recorded SOME activity (e.g. sells) on
+        those sessions, proving the ledger itself is LIVE and covers the
+        window. Without this, a stale/dead ledger (writer stopped, file
+        still readable, zero rows) would read as "zero buys" and hide a
+        real pairing outage after live buys (review r2, P1).
+    Any other case — ``None``, buys>0, or n_any==0 (no independent proof
+    the ledger is alive for these sessions) — leaves ``(ok, reason)``
+    untouched. Fail-closed: a defect here can only keep the alarm on.
     """
-    if n_buys == 0:
+    if counts is None:
+        return ok, reason
+    n_buys, n_any = counts
+    if n_buys == 0 and n_any > 0:
         return True, (
             f"empty entry-pairing is EXPECTED — zero live buy submissions on "
-            f"session days after {last_row_date} through {today_iso} (buy book "
-            f"gated; see P-WF-GATE). The pairing collector correctly recorded "
+            f"session days after {last_row_date} through {today_iso}, and the "
+            f"trades ledger recorded {n_any} other action(s) over that window "
+            f"(so the ledger is live and covers these sessions; buy book "
+            f"gated, see P-WF-GATE). The pairing collector correctly recorded "
             f"nothing rather than imputing."
         )
     return ok, reason
 
 
-def _live_buy_submissions_since(data_root: Path, since_iso: str, as_of: dt.date) -> int | None:
-    """Count live BUY submissions on session days AFTER ``since_iso`` through
-    ``as_of`` (inclusive), read-only from the runs ledger. Returns the count,
-    or ``None`` when it cannot be determined (DB absent/unreadable, schema
-    drift) — the caller treats ``None`` as "cannot prove zero" and does NOT
-    grant the buy-halt exemption (fail-closed: the exemption is only ever
-    given on a POSITIVE proof of zero buys).
+def _live_buy_submissions_since(data_root: Path, since_iso: str,
+                                as_of: dt.date) -> "tuple[int, int] | None":
+    """Return ``(n_buys, n_any)`` over session days AFTER ``since_iso``
+    through ``as_of`` (inclusive), read-only from the runs ledger:
+    ``n_buys`` = live BUY submissions (``action='buy_pending'``), ``n_any`` =
+    rows of ANY action (the ledger-liveness/coverage proof the exemption
+    requires). Returns ``None`` when undeterminable (DB absent/unreadable,
+    schema drift) — the caller then does NOT grant the exemption (fail-closed).
 
-    rq105 pairs ENTRY submissions; the entry action stamp is ``buy_pending``
-    in ``trades.action`` (the live-path submission stamp — see the pairing
+    rq105 pairs ENTRY submissions; the entry stamp is ``buy_pending`` in
+    ``trades.action`` (the live-path submission stamp — see the pairing
     logger's fb2e08de 'pair from live-path submissions'). Sell-only sessions
-    carry no ``buy_pending`` rows and thus produce no entry-pairs.
+    carry no ``buy_pending`` rows and thus produce no entry-pairs, but DO
+    carry ``sell_pending`` rows — that non-buy activity is what proves the
+    ledger is alive for the window.
     """
     db = data_root / "data" / "runs.alpaca.db"
     if not db.exists():
@@ -428,11 +445,13 @@ def _live_buy_submissions_since(data_root: Path, since_iso: str, as_of: dt.date)
             cols = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
             if not {"action", "trade_date"} <= cols:
                 return None
-            (n,) = con.execute(
-                "SELECT COUNT(*) FROM trades WHERE action='buy_pending' "
-                "AND trade_date > ? AND trade_date <= ?",
+            (n_buys, n_any) = con.execute(
+                "SELECT "
+                "SUM(CASE WHEN action='buy_pending' THEN 1 ELSE 0 END), "
+                "COUNT(*) "
+                "FROM trades WHERE trade_date > ? AND trade_date <= ?",
                 (since_iso, as_of.isoformat())).fetchone()
-            return int(n)
+            return int(n_buys or 0), int(n_any or 0)
         finally:
             con.close()
     except Exception:

@@ -25,19 +25,27 @@ from rq105_liveness_check import (  # noqa: E402
 STALE = "path last complete row date='2026-08-05' != today '2026-08-10' (stale)"
 
 
-def test_exempt_only_on_proven_zero():
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", 0)
+def test_exempt_on_zero_buys_with_live_ledger():
+    # (n_buys=0, n_any>0): no buys AND the ledger recorded other activity
+    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (0, 6))
     assert ok is True and "EXPECTED" in reason and "P-WF-GATE" in reason
+
+
+def test_stale_ledger_zero_rows_keeps_alarm():
+    # (n_buys=0, n_any=0): a dead/stale ledger with no window rows cannot
+    # prove the ledger is live -> NO exemption (review r2 P1)
+    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (0, 0))
+    assert ok is False and reason == STALE
 
 
 def test_buys_happened_but_stale_still_fails():
     # a REAL break: buys were submitted yet pairing didn't log them
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", 3)
+    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (3, 9))
     assert ok is False and reason == STALE
 
 
 def test_undeterminable_count_keeps_alarm():
-    # None = cannot prove zero -> fail-closed, exemption NOT granted
+    # None = cannot prove -> fail-closed, exemption NOT granted
     ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", None)
     assert ok is False and reason == STALE
 
@@ -53,12 +61,12 @@ def _mkdb(tmp: Path, rows):
 def test_buy_count_reads_only_buy_pending_after_since(tmp_path):
     _mkdb(tmp_path, [
         ("buy_pending", "2026-08-04"),   # on/before since -> excluded
-        ("sell_pending", "2026-08-06"),  # not a buy -> excluded
-        ("buy_pending", "2026-08-07"),   # in window -> counted
+        ("sell_pending", "2026-08-06"),  # non-buy in window -> n_any only
+        ("buy_pending", "2026-08-07"),   # buy in window -> both
         ("buy_pending", "2026-08-11"),   # after as_of -> excluded
     ])
-    n = _live_buy_submissions_since(tmp_path, "2026-08-05", dt.date(2026, 8, 10))
-    assert n == 1
+    n_buys, n_any = _live_buy_submissions_since(tmp_path, "2026-08-05", dt.date(2026, 8, 10))
+    assert n_buys == 1 and n_any == 2  # buy_pending 08-07 + sell_pending 08-06
 
 
 def test_missing_db_is_none_fail_closed(tmp_path):
