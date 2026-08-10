@@ -20,6 +20,18 @@ fixture (4 controls: planted-effect, no-information null, coverage
 fail-closed, skip rule — all PASS; 4 bugs caught and fixed pre-run,
 including a vacuous boundary assertion and nondeterministic tie order).
 
+r2 (review P0 relocation): all model internals (fold-8 training,
+normalization, scoring) live in renquant-model
+`scripts/family_comparison_replay_scorer.py` (model#220), which
+publishes the hash-pinned predictions artifact
+`doc/design/frozen/2026-08-10-family-comparison-replay-predictions.csv`
+(7,592 rows, sha b549940e…; committed pytest controls carry the
+rehearsal fixture — the auditable control surface). This repo's runner
+is JOIN-ONLY: it asserts the predictions and extension-parquet shas
+against the model#220 manifest, joins labels and the live record, and
+computes the frozen table. The r2 rerun reproduced r1's daily table
+BYTE-IDENTICALLY [VERIFIED — diff clean, 2026-08-10].
+
 ## 2. Units — read this first
 
 `fwd_5d_excess` in the corpus is **CSZScoreNorm: the per-day
@@ -73,13 +85,14 @@ Both arms are mildly positive in top-5 selection.
 
 ```
 python data/2026-08-10-family-comparison-runner.py \
-  renquant-model/doc/design/frozen/2026-08-09-xgbmom-v2-harness.py \
-  RenQuant/data/alpha158_291_fundamental_dataset.parquet \
+  <replay-predictions.csv>  # model#220 artifact, sha-asserted \
   <alpha158_extension_fund.parquet> <runs.alpaca.db> \
   data/2026-08-10-family-comparison
 ```
-Five arguments: harness (constants ast-read; corpus pin asserted),
-frozen corpus, extension fund parquet (orch#948 recipe), DB, out prefix.
+Four arguments: the model#220 predictions artifact (sha asserted against
+its manifest), extension fund parquet (sha asserted; orch#948 recipe),
+DB, out prefix. The model-side scorer's own reproduction recipe lives
+with model#220.
 Committed evidence (`…_daily.csv`, `…_coverage.csv`, `…_summary.json`)
 is the runner's verbatim output. Rehearsal report and fixture live in
 session scratch (controls summarized in §1; the runner asserts SEEDS and

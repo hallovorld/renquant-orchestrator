@@ -1,5 +1,8 @@
 {
   "design_doc": "doc/design/2026-08-09-family-comparison-freeze.md",
+  "predictions_artifact": "renquant-model doc/design/frozen/2026-08-10-family-comparison-replay-predictions.csv",
+  "predictions_sha256": "b549940e0c70a42b63335961872aff978136ed387fe9ee9b45d6d386b118cc8f",
+  "ext_parquet_sha256": "7da2f2797c1fdaf0024556e88e69b6ef6ecaed5ab88e9e3ba03d50d91dd3c6f2",
   "window": [
     "2026-05-20",
     "2026-07-31"
@@ -7,15 +10,6 @@
   "k": 5,
   "n_days": 31,
   "n_skipped": 5,
-  "frozen_corpus_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
-  "ext_parquet_sha256": "7da2f2797c1fdaf0024556e88e69b6ef6ecaed5ab88e9e3ba03d50d91dd3c6f2",
-  "fold8_train_rows": 708723,
-  "fold8_purged": 0,
-  "seeds": [
-    42,
-    43,
-    44
-  ],
   "mean_served_topk_excess": 0.11295794427880251,
   "mean_replay_topk_excess": 0.09572925817885351,
   "mean_diff_served_minus_replay": 0.01722868609994899,
