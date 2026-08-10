@@ -20,7 +20,7 @@ on the same days and the same universe?
 | arm | score source | identity |
 |---|---|---|
 | SERVED | `ticker_daily_state.panel_score`, canonical run per date (the orch#949/#950-verified record) | as recorded live |
-| REPLAY | the frozen xgb_mom_60d v2 harness model, trained by the committed harness on the FROZEN corpus (folds/params/features frozen at model#213), scored on the extension panel | fold-8 booster (train ≤ 2025-12-31), the only fold whose training data predates the whole window |
+| REPLAY | the frozen xgb_mom_60d v2 harness model, trained by the committed harness recipe on the FROZEN corpus (folds/params/features frozen at model#213), scored on the extension panel | fold-8 (train ≤ 2025-12-31), the only fold whose training data predates the whole window; the REPLAY score is the MEAN of the three boosters trained with the harness's frozen seed tuple (42, 43, 44) — the tuple is frozen in the harness, so no seed is chosen here |
 
 Rationale for fold-8: its training labels end ≥ 91 days before the
 comparison window starts — no leakage into ANY comparison date; and it is
