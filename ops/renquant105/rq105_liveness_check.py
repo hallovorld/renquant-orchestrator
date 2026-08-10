@@ -388,73 +388,68 @@ def _last_complete_jsonl_row(
 
 def _pairing_buyhalt_reclassify(ok: bool, reason: str, last_row_date: str,
                                 today_iso: str,
-                                counts: "tuple[int, int] | None") -> "tuple[str, str]":
+                                buys_blocked: "bool | None") -> "tuple[str, str]":
     """Pure decision for the buy-halt RECLASSIFICATION (unit-testable, no I/O).
 
-    Returns ``(status, reason)``. IMPORTANT (review r3): the trades ledger
-    CANNOT self-certify completeness — a writer that drops buys while still
-    recording sells is indistinguishable, from any query on that ledger,
-    from a genuine no-buy session. So this NEVER flips a stale pairing to a
-    healthy ``"ok"`` (which would falsely claim the outage cannot exist).
+    Returns ``(status, reason)``. The reclassification requires an
+    INDEPENDENT, session-current proof that buys were BLOCKED AT ADMISSION
+    (review r3): ``buys_blocked`` is the served artifact's WF-gate verdict —
+    ``True`` iff its ``wf_gate_metadata.passed is False`` (P-WF-GATE refuses
+    all new buys this session), so zero entry-pairs is provably correct
+    regardless of the trades ledger. The earlier trades-ledger approach was
+    abandoned: that ledger cannot self-certify buy-write completeness (a
+    writer dropping buys while recording sells is indistinguishable from a
+    genuine no-buy session).
 
-    Instead, when the ledger POSITIVELY shows a buy-halt shape
-    (``n_buys == 0`` over the window with ``n_any > 0`` other activity,
-    proving the ledger is at least live), the stale pairing is downgraded
-    from the PAGING ``"stale_or_missing"`` to a NON-PAGING, still-surfaced
-    ``"info_buy_halt"`` — no 🚨 page, no green, and an explicit instruction
-    to verify independently if buys WERE expected. Any other case keeps the
-    original paging failure. Fail-closed: a defect here can only keep the
-    page, never suppress it into a false green.
+    NEVER flips a stale pairing to a healthy ``"ok"``. On a positive
+    buy-blocked proof it downgrades the PAGING ``"stale_or_missing"`` to the
+    NON-PAGING, still-surfaced ``"info_buy_halt"``. ``None`` (undeterminable)
+    or ``False`` (gate ADMITS buys, so a stale pairing IS a real outage)
+    both keep the page. Fail-closed: a defect here can only keep the page.
     """
-    if not ok and counts is not None:
-        n_buys, n_any = counts
-        if n_buys == 0 and n_any > 0:
-            return "info_buy_halt", (
-                f"pairing empty since {last_row_date}: the trades ledger shows "
-                f"zero buy submissions through {today_iso} with {n_any} other "
-                f"action(s) (buy book gated, see P-WF-GATE) — expected-empty, "
-                f"NOT paged. NOTE: the trades ledger cannot prove buy-write "
-                f"completeness; if live buys WERE expected, verify the trades "
-                f"writer independently."
-            )
+    if not ok and buys_blocked is True:
+        return "info_buy_halt", (
+            f"pairing empty since {last_row_date} through {today_iso}: the "
+            f"SERVED artifact's WF gate is failing (P-WF-GATE refuses all new "
+            f"buys), so there are no entry submissions to pair — expected-empty, "
+            f"NOT paged. If the WF gate is passing yet pairing is empty, this "
+            f"downgrade does NOT apply and the page stands."
+        )
     return ("ok" if ok else "stale_or_missing"), reason
 
 
-def _live_buy_submissions_since(data_root: Path, since_iso: str,
-                                as_of: dt.date) -> "tuple[int, int] | None":
-    """Return ``(n_buys, n_any)`` over session days AFTER ``since_iso``
-    through ``as_of`` (inclusive), read-only from the runs ledger:
-    ``n_buys`` = live BUY submissions (``action='buy_pending'``), ``n_any`` =
-    rows of ANY action (the ledger-liveness/coverage proof the exemption
-    requires). Returns ``None`` when undeterminable (DB absent/unreadable,
-    schema drift) — the caller then does NOT grant the exemption (fail-closed).
-
-    rq105 pairs ENTRY submissions; the entry stamp is ``buy_pending`` in
-    ``trades.action`` (the live-path submission stamp — see the pairing
-    logger's fb2e08de 'pair from live-path submissions'). Sell-only sessions
-    carry no ``buy_pending`` rows and thus produce no entry-pairs, but DO
-    carry ``sell_pending`` rows — that non-buy activity is what proves the
-    ledger is alive for the window.
+def _wf_gate_blocks_buys(data_root: Path) -> "bool | None":
+    """Return whether the SERVED panel artifact's WF gate BLOCKS new buys —
+    the independent, session-current buy-block proof (the same signal
+    P-WF-GATE reads). ``True`` iff ``wf_gate_metadata.passed is False``;
+    ``False`` iff it is True (buys admitted); ``None`` when undeterminable
+    (config/artifact missing/unreadable, or no WF stamp) — the caller then
+    keeps the page (fail-closed). Read-only.
     """
-    db = data_root / "data" / "runs.alpaca.db"
-    if not db.exists():
-        return None
     try:
-        import sqlite3
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-        try:
-            cols = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
-            if not {"action", "trade_date"} <= cols:
-                return None
-            (n_buys, n_any) = con.execute(
-                "SELECT "
-                "SUM(CASE WHEN action='buy_pending' THEN 1 ELSE 0 END), "
-                "COUNT(*) "
-                "FROM trades WHERE trade_date > ? AND trade_date <= ?",
-                (since_iso, as_of.isoformat())).fetchone()
-            return int(n_buys or 0), int(n_any or 0)
-        finally:
-            con.close()
+        cfg_path = data_root / ".subrepo_runtime" / "repos" / \
+            "renquant-strategy-104" / "configs" / "strategy_config.json"
+        artifacts_root = data_root / "backtesting" / "renquant_104"
+        rel = "artifacts/prod/panel-ltr.alpha158_fund.json"  # P-WF-GATE default
+        if cfg_path.exists():
+            ps = (json.loads(cfg_path.read_text()).get("ranking", {})
+                  .get("panel_scoring", {}))
+            comps = ps.get("components")
+            if isinstance(comps, list) and comps and isinstance(comps[0], dict):
+                rel = comps[0].get("artifact_path", rel)  # blend component-0 = panel
+            elif ps.get("artifact_path"):
+                rel = ps["artifact_path"]
+        art = artifacts_root / rel
+        if not art.exists():
+            return None
+        payload = json.loads(art.read_text())
+        wf = payload.get("wf_gate_metadata")
+        if not isinstance(wf, dict):
+            meta = payload.get("metadata")
+            wf = meta.get("wf_gate_metadata") if isinstance(meta, dict) else None
+        if not isinstance(wf, dict) or "passed" not in wf:
+            return None
+        return wf["passed"] is False
     except Exception:
         return None
 
@@ -591,8 +586,8 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     free to change in a future round without breaking callers of this
     function.
 
-    Returns ``{collector_name: {"status": "ok" | "stale_or_missing",
-    "path": str, "reason": str | None, "freshness_basis":
+    Returns ``{collector_name: {"status": "ok" | "stale_or_missing" |
+    "info_buy_halt", "path": str, "reason": str | None, "freshness_basis":
     "row_event_time" | "file_mtime", "row_content_sha256": str | None}}`` —
     one entry per collector in ``_data_outputs()``, independent of the
     others (a consumer can report each collector separately or aggregate,
@@ -601,7 +596,15 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     generic tail-read hash of arbitrary file bytes — so a caller recording
     this as provenance evidence is provably anchored to the row the
     validator actually used, and ``None`` only when no row was ever
-    selected (missing/empty file, or no parseable complete row at all)."""
+    selected (missing/empty file, or no parseable complete row at all).
+
+    ``"info_buy_halt"`` is a THIRD, NON-PAGING status emitted ONLY for the
+    pairing collector when its output is stale specifically because the
+    served artifact's WF gate is refusing all new buys (P-WF-GATE), so there
+    are no entry submissions to pair — expected-empty, surfaced but not
+    paged. It is never a substitute for ``"ok"``; callers that page on
+    non-ok MUST treat ``"info_buy_halt"`` as non-paging-but-visible (see
+    ``main()``)."""
     out: dict[str, dict] = {}
     today_iso = as_of.isoformat()
     bounds = _session_calendar().session_bounds(as_of)
@@ -626,9 +629,9 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
         if (not ok and name == "intraday_pairing_logger"
                 and row is not None and isinstance(row.get("date"), str)
                 and "(stale)" in reason):
-            counts = _live_buy_submissions_since(data_root, row["date"], as_of)
+            buys_blocked = _wf_gate_blocks_buys(data_root)
             status, reason = _pairing_buyhalt_reclassify(
-                ok, reason, row["date"], today_iso, counts)
+                ok, reason, row["date"], today_iso, buys_blocked)
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
             if row is not None else None)

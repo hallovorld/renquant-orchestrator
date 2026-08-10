@@ -1,16 +1,17 @@
-"""Buy-halt exemption for the rq105 pairing collector (orch: G-F-class fix).
+"""Buy-halt reclassification for the rq105 pairing collector (G-F class).
 
-rq105 pairs ENTRY submissions; a session with zero live buy submissions
-produces zero entry-pairs — that empty output is correct, not a fault. The
-sentinel used to alarm "stale" on it (answering "did a row arrive today"
-instead of "should one have"). These controls pin the fix AND its
-fail-closed scope: the exemption is granted ONLY on a positive proof of
-zero buys; buys-happened-but-stale and undeterminable both keep the alarm.
+rq105 pairs ENTRY submissions; when the SERVED artifact's WF gate refuses
+all new buys (P-WF-GATE, passed=False) there are no entries to pair, so an
+empty pairing output is correct, not a fault. The sentinel used to page on
+it (answering "did a row arrive today" not "should one have"). These
+controls pin the fix AND its fail-closed scope: the page is downgraded to
+a non-paging INFO ONLY on an independent buy-blocked proof (the gate
+verdict); the page is NEVER flipped to a healthy "ok", and undeterminable
+or gate-admits-buys both keep the page.
 """
 from __future__ import annotations
 
-import datetime as dt
-import sqlite3
+import json
 import sys
 from pathlib import Path
 
@@ -19,70 +20,55 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops" / "renquan
 
 from rq105_liveness_check import (  # noqa: E402
     _pairing_buyhalt_reclassify,
-    _live_buy_submissions_since,
+    _wf_gate_blocks_buys,
 )
 
 STALE = "path last complete row date='2026-08-05' != today '2026-08-10' (stale)"
 
 
-def test_buyhalt_downgrades_to_info_never_green():
-    # (n_buys=0, n_any>0): a positive buy-halt shape downgrades the PAGE to
-    # a non-paging INFO — never a healthy "ok" green (the ledger cannot
-    # prove buy-write completeness)
-    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (0, 6))
-    assert status == "info_buy_halt"
-    assert status != "ok"
-    assert "P-WF-GATE" in reason and "cannot prove buy-write completeness" in reason
+def test_gate_blocks_buys_downgrades_to_info_never_green():
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", True)
+    assert status == "info_buy_halt" and status != "ok"
+    assert "P-WF-GATE" in reason and "NOT paged" in reason
 
 
-def test_stale_ledger_zero_rows_keeps_page():
-    # (n_buys=0, n_any=0): no other activity -> cannot even prove the ledger
-    # is live -> the PAGE stands
-    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (0, 0))
+def test_gate_admits_buys_keeps_page():
+    # gate PASSES (buys allowed) yet pairing stale -> a REAL outage -> page
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", False)
     assert status == "stale_or_missing" and reason == STALE
 
 
-def test_buys_happened_but_stale_keeps_page():
-    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (3, 9))
-    assert status == "stale_or_missing" and reason == STALE
-
-
-def test_undeterminable_keeps_page():
+def test_undeterminable_gate_keeps_page():
     status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", None)
     assert status == "stale_or_missing" and reason == STALE
 
 
 def test_healthy_row_stays_ok():
-    status, reason = _pairing_buyhalt_reclassify(True, "", "2026-08-10", "2026-08-10", (0, 6))
+    status, _ = _pairing_buyhalt_reclassify(True, "", "2026-08-10", "2026-08-10", True)
     assert status == "ok"
 
 
-def _mkdb(tmp: Path, rows):
-    (tmp / "data").mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(tmp / "data" / "runs.alpaca.db")
-    con.execute("CREATE TABLE trades (action TEXT, trade_date TEXT)")
-    con.executemany("INSERT INTO trades VALUES (?,?)", rows)
-    con.commit(); con.close()
+def _mk_artifact(tmp: Path, passed):
+    root = tmp / "backtesting" / "renquant_104" / "artifacts" / "prod"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "panel-ltr.alpha158_fund.json").write_text(json.dumps(
+        {"wf_gate_metadata": {"passed": passed}} if passed is not None else {}))
 
 
-def test_buy_count_reads_only_buy_pending_after_since(tmp_path):
-    _mkdb(tmp_path, [
-        ("buy_pending", "2026-08-04"),   # on/before since -> excluded
-        ("sell_pending", "2026-08-06"),  # non-buy in window -> n_any only
-        ("buy_pending", "2026-08-07"),   # buy in window -> both
-        ("buy_pending", "2026-08-11"),   # after as_of -> excluded
-    ])
-    n_buys, n_any = _live_buy_submissions_since(tmp_path, "2026-08-05", dt.date(2026, 8, 10))
-    assert n_buys == 1 and n_any == 2  # buy_pending 08-07 + sell_pending 08-06
+def test_gate_reader_true_when_failing(tmp_path):
+    _mk_artifact(tmp_path, False)
+    assert _wf_gate_blocks_buys(tmp_path) is True
 
 
-def test_missing_db_is_none_fail_closed(tmp_path):
-    assert _live_buy_submissions_since(tmp_path, "2026-08-05", dt.date(2026, 8, 10)) is None
+def test_gate_reader_false_when_passing(tmp_path):
+    _mk_artifact(tmp_path, True)
+    assert _wf_gate_blocks_buys(tmp_path) is False
 
 
-def test_schema_drift_is_none_fail_closed(tmp_path):
-    (tmp_path / "data").mkdir(parents=True)
-    con = sqlite3.connect(tmp_path / "data" / "runs.alpaca.db")
-    con.execute("CREATE TABLE trades (foo TEXT)")  # missing action/trade_date
-    con.commit(); con.close()
-    assert _live_buy_submissions_since(tmp_path, "2026-08-05", dt.date(2026, 8, 10)) is None
+def test_gate_reader_none_when_no_stamp(tmp_path):
+    _mk_artifact(tmp_path, None)  # artifact exists but no wf_gate_metadata
+    assert _wf_gate_blocks_buys(tmp_path) is None
+
+
+def test_gate_reader_none_when_artifact_missing(tmp_path):
+    assert _wf_gate_blocks_buys(tmp_path) is None
