@@ -386,6 +386,59 @@ def _last_complete_jsonl_row(
         chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
 
 
+def _pairing_buyhalt_exempt(ok: bool, reason: str, last_row_date: str,
+                            today_iso: str, n_buys: "int | None") -> "tuple[bool, str]":
+    """Pure decision for the buy-halt exemption (unit-testable, no I/O).
+
+    Grants the exemption (returns ``(True, note)``) ONLY on a positive proof
+    of zero buy submissions (``n_buys == 0``). Any other value — including
+    ``None`` (undeterminable) or a positive count (buys happened but pairing
+    is stale, a REAL break) — leaves the original ``(ok, reason)`` untouched.
+    """
+    if n_buys == 0:
+        return True, (
+            f"empty entry-pairing is EXPECTED — zero live buy submissions on "
+            f"session days after {last_row_date} through {today_iso} (buy book "
+            f"gated; see P-WF-GATE). The pairing collector correctly recorded "
+            f"nothing rather than imputing."
+        )
+    return ok, reason
+
+
+def _live_buy_submissions_since(data_root: Path, since_iso: str, as_of: dt.date) -> int | None:
+    """Count live BUY submissions on session days AFTER ``since_iso`` through
+    ``as_of`` (inclusive), read-only from the runs ledger. Returns the count,
+    or ``None`` when it cannot be determined (DB absent/unreadable, schema
+    drift) — the caller treats ``None`` as "cannot prove zero" and does NOT
+    grant the buy-halt exemption (fail-closed: the exemption is only ever
+    given on a POSITIVE proof of zero buys).
+
+    rq105 pairs ENTRY submissions; the entry action stamp is ``buy_pending``
+    in ``trades.action`` (the live-path submission stamp — see the pairing
+    logger's fb2e08de 'pair from live-path submissions'). Sell-only sessions
+    carry no ``buy_pending`` rows and thus produce no entry-pairs.
+    """
+    db = data_root / "data" / "runs.alpaca.db"
+    if not db.exists():
+        return None
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(trades)")}
+            if not {"action", "trade_date"} <= cols:
+                return None
+            (n,) = con.execute(
+                "SELECT COUNT(*) FROM trades WHERE action='buy_pending' "
+                "AND trade_date > ? AND trade_date <= ?",
+                (since_iso, as_of.isoformat())).fetchone()
+            return int(n)
+        finally:
+            con.close()
+    except Exception:
+        return None
+
+
 def _data_output_fresh(
     path: str, today_iso: str, extract_ts, freshness_basis: str,
     session_close_utc: dt.datetime | None = None,
@@ -530,6 +583,23 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
             str(full_path), today_iso, extract_ts, freshness_basis,
             session_close_utc=session_close_utc,
         )
+        # BUY-HALT EXEMPTION (rq105 pairs ENTRY submissions; a session with
+        # zero live buy submissions produces zero entry-pairs — that empty
+        # output is CORRECT, not a collector fault). The false "stale" alarm
+        # this silences is the G-F class: the probe was answering "did a row
+        # arrive today" when the honest question is "should one have". Scope
+        # is deliberately narrow and FAIL-CLOSED: only the pairing collector,
+        # only when it is stale specifically because its last dated row is
+        # OLD (never for missing/empty/corrupt), and only when we can PROVE
+        # zero buy submissions since that row from the live trades ledger. If
+        # the submission count cannot be determined, the exemption is NOT
+        # granted and the original stale verdict stands — a defect here can
+        # only make the check stricter, never hide a real break.
+        if (not ok and name == "intraday_pairing_logger"
+                and row is not None and isinstance(row.get("date"), str)
+                and "(stale)" in reason):
+            n_buys = _live_buy_submissions_since(data_root, row["date"], as_of)
+            ok, reason = _pairing_buyhalt_exempt(ok, reason, row["date"], today_iso, n_buys)
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
             if row is not None else None)
