@@ -32,7 +32,10 @@ EVIDENCE:  artifact:      the amendment doc
                           episode-derivation.py + …-episodes.csv);
                           verifier re-run ON THIS BRANCH 2026-08-10:
                           VERDICT REPRODUCED, exit 0 (75 BEAR days /
-                          5 episodes / 2,412 trading days)
+                          5 episodes / 2,412 trading days); GMM
+                          artifact identity FROZEN in the amendment:
+                          sha256 cb643e00…c851a07d under s104 pin
+                          e00d9356 (lock == checkout HEAD verified)
            best-known?:   yes — what is NOT amended is enumerated
            scope:         one naming correction + this doc
 

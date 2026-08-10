@@ -28,8 +28,15 @@ path read from the pinned strategy-104 checkout].
 ## The correction (binding once this merges)
 
 Everywhere the frozen prereg says "production HMM", read: **"the
-production regime model — the pinned GMM at `prod/spy-gmm-regime.json`,
-loaded exactly as the production pipeline loads it."** The episode
+production regime model — the GMM artifact whose identity is FROZEN
+here: `prod/spy-gmm-regime.json` with sha256
+`cb643e003cec11ea897137c206713e6753746b1792ed39083b6a5319c851a07d`,
+under strategy-104 pin `e00d9356ac62` (= the subrepos.lock.json pin =
+the running checkout HEAD, all three verified equal 2026-08-10),
+loaded exactly as the production pipeline loads it."** The confirmatory
+runner must assert the artifact's sha256 against this frozen value
+before any regime is computed; a mismatch voids the run (a NEW
+amendment would be required for a retrained GMM). The episode
 inventory committed in orch#962 (75 days / 5 episodes, per-row verified)
 is the canonical realization of the frozen §3 window under this
 correction.
