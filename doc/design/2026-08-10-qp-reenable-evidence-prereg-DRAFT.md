@@ -102,6 +102,48 @@ This draft proceeds on (a) in its next revision unless review or the
 operator directs otherwise; (b) remains available to the operator at
 any time and is orthogonal to (a)'s evidence.
 
+## 5b. Selection-level power (fork (a) inputs — COMPUTED 2026-08-10)
+
+Same pre-2026 discipline (corpus z-labels 2023-2025, 400 seeded draws;
+z→raw mapping from an 80-name OHLCV sample) [VERIFIED — qp-power
+selection calc, committed alongside]:
+
+| k | σ of daily mean-z statistic | MDE @63d | @126d | @252d |
+|---|---|---|---|---|
+| 5 | 0.443σ/day | 0.156σ | 0.110σ | 0.078σ |
+| 10 | 0.310σ/day | 0.110σ | 0.078σ | 0.055σ |
+| 20 | 0.215σ/day | 0.076σ | 0.054σ | 0.038σ |
+
+z→raw: median per-day cross-sectional std of RAW 5d excess = 4.04%,
+so 0.10σ/day ≈ 20.4%/yr GROSS selection alpha (median-day mapping,
+pre-cost, pre-sizing — an upper bound on realizable, stated as such).
+
+**Fork (a) is viable**: at k=5 a 126-252 trading-day evaluation has
+80% power for 0.078-0.110σ/day — the same order as the served arm's
+observed (diagnostic, contaminated-for-confirmation) point estimate
+of +0.113σ/day in orch#953. The portfolio-level impossibility (§5)
+does not recur at the selection level.
+
+## 5c. The reinterpreted estimand (fork (a), to be frozen in rev 2)
+
+"WF shows benchmark-relative alpha survives the strict admission gate"
+is REINTERPRETED (explicitly, as a reviewed reinterpretation of the
+05-23 recorded text) as: on embargoed walk-forward test folds (v2 CUTS
+convention) over the corpus history EXCLUDING the contaminated
+2026-05-20..07-31 window, the SERVED RECIPE's selections — the blend
+construction replayed per fold (z(panel leg per WF fold) + z(momentum
+leg per its frozen recipe)) and FILTERED by the admission gate per the
+#942 resolution — have mean daily top-5 fwd_5d excess-z ≥ the MDE at
+the realized fold-day count, with a stationary-bootstrap CI excluding
+zero. Open items for rev 2 (each must be closed before freeze):
+1. the momentum leg's historical replay recipe (the ledger begins
+   2026-08 — a backfill rule must be frozen or the leg dropped for the
+   historical window with the composite degradation stated);
+2. the exact gate predicate per #942 branch (unchanged from §3);
+3. the realized fold-day count and therefore the numeric bar;
+4. cost/turnover treatment at the selection level (report-only
+   companion, since selection alpha is pre-cost by construction).
+
 ## 6. Outcome semantics
 
 PASS ⇒ the recorded condition is met; the deliverable is a
