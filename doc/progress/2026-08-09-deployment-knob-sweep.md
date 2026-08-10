@@ -15,12 +15,13 @@ WHAT:      doc/research/2026-08-09-deployment-knob-sweep.md — four
            configuration isolates a must-act case) and min_invested shows
            no effect beyond what the cap permits.
 
-WHY/DIR:   The live book's non-deployment therefore does NOT live in the
-           λ/min_invested knobs: it lives in what this replica does not
-           model — the upstream admission floors (rank-score veto 2,390
-           events, mu conviction 277; orch#943 merged) and the full
-           in-pipeline QP's not_selected stage. The unlock path
-           redirects there; the 2026-05-23 re-enable condition (WF alpha
+WHY/DIR:   Within this frame the knobs cannot explain the live book's
+           non-deployment (unexplained by the modeled constraints). The
+           next evidence target — motivated here, established nowhere
+           yet — is what the replica does not model: the upstream
+           admission floors (rank-score veto 2,390 events, mu conviction
+           277; orch#943 merged) and the full in-pipeline QP's
+           not_selected stage; the 2026-05-23 re-enable condition (WF alpha
            evidence) governs any relaxation unchanged.
 
 EVIDENCE:  artifact:      doc/research/data/2026-08-09-deployment-knob-sweep.json

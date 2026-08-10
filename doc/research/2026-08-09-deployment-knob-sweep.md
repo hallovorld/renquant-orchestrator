@@ -28,13 +28,15 @@ shows no effect beyond what the cap already permits.
 ## The redirection this forces
 
 If the simplified QP wants full deployment even with every knob at zero,
-the live book's non-deployment does not live in these knobs. It lives in
+then WITHIN THIS FRAME the knobs cannot explain the live book's
+non-deployment — the non-deployment is UNEXPLAINED by the modeled
+constraints. That directs (but does not prove) the next investigation at
 what this replica does NOT model: the upstream floors and the full QP's
 additional terms — consistent with the funnel Pareto (orch#943 merged):
 rank-score floor veto 2,390 events, conviction mu-floor 277, and the
-full-QP not_selected stage. **The unlock path runs through the upstream
-admission floors and the full in-pipeline QP, not through λ/min_invested
-re-tuning.** The 2026-05-23 re-enable condition (WF alpha evidence)
+full-QP not_selected stage. **The next evidence target is therefore the upstream
+admission floors and the full in-pipeline QP — a hypothesis this frame
+motivates but cannot itself establish.** The 2026-05-23 re-enable condition (WF alpha evidence)
 remains the governing contract for ANY relaxation.
 
 ## Standing limits
