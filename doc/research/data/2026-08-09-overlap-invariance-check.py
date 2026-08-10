@@ -14,7 +14,8 @@ Authorities:
   (the frozen text, nothing re-derived).
 * Frozen corpus: RenQuant/data/alpha158_291_fundamental_dataset.parquet,
   sha256 asserted against the harness pin before any comparison.
-Read-only on both inputs; writes only the JSON report next to itself.
+Read-only on both inputs; the only write is the committed report
+2026-08-09-overlap-invariance-report.json next to this script.
 """
 import ast, hashlib, json
 from pathlib import Path
@@ -24,9 +25,9 @@ import pandas as pd
 import sys
 if len(sys.argv) != 4:
     sys.exit("usage: overlap_invariance_check.py <harness.py> <frozen.parquet> <extension.parquet>\n"
-             "writes overlap_invariance_report.json next to the extension parquet")
+             "rewrites the committed 2026-08-09-overlap-invariance-report.json next to this script")
 HARNESS, FROZEN, EXT = (Path(p) for p in sys.argv[1:4])
-REPORT = EXT.parent / "overlap_invariance_report.json"
+REPORT = Path(__file__).resolve().with_name("2026-08-09-overlap-invariance-report.json")
 
 
 def harness_constants():
