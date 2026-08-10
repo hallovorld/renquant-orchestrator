@@ -1,0 +1,14 @@
+{
+  "window": [
+    "2026-05-20",
+    "2026-08-07"
+  ],
+  "artifact_trained": "2026-08-02",
+  "source_space": "panel",
+  "n_joined_rows": 2895,
+  "n_days": 36,
+  "median_spearman_vs_panel_score": 0.6844,
+  "median_spearman_vs_rank_score": 0.6563,
+  "min_spearman_vs_panel_score": 0.3169,
+  "mean_top5_overlap_panel": 2.0
+}
