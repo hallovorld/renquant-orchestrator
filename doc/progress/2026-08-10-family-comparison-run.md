@@ -1,4 +1,4 @@
-# Family comparison executed — served vs replay indistinguishable at 5d/k=5
+# Family comparison executed — no separation detected at 5d/k=5 (low power)
 
 STATUS:    the ONE execution of the merged freeze (orch#951); no verdict
            authority; task #26 outcome increment.
@@ -6,8 +6,9 @@ STATUS:    the ONE execution of the merged freeze (orch#951); no verdict
 WHAT:      doc/research/2026-08-10-family-comparison-run.md — 31 days
            (5 skipped) on the frozen table: SERVED top-5 mean excess-z
            +0.113 vs REPLAY +0.096; daily diff +0.017 (median +0.024);
-           bootstrap 95% CI [−0.154, +0.189] — statistically
-           indistinguishable. Oracle plumbing control +1.668 (sane).
+           bootstrap 95% CI [−0.154, +0.189] — no separation
+           detected at this prespecified low power (failure to
+           reject ≠ equivalence). Oracle plumbing control +1.668 (sane).
            UNITS: per-day cross-sectional σ (CSZScoreNorm labels,
            builder docstring line 66) — the raw-return misreading was
            caught pre-publication and is recorded in the note (§2).

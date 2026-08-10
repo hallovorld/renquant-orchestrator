@@ -1,4 +1,4 @@
-# Family comparison ran: served vs replay are statistically indistinguishable on realized 5d outcomes
+# Family comparison ran: no separation detected between served and replay under the prespecified low-power CI
 
 STATUS: the ONE execution of the merged design freeze
 `doc/design/2026-08-09-family-comparison-freeze.md` (orch#951). No
@@ -43,16 +43,19 @@ i.e. ≈6σ that day. The tail is the convention, not a defect.)
 | bootstrap 95% CI on the diff | **[−0.154, +0.189]** |
 | oracle top-5 (plumbing control) | +1.668 — strongly positive as constructed; sane as a top-5-of-~90 z mean |
 
-**The two families are statistically indistinguishable on this window:**
-the CI spans ±0.15-0.19σ around a +0.017σ point estimate. Both arms are
-mildly positive in top-5 selection; neither separates from the other.
+**No separation detected under this prespecified low-power CI:** the CI
+spans ±0.15-0.19σ around a +0.017σ point estimate. Failure to reject is
+NOT evidence of equivalence — the statement this table carries is only
+that neither family measurably outperformed the other AT THIS POWER.
+Both arms are mildly positive in top-5 selection.
 
 ## 4. Reading (no verdict — the doc grants none)
 
 1. The serving-fidelity line (#948-#950) showed the traded RECORD is
    trustworthy; this table now shows the traded family's top-5 selection
-   quality on realized 5d outcomes is NOT measurably worse (or better)
-   than the validated replay family's — on 31 days, k=5, 5d horizon.
+   quality on realized 5d outcomes shows no detected separation from
+   the validated replay family's — on 31 days, k=5, 5d horizon; an
+   equivalence claim would need an equivalence test at far higher power.
 2. 31 autocorrelated days at a 5d horizon is a LOW-POWER window; the CI
    width says exactly that. This diagnostic cannot arbitrate a serving
    change by itself — and per the frozen doc it may not: any
