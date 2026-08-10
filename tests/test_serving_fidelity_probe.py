@@ -25,7 +25,7 @@ def _sha(p):
 
 
 def _fixture(tmp, *, frozen_scores=False, wrong_pin=False, few_scored=False,
-             blown_std=False, mixed_identity=False):
+             blown_std=False, mixed_identity=False, noisy_retries=False):
     rng = np.random.default_rng(11)
     db = tmp / "runs.db"
     con = sqlite3.connect(db)
@@ -44,8 +44,18 @@ def _fixture(tmp, *, frozen_scores=False, wrong_pin=False, few_scored=False,
         if mixed_identity and d == DATE:
             con.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?)",
                         (rid + "b", "live", d, f"{d}T15:00:00", ident, "2026-08-02"))
+        if noisy_retries and d != DATE:
+            # an EARLIER same-day retry, far noisier than the later
+            # canonical run — must never enter the trailing baseline
+            con.execute("INSERT INTO pipeline_runs VALUES (?,?,?,?,?,?)",
+                        (rid + "x", "live", d, f"{d}T10:00:00", "sha256:aaaa", "2026-08-02"))
+            for j in range(60):
+                con.execute("INSERT INTO ticker_daily_state VALUES (?,?,?,?,?,?)",
+                            (rid + "x", d, f"T{j:02d}",
+                             float(rng.normal() * 40.0), "BULL_CALM", "blend"))
         n = 6 if (few_scored and d == DATE) else 60
-        scale = 25.0 if (blown_std and d == DATE) else 1.0
+        scale = 25.0 if (blown_std and d == DATE) else (
+            10.0 if (noisy_retries and d == DATE) else 1.0)
         for j in range(n):
             s = 0.5 if (frozen_scores and d == DATE) else float(rng.normal() * scale)
             con.execute("INSERT INTO ticker_daily_state VALUES (?,?,?,?,?,?)",
@@ -110,6 +120,18 @@ def test_mixed_identity_alarm(tmp_path):
     db, golden, root = _fixture(tmp_path, mixed_identity=True)
     findings, _ = sfp.probe(db, golden, root, DATE)
     assert any("mixed artifact identities" in f for f in findings)
+
+
+def test_trailing_baseline_uses_canonical_run_only(tmp_path):
+    # REGRESSION GUARD (#960 review): every trailing day carries an earlier
+    # noisy retry (std ~40) beside its quiet canonical run (std ~1). Pooling
+    # the retries inflated the trailing median enough to mask a probed day
+    # at std ~10; the canonical-only baseline must trip the upper band.
+    db, golden, root = _fixture(tmp_path, noisy_retries=True)
+    findings, stats = sfp.probe(db, golden, root, DATE)
+    assert any("distribution alarm" in f for f in findings)
+    assert stats["trail_median_std"] < 2.0
+    assert stats["trail_days_same_scorer"] == 20
 
 
 def test_scorer_switch_day_skips_distribution(tmp_path):

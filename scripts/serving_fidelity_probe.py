@@ -124,14 +124,20 @@ def probe(db, golden, artifacts_root, date):
                       "active_scorer": day_scorer})
         if distinct < MIN_DISTINCT:
             findings.append(f"frozen-score alarm: only {distinct} distinct scores")
+        # each trailing day contributes ONLY its canonical (latest) run —
+        # pooling retries / superseded runs into the baseline dilutes the
+        # median and can mask a real distribution alarm
         trail = con.execute(
-            """SELECT run_date, panel_score FROM (
-                 SELECT p.run_date, t.panel_score, t.active_scorer,
-                        ROW_NUMBER() OVER (PARTITION BY p.run_date ORDER BY p.created_at DESC, p.run_id DESC) rn
-                 FROM ticker_daily_state t JOIN pipeline_runs p ON p.run_id=t.run_id
-                 WHERE p.run_type='live' AND p.run_date < ? AND t.panel_score IS NOT NULL
-                   AND t.active_scorer IS ?)
-               WHERE rn>=1""", (date, day_scorer)).fetchall()
+            """WITH day_canonical AS (
+                 SELECT run_id, run_date FROM (
+                   SELECT run_id, run_date,
+                          ROW_NUMBER() OVER (PARTITION BY run_date ORDER BY created_at DESC, run_id DESC) rn
+                   FROM pipeline_runs WHERE run_type='live' AND run_date < ?)
+                 WHERE rn=1)
+               SELECT c.run_date, t.panel_score FROM ticker_daily_state t
+               JOIN day_canonical c ON c.run_id=t.run_id
+               WHERE t.panel_score IS NOT NULL AND t.active_scorer IS ?""",
+            (date, day_scorer)).fetchall()
         by_day = {}
         for d, s in trail:
             by_day.setdefault(d, []).append(s)
