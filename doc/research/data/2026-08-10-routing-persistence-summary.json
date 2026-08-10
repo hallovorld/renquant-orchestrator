@@ -1,0 +1,14 @@
+{
+  "n_decisions": 54,
+  "hit_rate": 0.2778,
+  "chance": 0.3333333333333333,
+  "binomial_p_one_sided": 0.844,
+  "mean_adjacent_spearman": -0.1852,
+  "incumbent_mean_ret_q": 0.0761,
+  "oracle_mean_ret_q": 0.1876,
+  "oracle_capture": 0.406,
+  "blind_ew_mean_ret_q": 0.081,
+  "incumbent_minus_blind_q": -0.005,
+  "scope_note": "evaluates ONLY the 1-quarter argmax follow-the-winner rule; other lookbacks/hysteresis untested (their own prereg if pursued); 54 rows = 6 correlated sectors x ~9 quarters, not independent",
+  "frame": "replay (all #937/#944 caveats apply); rerun on served data when it accrues"
+}
