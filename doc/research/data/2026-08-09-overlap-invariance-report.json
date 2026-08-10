@@ -1,0 +1,86 @@
+{
+  "artifact_kind": "diagnostic",
+  "frozen_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+  "frozen_rows": 726128,
+  "ext_rows": 744697,
+  "shared_rows": 726128,
+  "frozen_only_rows": 0,
+  "ext_new_rows": 18569,
+  "frozen_end_date": "2026-05-07",
+  "ext_new_historical_resurrections": {
+    "rows": 8616,
+    "tickers": 150,
+    "dates": 561,
+    "date_range": [
+      "2014-01-02",
+      "2026-05-07"
+    ],
+    "labelled_fwd_60d": 0
+  },
+  "ext_new_extension_window": {
+    "rows": 9953,
+    "tickers": 292,
+    "dates": 63,
+    "date_range": [
+      "2026-05-08",
+      "2026-08-07"
+    ],
+    "labelled_fwd_60d": 432
+  },
+  "worst_feature_abs_diff": 0.0,
+  "n_feature_nan_mismatch": 0,
+  "invariant_on_shared_rows": true,
+  "label_max_abs_diff": 0.016783521720892702,
+  "label_nan_mismatch": 0,
+  "label_invariant_on_shared_rows": false,
+  "label_diff_profile": {
+    "n_rows_diff_gt_1e-9": 144,
+    "n_tickers_affected": 144,
+    "date_range_affected": [
+      "2026-05-07",
+      "2026-05-07"
+    ],
+    "top_tickers": {
+      "AAPL": 1,
+      "ABBV": 1,
+      "ON": 1,
+      "ORCL": 1,
+      "OXY": 1,
+      "PANW": 1
+    }
+  },
+  "worst_columns": [
+    [
+      "BETA10",
+      0.0
+    ],
+    [
+      "BETA20",
+      0.0
+    ],
+    [
+      "BETA30",
+      0.0
+    ],
+    [
+      "BETA5",
+      0.0
+    ],
+    [
+      "BETA60",
+      0.0
+    ],
+    [
+      "CNTN10",
+      0.0
+    ],
+    [
+      "CNTN20",
+      0.0
+    ],
+    [
+      "CNTN30",
+      0.0
+    ]
+  ]
+}
