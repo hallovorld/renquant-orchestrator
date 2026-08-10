@@ -68,8 +68,14 @@ EVIDENCE:  artifact:      ops/renquant104/dawn_funnel_preflight.sh (bridge
 
 RISKS (for review — validate before deploy):
   - PIN ALIGNMENT (codex r1) — ADDRESSED: the pre-bridge read-only pin check
-    fails closed unless .subrepo_runtime matches subrepos.lock.json, so the
-    monitor cannot preview a runtime different from the order path's aligned one.
+    fails closed unless the runtime matches subrepos.lock.json, so the monitor
+    cannot preview a runtime different from the order path's aligned one.
+  - RUNTIME-ROOT IDENTITY (codex r1 P1) — ADDRESSED: the pin check
+    (--runtime-root), the strategy config (renquant_strategy_config), and the
+    bridge (exported RENQUANT_SUBREPO_ROOT) all bind the ONE resolved
+    $SUBREPO_ROOT (renquant_subrepo_root, honoring RENQUANT_SUBREPO_ROOT / an
+    assembly) — no hard-coded .subrepo_runtime path, so the checker cannot
+    green-light one root while the bridge imports another.
   - daily-bridge vs live-bridge: daily-bridge chosen to match the ORDER path
     exactly (daily_104.sh); it forwards trailing runner args as REMAINDER.
     Confirm `--strategy-config-path` + `--preflight` forward cleanly through

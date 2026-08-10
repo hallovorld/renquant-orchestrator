@@ -25,6 +25,17 @@ SUBREPO_ROOT="$(renquant_subrepo_root "$REPO_DIR" "$(dirname "$REPO_DIR")")"
 export RENQUANT_SUBREPO_ROOT="$SUBREPO_ROOT"
 export PYTHONPATH="$(renquant_subrepo_pythonpath "$SUBREPO_ROOT" renquant-orchestrator renquant-common renquant-base-data renquant-artifacts renquant-model renquant-pipeline renquant-execution renquant-strategy-104 renquant-backtesting):${PYTHONPATH:-}"
 
+# ONE runtime root for everything below: the pin check, the strategy config, and
+# the bridge (via the exported RENQUANT_SUBREPO_ROOT) must all bind the SAME
+# resolved root. renquant_subrepo_root honors RENQUANT_SUBREPO_ROOT / an assembly
+# dir; hard-coding `.subrepo_runtime/repos` here would let the check green-light
+# one root while the bridge imports another (codex #968 r1). Fail closed if the
+# pinned strategy config is not present under that resolved root.
+STRATEGY_CONFIG="$(renquant_strategy_config "$SUBREPO_ROOT")" || {
+  echo "ABORT: strategy_config.json not found under resolved SUBREPO_ROOT=$SUBREPO_ROOT — refusing to probe."
+  exit 1
+}
+
 # Run through the SAME multirepo bridge the real order run uses
 # (daily_104.sh:410 `-m renquant_orchestrator daily-bridge`), NOT `-m live.runner`
 # directly. WHY (2026-08-10): the direct `-m live.runner` path resolves the
@@ -44,14 +55,15 @@ cd "$REPO_DIR"
 # fixes the module namespace, but the monitor must also preview the SAME pinned
 # runtime the 13:55 order path aligns to — daily_104.sh sources
 # preflight_pin_align.sh (subrepo_assemble --sync --dry-run) before its bridge.
-# A stale-but-importable .subrepo_runtime here would recreate the monitor-vs-
-# order divergence at the PIN level. This verifies .subrepo_runtime/repos matches
-# subrepos.lock.json and emits a receipt, but NEVER checks out / mutates / deploys
-# (a monitor must not deploy) — it reuses subrepo_assemble's own pin predicates.
+# A stale-but-importable runtime here would recreate the monitor-vs-order
+# divergence at the PIN level. This verifies the SAME resolved SUBREPO_ROOT the
+# bridge imports from matches subrepos.lock.json and emits a receipt, but NEVER
+# checks out / mutates / deploys (a monitor must not deploy) — it reuses
+# subrepo_assemble's own pin predicates.
 PIN_RECEIPT="$LOG_DIR/dawn_pin_identity_$(date +%F).json"
 if ! "$PYTHON" "$OPS_DIR/dawn_pin_identity_check.py" \
       --repo-dir "$REPO_DIR" \
-      --runtime-root "$REPO_DIR/.subrepo_runtime/repos" \
+      --runtime-root "$SUBREPO_ROOT" \
       --lock "$REPO_DIR/subrepos.lock.json" \
       --entrypoint dawn_funnel_preflight \
       --receipt-out "$PIN_RECEIPT"; then
@@ -64,7 +76,7 @@ fi
 # still gives real account/holdings reads for a faithful probe.
 "$PYTHON" -m renquant_orchestrator daily-bridge --repo-dir "$REPO_DIR" \
   --strategy renquant_104 --broker readonly-alpaca \
-  --strategy-config-path "$REPO_DIR/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json" \
+  --strategy-config-path "$STRATEGY_CONFIG" \
   --preflight > "$LOG" 2>&1
 RUNNER_RC=$?
 echo "runner rc=$RUNNER_RC (attestation + analyzer own the verdict)" >> "$LOG"
