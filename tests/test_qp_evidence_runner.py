@@ -34,7 +34,8 @@ def _sha(p):
 def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
                    n_days: int = N_DAYS, seed: int = 7, n_folds: int = 1,
                    drop_last_day_from_scores: bool = False,
-                   mixed_regime_day: bool = False):
+                   mixed_regime_day: bool = False,
+                   starve_middle_third: bool = False):
     rng = np.random.default_rng(seed)
     dates = [str(pd.Timestamp("2020-01-01") + pd.Timedelta(days=i))[:10]
              for i in range(n_days)]
@@ -48,8 +49,10 @@ def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
         z = (z - z.mean()) / z.std()
         lab = z + planted * (score - score.mean()) / score.std()
         lab = (lab - lab.mean()) / lab.std()
+        di = dates.index(d)
+        starved = starve_middle_third and n_days // 3 <= di < 2 * n_days // 3
         for j, (t, s_, l_) in enumerate(zip(tickers, score, lab)):
-            regime = "BULL_CALM"
+            regime = "STARVED" if starved else "BULL_CALM"
             if mixed_regime_day and d == dates[0] and j == 0:
                 regime = "BEAR"
             rows_s.append({"fold": fold_of[d], "date": d, "ticker": t,
@@ -67,7 +70,9 @@ def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
         f"fold_{f}": {"boundaries": {"train_end": "2019-12-31"},
                       "passed": not all_fail_stamps, "reason": "fixture",
                       "regimes": {"BULL_CALM": {"eligible": True,
-                                                "passed": not all_fail_stamps}}}
+                                                "passed": not all_fail_stamps},
+                                  "STARVED": {"eligible": True,
+                                              "passed": False}}}
         for f in range(1, n_folds + 1)}))
     schedule = {}
     for d in dates:
@@ -232,3 +237,24 @@ def test_tie_membership_deterministic(tmp_path):
     s = _run(tmp_path, scores, stamps, manifest, corpus, harness)
     daily = pd.read_csv(tmp_path / "out_daily.csv")
     assert len(daily) == 6   # ran; membership = lexicographically first K
+
+
+def test_interleaved_starvation_splits_bootstrap_runs(tmp_path):
+    # review r7 fixture: a starved middle third must split the admitted
+    # days into two contiguous runs -- no block may bridge the gap
+    fx = _build_fixture(tmp_path, planted=0.3, n_days=90,
+                        starve_middle_third=True)
+    scores, stamps, manifest, corpus, harness = fx
+    s = _run(tmp_path, *fx)
+    assert s["n_days_gate_starved"] == 30
+    assert s["n_days_realized"] == 60
+    # reconstruct the runs exactly as the runner does and assert the split
+    import ast as _ast
+    daily = pd.read_csv(tmp_path / "out_daily.csv")
+    cuts = _ast.literal_eval(Path(harness).read_text().split("=", 1)[1])
+    corpus_dates = sorted(pd.read_parquet(corpus, columns=["date"])["date"]
+                          .astype(str).str[:10].unique())
+    derived = {str(i + 1): [d for d in corpus_dates if ts <= d <= te]
+               for i, (_, _, ts, te) in enumerate(cuts)}
+    runs = qp.admitted_runs(daily, derived)
+    assert len(runs) == 2 and len(runs[0]) == 30 and len(runs[1]) == 30

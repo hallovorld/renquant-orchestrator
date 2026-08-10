@@ -49,6 +49,29 @@ TURNOVER_COST_BPS = 10.0
 SIGMA_PER_DAY_RAW = 0.0404   # doc §5 median-day z→raw mapping
 
 
+def admitted_runs(daily, derived):
+    """Contiguous admitted runs per fold (review r7): within each fold,
+    split the admitted days wherever the next admitted day is NOT the
+    immediately next SCHEDULED day — a gate-starved (or missing-regime)
+    gap breaks contiguity, so no bootstrap block may bridge it. Returns
+    a list of 1-D stat arrays, one per contiguous run."""
+    runs = []
+    for f in sorted(daily.fold.unique()):
+        sched = derived[str(int(f))]
+        pos = {d: i for i, d in enumerate(sched)}
+        sub = daily[daily.fold == f].sort_values("date")
+        cur = []
+        prev_pos = None
+        for _, r in sub.iterrows():
+            i = pos[r.date]
+            if prev_pos is not None and i != prev_pos + 1:
+                runs.append(cur); cur = []
+            cur.append(float(r.stat)); prev_pos = i
+        if cur:
+            runs.append(cur)
+    return [np.asarray(r) for r in runs]
+
+
 def file_sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -196,12 +219,13 @@ def main(argv):
         mean_stat = med_stat = None
         ci = (None, None)
     else:
-        # Per-fold stationary bootstrap (review r3 P0): blocks are drawn
-        # WITHIN each contiguous fold segment (preserving its realized
-        # count) and the draws are combined — no block spans a fold
-        # boundary or wraps the last fold into the first.
-        segments = [daily[daily.fold == f].stat.values
-                    for f in sorted(daily.fold.unique())]
+        # Contiguous-admitted-run bootstrap (review r7, superseding the
+        # r3 per-fold rule): blocks are drawn WITHIN each contiguous
+        # admitted run — a run breaks at fold boundaries AND at any
+        # gate-starved/missing-regime gap in the fold's schedule, so no
+        # block ever bridges calendar days that were not adjacent among
+        # the admitted days.
+        segments = admitted_runs(daily, derived)
         rng = np.random.default_rng(BOOT_SEED)
         means = []
         for _ in range(B):
