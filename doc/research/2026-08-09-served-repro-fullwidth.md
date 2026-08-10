@@ -54,8 +54,12 @@ note + the byte-identical rollback family, caveat §5].
 | 08-03 | 84 | 0.9789 | 5 |
 
 Median 0.9734, mean top-5 overlap 4.0 [VERIFIED — committed
-`data/2026-08-09-served-repro-cleancell.csv`; reproduced by the committed
-script, invocation in §6].
+`data/2026-08-09-served-repro-cleancell_daily.csv` +
+`…cleancell_summary.json`, which are the committed script's VERBATIM
+outputs for the §6 clean-cell invocation (full precision in the artifact;
+this table displays 4 decimals). An earlier revision committed a
+hand-rounded/renamed copy instead — review-caught; the artifact is now
+script-native with no manual transform].
 
 ## 4. Reading
 
@@ -101,6 +105,8 @@ python data/2026-08-09-served-repro-score.py \
 Full window: current prod artifact, 2026-05-20..2026-08-07, no filter →
 `…-served-repro-daily.csv` / `…-summary.json`. Clean cell:
 `panel-ltr.alpha158_fund.previous.json`, 2026-07-20..2026-08-03, filter
-`panel_ltr_xgboost` → `…-served-repro-cleancell.csv`. The extension panel
+`panel_ltr_xgboost`, out_prefix `…-served-repro-cleancell` →
+`…-served-repro-cleancell_daily.csv` / `…cleancell_summary.json`
+(the committed files ARE these outputs, unmodified). The extension panel
 is rebuilt by the orch#948 recipe (two-line builder patch + fundamental
 merge; both scratch-only).

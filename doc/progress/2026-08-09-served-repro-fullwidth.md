@@ -23,10 +23,13 @@ WHY/DIR:   #26 asks whether the validated system IS the traded system.
 EVIDENCE:  artifact:      data/2026-08-09-served-repro-score.py (CLI
                           args; production transform + booster bytes),
                           …-served-repro-daily.csv (36 days),
-                          …-served-repro-cleancell.csv (11 days),
+                          …-served-repro-cleancell_daily.csv +
+                          …cleancell_summary.json (11 days; the script's
+                          VERBATIM outputs — an earlier hand-rounded
+                          rename was review-caught and replaced),
                           …-served-repro-summary.json
-                          [VERIFIED — both invocations run 2026-08-09,
-                          printed tables match committed CSVs]
+                          [VERIFIED — both invocations rerun 2026-08-09,
+                          committed artifacts ARE the script outputs]
            prod or exp:   read-only measurement
            existing data: orch#948 extension corpus (bit-for-bit
                           invariant); fundamental merge 172/172 cols;
