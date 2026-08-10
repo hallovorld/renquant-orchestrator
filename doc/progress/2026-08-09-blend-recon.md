@@ -14,7 +14,10 @@ WHY/DIR:   With orch#949, the measured surfaces (pure-panel days +
            these four blend days) reconstruct at 0.97+ under recorded
            identities (fail-closed bindings: golden pin, ledger row,
            source rev, parquet sha; coverage: n_live_only=0 asserted,
-           offline surface = the 144-name fund-covered universe).
+           offline surface = the 144-name ACTIVE universe on
+           these days — CORRECTED from "fund-merge narrowing":
+           the merge log shows zero row loss; 292 is the
+           whole-window unique-ticker count incl. delisted).
            NOT claimed closed: candidate screen (untested),
            transform-version drift, pre-07-27 step. The cells support
            redirecting the NEXT increment to model family + candidate

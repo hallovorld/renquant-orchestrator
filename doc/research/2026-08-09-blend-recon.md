@@ -48,9 +48,13 @@ prefix convention); the momentum artifact's embedded content sha matches
 ledger row 0; the pipeline checkout revision and the extension parquet
 sha are recorded in the summary — the reconstruction is CONDITIONAL on
 exactly these inputs. Coverage accounting (per-day, identifiers
-persisted): offline composite 144 names/day (the fund-covered universe —
-the alpha panel carries 292/day in the window and the fundamental merge
-narrows to 144; narrowing root cause not chased here), live records
+persisted): offline composite 144 names/day — CORRECTION (visible): an earlier
+revision attributed the 292-vs-144 difference to the fundamental merge;
+the merge log shows ZERO row loss (744,697 in = 744,697 out). 292 is the
+UNIQUE-ticker count across the whole extension window including
+historical/delisted names; the ACTIVE universe on these August days is
+144 names in the alpha panel itself (matching the momentum leg's
+n_scored=144 and the live watchlist), live records
 88-94/day, and EVERY live-scored name is inside the offline composite
 (n_live_only = 0 asserted on all four days; the 50-56 offline-only names
 are live's candidate/watchlist thinning, now explicit).
