@@ -329,6 +329,58 @@
           "max_weight": 0.097,
           "turnover": 0.5
         }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
       ]
     },
     {
@@ -637,6 +689,58 @@
         {
           "lambda": 0.1,
           "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
           "turnover_max": 0.5,
           "status": "optimal",
           "deployed_frac": 1.0,
@@ -959,6 +1063,58 @@
           "max_weight": 0.095,
           "turnover": 0.5
         }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
       ]
     },
     {
@@ -1267,6 +1423,58 @@
         {
           "lambda": 0.1,
           "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
           "turnover_max": 0.5,
           "status": "optimal",
           "deployed_frac": 1.0,

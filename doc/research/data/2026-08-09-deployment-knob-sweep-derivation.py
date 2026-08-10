@@ -37,11 +37,9 @@ enabled.
 
 Reproduce:
   cd /Users/renhao/git/github/RenQuant && .venv/bin/python \
-    <orchestrator>/doc/research/data/2026-08-09-deployment-knob-sweep-derivation.py
-Inputs (read-only, mode=ro): data/runs.alpaca.db; renquant-pipeline sibling
-checkout.
-Output: doc/research/data/2026-08-09-deployment-knob-sweep.json (beside this
-file).
+    <orchestrator>/scripts/poc_lambda_sweep.py
+Inputs (read-only): data/runs.alpaca.db; renquant-pipeline sibling checkout.
+Output: doc/research/evidence/2026-07-02-roadmap-pocs/poc_lambda_sweep.json
 """
 import json
 import os
@@ -56,8 +54,10 @@ PIPE = os.environ.get(
     "RQ_PIPELINE_ROOT", "/Users/renhao/git/github/renquant-pipeline/src")
 sys.path.insert(0, PIPE)
 OUT = os.environ.get(
-    "POC_OUT_DIR", os.path.dirname(os.path.abspath(__file__)))
-OUT_NAME = "2026-08-09-deployment-knob-sweep.json"
+    "POC_OUT_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                 "doc/research/evidence/2026-07-02-roadmap-pocs"),
+)
 LAMBDAS = [0.0, 0.01, 0.02, 0.05, 0.10]
 PER_NAME_CAP = 0.12  # BULL_CALM max_position_pct (strategy_config.json)
 TURNOVER_MAX_PRODUCTION = 0.15  # BULL_CALM qp_turnover_max (strategy_config.json)
@@ -221,12 +221,22 @@ def sweep_run(con, run_id, run_date):
                MIN_INVESTED_UNDISABLED, NON_BINDING_TURNOVER)
         for lam in LAMBDAS
     ]
+    # (D) constructed lambda-sensitivity case (orch#945 review P0): a
+    # HALF floor (min_invested=0.5) with a non-binding turnover cap. Here
+    # lambda>0 SHOULD pull deployment above the floor if the term has any
+    # force on real inputs; deployment pinned at the floor across every
+    # lambda is the honest "lambda weak on these inputs" reading, and a
+    # rising profile falsifies it.
+    result["lambda_sensitivity_half_floor"] = [
+        _solve(w_cur, n, tickers, mu, sigma, lam,
+               0.5, NON_BINDING_TURNOVER)
+        for lam in LAMBDAS
+    ]
     return result
 
 
 def main() -> None:
-    db_path = os.path.join(RQ, "data/runs.alpaca.db")
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con = sqlite3.connect(os.path.join(RQ, "data/runs.alpaca.db"))
     run_ids = _runs(con)
     runs_meta = pd.read_sql(
         "select run_id, run_date from pipeline_runs where run_id in (%s)"
@@ -243,9 +253,8 @@ def main() -> None:
         "runs": [sweep_run(con, r, runs_meta[r]) for r in run_ids],
     }
     os.makedirs(OUT, exist_ok=True)
-    with open(os.path.join(OUT, OUT_NAME), "w") as f:
+    with open(os.path.join(OUT, "poc_lambda_sweep.json"), "w") as f:
         json.dump(out, f, indent=2)
-        f.write("\n")
     print(json.dumps(out, indent=2))
 
 

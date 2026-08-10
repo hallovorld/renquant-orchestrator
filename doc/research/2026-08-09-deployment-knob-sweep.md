@@ -1,3 +1,52 @@
+# The deployment knobs, swept — in this frame the objective already wants full deployment; only the turnover cap binds
+
+REVISED (review r2 — the r1 headline "λ is dead; the levers are
+min_invested × turnover cap" OVERCLAIMED and is withdrawn; the r1 text
+follows the corrected reading below as an audit trail).
+
+## What the sweep can and cannot say `[VERIFIED — committed JSON, 4 usable runs 2026-05-18..21; every later run unusable per orch#931]`
+
+Scenarios (all on real run inputs, simplified constraints — per-name cap
+only, the committed script's scope note):
+
+| scenario | deployed across λ ∈ {0,.01,.02,.05,.1} |
+|---|---|
+| A: production (min_inv=0, tcap 0.15) | 0.706 flat |
+| B: min_inv ON × tcap {0.15,0.2,0.3,0.5} | 0.706 / 0.755 / 0.856 / 1.000 — identical at every λ |
+| C: min_inv ON, loose tcap | 1.000 flat |
+| D (r2, constructed λ-sensitivity: min_inv=0.5 floor, loose tcap) | **1.000 flat INCLUDING λ=0** |
+
+Scenario D dissolves the r1 story: with a loose turnover cap the optimizer
+fully deploys at λ=0 with no min_invested push — **the objective on these
+inputs already wants full deployment; the only binding constraint among
+those modeled is the turnover cap**, which paces the path monotonically
+(B row). λ shows no marginal effect anywhere, but that is UNRESOLVED as a
+general claim: no tested configuration isolates a case where λ must act
+(where the unconstrained optimum under-deploys). min_invested likewise
+shows no effect beyond what the cap already permits.
+
+## The redirection this forces
+
+If the simplified QP wants full deployment even with every knob at zero,
+the live book's non-deployment does not live in these knobs. It lives in
+what this replica does NOT model: the upstream floors and the full QP's
+additional terms — consistent with the funnel Pareto (orch#943 merged):
+rank-score floor veto 2,390 events, conviction mu-floor 277, and the
+full-QP not_selected stage. **The unlock path runs through the upstream
+admission floors and the full in-pipeline QP, not through λ/min_invested
+re-tuning.** The 2026-05-23 re-enable condition (WF alpha evidence)
+remains the governing contract for ANY relaxation.
+
+## Standing limits
+
+Four May sessions; simplified constraints; target-weight w_cur
+approximation; no P&L claim; the in-pipeline 10-session shadow sweep
+remains the enable-gating AC (script scope note, verbatim).
+
+---
+
+### r1 text (superseded, kept for the audit trail)
+
 # The deployment knobs, swept — λ is dead; the levers are min_invested × turnover cap
 
 The measured answer to "which reviewed change lets the QP deploy capital",
