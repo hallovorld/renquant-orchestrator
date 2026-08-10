@@ -1,0 +1,51 @@
+{
+  "artifact_kind": "diagnostic",
+  "frozen_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+  "frozen_rows": 726128,
+  "ext_rows": 744697,
+  "shared_rows": 726128,
+  "frozen_only_rows": 0,
+  "ext_new_rows": 18569,
+  "ext_new_dates": [
+    "2014-01-02",
+    "2026-08-07"
+  ],
+  "ext_new_labelled": 432,
+  "worst_feature_abs_diff": 0.0,
+  "n_feature_nan_mismatch": 0,
+  "invariant_on_shared_rows": true,
+  "worst_columns": [
+    [
+      "BETA10",
+      0.0
+    ],
+    [
+      "BETA20",
+      0.0
+    ],
+    [
+      "BETA30",
+      0.0
+    ],
+    [
+      "BETA5",
+      0.0
+    ],
+    [
+      "BETA60",
+      0.0
+    ],
+    [
+      "CNTN10",
+      0.0
+    ],
+    [
+      "CNTN20",
+      0.0
+    ],
+    [
+      "CNTN30",
+      0.0
+    ]
+  ]
+}
