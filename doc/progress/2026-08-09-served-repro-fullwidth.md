@@ -1,4 +1,4 @@
-# Served-model reproduction measured full-width — feature pipeline substantially clean
+# Served-model reproduction — same-artifact pure-panel days at 0.97+ in the late window
 
 STATUS:    measurement; read-only on all production surfaces; task #26
            first acceptance table. Follows orch#948 (extension corpus).
@@ -14,11 +14,14 @@ WHAT:      doc/research/2026-08-09-served-repro-fullwidth.md — offline
            (blend_scorer.py:315), NOT feature drift.
 
 WHY/DIR:   #26 asks whether the validated system IS the traded system.
-           This table shows the serving FEATURE path reproduces the
-           panel build almost exactly in the freshest week — so the
-           replay-vs-served gap is carried by model family (z-blend vs
-           validated WF xgb) and the candidate screen, narrowing where
-           repair must happen. REVISES the #931-derived narrative.
+           This cell establishes a high same-artifact/pure-panel
+           association in the late window (0.973-0.986) and decomposes
+           the naive 0.684 into artifact identity + blend-composite
+           semantics. NOT tested here (unresolved): the candidate
+           screen, the blend composite (PR #950), transform-version
+           drift, and the pre-07-27 step (~0.84). Wider claims about
+           feature transport or where the residual gap lives need those
+           surfaces.
 
 EVIDENCE:  artifact:      data/2026-08-09-served-repro-score.py (CLI
                           args; production transform + booster bytes),
@@ -31,8 +34,10 @@ EVIDENCE:  artifact:      data/2026-08-09-served-repro-score.py (CLI
                           [VERIFIED — both invocations rerun 2026-08-09,
                           committed artifacts ARE the script outputs]
            prod or exp:   read-only measurement
-           existing data: orch#948 extension corpus (bit-for-bit
-                          invariant); fundamental merge 172/172 cols;
+           existing data: orch#948 extension corpus (features
+                          invariant bit-for-bit; labels excepted on the
+                          2026-05-07 boundary date); fundamental merge
+                          172/172 cols;
                           artifact panel-ltr.alpha158_fund.previous.json
                           trained 2026-06-21 = DB cutoff
            best-known?:   yes — §5 caveats: v1-hash recipe not located

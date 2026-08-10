@@ -1,4 +1,4 @@
-# Served-model reproduction, full-width: 0.97-0.99 same-week with the right artifact — the feature pipeline is substantially clean
+# Served-model reproduction: same-artifact pure-panel days reproduce at 0.97-0.99 in the late window
 
 STATUS: measurement, read-only; task #26 first acceptance table. REVISES
 the working narrative around orch#931 (see §4).
@@ -6,8 +6,9 @@ the working narrative around orch#931 (see §4).
 ## 1. Question
 
 On the dates live actually scored (2026-05-20..08-07), does scoring the
-extension panel (orch#948: bit-for-bit invariant with the frozen corpus,
-172/172 columns after the fundamental merge) with the SERVED artifact —
+extension panel (orch#948: FEATURES invariant bit-for-bit with the frozen
+corpus — labels excepted on one boundary date, 2026-05-07 — 172/172
+columns after the fundamental merge) with the SERVED artifact —
 its own booster bytes, its own normalization, through the production
 transform (`renquant_pipeline...feature_transform.transform_feature_frame`,
 `source_space='panel'`) — reproduce the scores recorded in
@@ -61,25 +62,30 @@ this table displays 4 decimals). An earlier revision committed a
 hand-rounded/renamed copy instead — review-caught; the artifact is now
 script-native with no manual transform].
 
-## 4. Reading
+## 4. Reading (scoped to what this cell measures — review r2)
 
-1. **The serving feature path substantially reproduces the panel build in
-   the freshest week: 0.973-0.986 Spearman, top-5 overlap 4-5/5.** With
-   the right artifact and the right score semantics, served ≈ offline.
-2. The step down to ~0.84 for 07-20..24 and the earlier-window decay are
-   consistent with **lookback data-revision drift** (the offline panel is
-   built from TODAY's OHLCV/SEC files; live scored with that day's files —
-   revisions accumulate with distance) [GUESS — two candidate causes, not
-   separated: (a) OHLCV/SEC revisions; (b) a serving-side fix deployed
-   around 07-26 changing live feature computation. Separable by rebuilding
-   from an older OHLCV snapshot or reading the live tree's deploy log.]
-3. This REVISES the #931-derived working narrative "the served scores
-   diverge from panel features" — at least for late July onward, the
-   divergence measured earlier is dominated by artifact identity and blend
-   compositing, NOT by a broken feature pipeline.
-4. The remaining gap for the replay-vs-served story is therefore the MODEL
-   FAMILY (z-blend composite vs validated per-fold WF xgb) and the
-   candidate screen — not feature transport.
+What IS measured: on 11 pure-panel days scored by the artifact this cell
+loads, offline panel scoring associates with the recorded `panel_score`
+at 0.836-0.986 daily Spearman — 0.973-0.986 in the late window
+(07-27..08-03). That is a HIGH SAME-ARTIFACT / PURE-PANEL ASSOCIATION IN
+THE LATE WINDOW, and it is the only conclusion this cell carries.
+
+What this cell does NOT test (each retained as UNRESOLVED here):
+* the candidate screen (score → candidate set) — untested;
+* the blend composite — not reproduced in this PR (measured separately,
+  PR #950);
+* transform-version drift — the offline transform ran the PINNED pipeline
+  checkout; the live tree's version on those dates is not isolated;
+* the pre-07-27 step down to ~0.84 — unattributed here [GUESS — candidate
+  causes: (a) OHLCV/SEC revisions accumulating with lookback distance;
+  (b) a serving-side change around 07-26].
+
+Bearing on #931: the specific full-window number 0.684 decomposes into
+artifact identity + blend-composite semantics — those two confounds, once
+removed, leave high association on the days measured. Any wider
+"feature transport is clean" or "the residual gap is model family +
+candidate screen" claim needs the other cells and the untested surfaces
+above; it is NOT established by this PR.
 
 ## 5. Caveats
 
