@@ -18,36 +18,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ops" / "renquant105"))
 
 from rq105_liveness_check import (  # noqa: E402
-    _pairing_buyhalt_exempt,
+    _pairing_buyhalt_reclassify,
     _live_buy_submissions_since,
 )
 
 STALE = "path last complete row date='2026-08-05' != today '2026-08-10' (stale)"
 
 
-def test_exempt_on_zero_buys_with_live_ledger():
-    # (n_buys=0, n_any>0): no buys AND the ledger recorded other activity
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (0, 6))
-    assert ok is True and "EXPECTED" in reason and "P-WF-GATE" in reason
+def test_buyhalt_downgrades_to_info_never_green():
+    # (n_buys=0, n_any>0): a positive buy-halt shape downgrades the PAGE to
+    # a non-paging INFO — never a healthy "ok" green (the ledger cannot
+    # prove buy-write completeness)
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (0, 6))
+    assert status == "info_buy_halt"
+    assert status != "ok"
+    assert "P-WF-GATE" in reason and "cannot prove buy-write completeness" in reason
 
 
-def test_stale_ledger_zero_rows_keeps_alarm():
-    # (n_buys=0, n_any=0): a dead/stale ledger with no window rows cannot
-    # prove the ledger is live -> NO exemption (review r2 P1)
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (0, 0))
-    assert ok is False and reason == STALE
+def test_stale_ledger_zero_rows_keeps_page():
+    # (n_buys=0, n_any=0): no other activity -> cannot even prove the ledger
+    # is live -> the PAGE stands
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (0, 0))
+    assert status == "stale_or_missing" and reason == STALE
 
 
-def test_buys_happened_but_stale_still_fails():
-    # a REAL break: buys were submitted yet pairing didn't log them
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", (3, 9))
-    assert ok is False and reason == STALE
+def test_buys_happened_but_stale_keeps_page():
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", (3, 9))
+    assert status == "stale_or_missing" and reason == STALE
 
 
-def test_undeterminable_count_keeps_alarm():
-    # None = cannot prove -> fail-closed, exemption NOT granted
-    ok, reason = _pairing_buyhalt_exempt(False, STALE, "2026-08-05", "2026-08-10", None)
-    assert ok is False and reason == STALE
+def test_undeterminable_keeps_page():
+    status, reason = _pairing_buyhalt_reclassify(False, STALE, "2026-08-05", "2026-08-10", None)
+    assert status == "stale_or_missing" and reason == STALE
+
+
+def test_healthy_row_stays_ok():
+    status, reason = _pairing_buyhalt_reclassify(True, "", "2026-08-10", "2026-08-10", (0, 6))
+    assert status == "ok"
 
 
 def _mkdb(tmp: Path, rows):

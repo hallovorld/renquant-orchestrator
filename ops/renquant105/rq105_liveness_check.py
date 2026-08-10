@@ -386,37 +386,38 @@ def _last_complete_jsonl_row(
         chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
 
 
-def _pairing_buyhalt_exempt(ok: bool, reason: str, last_row_date: str,
-                            today_iso: str,
-                            counts: "tuple[int, int] | None") -> "tuple[bool, str]":
-    """Pure decision for the buy-halt exemption (unit-testable, no I/O).
+def _pairing_buyhalt_reclassify(ok: bool, reason: str, last_row_date: str,
+                                today_iso: str,
+                                counts: "tuple[int, int] | None") -> "tuple[str, str]":
+    """Pure decision for the buy-halt RECLASSIFICATION (unit-testable, no I/O).
 
-    ``counts`` is ``(n_buys, n_any)`` from the trades ledger over the window,
-    or ``None`` when undeterminable. The exemption is granted (``(True,
-    note)``) ONLY on a JOINT positive proof:
-      * ``n_buys == 0`` — no live buy submission to pair, AND
-      * ``n_any > 0``  — the ledger recorded SOME activity (e.g. sells) on
-        those sessions, proving the ledger itself is LIVE and covers the
-        window. Without this, a stale/dead ledger (writer stopped, file
-        still readable, zero rows) would read as "zero buys" and hide a
-        real pairing outage after live buys (review r2, P1).
-    Any other case — ``None``, buys>0, or n_any==0 (no independent proof
-    the ledger is alive for these sessions) — leaves ``(ok, reason)``
-    untouched. Fail-closed: a defect here can only keep the alarm on.
+    Returns ``(status, reason)``. IMPORTANT (review r3): the trades ledger
+    CANNOT self-certify completeness — a writer that drops buys while still
+    recording sells is indistinguishable, from any query on that ledger,
+    from a genuine no-buy session. So this NEVER flips a stale pairing to a
+    healthy ``"ok"`` (which would falsely claim the outage cannot exist).
+
+    Instead, when the ledger POSITIVELY shows a buy-halt shape
+    (``n_buys == 0`` over the window with ``n_any > 0`` other activity,
+    proving the ledger is at least live), the stale pairing is downgraded
+    from the PAGING ``"stale_or_missing"`` to a NON-PAGING, still-surfaced
+    ``"info_buy_halt"`` — no 🚨 page, no green, and an explicit instruction
+    to verify independently if buys WERE expected. Any other case keeps the
+    original paging failure. Fail-closed: a defect here can only keep the
+    page, never suppress it into a false green.
     """
-    if counts is None:
-        return ok, reason
-    n_buys, n_any = counts
-    if n_buys == 0 and n_any > 0:
-        return True, (
-            f"empty entry-pairing is EXPECTED — zero live buy submissions on "
-            f"session days after {last_row_date} through {today_iso}, and the "
-            f"trades ledger recorded {n_any} other action(s) over that window "
-            f"(so the ledger is live and covers these sessions; buy book "
-            f"gated, see P-WF-GATE). The pairing collector correctly recorded "
-            f"nothing rather than imputing."
-        )
-    return ok, reason
+    if not ok and counts is not None:
+        n_buys, n_any = counts
+        if n_buys == 0 and n_any > 0:
+            return "info_buy_halt", (
+                f"pairing empty since {last_row_date}: the trades ledger shows "
+                f"zero buy submissions through {today_iso} with {n_any} other "
+                f"action(s) (buy book gated, see P-WF-GATE) — expected-empty, "
+                f"NOT paged. NOTE: the trades ledger cannot prove buy-write "
+                f"completeness; if live buys WERE expected, verify the trades "
+                f"writer independently."
+            )
+    return ("ok" if ok else "stale_or_missing"), reason
 
 
 def _live_buy_submissions_since(data_root: Path, since_iso: str,
@@ -557,16 +558,24 @@ def main() -> int:
         # (default_tick_feed_path), never by the plumbing's chatter.
 
     data_root = Path(RQ)
+    info: list[str] = []
     for name, result in check_collector_data_outputs(data_root, today).items():
-        if result["status"] != "ok":
+        if result["status"] == "info_buy_halt":
+            # non-paging but surfaced: not a green, not a page
+            info.append(f"{name}: {result['reason']}")
+        elif result["status"] != "ok":
             missing.append(f"{name}: {result['reason']}")
+
+    for line in info:
+        print(f"INFO (not paged): {line}")
 
     if missing:
         _alert(f"🚨 rq105 DOWN — {len(missing)} collector issue(s) {today_iso}",
                "\n".join(missing))
         print("\n".join(missing))
         return 1
-    print(f"rq105 liveness OK {today_iso}")
+    print(f"rq105 liveness OK {today_iso}"
+          + (f" ({len(info)} expected-empty collector(s) — see INFO above)" if info else ""))
     return 0
 
 
@@ -609,25 +618,26 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
         # arrive today" when the honest question is "should one have". Scope
         # is deliberately narrow and FAIL-CLOSED: only the pairing collector,
         # only when it is stale specifically because its last dated row is
-        # OLD (never for missing/empty/corrupt), and only when we can PROVE
-        # zero buy submissions since that row from the live trades ledger. If
-        # the submission count cannot be determined, the exemption is NOT
-        # granted and the original stale verdict stands — a defect here can
-        # only make the check stricter, never hide a real break.
+        # OLD (never for missing/empty/corrupt). The stale pairing is never
+        # flipped to a healthy "ok" (the trades ledger cannot prove buy-write
+        # completeness — review r3); on a positive buy-halt shape it is
+        # downgraded to the non-paging, still-surfaced "info_buy_halt".
+        status = "ok" if ok else "stale_or_missing"
         if (not ok and name == "intraday_pairing_logger"
                 and row is not None and isinstance(row.get("date"), str)
                 and "(stale)" in reason):
-            n_buys = _live_buy_submissions_since(data_root, row["date"], as_of)
-            ok, reason = _pairing_buyhalt_exempt(ok, reason, row["date"], today_iso, n_buys)
+            counts = _live_buy_submissions_since(data_root, row["date"], as_of)
+            status, reason = _pairing_buyhalt_reclassify(
+                ok, reason, row["date"], today_iso, counts)
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
             if row is not None else None)
         out[name] = {
-            "status": "ok" if ok else "stale_or_missing",
+            "status": status,
             "freshness_basis": "row_event_time" if freshness_basis == _ROW_EVENT_TIME else "file_mtime",
             "row_content_sha256": row_hash,
             "path": str(full_path),
-            "reason": reason if not ok else None,
+            "reason": reason if status != "ok" else None,
         }
     return out
 
