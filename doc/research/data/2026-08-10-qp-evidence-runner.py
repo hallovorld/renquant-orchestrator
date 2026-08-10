@@ -22,7 +22,7 @@ fwd_5d_excess (per-day cross-sectional z).
 
 Usage:
   python 2026-08-10-qp-evidence-runner.py <scores.csv> <stamps.json> \
-      <manifest.json> <frozen_corpus.parquet> <out_prefix> \
+      <manifest.json> <frozen_corpus.parquet> <harness.py> <out_prefix> \
       [--fixture-mode]
 Identity: the scores CSV and stamps JSON sha256s must equal the
 manifest's recorded values, and the corpus sha must equal the manifest's
@@ -31,7 +31,7 @@ fixture's own shas — the assertion logic is IDENTICAL, only the pinned
 values differ, so tests exercise the real code path).
 Outputs <out_prefix>_daily.csv, _coverage.csv, _summary.json verbatim.
 """
-import hashlib, json, sys
+import ast, hashlib, json, sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -55,12 +55,12 @@ def file_sha256(path):
 
 
 def main(argv):
-    if len(argv) < 6:
+    if len(argv) < 7:
         sys.exit("usage: runner.py <scores.csv> <stamps.json> <manifest.json> "
-                 "<frozen_corpus.parquet> <out_prefix> [--fixture-mode]")
-    SCORES, STAMPS, MANIFEST, CORPUS, OUT = argv[1:6]
+                 "<frozen_corpus.parquet> <harness.py> <out_prefix> [--fixture-mode]")
+    SCORES, STAMPS, MANIFEST, CORPUS, HARNESS, OUT = argv[1:7]
     OUT = Path(OUT)
-    fixture_mode = "--fixture-mode" in argv[6:]
+    fixture_mode = "--fixture-mode" in argv[7:]
 
     man = json.loads(Path(MANIFEST).read_text())
     for path, key in ((SCORES, "scores_csv_sha256"), (STAMPS, "stamps_json_sha256"),
@@ -81,12 +81,30 @@ def main(argv):
     assert list(scores.columns) == ["fold", "date", "ticker", "recipe_score", "regime"], scores.columns
     assert not scores.duplicated(["date", "ticker"]).any(), "duplicate score keys"
 
-    # Expected-schedule contract (review r3, P0): the manifest enumerates
-    # every (fold, test date); score coverage must match EXACTLY. Missing
-    # days become fail-closed coverage rows BEFORE any verdict; extra
-    # (fold, date) pairs not in the schedule abort outright.
+    # Independent schedule derivation (review r4, P0): the manifest is
+    # produced by the same side that produces the scores, so trusting its
+    # schedule is circular. The runner DERIVES the expected schedule
+    # itself — CUTS ast-read from the frozen harness text (sha recorded)
+    # intersected with the pin-asserted corpus's own dates — and asserts
+    # the manifest's schedule is IDENTICAL before using it for anything.
+    tree = ast.parse(Path(HARNESS).read_text())
+    cuts = None
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "CUTS"):
+            cuts = ast.literal_eval(node.value)
+    assert cuts, "harness text carries no CUTS"
+    corpus_dates = sorted(pd.read_parquet(CORPUS, columns=["date"])["date"]
+                          .astype(str).str[:10].unique())
+    derived = {str(i + 1): [d for d in corpus_dates if ts <= d <= te]
+               for i, (_, _, ts, te) in enumerate(cuts)}
+    derived = {f: ds for f, ds in derived.items() if ds}
     schedule = man["expected_schedule"]
-    expected = {(int(f), d) for f, ds in schedule.items() for d in ds}
+    assert {str(k): list(v) for k, v in schedule.items()} == derived, (
+        "manifest expected_schedule differs from the runner-derived "
+        "CUTS x corpus schedule")
+    expected = {(int(f), d) for f, ds in derived.items() for d in ds}
     got_pairs = {(int(f), d) for f, d in scores[["fold", "date"]]
                  .drop_duplicates().itertuples(index=False)}
     extra = got_pairs - expected
@@ -197,6 +215,8 @@ def main(argv):
         "stamps_json_sha256": man["stamps_json_sha256"],
         "frozen_corpus_sha256": man["frozen_corpus_sha256"],
         "manifest_sha256": file_sha256(MANIFEST),
+        "harness_sha256_schedule_source": file_sha256(HARNESS),
+        "n_schedule_days_derived": len(expected),
         "k": K, "bar_sigma_per_day": BAR,
         "bootstrap": {"block": BLOCK, "B": B, "seed": BOOT_SEED},
         "n_days_realized": n,

@@ -78,7 +78,16 @@ def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
         "stamps_json_sha256": _sha(stamps),
         "frozen_corpus_sha256": _sha(corpus),
         "expected_schedule": schedule}))
-    return scores, stamps, manifest, corpus
+    # mini harness: CUTS whose test intervals reproduce the fixture folds,
+    # so the runner's INDEPENDENT derivation (CUTS x corpus dates) equals
+    # the manifest schedule via the real code path
+    cuts = []
+    for f in range(1, n_folds + 1):
+        ds = schedule[str(f)]
+        cuts.append(("2016-01-01", "2019-12-31", ds[0], ds[-1]))
+    harness = tmp / "harness.py"
+    harness.write_text("CUTS = " + repr(cuts) + "\n")
+    return scores, stamps, manifest, corpus, harness
 
 
 def _run(tmp, *paths):
@@ -87,10 +96,27 @@ def _run(tmp, *paths):
 
 
 def test_real_mode_rejects_fixture_corpus(tmp_path):
-    scores, stamps, manifest, corpus = _build_fixture(tmp_path, planted=0.3, n_days=30)
+    scores, stamps, manifest, corpus, harness = _build_fixture(
+        tmp_path, planted=0.3, n_days=30)
     with pytest.raises(AssertionError, match="freeze pin"):
         qp.main(["runner", str(scores), str(stamps), str(manifest),
-                 str(corpus), str(tmp_path / "o")])
+                 str(corpus), str(harness), str(tmp_path / "o")])
+
+
+def test_tampered_schedule_aborts(tmp_path):
+    # removing a day from BOTH scores and the manifest schedule must still
+    # abort: the runner derives the schedule from CUTS x corpus dates
+    scores, stamps, manifest, corpus, harness = _build_fixture(
+        tmp_path, planted=0.3, n_days=30)
+    m = json.loads(Path(manifest).read_text())
+    dropped = m["expected_schedule"]["1"].pop(10)
+    df = pd.read_csv(scores)
+    df = df[df.date != dropped]
+    df.to_csv(scores, index=False)
+    m["scores_csv_sha256"] = _sha(scores)
+    Path(manifest).write_text(json.dumps(m))
+    with pytest.raises(AssertionError, match="runner-derived"):
+        _run(tmp_path, scores, stamps, manifest, corpus, harness)
 
 
 def test_planted_pass(tmp_path):
@@ -128,12 +154,12 @@ def test_determinism(tmp_path):
 
 
 def test_sha_mismatch_dies(tmp_path):
-    scores, stamps, manifest, corpus = _build_fixture(tmp_path, planted=0.3)
+    scores, stamps, manifest, corpus, harness = _build_fixture(tmp_path, planted=0.3)
     m = json.loads(manifest.read_text())
     m["scores_csv_sha256"] = "0" * 64
     manifest.write_text(json.dumps(m))
     with pytest.raises(AssertionError, match="scores_csv_sha256"):
-        _run(tmp_path, scores, stamps, manifest, corpus)
+        _run(tmp_path, scores, stamps, manifest, corpus, harness)
 
 
 def test_missing_day_fail_closed_coverage(tmp_path):
@@ -168,13 +194,13 @@ def test_two_folds_bootstrap_deterministic_and_runs(tmp_path):
 
 
 def test_tie_membership_deterministic(tmp_path):
-    scores, stamps, manifest, corpus = _build_fixture(tmp_path, planted=0.0, n_days=6)
+    scores, stamps, manifest, corpus, harness = _build_fixture(tmp_path, planted=0.0, n_days=6)
     df = pd.read_csv(scores)
     df["recipe_score"] = 1.0   # all tied -> top-K must be first K tickers
     df.to_csv(scores, index=False)
     m = json.loads(Path(manifest).read_text())
     m["scores_csv_sha256"] = _sha(scores)
     Path(manifest).write_text(json.dumps(m))
-    s = _run(tmp_path, scores, stamps, manifest, corpus)
+    s = _run(tmp_path, scores, stamps, manifest, corpus, harness)
     daily = pd.read_csv(tmp_path / "out_daily.csv")
     assert len(daily) == 6   # ran; membership = lexicographically first K
