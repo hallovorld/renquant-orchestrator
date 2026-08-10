@@ -34,15 +34,30 @@ Decomposition of the sentence's three components:
   admission gate as configured per the #942 resolution BEFORE portfolio
   formation — names the gate blocks do not enter the book.
 
-## 3. The #942 fork — two frozen branches, one machinery
+## 3. Gate predicate — RESOLVED (rev 2): the DESIGNED gate, per fold
 
-| branch | gate configuration | confirmatory when |
-|---|---|---|
-| A (repair) | trade-monotonicity stamps as designed; a served model must pass them per regime | operator picks #942(a): repair retrain/promote until a passing model serves |
-| B (re-bar) | the reviewed replacement bar from the #942(b) review | operator picks #942(b) |
+The 05-23 text names "the strict admission gate" — that is the DESIGNED
+trade-monotonicity admission mechanism, so the evidence run applies
+exactly it, computed PER FOLD in the walk-forward replay: within each
+test fold, the replayed scorer's own entry-rank monotonicity stamps are
+computed from fold-local trades by the designed criteria, and
+admission filters selections accordingly before the statistic is taken.
+No live artifact's stamps are reused (they belong to a different model
+and window), and no bar is re-leveled here.
 
-Identical estimand, window, costs, statistic; ONLY the gate predicate
-differs. The non-chosen branch's numbers are diagnostic, never cited.
+This REMOVES the #942 fork as a prereg blocker: that fork decides the
+SERVING policy for today's zero-admissible artifact and remains the
+operator's; the evidence definition does not depend on it. Decision
+basis [VERIFIED — served artifact stamps read 2026-08-10]: the current
+artifact's BULL_CALM entry-rank Spearman is 0.0023 over n=104 trades —
+a FULL miss of the designed bar, not a near-miss — so an evidence
+design that presupposed a repaired-passing model would be assuming
+away the very thing the gate exists to test. If the gate blocks so
+much that fewer than k selections survive on a fold-day, that day is
+recorded (coverage), and a run where the gate starves the statistic
+below its power floor REPORTS that as the finding — "the recipe's
+alpha cannot be shown to survive the gate" is a valid, publishable
+answer to the 05-23 condition.
 
 ## 4. Data and non-inheritance
 
@@ -149,7 +164,8 @@ zero. Open items for rev 2 (each must be closed before freeze):
    not hidden. Fallback if the recipe replay fails golden checks at
    any cutoff: drop the leg for the historical window and state the
    composite degradation (z(panel) alone), reported alongside;
-2. the exact gate predicate per #942 branch (unchanged from §3);
+2. the gate predicate — RESOLVED, see §3 (the designed mechanism,
+   computed per fold; the #942 serving fork no longer blocks);
 3. the realized fold-day count — RESOLVED FOR REV 2: the eight v2-CUTS
    test folds contain 191/191/191/189/188/191/190/26 corpus days =
    **N = 1,357 fold-days** [VERIFIED — counted from the frozen corpus
