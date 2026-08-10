@@ -2,13 +2,15 @@
 MERGED freeze doc/design/2026-08-10-qp-reenable-evidence-prereg.md
 (orch#955). The doc text wins on any mismatch.
 
-Consumes PR A's hash-pinned artifacts (renquant-model qp_evidence_scorer):
+Consumes PR A's hash-pinned artifacts (renquant-model model#221 —
+schemas below are THE COMMITTED artifacts', read from the real files):
   scores CSV   fold,date,ticker,recipe_score,regime   (test days only)
-  stamps JSON  {"folds": {<fold>: {"boundaries": {...},
-                                    "stamps": {<REGIME>: {"eligible": b,
-                                                          "passed": b}},
-                                    "momentum_degraded": b}},
-                ...}
+  stamps JSON  {"fold_<n>": {"boundaries": {...}, "passed": b,
+                             "reason": str,
+                             "regimes": {<REGIME>: {"eligible": b,
+                                                    "passed": b, ...}}}}
+  manifest     outputs.scores_csv.sha256 / outputs.stamps_json.sha256 /
+               inputs.frozen_corpus.sha256 / expected_schedule (top)
 This side does ONLY: frozen-corpus label join, the designed admission
 semantics on the FROZEN stamps (fail-closed: missing/ineligible/failed
 regime ⇒ the day is gate-starved), the frozen statistic, the frozen
@@ -64,10 +66,13 @@ def main(argv):
     fixture_mode = "--fixture-mode" in argv[7:]
 
     man = json.loads(Path(MANIFEST).read_text())
-    for path, key in ((SCORES, "scores_csv_sha256"), (STAMPS, "stamps_json_sha256"),
-                      (CORPUS, "frozen_corpus_sha256")):
+    pins = {
+        "outputs.scores_csv.sha256": (SCORES, man.get("outputs", {}).get("scores_csv", {}).get("sha256")),
+        "outputs.stamps_json.sha256": (STAMPS, man.get("outputs", {}).get("stamps_json", {}).get("sha256")),
+        "inputs.frozen_corpus.sha256": (CORPUS, man.get("inputs", {}).get("frozen_corpus", {}).get("sha256")),
+    }
+    for key, (path, want) in pins.items():
         got = file_sha256(path)
-        want = man.get(key)
         assert want and got == want, f"{key}: {got[:12]} != manifest {str(want)[:12]}"
     # The freeze pin is the RUNNER'S OWN constant (review r2): the real
     # corpus must equal 870f68eb... regardless of what the manifest says;
@@ -118,7 +123,7 @@ def main(argv):
     assert not extra, f"scores contain off-schedule (fold,date) pairs: {sorted(extra)[:5]}"
     missing = sorted(expected - got_pairs)
 
-    stamps = json.loads(Path(STAMPS).read_text())["folds"]
+    stamps = json.loads(Path(STAMPS).read_text())
 
     labels = pd.read_parquet(CORPUS, columns=["date", "ticker", LABEL])
     labels["date"] = labels["date"].astype(str).str[:10]
@@ -144,7 +149,7 @@ def main(argv):
         if f != prev_fold:
             prev_top = set()   # review r3 P1: no turnover transition across folds
             prev_fold = f
-        fold_stamps = (stamps.get(str(f)) or stamps.get(int(f) if isinstance(f, str) else f) or {}).get("stamps", {})
+        fold_stamps = stamps.get(f"fold_{int(f)}", {}).get("regimes", {})
         uregs = g.regime.unique()
         assert len(uregs) == 1, f"{d} fold {f}: mixed regimes {list(uregs)}"
         regime = str(uregs[0])
@@ -229,9 +234,9 @@ def main(argv):
         "design_doc": "doc/design/2026-08-10-qp-reenable-evidence-prereg.md",
         "fixture_mode": bool(fixture_mode),
         "freeze_corpus_pin": FROZEN_CORPUS_SHA,
-        "scores_csv_sha256": man["scores_csv_sha256"],
-        "stamps_json_sha256": man["stamps_json_sha256"],
-        "frozen_corpus_sha256": man["frozen_corpus_sha256"],
+        "scores_csv_sha256": pins["outputs.scores_csv.sha256"][1],
+        "stamps_json_sha256": pins["outputs.stamps_json.sha256"][1],
+        "frozen_corpus_sha256": pins["inputs.frozen_corpus.sha256"][1],
         "manifest_sha256": file_sha256(MANIFEST),
         "harness_sha256_schedule_source": file_sha256(HARNESS),
         "n_schedule_days_derived": len(expected),

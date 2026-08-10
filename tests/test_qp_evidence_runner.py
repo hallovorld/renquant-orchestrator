@@ -63,20 +63,20 @@ def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
     corpus = tmp / "corpus.parquet"
     pd.DataFrame(rows_l).to_parquet(corpus, index=False)
     stamps = tmp / "stamps.json"
-    stamps.write_text(json.dumps({"folds": {
-        str(f): {"boundaries": {"train_end": "2019-12-31"},
-                 "stamps": {"BULL_CALM": {"eligible": True,
-                                          "passed": not all_fail_stamps}},
-                 "momentum_degraded": False}
-        for f in range(1, n_folds + 1)}}))
+    stamps.write_text(json.dumps({
+        f"fold_{f}": {"boundaries": {"train_end": "2019-12-31"},
+                      "passed": not all_fail_stamps, "reason": "fixture",
+                      "regimes": {"BULL_CALM": {"eligible": True,
+                                                "passed": not all_fail_stamps}}}
+        for f in range(1, n_folds + 1)}))
     schedule = {}
     for d in dates:
         schedule.setdefault(str(fold_of[d]), []).append(d)
     manifest = tmp / "manifest.json"
     manifest.write_text(json.dumps({
-        "scores_csv_sha256": _sha(scores),
-        "stamps_json_sha256": _sha(stamps),
-        "frozen_corpus_sha256": _sha(corpus),
+        "outputs": {"scores_csv": {"sha256": _sha(scores)},
+                    "stamps_json": {"sha256": _sha(stamps)}},
+        "inputs": {"frozen_corpus": {"sha256": _sha(corpus)}},
         "expected_schedule": schedule}))
     # mini harness: CUTS whose test intervals reproduce the fixture folds,
     # so the runner's INDEPENDENT derivation (CUTS x corpus dates) equals
@@ -130,7 +130,7 @@ def test_tampered_schedule_aborts(tmp_path):
     df = pd.read_csv(scores)
     df = df[df.date != dropped]
     df.to_csv(scores, index=False)
-    m["scores_csv_sha256"] = _sha(scores)
+    m["outputs"]["scores_csv"]["sha256"] = _sha(scores)
     Path(manifest).write_text(json.dumps(m))
     with pytest.raises(AssertionError, match="runner-derived"):
         _run(tmp_path, scores, stamps, manifest, corpus, harness)
@@ -173,9 +173,9 @@ def test_determinism(tmp_path):
 def test_sha_mismatch_dies(tmp_path):
     scores, stamps, manifest, corpus, harness = _build_fixture(tmp_path, planted=0.3)
     m = json.loads(manifest.read_text())
-    m["scores_csv_sha256"] = "0" * 64
+    m["outputs"]["scores_csv"]["sha256"] = "0" * 64
     manifest.write_text(json.dumps(m))
-    with pytest.raises(AssertionError, match="scores_csv_sha256"):
+    with pytest.raises(AssertionError, match="scores_csv.sha256"):
         _run(tmp_path, scores, stamps, manifest, corpus, harness)
 
 
@@ -227,7 +227,7 @@ def test_tie_membership_deterministic(tmp_path):
     df["recipe_score"] = 1.0   # all tied -> top-K must be first K tickers
     df.to_csv(scores, index=False)
     m = json.loads(Path(manifest).read_text())
-    m["scores_csv_sha256"] = _sha(scores)
+    m["outputs"]["scores_csv"]["sha256"] = _sha(scores)
     Path(manifest).write_text(json.dumps(m))
     s = _run(tmp_path, scores, stamps, manifest, corpus, harness)
     daily = pd.read_csv(tmp_path / "out_daily.csv")
