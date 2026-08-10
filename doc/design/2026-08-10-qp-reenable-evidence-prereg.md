@@ -49,7 +49,10 @@ selections, minus the per-day labelled-universe mean, must be
   blend construction z(panel leg) + z(momentum leg), where the panel
   leg is the production panel family trained per WF fold (train ≤ the
   fold's train end, per-row purge; production trainer params
-  `PANEL_LTR_PARAMS`, 100 rounds, the 172-column feature contract),
+  `PANEL_LTR_PARAMS`, 100 rounds, the 172-column feature contract).
+  THIS full-train model scores the TEST FOLD ONLY — gate-validation
+  trades are never scored by it; they are scored by the strictly
+  earlier-bounded gate-fit models of the §4 gate bullet, split (i),
   and the momentum leg REPLAYS the frozen recipe (`momentum-v0-
   fd65161a…` params fingerprint) at historical weekly cutoffs
   mirroring the live publish cadence — recomputed, not backfilled (no
