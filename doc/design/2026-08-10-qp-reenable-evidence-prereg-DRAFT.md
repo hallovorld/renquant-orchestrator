@@ -58,19 +58,49 @@ differs. The non-chosen branch's numbers are diagnostic, never cited.
 * The serving record (`ticker_daily_state`) is admissible as the SERVED
   arm's score source per the #948/#949/#950 fidelity chain.
 
-## 5. Power (MUST be computed BEFORE this freezes — currently absent)
+## 5. Power — COMPUTED 2026-08-10, and it settles the design question
 
-The G-B lesson (orch#917): no gate whose reachable power at a plausible
-MDE is ≈ α. Required before freeze:
-1. variance of daily benchmark-relative selection returns estimated on
-   PRE-2026 data only (no peeking at the candidate window);
-2. MDE at 80% power / α=0.05 for candidate window lengths (63d / 126d /
-   252d), stationary-bootstrap test as in §2;
-3. the freeze then fixes ONE window length whose MDE is economically
-   meaningful (a bar stated in annualized bps, chosen and justified in
-   this section), or — if no feasible window reaches that — this
-   document records that the condition is NOT currently testable at
-   policy grade and states what accrual period would make it so.
+Estimated on PRE-2026 data only (2023-01-01..2025-12-31, the corpus's
+291-name universe, 400 seeded random held-5 books, 5-session holds):
+daily excess-vs-SPY volatility of a 5-name equal-weight book
+σ_d = 0.94%/day, lag-1 autocorrelation −0.016 (no material inflation)
+[VERIFIED — qp_power_calc run 2026-08-10; script to be committed with
+this doc's PR].
+
+MDE at 80% power / α = 0.05 (two-sided):
+
+| window | MDE (bps/day) | MDE annualized |
+|---|---|---|
+| 63d | 32.7 | **82.4%/yr** |
+| 126d | 23.1 | **58.3%/yr** |
+| 252d | 16.3 | **41.2%/yr** |
+
+Detecting a PLAUSIBLE alpha (10%/yr) at this book width needs ~17
+YEARS of accrual. **Conclusion: the literal reading of the 05-23
+condition — statistically significant portfolio-level
+benchmark-relative alpha of the ~5-name book — is NOT testable at
+policy grade on any feasible window.** (The G-1 power-gate block,
+recurring at the portfolio level: a 5-name book's idiosyncratic
+volatility swamps any believable alpha.)
+
+Therefore this prereg CANNOT freeze a portfolio-significance gate, and
+the design fork becomes:
+(a) **selection-level reinterpretation (RECOMMENDED)**: the condition's
+    "WF shows benchmark-relative alpha" is testable at the
+    cross-sectional level (n≈90-150 names/day × days — the #953
+    machinery generalized), where power is orders of magnitude higher;
+    the freeze would fix a selection-level statistic + a minimum
+    effect. This REINTERPRETS a recorded condition and therefore needs
+    the reinterpretation stated in the frozen doc and reviewed, not
+    assumed;
+(b) **policy-rule reading**: the operator accepts a non-significance
+    decision rule (point estimate + guardrails + rollback) — a risk
+    decision, not an evidence gate; outside this prereg's authority;
+(c) **accrue**: record non-testability and revisit at a stated horizon
+    (not a live option at 17-year scale).
+This draft proceeds on (a) in its next revision unless review or the
+operator directs otherwise; (b) remains available to the operator at
+any time and is orthogonal to (a)'s evidence.
 
 ## 6. Outcome semantics
 
