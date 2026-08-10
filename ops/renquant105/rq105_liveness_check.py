@@ -392,14 +392,17 @@ def _pairing_buyhalt_reclassify(ok: bool, reason: str, last_row_date: str,
     """Pure decision for the buy-halt RECLASSIFICATION (unit-testable, no I/O).
 
     Returns ``(status, reason)``. The reclassification requires an
-    INDEPENDENT, session-current proof that buys were BLOCKED AT ADMISSION
-    (review r3): ``buys_blocked`` is the served artifact's WF-gate verdict —
-    ``True`` iff its ``wf_gate_metadata.passed is False`` (P-WF-GATE refuses
-    all new buys this session), so zero entry-pairs is provably correct
-    regardless of the trades ledger. The earlier trades-ledger approach was
-    abandoned: that ledger cannot self-certify buy-write completeness (a
-    writer dropping buys while recording sells is indistinguishable from a
-    genuine no-buy session).
+    INDEPENDENT, session-current proof that buys were BLOCKED AT ADMISSION:
+    ``buys_blocked`` is the served artifact's AUTHORITATIVE P-WF-GATE
+    admission verdict (``_wf_gate_blocks_buys`` -> the shared
+    ``wf_gate_admits_buys`` authority, RFC#210 license included). ``True``
+    means P-WF-GATE refuses all new buys this session, so zero entry-pairs is
+    provably correct. Note ``passed=False`` ALONE is NOT that proof (review
+    r7): an RFC#210-licensed fresh artifact serves passed=False yet buys are
+    admitted -> ``buys_blocked`` is False -> the page stands. An earlier
+    trades-ledger approach was also abandoned: that ledger cannot self-certify
+    buy-write completeness (a writer dropping buys while recording sells is
+    indistinguishable from a genuine no-buy session).
 
     NEVER flips a stale pairing to a healthy ``"ok"``. On a positive
     buy-blocked proof it downgrades the PAGING ``"stale_or_missing"`` to the
@@ -410,21 +413,29 @@ def _pairing_buyhalt_reclassify(ok: bool, reason: str, last_row_date: str,
     if not ok and buys_blocked is True:
         return "info_buy_halt", (
             f"pairing empty since {last_row_date} through {today_iso}: the "
-            f"SERVED artifact's WF gate is failing (P-WF-GATE refuses all new "
-            f"buys), so there are no entry submissions to pair — expected-empty, "
-            f"NOT paged. If the WF gate is passing yet pairing is empty, this "
-            f"downgrade does NOT apply and the page stands."
+            f"SERVED artifact's authoritative P-WF-GATE admission verdict "
+            f"(RFC#210 license included) refuses all new buys, so there are no "
+            f"entry submissions to pair — expected-empty, NOT paged. If the "
+            f"gate ADMITS buys yet pairing is empty, this downgrade does NOT "
+            f"apply and the page stands."
         )
     return ("ok" if ok else "stale_or_missing"), reason
 
 
 def _wf_gate_blocks_buys(data_root: Path) -> "bool | None":
-    """Return whether the SERVED panel artifact's WF gate BLOCKS new buys —
-    the independent, session-current buy-block proof (the same signal
-    P-WF-GATE reads). ``True`` iff ``wf_gate_metadata.passed is False``;
-    ``False`` iff it is True (buys admitted); ``None`` when undeterminable
-    (config/artifact missing/unreadable, or no WF stamp) — the caller then
-    keeps the page (fail-closed). Read-only.
+    """Return whether the SERVED panel artifact's WF gate BLOCKS new buys.
+
+    Consumes the SINGLE admission authority
+    ``check_model_bundle_consistency.wf_gate_admits_buys`` — NOT a hand-rolled
+    ``passed is False`` read. That authority is the runtime contract: it reads
+    the CANONICAL ``metadata.wf_gate_metadata`` first (legacy top-level only as
+    fallback) AND applies the RFC#210 freshness license, under which a fresh
+    governance-served artifact serves with ``passed=False`` yet P-WF-GATE
+    still ADMITS buys (review r7 — ``passed=False`` alone is not proof buys
+    were blocked). Returns ``True`` iff the authority says buys are blocked
+    (a stale pairing is then expected-empty), ``False`` iff admitted (a stale
+    pairing is a REAL outage -> keep the page), ``None`` when undeterminable
+    (config/artifact missing/unreadable) -> caller keeps the page. Read-only.
     """
     try:
         cfg_path = data_root / ".subrepo_runtime" / "repos" / \
@@ -443,23 +454,15 @@ def _wf_gate_blocks_buys(data_root: Path) -> "bool | None":
         if not art.exists():
             return None
         payload = json.loads(art.read_text())
-        # CANONICAL is metadata.wf_gate_metadata (the twin registry's
-        # designated key, 29/29); the top-level copy is legacy and can be
-        # STALE. Prefer canonical; fall back to legacy only when canonical
-        # is absent; if BOTH carry `passed` and they DISAGREE, the artifact
-        # is internally inconsistent -> undeterminable (None, fail-closed:
-        # keep the page rather than trust a possibly-stale legacy stamp).
-        meta = payload.get("metadata")
-        canonical = meta.get("wf_gate_metadata") if isinstance(meta, dict) else None
-        legacy = payload.get("wf_gate_metadata")
-        c_passed = canonical.get("passed") if isinstance(canonical, dict) else None
-        l_passed = legacy.get("passed") if isinstance(legacy, dict) else None
-        if c_passed is not None and l_passed is not None and c_passed != l_passed:
-            return None
-        chosen = c_passed if c_passed is not None else l_passed
-        if chosen is None:
-            return None
-        return chosen is False
+    except Exception:
+        return None
+    try:
+        scripts_dir = Path(__file__).resolve().parents[2] / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from check_model_bundle_consistency import wf_gate_admits_buys
+        admits, _detail = wf_gate_admits_buys(payload)
+        return not admits
     except Exception:
         return None
 

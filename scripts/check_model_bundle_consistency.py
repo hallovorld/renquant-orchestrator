@@ -57,6 +57,52 @@ def _finite(v) -> bool:
         return False
 
 
+def wf_gate_admits_buys(art: dict) -> "tuple[bool, str]":
+    """THE single authority for "will the live P-WF-GATE admit new buys for
+    this served artifact", INCLUDING the RFC#210 freshness-fallback license.
+    Returns ``(admits, detail)``. Both the pre-deploy bundle check AND the
+    rq105 pairing sentinel consume this one function so the admission policy
+    lives in exactly one place — a raw ``wf_gate_metadata.passed is False`` is
+    NOT the runtime contract (an RFC#210-licensed fresh promotion serves with
+    passed=False BY DESIGN and the gate still admits).
+
+    Canonical key first (``metadata.wf_gate_metadata``, twin-registry
+    designated); legacy top-level only when canonical is absent. Rules kept in
+    LOCKSTEP with renquant-pipeline kernel/rfc210_license.py (exact basis
+    string; parseable ISO trained_date; age 0..28d; future-dated refuses; fail
+    closed). Absent metadata => blocked (the runtime refuses an unstamped
+    artifact).
+    """
+    wf = ((art.get("metadata") or {}).get("wf_gate_metadata")) or art.get("wf_gate_metadata") or {}
+    if not wf:
+        return False, "absent — buy runs will be blocked by P-WF-GATE"
+    req = ["wf_3cut_sharpe_mean", "spy_sharpe_mean", "strategy_minus_spy_sharpe_mean"]
+    missing = [k for k in req if not _finite(wf.get(k))]
+    gate_passed = wf.get("passed") is True
+    # RFC #210 (2026-08-04 incident, third consumer found the same day):
+    # a freshness-fallback promotion serves with passed=False BY DESIGN,
+    # and the live P-WF-GATE admits it while fresh.
+    licensed = False
+    lic_note = ""
+    if not gate_passed:
+        meta = art.get("metadata") or {}
+        basis = meta.get("promotion_basis", art.get("promotion_basis"))
+        raw = art.get("trained_date", meta.get("trained_date"))
+        if basis == "freshness_fallback_rfc210" and isinstance(raw, str) and raw.strip():
+            try:
+                age = (_dt.date.today() - _dt.date.fromisoformat(raw.strip())).days
+            except ValueError:
+                lic_note = " rfc210=refused(bad trained_date)"
+            else:
+                licensed = 0 <= age <= 28
+                lic_note = f" rfc210={'served' if licensed else 'refused'}(age={age}d)"
+    admits = ((gate_passed or licensed) and not missing
+              and ("n_cuts_beat_spy_sharpe" in wf))
+    detail = (f"passed={wf.get('passed')}{lic_note} missing_numerics={missing} "
+              f"override={wf.get('operator_authorized_override')}")
+    return admits, detail
+
+
 def _runtime_scorer_fp(art_path: Path, repo: Path | None):
     """The fingerprint the LIVE runtime itself stamps on load (pinned pipeline
     PanelScorer). None when the pinned checkout is not importable here —
@@ -158,40 +204,12 @@ def check_bundle(config_path: Path, strategy_dir: Path, *,
     else:
         add("calibrator_scorer_match", True, "global_calibration disabled — n/a")
 
-    # (1) WF gate metadata (what the live P-WF-GATE needs for buys)
-    wf = ((art.get("metadata") or {}).get("wf_gate_metadata")) or art.get("wf_gate_metadata") or {}
-    if not wf:
-        add("wf_gate_metadata", False, "absent — buy runs will be blocked by P-WF-GATE")
-    else:
-        req = ["wf_3cut_sharpe_mean", "spy_sharpe_mean", "strategy_minus_spy_sharpe_mean"]
-        missing = [k for k in req if not _finite(wf.get(k))]
-        gate_passed = wf.get("passed") is True
-        # RFC #210 (2026-08-04 incident, third consumer found the same day):
-        # a freshness-fallback promotion serves with passed=False BY DESIGN,
-        # and the live P-WF-GATE admits it while fresh. This checker's job is
-        # "what the live P-WF-GATE needs for buys", so it mirrors that
-        # license. Rules kept in LOCKSTEP with renquant-pipeline
-        # kernel/rfc210_license.py (exact basis string; parseable ISO
-        # trained_date; age 0..28d; future-dated refuses; fail closed).
-        licensed = False
-        lic_note = ""
-        if not gate_passed:
-            meta = art.get("metadata") or {}
-            basis = meta.get("promotion_basis", art.get("promotion_basis"))
-            raw = art.get("trained_date", meta.get("trained_date"))
-            if basis == "freshness_fallback_rfc210" and isinstance(raw, str) and raw.strip():
-                try:
-                    age = (_dt.date.today() - _dt.date.fromisoformat(raw.strip())).days
-                except ValueError:
-                    lic_note = " rfc210=refused(bad trained_date)"
-                else:
-                    licensed = 0 <= age <= 28
-                    lic_note = f" rfc210={'served' if licensed else 'refused'}(age={age}d)"
-        ok = ((gate_passed or licensed) and not missing
-              and ("n_cuts_beat_spy_sharpe" in wf))
-        add("wf_gate_metadata", ok,
-            f"passed={wf.get('passed')}{lic_note} missing_numerics={missing} "
-            f"override={wf.get('operator_authorized_override')}")
+    # (1) WF gate metadata (what the live P-WF-GATE needs for buys) — the
+    # single admission authority, shared verbatim with the rq105 pairing
+    # sentinel (ops/renquant105/rq105_liveness_check.py) so the RFC#210
+    # license lives in exactly one place.
+    admits, wf_detail = wf_gate_admits_buys(art)
+    add("wf_gate_metadata", admits, wf_detail)
 
     ready = all(c["pass"] for c in checks)
     return {"kind": kind, "deploy_ready": ready, "checks": checks,
