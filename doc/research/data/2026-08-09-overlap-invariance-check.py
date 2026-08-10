@@ -64,11 +64,24 @@ def main():
     for df in (fz, ex):
         df["date"] = pd.to_datetime(df["date"])
 
+    # Primary-key assertion (review P1): shared-row counts are only
+    # meaningful if (date, ticker) is unique in BOTH frames — duplicated
+    # keys would silently inflate the inner merge.
+    for name, df in (("frozen", fz), ("extension", ex)):
+        ndup = int(df.duplicated(["date", "ticker"]).sum())
+        assert ndup == 0, f"{name} corpus has {ndup} duplicated (date,ticker) keys"
+
     m = fz.merge(ex, on=["date", "ticker"], how="inner", suffixes=("_f", "_e"))
     only_fz = len(fz) - len(m)
     only_ex_mask = ~ex.set_index(["date", "ticker"]).index.isin(
         fz.set_index(["date", "ticker"]).index)
     ext_new = ex[only_ex_mask]
+    # Partition (review P1): rows the frozen build dropped mid-history
+    # (label gaps, date <= frozen end) vs the true extension window. The
+    # boundary is the FROZEN corpus's own max date, not a constant.
+    frozen_end = fz.date.max()
+    hist = ext_new[ext_new.date <= frozen_end]
+    win = ext_new[ext_new.date > frozen_end]
 
     per_col, worst = {}, 0.0
     for c in feats + ["fwd_60d_excess"]:
@@ -86,6 +99,32 @@ def main():
     nan_mismatch_feats = sum(v["n_nan_mismatch"] for k, v in per_col.items()
                              if k != "fwd_60d_excess")
     invariant = bool(worst <= 1e-9 and nan_mismatch_feats == 0)
+    # Label equality (review P1): the target itself must reproduce on
+    # shared rows, and it is ENFORCED as its own flag — the frozen labels
+    # were computed from the May data vintage, the rebuild from today's;
+    # a nonzero diff here means OHLCV revision touched realized labels.
+    lab = per_col["fwd_60d_excess"]
+    label_invariant = bool(lab["max_abs_diff"] <= 1e-9 and lab["n_nan_mismatch"] == 0)
+    la = m["fwd_60d_excess_f"].to_numpy(dtype=float)
+    lb = m["fwd_60d_excess_e"].to_numpy(dtype=float)
+    ldiff = np.abs(la - lb)
+    lmask = ~(np.isnan(la) & np.isnan(lb)) & (np.nan_to_num(ldiff, nan=np.inf) > 1e-9)
+    lrows = m.loc[lmask, ["date", "ticker"]]
+    label_diff_profile = {
+        "n_rows_diff_gt_1e-9": int(lmask.sum()),
+        "n_tickers_affected": int(lrows.ticker.nunique()),
+        "date_range_affected": [str(lrows.date.min())[:10] if len(lrows) else None,
+                                str(lrows.date.max())[:10] if len(lrows) else None],
+        "top_tickers": lrows.ticker.value_counts().head(6).to_dict(),
+    }
+
+    def _part(df):
+        return {"rows": int(len(df)), "tickers": int(df.ticker.nunique()),
+                "dates": int(df.date.nunique()),
+                "date_range": [str(df.date.min())[:10] if len(df) else None,
+                               str(df.date.max())[:10] if len(df) else None],
+                "labelled_fwd_60d": int(df.fwd_60d_excess.notna().sum())}
+
     report = {
         "artifact_kind": "diagnostic",
         "frozen_sha256": frozen_sha,
@@ -93,21 +132,27 @@ def main():
         "shared_rows": int(len(m)),
         "frozen_only_rows": int(only_fz),
         "ext_new_rows": int(len(ext_new)),
-        "ext_new_dates": [str(ext_new.date.min())[:10] if len(ext_new) else None,
-                          str(ext_new.date.max())[:10] if len(ext_new) else None],
-        "ext_new_labelled": int(ext_new.fwd_60d_excess.notna().sum()),
+        "frozen_end_date": str(frozen_end)[:10],
+        "ext_new_historical_resurrections": _part(hist),
+        "ext_new_extension_window": _part(win),
         "worst_feature_abs_diff": worst,
         "n_feature_nan_mismatch": nan_mismatch_feats,
         "invariant_on_shared_rows": invariant,
+        "label_max_abs_diff": lab["max_abs_diff"],
+        "label_nan_mismatch": lab["n_nan_mismatch"],
+        "label_invariant_on_shared_rows": label_invariant,
+        "label_diff_profile": label_diff_profile,
         "worst_columns": sorted(
             ((k, v["max_abs_diff"]) for k, v in per_col.items() if k != "fwd_60d_excess"),
             key=lambda t: -(t[1] if t[1] == t[1] else float("inf")))[:8],
     }
     REPORT.write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({k: report[k] for k in (
-        "shared_rows", "frozen_only_rows", "ext_new_rows", "ext_new_dates",
+        "shared_rows", "frozen_only_rows", "ext_new_rows",
+        "ext_new_historical_resurrections", "ext_new_extension_window",
         "worst_feature_abs_diff", "n_feature_nan_mismatch",
-        "invariant_on_shared_rows")}, indent=2))
+        "invariant_on_shared_rows", "label_max_abs_diff",
+        "label_invariant_on_shared_rows", "label_diff_profile")}, indent=2))
 
 
 if __name__ == "__main__":

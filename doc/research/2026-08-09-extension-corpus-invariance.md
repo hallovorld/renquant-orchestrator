@@ -15,12 +15,15 @@ scoring starts 2026-05-20 (`ticker_daily_state`), so replay and served
 scores had ZERO shared dates (the orch#937/#938 finding's structural gap).
 
 A scratch copy of the builder was changed in exactly two places
-(never the umbrella tree — the copy ran from the session scratchpad):
+(never the umbrella tree — the copy ran from the session scratchpad).
+The exact hunks are committed as `data/2026-08-09-extension-builder.patch`,
+hash-pinned to the source builder (its sha256 is in the patch header):
 
-1. `REPO_ROOT` pinned to `/Users/renhao/git/github/RenQuant` (line 97
-   resolves relative to `__file__`, which breaks for an out-of-tree copy —
-   the first rerun failed on exactly this and exit-code masking in a `;`
-   chain briefly hid it; visible correction in the 19:45 loop round);
+1. `REPO_ROOT` pinned to the local RenQuant tree (line 97 resolves
+   relative to `__file__`, which breaks for an out-of-tree copy — the
+   first rerun failed on exactly this and exit-code masking in a `;`
+   chain briefly hid it; visible correction in the 19:45 loop round).
+   This hunk is machine-local by nature (substitute your path);
 2. the label `dropna` replaced by a keep-and-count (feature rows are kept
    when their forward labels are NaN; rows missing all features still drop).
 
@@ -38,16 +41,29 @@ Report: `data/2026-08-09-overlap-invariance-report.json`.
 
 | quantity | value |
 |---|---|
-| shared (date,ticker) rows | 726,128 (= every frozen row; frozen-only rows 0) |
+| shared (date,ticker) rows | 726,128 (= every frozen row; frozen-only rows 0; (date,ticker) asserted unique in both frames) |
 | worst feature abs diff over 70 frozen features | **0.0** |
 | feature NaN mismatches | **0** |
-| verdict | invariant on shared rows, bit-for-bit |
+| feature verdict | invariant on shared rows, bit-for-bit |
+| label (fwd_60d_excess) max abs diff | **0.0168** — NOT invariant |
+| label diff profile | all 144 differing rows on exactly ONE date = 2026-05-07 (the frozen corpus's final day), one row per ticker, 144/292 tickers |
 
-[VERIFIED — checker run 2026-08-09, exit 0, printed JSON above matches the
-committed report.]
+[VERIFIED — checker rerun 2026-08-09 after the review-P1 hardening
+(primary-key assertions, label equality enforced as its own flag,
+partition counts); exit 0; printed JSON matches the committed report.]
 
-So the extension build is the SAME measurement process as the corpus the
-v2 verdict ran on, not a near-reproduction.
+So: the FEATURE process reproduces bit-for-bit. The LABELS reproduce on
+725,984 of 726,128 rows; the 144 exceptions sit entirely on the boundary
+date 2026-05-07, whose 60-trading-day forward window ends at the edge of
+the frozen build's OHLCV vintage — the rebuilt vintage (through 08-07)
+resolves that window slightly differently (≤1.68pp). **VISIBLE
+CORRECTION: this note's first version claimed "the SAME measurement
+process, not a near-reproduction" unqualified — that claim was too wide;
+it holds for features, and for labels everywhere except the single
+boundary date.** Downstream consequence: any reuse of REBUILT labels must
+exclude the boundary date (or take labels from the frozen corpus, which
+remains the v2 verdict's authority); extension-window rows are used for
+FEATURES/scoring, where no label is consumed.
 
 ## 3. What the extension window contains
 

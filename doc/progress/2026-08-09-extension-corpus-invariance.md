@@ -5,13 +5,18 @@ STATUS:    measurement; read-only on all repo/production surfaces; the
            orch#939 step.
 
 WHAT:      doc/research/2026-08-09-extension-corpus-invariance.md — a
-           two-line scratch-copy patch of the alpha158 builder (REPO_ROOT
-           pin + keep label-NaN feature rows) extends feature coverage
-           from 2026-05-07 to 2026-08-07; the committed checker proves
-           the frozen corpus's 726,128 rows reproduce EXACTLY (70
-           features, max abs diff 0.0, zero NaN mismatches, corpus
-           sha256 asserted against the harness pin ast-read from the
-           frozen harness).
+           two-line scratch-copy patch of the alpha158 builder
+           (committed hash-pinned as data/2026-08-09-extension-builder.patch)
+           extends feature coverage from 2026-05-07 to 2026-08-07; the
+           committed checker proves the frozen corpus's 726,128 rows
+           reproduce EXACTLY on all 70 FEATURES (max abs diff 0.0, zero
+           NaN mismatches, primary keys asserted unique, corpus sha256
+           asserted against the harness pin). LABELS are NOT fully
+           invariant: 144/726,128 rows differ (≤1.68pp), all on the
+           single boundary date 2026-05-07 — vintage sensitivity of the
+           final day's forward window, profiled in the committed report;
+           downstream label reuse must exclude that date (the frozen
+           corpus stays the v2 verdict's label authority).
 
 WHY/DIR:   Live scoring starts 05-20; the frozen corpus ends 05-07 —
            replay vs served had zero shared dates (orch#937/#938). The
