@@ -17,8 +17,11 @@ path read from the pinned strategy-104 checkout].
 * GMM argmax over 2017-01-01..2026-08-07 yields **75 BEAR days / 5
   episodes** — reproducing the prereg's own §3 planning estimate
   ("~77 days / ~4 episodes"), so the reconnaissance behind the frozen
-  numbers was evidently run on the GMM [VERIFIED — orch#962 committed
-  derivation + CSVs, verifier exit 0].
+  numbers was evidently run on the GMM [VERIFIED — the orch#962
+  derivation, MERGED and present on this branch at
+  doc/research/data/2026-08-10-bear-exit-episode-derivation.py with
+  …-episodes.csv; its verifier re-run on this branch 2026-08-10:
+  VERDICT REPRODUCED, exit 0].
 * The only on-machine HMM yields **211 BEAR days / 17 episodes** —
   incompatible with the frozen planning numbers.
 
