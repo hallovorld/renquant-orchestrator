@@ -8,8 +8,14 @@ WHAT:      doc/design/2026-08-10-qp-reenable-evidence-prereg.md — the
            alpha (eight embargoed v2-CUTS folds, N=1,357 days) of the
            served recipe (blend replayed per fold; momentum leg from
            its frozen params fingerprint) surviving the DESIGNED
-           admission gate computed per fold; bar 0.0337σ/day ≈ 6.9%/yr
-           gross with CI excluding 0 and a ≥700-day power floor;
+           admission gate FITTED on each fold's final-252-train-day
+           validation segment and applied forward (r2: the r1 per-fold
+           text was outcome-leaky, review-caught); bar 0.0658σ/day ≈
+           13.5%/yr gross (dependence-adjusted, conservative κ=3.863
+           from persistent-selection calibration — the r1 independence
+           MDE 0.0337 was anti-conservative, review-caught) with the
+           frozen-parameter bootstrap CI excluding 0 and a ≥700-day
+           power floor;
            verdict PASS/FAIL/POWER_INSUFFICIENT; PASS ⇒ a reviewed
            strategy-104 knob PR. Contains an explicit REINTERPRETATION
            of the recorded condition (portfolio-significance is

@@ -40,7 +40,8 @@ on the corpus's own calendar — model#213's frozen convention), the mean
 daily top-5 `fwd_5d_excess` (per-day cross-sectional z, the corpus
 label convention) of the SERVED RECIPE's admission-gate-surviving
 selections, minus the per-day labelled-universe mean, must be
-≥ 0.0337σ/day with a stationary-bootstrap 95% CI excluding zero.
+≥ 0.0658σ/day with a stationary-bootstrap 95% CI excluding zero
+(dependence-adjusted; §5).
 
 ## 4. Arms and machinery (all frozen)
 
@@ -57,38 +58,68 @@ selections, minus the per-day labelled-universe mean, must be
   window and publish the composite degradation (z(panel) alone)
   alongside. z semantics per `blend_scorer.py` (ddof=0, NaN
   propagates).
-* **Gate — the DESIGNED mechanism, per fold**: within each test fold,
-  entry-rank trade-monotonicity stamps are computed from the replayed
-  scorer's own fold-local trades by the designed criteria
-  (`admission_tasks.py`), and admission filters selections BEFORE the
-  statistic. No live artifact's stamps are reused; no bar is
+* **Gate — the DESIGNED mechanism, fitted pre-test, applied forward
+  (review r2: the r1 text was outcome-leaky — it stamped from the test
+  fold's own closed trades and then filtered that fold's statistic;
+  corrected to production temporal semantics)**: within each fold, the
+  entry-rank trade-monotonicity stamps are computed by the designed
+  criteria (`trade_monotonicity.py` / `admission_tasks.py`) from the
+  replayed scorer's simulated trades on a VALIDATION SEGMENT = the
+  final 252 train-period days of that fold; every gate input (trade
+  entry, exit, and realized 5d outcome) ends before the fold's train
+  end, which precedes the test start by the 91-day embargo — so all
+  gate information strictly predates every test label. The resulting
+  per-regime eligible/passed stamps are FROZEN and applied UNCHANGED
+  to the test fold's selections; no test-period outcome ever touches
+  the filter. No live artifact's stamps are reused; no bar is
   re-leveled. Decision basis for not waiting on the #942 serving fork:
   the served artifact's BULL_CALM entry-rank Spearman is 0.0023 over
   n=104 — a full miss; an evidence design presupposing a repaired
-  model would assume away what the gate tests. If the gate starves a
-  fold-day below k selections it is coverage-recorded; if starvation
-  pushes the realized day count below the §5 power floor, THAT is the
-  published finding ("the recipe's alpha cannot be shown to survive
-  the gate").
+  model would assume away what the gate tests. If the pre-fitted gate
+  admits nothing in a test fold's active regime, its fold-days are
+  coverage-recorded as gate-starved; if starvation pushes the realized
+  day count below the §5 power floor, THAT is the published finding
+  ("the recipe's alpha cannot be shown to survive the gate").
 * **Vintage**: all legs and labels share today's OHLCV vintage
   (as-of-then files do not exist); stated openly — the serving-fidelity
   line measured same-week reconstruction at 0.97+ (orch#949/#950).
 
-## 5. Power and the numeric bar (computed pre-freeze, PRE-2026 data)
+## 5. Power and the numeric bar (computed pre-freeze, PRE-2026 data;
+review r2 — serial dependence now calibrated, not assumed away)
 
-Selection-level daily mean-z statistic, k=5: σ = 0.443σ/day
-[VERIFIED — `data/2026-08-10-qp-power-selection.py`]. The eight test
-folds contain **N = 1,357 corpus days** (191/191/191/189/188/191/190/
-26). MDE at 80%/α=0.05: **0.0337σ/day ≈ 6.9%/yr gross** (z→raw via the
-median per-day raw dispersion 4.04%; gross, pre-cost, pre-sizing — an
-upper bound on realizable, stated as such). Power floor: if
-gate-starvation drops realized comparison days below 700, the MDE
-degrades past 0.047σ/day and the run reports power-insufficiency
-instead of a verdict on the bar.
+Selection-level daily mean-z statistic, k=5: σ = 0.443σ/day. The r1
+independence assumption was WRONG for this estimand (review P1): a
+model's top-5 is persistent across days, so the overlapping 5-day
+labels induce strong serial dependence in the daily statistic. This
+was calibrated on pre-2026 data with PERSISTENT random selections
+[VERIFIED — `data/2026-08-10-qp-dependence-calib.py`, 400 seeded draws
+per variant]:
+
+| hold length | ACF lags 1-4 | Newey-West κ (Bartlett L=10) |
+|---|---|---|
+| 5 sessions (weekly refresh) | 0.63 / 0.35 / 0.16 / 0.03 | 2.972 |
+| 21 sessions (sticky) | 0.75 / 0.53 / 0.32 / 0.15 | 3.863 |
+
+The FROZEN calibration takes the CONSERVATIVE κ = 3.863. The eight
+test folds contain **N = 1,357 corpus days** (191/191/191/189/188/191/
+190/26) → N_eff = 351 → MDE at 80%/α=0.05 = **0.0658σ/day ≈ 13.5%/yr
+gross** (z→raw via the median per-day raw dispersion 4.04%; gross,
+pre-cost, pre-sizing — an upper bound on realizable, stated as such).
+The bar remains reachable in principle: the orch#953 diagnostic point
+estimate for the served arm was +0.113σ/day (non-inheritable, cited
+only for scale). Power floor: if gate-starvation drops realized
+comparison days below 700 (N_eff 181), the MDE degrades past
+0.0915σ/day and the run reports POWER_INSUFFICIENT instead of a
+verdict on the bar.
+
+Frozen inference parameters: stationary bootstrap with expected block
+length 10 (≥ 2× the calibrated ACF decay span of ~4-5 lags), B = 2000,
+seed = 99; the same parameters produce the 95% CI in §3 and the §6
+decision — no other inference procedure is admissible.
 
 ## 6. Outcome semantics and non-inheritance
 
-* PASS (statistic ≥ 0.0337σ/day, CI excludes 0, ≥700 realized days) ⇒
+* PASS (statistic ≥ 0.0658σ/day, CI excludes 0, ≥700 realized days) ⇒
   the 05-23 condition is met under this prereg's reinterpretation; the
   deliverable is a strategy-104 PR flipping `qp_min_invested_pct`
   THROUGH REVIEW (never a live-tree hand-edit — containment protocol
@@ -116,7 +147,9 @@ stamps from fold-local trades only; produce verbatim evidence files
 (`_daily.csv`, `_coverage.csv` with both asymmetric name lists,
 `_summary.json` with every pin above); rehearse on a synthetic fixture
 with planted/null/starvation controls BEFORE the real run and commit
-the fixture as tests (the model#220 convention); and emit
+the fixture as tests (the model#220 convention); use EXACTLY the §5
+frozen inference parameters (stationary bootstrap, expected block 10,
+B 2000, seed 99); and emit
 `verdict: PASS|FAIL|POWER_INSUFFICIENT` exactly as §6 defines. Model
 internals (training, scoring) live in renquant-model; this repo's
 runner joins and reports (the orch#953-P0 boundary). Any deviation
