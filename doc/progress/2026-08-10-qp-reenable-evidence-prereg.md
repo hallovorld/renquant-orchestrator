@@ -1,7 +1,8 @@
 # qp re-enable evidence prereg — freeze candidate (orch#954)
 
 STATUS:    design freeze candidate; binds at merge; no computation run
-           beyond the two committed pre-freeze power calcs.
+           beyond the THREE committed pre-freeze calibration scripts
+           (portfolio power, selection power, serial dependence).
 
 WHAT:      doc/design/2026-08-10-qp-reenable-evidence-prereg.md — the
            05-23 recorded condition operationalized: selection-level WF
@@ -33,8 +34,10 @@ WHY/DIR:   The three locks (orch#943/#945) leave qp_min_invested_pct=0
 
 EVIDENCE:  artifact:      doc/design/2026-08-10-qp-reenable-evidence-prereg.md +
                           doc/research/data/2026-08-10-qp-power-calc.py +
-                          doc/research/data/2026-08-10-qp-power-selection.py
-                          [VERIFIED — both calcs run 2026-08-10 on
+                          doc/research/data/2026-08-10-qp-power-selection.py +
+                          doc/research/data/2026-08-10-qp-dependence-calib.py
+                          (the kappa=3.863 / 0.0658 bar's direct source)
+                          [VERIFIED — all three calcs run 2026-08-10 on
                           pre-2026 data only; numbers quoted in-doc]
            prod or exp:   design only; no confirmatory computation
            existing data: orch#943/#945 (locks), #948-#950 (fidelity),
@@ -43,9 +46,9 @@ EVIDENCE:  artifact:      doc/design/2026-08-10-qp-reenable-evidence-prereg.md +
            best-known?:   yes — §2 states the untestability result and
                           the reinterpretation; §6 the non-inheritance
                           and single-configuration rules
-           scope:         one design doc + this progress doc + the two
-                          committed power calcs; runner = separate PR
-                          bound to §7 after merge
+           scope:         one design doc + this progress doc + the
+                          THREE committed calibration scripts; runner =
+                          separate PR bound to §7 after merge
 
 TESTS:     none — design doc; power calcs exit 0.
 

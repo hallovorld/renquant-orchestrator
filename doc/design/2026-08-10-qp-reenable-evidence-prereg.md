@@ -21,7 +21,7 @@ Portfolio-level power, computed on PRE-2026 data only (2023-2025,
 book's daily excess-vs-SPY volatility is σ_d = 0.94%/day (ρ₁ −0.016),
 giving MDE at 80%/α=0.05 of **82.4%/yr (63d) / 58.3%/yr (126d) /
 41.2%/yr (252d)**; a plausible 10%/yr alpha needs ~17 years [VERIFIED —
-`data/2026-08-10-qp-power-calc.py`]. The literal portfolio-significance
+`doc/research/data/2026-08-10-qp-power-calc.py`]. The literal portfolio-significance
 reading is therefore NOT testable at policy grade on any feasible
 window (the G-1 power-gate block, recurring at the portfolio level).
 
@@ -120,7 +120,7 @@ independence assumption was WRONG for this estimand (review P1): a
 model's top-5 is persistent across days, so the overlapping 5-day
 labels induce strong serial dependence in the daily statistic. This
 was calibrated on pre-2026 data with PERSISTENT random selections
-[VERIFIED — `data/2026-08-10-qp-dependence-calib.py`, 400 seeded draws
+[VERIFIED — `doc/research/data/2026-08-10-qp-dependence-calib.py`, 400 seeded draws
 per variant]:
 
 | hold length | ACF lags 1-4 | Newey-West κ (Bartlett L=10) |
