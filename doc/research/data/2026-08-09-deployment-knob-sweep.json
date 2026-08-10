@@ -1,0 +1,1488 @@
+{
+  "scope": "sensitivity study on real run inputs with simplified constraints (per-name cap only); the S6 in-pipeline 10-session shadow sweep remains the enable-gating AC",
+  "lambdas": [
+    0.0,
+    0.01,
+    0.02,
+    0.05,
+    0.1
+  ],
+  "turnover_caps": [
+    0.15,
+    0.2,
+    0.3,
+    0.5
+  ],
+  "min_invested_production": 0.0,
+  "min_invested_undisabled": 0.7,
+  "runs": [
+    {
+      "run_id": "2026-05-21-live-b2d754d0",
+      "run_date": "2026-05-21",
+      "n_names": 75,
+      "n_held": 6,
+      "n_held_reconstructed": 6,
+      "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.5079,
+      "production_reality_min_invested_0": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        }
+      ],
+      "undisabled_2d_sweep": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 19,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 19,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 19,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 19,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 19,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ],
+      "positive_control_non_binding_turnover": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ]
+    },
+    {
+      "run_id": "2026-05-20-live-9694f79f",
+      "run_date": "2026-05-20",
+      "n_names": 76,
+      "n_held": 6,
+      "n_held_reconstructed": 6,
+      "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.5079,
+      "production_reality_min_invested_0": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        }
+      ],
+      "undisabled_2d_sweep": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 13,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 13,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 13,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 13,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.658,
+          "n_names_gt_1pct": 12,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.708,
+          "n_names_gt_1pct": 13,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.808,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ],
+      "positive_control_non_binding_turnover": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 21,
+          "max_weight": 0.097,
+          "turnover": 0.5
+        }
+      ]
+    },
+    {
+      "run_id": "2026-05-19-live-7165ae82",
+      "run_date": "2026-05-19",
+      "n_names": 75,
+      "n_held": 7,
+      "n_held_reconstructed": 7,
+      "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.6033,
+      "production_reality_min_invested_0": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        }
+      ],
+      "undisabled_2d_sweep": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 22,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 22,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 22,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 22,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 10,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 15,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 22,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ],
+      "positive_control_non_binding_turnover": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ]
+    },
+    {
+      "run_id": "2026-05-18-live-bafc1ea8",
+      "run_date": "2026-05-18",
+      "n_names": 76,
+      "n_held": 7,
+      "n_held_reconstructed": 7,
+      "n_held_no_trade_history": 0,
+      "sum_w_current_target_pct_approx": 0.6033,
+      "production_reality_min_invested_0": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.0,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        }
+      ],
+      "undisabled_2d_sweep": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 14,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 14,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 14,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 14,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.15,
+          "status": "optimal",
+          "deployed_frac": 0.753,
+          "n_names_gt_1pct": 11,
+          "max_weight": 0.097,
+          "turnover": 0.15
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.2,
+          "status": "optimal",
+          "deployed_frac": 0.803,
+          "n_names_gt_1pct": 14,
+          "max_weight": 0.097,
+          "turnover": 0.2
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.3,
+          "status": "optimal",
+          "deployed_frac": 0.903,
+          "n_names_gt_1pct": 20,
+          "max_weight": 0.097,
+          "turnover": 0.3
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ],
+      "positive_control_non_binding_turnover": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.7,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ],
+      "lambda_sensitivity_half_floor": [
+        {
+          "lambda": 0.0,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.01,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.02,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.05,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        },
+        {
+          "lambda": 0.1,
+          "min_invested_pct": 0.5,
+          "turnover_max": 0.5,
+          "status": "optimal",
+          "deployed_frac": 1.0,
+          "n_names_gt_1pct": 24,
+          "max_weight": 0.095,
+          "turnover": 0.5
+        }
+      ]
+    }
+  ]
+}
