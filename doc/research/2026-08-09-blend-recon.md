@@ -1,4 +1,4 @@
-# Blend-composite reconstruction: 0.9948-0.9979 — the served scoring stack is end-to-end reproducible offline
+# Blend-composite reconstruction: 0.9948-0.9979 on the four blend-served days (conditional on recorded inputs)
 
 STATUS: measurement, read-only; task #26 serving-fidelity cell 3 (after
 the full-window decomposition and the clean panel cell, orch#949).
@@ -38,8 +38,22 @@ again; that stale surface is a separate hygiene item).
 
 Median 0.9972, min 0.9948, top-5 overlap 5/5 on every day [VERIFIED —
 committed `data/2026-08-09-blend-recon_daily.csv` +
-`…-blend-recon_summary.json`, the committed script's VERBATIM outputs
-(full precision in the artifacts; this table displays 4 decimals)].
+`…-blend-recon_coverage.csv` + `…-blend-recon_summary.json`, the
+committed script's VERBATIM outputs (full precision in the artifacts;
+this table displays 4 decimals)].
+
+Identity bindings (fail-closed in the script, review r2): the panel
+artifact's file sha256 matches the golden config pin (6461b827…,
+prefix convention); the momentum artifact's embedded content sha matches
+ledger row 0; the pipeline checkout revision and the extension parquet
+sha are recorded in the summary — the reconstruction is CONDITIONAL on
+exactly these inputs. Coverage accounting (per-day, identifiers
+persisted): offline composite 144 names/day (the fund-covered universe —
+the alpha panel carries 292/day in the window and the fundamental merge
+narrows to 144; narrowing root cause not chased here), live records
+88-94/day, and EVERY live-scored name is inside the offline composite
+(n_live_only = 0 asserted on all four days; the 50-56 offline-only names
+are live's candidate/watchlist thinning, now explicit).
 
 ## 3. Reading — what closes with this cell
 
@@ -52,11 +66,15 @@ across the whole live window:
 | pure panel, same artifact | 07-20..07-24 | ~0.84 (unattributed step, see below) |
 | blend composite, both legs | 08-04..08-07 | 0.9948-0.9979 |
 
-**The traded system's scoring stack is faithfully reproducible offline.**
-The validated-vs-traded gap does NOT live in serving mechanics — it lives
-in WHICH model family is served (z-blend vs the replay-validated per-fold
-WF xgb), the candidate screen, and the admission gates. Repair attention
-moves entirely there.
+**On the surfaces measured — pure-panel days (orch#949) and the four
+blend-composite days here, under the recorded artifact/config/source
+identities — offline reconstruction agrees with the recorded scores at
+0.97+.** The candidate screen remains untested, transform-version drift
+un-isolated, and the pre-07-27 step unattributed (its attribution floor
+is documented on the PR), so "serving mechanics fully closed" is NOT
+claimed; what the measured cells do support is redirecting the NEXT
+investigation increment to model family + candidate screen + admission
+gates.
 
 Remaining open (unchanged from orch#949 §5): the pre-07-27 step to ~0.84
 — data-revision drift vs a ~07-26 serving-side change, unseparated. Note

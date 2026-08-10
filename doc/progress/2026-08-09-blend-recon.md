@@ -1,4 +1,4 @@
-# Blend-composite reconstruction — serving stack end-to-end reproducible
+# Blend-composite reconstruction — 0.9948-0.9979 on the four blend days (conditional)
 
 STATUS:    measurement; read-only; task #26 serving-fidelity cell 3.
 
@@ -10,20 +10,27 @@ WHAT:      doc/research/2026-08-09-blend-recon.md — the blend composite
            Spearman 0.9948-0.9979 (median 0.9972), top-5 overlap 5/5
            every day.
 
-WHY/DIR:   Closes the #26 serving-fidelity question together with
-           orch#949: the traded system's scoring stack is faithfully
-           reproducible offline. The validated-vs-traded gap therefore
-           lives in model family + candidate screen + admission gates —
-           not serving mechanics. Also re-confirmed the running config
-           is the PINNED strategy-104 golden (kind=blend, pins verified);
-           the umbrella strategy_config.json still reads hf_patchtst —
-           stale surface, separate hygiene item.
+WHY/DIR:   With orch#949, the measured surfaces (pure-panel days +
+           these four blend days) reconstruct at 0.97+ under recorded
+           identities (fail-closed bindings: golden pin, ledger row,
+           source rev, parquet sha; coverage: n_live_only=0 asserted,
+           offline surface = the 144-name fund-covered universe).
+           NOT claimed closed: candidate screen (untested),
+           transform-version drift, pre-07-27 step. The cells support
+           redirecting the NEXT increment to model family + candidate
+           screen + admission gates. Running config re-confirmed =
+           pinned strategy-104 golden; umbrella strategy_config.json
+           panel_scoring.kind=hf_patchtst is a stale surface — separate
+           hygiene item.
 
 EVIDENCE:  artifact:      data/2026-08-09-blend-recon-score.py (CLI
-                          args) + …-blend-recon_daily.csv +
+                          args; fail-closed identity bindings +
+                          coverage assertion) + …-blend-recon_daily.csv
+                          + …-blend-recon_coverage.csv +
                           …-blend-recon_summary.json — the script's
-                          VERBATIM outputs [VERIFIED — run 2026-08-09,
-                          exit 0, committed files are the outputs]
+                          VERBATIM outputs [VERIFIED — rerun 2026-08-09
+                          after hardening, exit 0, committed files are
+                          the outputs; numbers unchanged]
            prod or exp:   read-only measurement
            existing data: orch#948 extension corpus + fund merge;
                           orch#949 cells 1-2; momentum ledger row 0
