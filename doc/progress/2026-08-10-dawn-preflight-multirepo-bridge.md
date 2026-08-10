@@ -5,11 +5,26 @@ STATUS:    reviewed ops-script change; readonly monitoring probe only; NO
            Deploy = a separate operator-gated pin sync to the -run checkout.
 
 WHAT:      ops/renquant104/dawn_funnel_preflight.sh — the dawn readonly
-           funnel probe now runs through `-m renquant_orchestrator
+           funnel probe now (1) runs through `-m renquant_orchestrator
            daily-bridge --repo-dir "$REPO_DIR"` (the SAME multirepo bridge
            the real order run uses, daily_104.sh:410) instead of `-m
-           live.runner` directly. One-line rollback: restore the
-           `-m live.runner` prefix.
+           live.runner` directly, and (2) — r1, codex P1 — runs a READ-ONLY,
+           FAIL-CLOSED pin-identity check
+           (ops/renquant104/dawn_pin_identity_check.py) BEFORE the bridge:
+           it verifies `.subrepo_runtime/repos` matches `subrepos.lock.json`
+           and emits a receipt (entrypoint, runtime root, per-repo lock vs
+           resolved HEAD), aborting the probe on any drift/dirty/missing.
+           It NEVER checks out / mutates (a monitor must not deploy) — the
+           pin predicate is the same git identity subrepo_assemble uses.
+           One-line rollback: restore the `-m live.runner` prefix.
+
+           WHY r1: switching the module namespace alone was insufficient —
+           the order path sources `preflight_pin_align.sh`
+           (`subrepo_assemble --sync --dry-run`) before its bridge, so a
+           stale-but-importable runtime here would recreate the
+           monitor-vs-order divergence at the PIN level instead of the
+           umbrella-module level. This is the read-only equivalent of that
+           pre-bridge check.
 
 WHY/DIR:   Root-caused 2026-08-10: the direct `-m live.runner` invocation
            resolves the top-level `kernel` package to the umbrella-VENDORED
@@ -34,11 +49,14 @@ WHY/DIR:   Root-caused 2026-08-10: the direct `-m live.runner` invocation
            stdout 2026-08-07 13:55, exit 0) — orthogonal to this probe. This
            change only removes a false alarm on the monitoring surface.
 
-EVIDENCE:  artifact:      ops/renquant104/dawn_funnel_preflight.sh (1 invocation
-                          line + its rationale comment) [VERIFIED — mirrors the
-                          working daily_104.sh:410 daily-bridge pattern; the
-                          pinned kernel returns served=True on the served
-                          artifact, measured 2026-08-10]
+EVIDENCE:  artifact:      ops/renquant104/dawn_funnel_preflight.sh (bridge
+                          invocation + pre-bridge pin check) +
+                          ops/renquant104/dawn_pin_identity_check.py +
+                          tests/test_dawn_pin_identity_check.py [VERIFIED —
+                          mirrors the working daily_104.sh:410 daily-bridge
+                          pattern; the pinned kernel returns served=True on the
+                          served artifact, measured 2026-08-10; 5 pin-check
+                          tests pass (clean/drift/dirty/missing/bad-lock)]
            prod or exp:   readonly monitoring probe; no order/state/DB/notify
                           side effects (the probe's own fail-closed attestation
                           enforces this); no deploy in this PR
@@ -49,6 +67,9 @@ EVIDENCE:  artifact:      ops/renquant104/dawn_funnel_preflight.sh (1 invocation
            scope:         one ops script + this doc
 
 RISKS (for review — validate before deploy):
+  - PIN ALIGNMENT (codex r1) — ADDRESSED: the pre-bridge read-only pin check
+    fails closed unless .subrepo_runtime matches subrepos.lock.json, so the
+    monitor cannot preview a runtime different from the order path's aligned one.
   - daily-bridge vs live-bridge: daily-bridge chosen to match the ORDER path
     exactly (daily_104.sh); it forwards trailing runner args as REMAINDER.
     Confirm `--strategy-config-path` + `--preflight` forward cleanly through
@@ -62,7 +83,10 @@ RISKS (for review — validate before deploy):
     disabled, asserting attestation persisted:false/notified:false/
     reached_decision:true AND P-WF-GATE previews the pinned gate's verdict.
 
-TESTS:     `renquant_orchestrator scheduled-jobs --fail-on-umbrella-bridge`
-           should no longer flag the dawn preflight job after deploy.
+TESTS:     pytest tests/test_dawn_pin_identity_check.py — 5 passed
+           (clean-aligned→0; drifted-HEAD/dirty/missing-repo/unreadable-lock
+           →fail-closed; receipt shape). Plus after deploy:
+           `renquant_orchestrator scheduled-jobs --fail-on-umbrella-bridge`
+           should no longer flag the dawn preflight job.
 
 NEXT:      codex review; then operator-gated pin sync of the -run checkout.

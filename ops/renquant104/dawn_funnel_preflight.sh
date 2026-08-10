@@ -40,6 +40,25 @@ export PYTHONPATH="$(renquant_subrepo_pythonpath "$SUBREPO_ROOT" renquant-orches
 # Instant rollback: replace the bridge prefix with `-m live.runner`.
 cd "$REPO_DIR"
 
+# PIN IDENTITY (codex #968 r1): read-only, FAIL-CLOSED. Switching to the bridge
+# fixes the module namespace, but the monitor must also preview the SAME pinned
+# runtime the 13:55 order path aligns to — daily_104.sh sources
+# preflight_pin_align.sh (subrepo_assemble --sync --dry-run) before its bridge.
+# A stale-but-importable .subrepo_runtime here would recreate the monitor-vs-
+# order divergence at the PIN level. This verifies .subrepo_runtime/repos matches
+# subrepos.lock.json and emits a receipt, but NEVER checks out / mutates / deploys
+# (a monitor must not deploy) — it reuses subrepo_assemble's own pin predicates.
+PIN_RECEIPT="$LOG_DIR/dawn_pin_identity_$(date +%F).json"
+if ! "$PYTHON" "$OPS_DIR/dawn_pin_identity_check.py" \
+      --repo-dir "$REPO_DIR" \
+      --runtime-root "$REPO_DIR/.subrepo_runtime/repos" \
+      --lock "$REPO_DIR/subrepos.lock.json" \
+      --entrypoint dawn_funnel_preflight \
+      --receipt-out "$PIN_RECEIPT"; then
+  echo "ABORT: dawn preflight runtime pins not aligned to subrepos.lock.json (receipt: $PIN_RECEIPT) — the monitor would preview a runtime DIFFERENT from the 13:55 order path; refusing to probe."
+  exit 1
+fi
+
 # --preflight (NOT --once): drive the funnel to a decision line with zero
 # persistence / order / promotion / notification side effects. readonly-alpaca
 # still gives real account/holdings reads for a faithful probe.
