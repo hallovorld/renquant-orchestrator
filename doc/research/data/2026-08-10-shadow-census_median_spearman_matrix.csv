@@ -1,0 +1,15 @@
+,blend:blend,blend:unattributed,blend_mom:blend,blend_mom_fast:blend,blend_rb_fast:blend,blend_rb_mom:blend,primary:served,shared:blend,shared:hf_patchtst,shared:momentum_residual,shared:momentum_residual_v0,shared:panel_ltr_xgboost,shared:unattributed,shared:xgb
+blend:blend,1.0,0.9857,0.6529,0.4836,0.4836,0.8261,0.409,0.3375,0.4833,0.4021,0.1238,,0.2685,
+blend:unattributed,0.9857,1.0,,,,,0.3506,,0.4984,,,,0.2959,
+blend_mom:blend,0.6529,,1.0,0.3701,0.3701,0.9221,0.9998,0.9966,,,,,,
+blend_mom_fast:blend,0.4836,,0.3701,1.0,1.0,0.4006,0.3654,0.3549,,,,,,
+blend_rb_fast:blend,0.4836,,0.3701,1.0,1.0,0.4006,0.3654,0.3549,,,,,,
+blend_rb_mom:blend,0.8261,,0.9221,0.4006,0.4006,1.0,0.924,0.8912,,,,,,
+primary:served,0.409,0.3506,0.9998,0.3654,0.3654,0.924,1.0,0.3099,-0.0948,-0.0802,0.0288,0.986,0.4414,-0.1832
+shared:blend,0.3375,,0.9966,0.3549,0.3549,0.8912,0.3099,1.0,,,,,,
+shared:hf_patchtst,0.4833,0.4984,,,,,-0.0948,,1.0,0.9418,0.0441,0.6501,0.2355,-0.2368
+shared:momentum_residual,0.4021,,,,,,-0.0802,,0.9418,1.0,0.0496,,,
+shared:momentum_residual_v0,0.1238,,,,,,0.0288,,0.0441,0.0496,1.0,,,
+shared:panel_ltr_xgboost,,,,,,,0.986,,0.6501,,,1.0,,-0.1833
+shared:unattributed,0.2685,0.2959,,,,,0.4414,,0.2355,,,,1.0,
+shared:xgb,,,,,,,-0.1832,,-0.2368,,,-0.1833,,1.0
