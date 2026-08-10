@@ -71,7 +71,16 @@ selections, minus the per-day labelled-universe mean, must be
   gate information strictly predates every test label. The resulting
   per-regime eligible/passed stamps are FROZEN and applied UNCHANGED
   to the test fold's selections; no test-period outcome ever touches
-  the filter. No live artifact's stamps are reused; no bar is
+  the filter. Simulated-trade convention for the validation segment
+  (frozen): enter the recipe's top-5 each validation day, exit after 5
+  sessions, `pnl_pct` = raw 5d ticker return minus SPY (production
+  round-trip semantics), `entry_rank_score` = the recipe's composite
+  score, `entry_regime` from the production regime series as recorded
+  for those dates; the designed thresholds apply verbatim
+  (`min_n_per_regime` 30, `min_spearman` 0.02, positive top-bottom
+  spread — `trade_monotonicity.py:20-33`). For quantitative context,
+  the served artifact's BULL_CALM Spearman 0.0023 sits 8.7× below the
+  0.02 bar. No live artifact's stamps are reused; no bar is
   re-leveled. Decision basis for not waiting on the #942 serving fork:
   the served artifact's BULL_CALM entry-rank Spearman is 0.0023 over
   n=104 — a full miss; an evidence design presupposing a repaired
