@@ -162,13 +162,24 @@ def test_sha_mismatch_dies(tmp_path):
         _run(tmp_path, scores, stamps, manifest, corpus, harness)
 
 
-def test_missing_day_fail_closed_coverage(tmp_path):
+def test_missing_day_refuses_to_adjudicate(tmp_path):
     fx = _build_fixture(tmp_path, planted=0.3, n_days=30,
                         drop_last_day_from_scores=True)
-    s = _run(tmp_path, *fx)
-    assert s["n_days_realized"] == 29
+    with pytest.raises(AssertionError, match="refusing to adjudicate"):
+        _run(tmp_path, *fx)
     cov = pd.read_csv(tmp_path / "out_coverage.csv")
     assert (cov.skip == "missing_from_scores").sum() == 1
+    assert not (tmp_path / "out_summary.json").exists()
+
+
+def test_planted_with_missing_day_cannot_pass(tmp_path):
+    # the r5 review's exact exploit: strong planted signal + one omitted
+    # scheduled day must NOT produce a PASS -- it must refuse outright
+    fx = _build_fixture(tmp_path, planted=0.6, n_days=720,
+                        drop_last_day_from_scores=True)
+    with pytest.raises(AssertionError, match="refusing to adjudicate"):
+        _run(tmp_path, *fx)
+    assert not (tmp_path / "out_summary.json").exists()
 
 
 def test_mixed_regime_day_dies(tmp_path):

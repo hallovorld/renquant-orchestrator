@@ -120,6 +120,17 @@ def main(argv):
     for f, d in missing:
         cov.append({"date": d, "fold": int(f), "regime": None,
                     "skip": "missing_from_scores", "n_scored": 0})
+    # FAIL CLOSED (review r5, P0): a scheduled day absent from the scores
+    # is an artifact-integrity failure — the run REFUSES to adjudicate.
+    # The coverage rows above are still written first (audit trail),
+    # then the runner aborts; no verdict of any kind is produced.
+    if missing:
+        pd.DataFrame(cov).to_csv(OUT.parent / (OUT.name + "_coverage.csv"),
+                                 index=False)
+        raise AssertionError(
+            f"{len(missing)} scheduled day(s) missing from scores — "
+            f"artifact incomplete, refusing to adjudicate: "
+            f"{missing[:5]}")
     prev_top: set = set()
     prev_fold = None
     for (f, d), g in scores.groupby(["fold", "date"], sort=True):
