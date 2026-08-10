@@ -23,7 +23,7 @@ WHY/DIR:   The live book's non-deployment therefore does NOT live in the
            redirects there; the 2026-05-23 re-enable condition (WF alpha
            evidence) governs any relaxation unchanged.
 
-EVIDENCE:  artifact:      data/2026-08-09-deployment-knob-sweep.json
+EVIDENCE:  artifact:      doc/research/data/2026-08-09-deployment-knob-sweep.json
                           [VERIFIED — 4 usable runs 2026-05-18..21 × 4
                           scenarios × 5 λ; every later run unusable per
                           orch#931] + the committed derivation with its
