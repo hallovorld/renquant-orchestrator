@@ -443,13 +443,23 @@ def _wf_gate_blocks_buys(data_root: Path) -> "bool | None":
         if not art.exists():
             return None
         payload = json.loads(art.read_text())
-        wf = payload.get("wf_gate_metadata")
-        if not isinstance(wf, dict):
-            meta = payload.get("metadata")
-            wf = meta.get("wf_gate_metadata") if isinstance(meta, dict) else None
-        if not isinstance(wf, dict) or "passed" not in wf:
+        # CANONICAL is metadata.wf_gate_metadata (the twin registry's
+        # designated key, 29/29); the top-level copy is legacy and can be
+        # STALE. Prefer canonical; fall back to legacy only when canonical
+        # is absent; if BOTH carry `passed` and they DISAGREE, the artifact
+        # is internally inconsistent -> undeterminable (None, fail-closed:
+        # keep the page rather than trust a possibly-stale legacy stamp).
+        meta = payload.get("metadata")
+        canonical = meta.get("wf_gate_metadata") if isinstance(meta, dict) else None
+        legacy = payload.get("wf_gate_metadata")
+        c_passed = canonical.get("passed") if isinstance(canonical, dict) else None
+        l_passed = legacy.get("passed") if isinstance(legacy, dict) else None
+        if c_passed is not None and l_passed is not None and c_passed != l_passed:
             return None
-        return wf["passed"] is False
+        chosen = c_passed if c_passed is not None else l_passed
+        if chosen is None:
+            return None
+        return chosen is False
     except Exception:
         return None
 

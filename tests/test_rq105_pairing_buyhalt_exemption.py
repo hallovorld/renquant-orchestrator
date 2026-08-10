@@ -48,25 +48,46 @@ def test_healthy_row_stays_ok():
     assert status == "ok"
 
 
-def _mk_artifact(tmp: Path, passed):
+def _mk_artifact(tmp: Path, *, canonical=..., legacy=...):
     root = tmp / "backtesting" / "renquant_104" / "artifacts" / "prod"
     root.mkdir(parents=True, exist_ok=True)
-    (root / "panel-ltr.alpha158_fund.json").write_text(json.dumps(
-        {"wf_gate_metadata": {"passed": passed}} if passed is not None else {}))
+    payload = {}
+    if legacy is not ...:
+        payload["wf_gate_metadata"] = {} if legacy is None else {"passed": legacy}
+    if canonical is not ...:
+        payload["metadata"] = {"wf_gate_metadata": ({} if canonical is None else {"passed": canonical})}
+    (root / "panel-ltr.alpha158_fund.json").write_text(json.dumps(payload))
 
 
-def test_gate_reader_true_when_failing(tmp_path):
-    _mk_artifact(tmp_path, False)
+def test_gate_reader_true_when_canonical_failing(tmp_path):
+    _mk_artifact(tmp_path, canonical=False)
     assert _wf_gate_blocks_buys(tmp_path) is True
 
 
-def test_gate_reader_false_when_passing(tmp_path):
-    _mk_artifact(tmp_path, True)
+def test_gate_reader_false_when_canonical_passing(tmp_path):
+    _mk_artifact(tmp_path, canonical=True)
     assert _wf_gate_blocks_buys(tmp_path) is False
 
 
+def test_canonical_wins_over_stale_legacy(tmp_path):
+    # canonical passed=True (buys admitted) with a STALE legacy passed=False
+    # must NOT be read as blocked -> disagreement -> None (fail-closed page)
+    _mk_artifact(tmp_path, canonical=True, legacy=False)
+    assert _wf_gate_blocks_buys(tmp_path) is None
+
+
+def test_agreeing_stamps_use_the_value(tmp_path):
+    _mk_artifact(tmp_path, canonical=False, legacy=False)
+    assert _wf_gate_blocks_buys(tmp_path) is True
+
+
+def test_legacy_only_falls_back(tmp_path):
+    _mk_artifact(tmp_path, legacy=False)
+    assert _wf_gate_blocks_buys(tmp_path) is True
+
+
 def test_gate_reader_none_when_no_stamp(tmp_path):
-    _mk_artifact(tmp_path, None)  # artifact exists but no wf_gate_metadata
+    _mk_artifact(tmp_path, canonical=None)  # exists but no passed
     assert _wf_gate_blocks_buys(tmp_path) is None
 
 
