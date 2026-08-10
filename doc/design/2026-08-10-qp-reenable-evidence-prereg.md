@@ -61,14 +61,30 @@ selections, minus the per-day labelled-universe mean, must be
 * **Gate — the DESIGNED mechanism, fitted pre-test, applied forward
   (review r2: the r1 text was outcome-leaky — it stamped from the test
   fold's own closed trades and then filtered that fold's statistic;
-  corrected to production temporal semantics)**: within each fold, the
-  entry-rank trade-monotonicity stamps are computed by the designed
-  criteria (`trade_monotonicity.py` / `admission_tasks.py`) from the
-  replayed scorer's simulated trades on a VALIDATION SEGMENT = the
-  final 252 train-period days of that fold; every gate input (trade
-  entry, exit, and realized 5d outcome) ends before the fold's train
-  end, which precedes the test start by the 91-day embargo — so all
-  gate information strictly predates every test label. The resulting
+  corrected to production temporal semantics; r3 adds the NESTED
+  split so validation scores are themselves out-of-sample)**: each
+  fold is split THREE ways —
+  (i) GATE-FIT SEGMENT: train days up to `validation_start − 1`,
+      where `validation_start` = train end − 251 sessions. The
+      gate-fit models (panel leg trained with per-row purge so every
+      training label's 60-session endpoint lands strictly before
+      `validation_start`; momentum leg with recipe cutoffs ≤
+      `validation_start`) see NOTHING from the validation segment;
+  (ii) VALIDATION SEGMENT: the final 252 train-period days, scored
+      OUT-OF-SAMPLE by the gate-fit models; the entry-rank
+      trade-monotonicity stamps are computed there by the designed
+      criteria (`trade_monotonicity.py` / `admission_tasks.py`) and
+      FROZEN. Every gate input (entry score, trade entry/exit,
+      realized 5d outcome) ends before the fold's train end, which
+      precedes the test start by the 91-day embargo;
+  (iii) TEST FOLD: scored by the FULL-TRAIN models (train ≤ the fold's
+      train end, the §4 scorer bullet), retrained only AFTER the gate
+      stamps are frozen; the frozen stamps filter these selections
+      unchanged. Both boundaries (`gate_fit_end = validation_start −
+      1` and `train_end`) and the per-fold OOS validation day counts
+      are recorded in the run summary. So gate certification uses only
+      out-of-sample scores on pre-test data, and the test statistic
+      uses only a pre-fitted gate. The resulting
   per-regime eligible/passed stamps are FROZEN and applied UNCHANGED
   to the test fold's selections; no test-period outcome ever touches
   the filter. Simulated-trade convention for the validation segment
