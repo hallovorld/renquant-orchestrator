@@ -150,9 +150,22 @@ zero. Open items for rev 2 (each must be closed before freeze):
    any cutoff: drop the leg for the historical window and state the
    composite degradation (z(panel) alone), reported alongside;
 2. the exact gate predicate per #942 branch (unchanged from §3);
-3. the realized fold-day count and therefore the numeric bar;
-4. cost/turnover treatment at the selection level (report-only
-   companion, since selection alpha is pre-cost by construction).
+3. the realized fold-day count — RESOLVED FOR REV 2: the eight v2-CUTS
+   test folds contain 191/191/191/189/188/191/190/26 corpus days =
+   **N = 1,357 fold-days** [VERIFIED — counted from the frozen corpus
+   calendar 2026-08-10]. At k=5 the MDE is **0.0337σ/day ≈ 6.9%/yr
+   gross** (median-day mapping) — reachable AND economically
+   meaningful. The rev-2 bar: mean daily top-5 fwd_5d excess-z of the
+   gate-surviving selections ≥ 0.0337σ/day with the stationary-
+   bootstrap 95% CI excluding zero. The contaminated-window exclusion
+   is vacuously satisfied for this run (the corpus ends 2026-05-07,
+   before the contaminated 05-20..07-31 window begins);
+4. cost/turnover treatment — RESOLVED FOR REV 2 as a REPORT-ONLY
+   companion table (selection alpha is pre-cost by construction): the
+   top-5 book's daily name-turnover Σ|Δmembership|/k and the L2-S cost
+   convention (10bps × turnover) expressed in σ/day via the same
+   median-day mapping, published alongside the headline so the reader
+   can net it themselves; it carries no gate authority.
 
 ## 6. Outcome semantics
 
