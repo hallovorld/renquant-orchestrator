@@ -7,8 +7,10 @@ WHAT:      doc/design/2026-08-09-family-comparison-freeze.md — every
            choice fixed before the outcome join: window 05-20..07-31
            (last date whose fwd_5d realizes inside the extension build),
            arms = live-recorded panel_score (the #949/#950-verified
-           record) vs the frozen v2 harness fold-8 xgb_mom booster
-           (train ≤ 2025-12-31, no leakage into the window), per-day
+           record) vs the frozen v2 harness fold-8 xgb_mom score — the
+           mean of the three boosters from the harness's frozen seed
+           tuple (42, 43, 44) (train ≤ 2025-12-31, no leakage into the
+           window), per-day
            intersection universe with #950-style coverage accounting,
            k=5 only, outcome = top-k mean fwd_5d_excess minus the
            intersection mean, stationary bootstrap (5/2000/99) on daily

@@ -25,7 +25,11 @@ on the same days and the same universe?
 Rationale for fold-8: its training labels end ≥ 91 days before the
 comparison window starts — no leakage into ANY comparison date; and it is
 the fold the v2 verdict's own gate arithmetic scored strongest in 2026.
-No other fold, no retrain, no ensemble.
+No other fold, no retrain, and no aggregation beyond the harness's own
+frozen three-seed mean: the (42, 43, 44) boosters and their mean ARE the
+replay identity, so the REPLAY arm is always that mean — never a
+single-seed booster, and never any wider ensemble (no extra seeds, folds,
+or model families averaged in).
 
 ## 3. Frozen comparison table
 
@@ -61,10 +65,11 @@ No other fold, no retrain, no ensemble.
 
 The runner must ast-read FEATS/CUTS/params from the committed v2 harness
 (model#213 frozen text), assert the frozen corpus sha against the
-harness pin before training fold-8, and record: fold-8 booster training
-row count, extension-parquet sha256, per-day coverage (counts + both
-asymmetric-diff name lists), and the skipped-day count. Evidence files
-must be the runner's verbatim outputs (the #949/#950 review lessons,
-applied from the start). Any deviation from the tables above voids the
-run and requires a NEW dated design document — this one may not be
-edited after its PR merges (post-merge edits = a new freeze).
+harness pin before training the three fold-8 seed boosters, and record:
+the fold-8 training row count (one number — the three seed boosters
+train on identical rows), extension-parquet sha256, per-day coverage
+(counts + both asymmetric-diff name lists), and the skipped-day count.
+Evidence files must be the runner's verbatim outputs (the #949/#950
+review lessons, applied from the start). Any deviation from the tables
+above voids the run and requires a NEW dated design document — this one
+may not be edited after its PR merges (post-merge edits = a new freeze).
