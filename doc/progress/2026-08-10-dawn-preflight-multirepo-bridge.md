@@ -83,10 +83,14 @@ RISKS (for review — validate before deploy):
     disabled, asserting attestation persisted:false/notified:false/
     reached_decision:true AND P-WF-GATE previews the pinned gate's verdict.
 
-TESTS:     pytest tests/test_dawn_pin_identity_check.py — 5 passed
-           (clean-aligned→0; drifted-HEAD/dirty/missing-repo/unreadable-lock
-           →fail-closed; receipt shape). Plus after deploy:
-           `renquant_orchestrator scheduled-jobs --fail-on-umbrella-bridge`
-           should no longer flag the dawn preflight job.
+TESTS:     pytest tests/test_dawn_pin_identity_check.py
+           tests/test_dawn_preflight_wrapper.py — 8 passed. Pin check (5):
+           clean-aligned→0; drifted-HEAD/dirty/missing-repo/unreadable-lock
+           →fail-closed; receipt shape. Wrapper command (3, static parse, no
+           live run): invokes the multirepo bridge NOT `-m live.runner`;
+           forwards --strategy/readonly-alpaca/pinned-config/--preflight; the
+           pin check runs BEFORE the bridge and fails closed (exit 1). Plus
+           after deploy: `renquant_orchestrator scheduled-jobs
+           --fail-on-umbrella-bridge` should no longer flag the dawn job.
 
 NEXT:      codex review; then operator-gated pin sync of the -run checkout.
