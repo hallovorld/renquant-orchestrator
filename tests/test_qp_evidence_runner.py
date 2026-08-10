@@ -103,6 +103,23 @@ def test_real_mode_rejects_fixture_corpus(tmp_path):
                  str(corpus), str(harness), str(tmp_path / "o")])
 
 
+def test_real_mode_rejects_nonfrozen_harness(tmp_path):
+    # real mode must refuse ANY harness text that is not the frozen file
+    scores, stamps, manifest, corpus, harness = _build_fixture(
+        tmp_path, planted=0.3, n_days=30)
+    import shutil
+    real_corpus_placeholder = corpus  # corpus pin fails first unless bypassed;
+    # to isolate the harness pin, monkeypatch the corpus constant to the fixture sha
+    orig = qp.FROZEN_CORPUS_SHA
+    try:
+        qp.FROZEN_CORPUS_SHA = _sha(corpus)
+        with pytest.raises(AssertionError, match="frozen harness pin"):
+            qp.main(["runner", str(scores), str(stamps), str(manifest),
+                     str(corpus), str(harness), str(tmp_path / "o")])
+    finally:
+        qp.FROZEN_CORPUS_SHA = orig
+
+
 def test_tampered_schedule_aborts(tmp_path):
     # removing a day from BOTH scores and the manifest schedule must still
     # abort: the runner derives the schedule from CUTS x corpus dates

@@ -42,6 +42,7 @@ BLOCK, B, BOOT_SEED = 10, 2000, 99
 POWER_FLOOR_DAYS = 700
 LABEL = "fwd_5d_excess"
 FROZEN_CORPUS_SHA = "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e"
+FROZEN_HARNESS_SHA = "7ca9e48f3be9680ed176ecf49c5c73ea09580cd38bbac278521654be4c70924d"
 TURNOVER_COST_BPS = 10.0
 SIGMA_PER_DAY_RAW = 0.0404   # doc §5 median-day z→raw mapping
 
@@ -76,6 +77,12 @@ def main(argv):
         got = file_sha256(CORPUS)
         assert got == FROZEN_CORPUS_SHA, (
             f"corpus {got[:12]} != the freeze pin {FROZEN_CORPUS_SHA[:12]}")
+        # The CUTS source is pinned the same way (review r6): the harness
+        # text must be EXACTLY the frozen model#213 file before parsing.
+        hgot = file_sha256(HARNESS)
+        assert hgot == FROZEN_HARNESS_SHA, (
+            f"harness {hgot[:12]} != the frozen harness pin "
+            f"{FROZEN_HARNESS_SHA[:12]}")
 
     scores = pd.read_csv(SCORES, dtype={"date": str, "fold": int})
     assert list(scores.columns) == ["fold", "date", "ticker", "recipe_score", "regime"], scores.columns
