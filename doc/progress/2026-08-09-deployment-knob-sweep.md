@@ -15,7 +15,7 @@ WHY/DIR:   #942's final-layer framing said λ=0 was the lock; measured:
            posted to #942. The 05-23 re-enable condition (WF alpha
            evidence) still governs; this sweep prices mechanics only.
 
-EVIDENCE:  artifact:      data/2026-08-09-deployment-knob-sweep.json
+EVIDENCE:  artifact:      doc/research/data/2026-08-09-deployment-knob-sweep.json
                           [VERIFIED — 4 runs × 3 scenarios × 5 λ × 4
                           tcaps; deployed identical across λ everywhere];
                           derivation committed beside it with the three

@@ -5,8 +5,9 @@ run 2026-08-09 on real run inputs. Derivation = the committed
 `scripts/poc_lambda_sweep.py` machinery with three run-scoped repairs
 (zero-width guard; usable-candidate run selection — the orch#931 sigma
 drift makes every post-05-21 live run UNUSABLE for this sweep; threshold
-60), committed as `data/2026-08-09-deployment-knob-sweep-derivation.py`
-with raw output `…-deployment-knob-sweep.json`.
+60), committed as
+`doc/research/data/2026-08-09-deployment-knob-sweep-derivation.py` with raw
+output `doc/research/data/2026-08-09-deployment-knob-sweep.json`.
 
 ## Result `[VERIFIED — committed JSON; 4 usable runs, 2026-05-18..21, the last full-featured era]`
 
