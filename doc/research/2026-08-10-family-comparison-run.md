@@ -84,7 +84,7 @@ Both arms are mildly positive in top-5 selection.
 ## 5. Reproduction
 
 ```
-python data/2026-08-10-family-comparison-runner.py \
+python doc/research/data/2026-08-10-family-comparison-runner.py \
   <replay-predictions.csv>  # model#220 artifact, sha-asserted \
   <alpha158_extension_fund.parquet> <runs.alpaca.db> \
   data/2026-08-10-family-comparison

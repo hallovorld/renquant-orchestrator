@@ -21,7 +21,7 @@ WHY/DIR:   With the record validated (#948-#950), the operator's "which
            WF-alpha evidence, which remains unbuilt. Any serving-change
            proposal runs its own prereg (frozen doc).
 
-EVIDENCE:  artifact:      data/2026-08-10-family-comparison-runner.py
+EVIDENCE:  artifact:      doc/research/data/2026-08-10-family-comparison-runner.py
                           (r2 JOIN-ONLY; model internals relocated to
                           renquant-model model#220 per review P0; r2
                           reproduced r1's daily table byte-identically) +
