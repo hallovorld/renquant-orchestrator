@@ -41,6 +41,7 @@ BAR = 0.0658
 BLOCK, B, BOOT_SEED = 10, 2000, 99
 POWER_FLOOR_DAYS = 700
 LABEL = "fwd_5d_excess"
+FROZEN_CORPUS_SHA = "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e"
 TURNOVER_COST_BPS = 10.0
 SIGMA_PER_DAY_RAW = 0.0404   # doc §5 median-day z→raw mapping
 
@@ -59,6 +60,7 @@ def main(argv):
                  "<frozen_corpus.parquet> <out_prefix> [--fixture-mode]")
     SCORES, STAMPS, MANIFEST, CORPUS, OUT = argv[1:6]
     OUT = Path(OUT)
+    fixture_mode = "--fixture-mode" in argv[6:]
 
     man = json.loads(Path(MANIFEST).read_text())
     for path, key in ((SCORES, "scores_csv_sha256"), (STAMPS, "stamps_json_sha256"),
@@ -66,6 +68,14 @@ def main(argv):
         got = file_sha256(path)
         want = man.get(key)
         assert want and got == want, f"{key}: {got[:12]} != manifest {str(want)[:12]}"
+    # The freeze pin is the RUNNER'S OWN constant (review r2): the real
+    # corpus must equal 870f68eb... regardless of what the manifest says;
+    # --fixture-mode relaxes ONLY this constant check (recorded in the
+    # summary) so tests exercise the identical manifest-assertion path.
+    if not fixture_mode:
+        got = file_sha256(CORPUS)
+        assert got == FROZEN_CORPUS_SHA, (
+            f"corpus {got[:12]} != the freeze pin {FROZEN_CORPUS_SHA[:12]}")
 
     scores = pd.read_csv(SCORES, dtype={"date": str, "fold": int})
     assert list(scores.columns) == ["fold", "date", "ticker", "recipe_score", "regime"], scores.columns
@@ -96,7 +106,7 @@ def main(argv):
         cov.append({**base_cov, "skip": "",
                     "n_scored": len(gg), "n_labelled": len(inter),
                     "scored_only": "|".join(sorted(set(gg.index) - set(lab_d.index))),
-                    "labelled_only_count": len(set(lab_d.index) - set(gg.index))})
+                    "labelled_only": "|".join(sorted(set(lab_d.index) - set(gg.index)))})
         if len(inter) < K:
             cov[-1]["skip"] = "labelled<k"
             continue
@@ -146,9 +156,12 @@ def main(argv):
                             / SIGMA_PER_DAY_RAW / 5))
     summary = {
         "design_doc": "doc/design/2026-08-10-qp-reenable-evidence-prereg.md",
+        "fixture_mode": bool(fixture_mode),
+        "freeze_corpus_pin": FROZEN_CORPUS_SHA,
         "scores_csv_sha256": man["scores_csv_sha256"],
         "stamps_json_sha256": man["stamps_json_sha256"],
         "frozen_corpus_sha256": man["frozen_corpus_sha256"],
+        "manifest_sha256": file_sha256(MANIFEST),
         "k": K, "bar_sigma_per_day": BAR,
         "bootstrap": {"block": BLOCK, "B": B, "seed": BOOT_SEED},
         "n_days_realized": n,

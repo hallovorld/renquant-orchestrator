@@ -70,7 +70,14 @@ def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
 
 def _run(tmp, *paths):
     out = tmp / "out"
-    return qp.main(["runner", *map(str, paths), str(out)])
+    return qp.main(["runner", *map(str, paths), str(out), "--fixture-mode"])
+
+
+def test_real_mode_rejects_fixture_corpus(tmp_path):
+    scores, stamps, manifest, corpus = _build_fixture(tmp_path, planted=0.3, n_days=30)
+    with pytest.raises(AssertionError, match="freeze pin"):
+        qp.main(["runner", str(scores), str(stamps), str(manifest),
+                 str(corpus), str(tmp_path / "o")])
 
 
 def test_planted_pass(tmp_path):
