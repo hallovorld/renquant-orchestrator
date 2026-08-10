@@ -1,0 +1,13 @@
+{
+  "window": [
+    "2026-08-04",
+    "2026-08-07"
+  ],
+  "panel_leg_trained": "2026-08-02",
+  "mom_leg_cutoff": "2026-08-02",
+  "mom_leg_sha256": "a824c480cd9c564b8cb7276a5b8c03882d26c833fec6ee53ba234b952cb30109",
+  "n_days": 4,
+  "median_spearman": 0.9971830913057473,
+  "min_spearman": 0.9948271502366073,
+  "mean_top5_overlap": 5.0
+}
