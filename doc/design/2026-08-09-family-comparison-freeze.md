@@ -40,6 +40,7 @@ No other fold, no retrain, no ensemble.
 | aggregation | per-day arm difference (SERVED top-k mean − REPLAY top-k mean), then the mean and median across days; sign + magnitude reported with a stationary-bootstrap CI (block 5, B 2000, seed 99 — the condact harness's frozen bootstrap, block shortened to the 5d horizon) |
 | ties | `nlargest` deterministic order (index order after sort); no tie-breaking randomness |
 | missing | a day where either arm scores < k names in the intersection is SKIPPED and counted in the coverage table |
+| plumbing control | an ORACLE column (top-k by realized fwd_5d_excess itself) is computed on the same per-day universes and reported in the summary ONLY as a join/label sanity check — it must be strongly positive by construction; it is NOT an arm and appears in no comparison |
 | verdict authority | NONE. This is a diagnostic table. No PASS/KILL. Any serving-change proposal citing it must run its own prereg. |
 
 ## 4. What is deliberately NOT in scope
