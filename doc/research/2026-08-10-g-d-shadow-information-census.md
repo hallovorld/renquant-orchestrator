@@ -3,7 +3,11 @@
 STATUS: census of EXISTING records only (operator directive: records + backtest,
 no future accrual, no new runs). All DB access read-only (`mode=ro`). This is a
 census, not a gate: day counts are reported everywhere and no significance is
-claimed on single-digit n.
+claimed on single-digit n. REV 2 (codex MED on orch#961): the sink/surface
+population is now DERIVED from the runner + pinned configs + the pipeline's
+module sink registry and ASSERTED against the disk (§2b) — the audit surfaced
+six additional metadata surfaces and two configured-but-recordless sinks, and
+confirmed every measurement number of rev 1 bit-unchanged.
 
 Derivation: `scripts/g_d_shadow_information_census.py` (CLI paths, re-runnable).
 Evidence CSVs: `doc/research/data/2026-08-10-shadow-census_*.csv` — the verbatim
@@ -14,11 +18,13 @@ outputs of the committed script run 2026-08-10.
 The task's claim — "the shadow fleet carries less information than it appears
 to" — is [VERIFIED] on every axis measurable from existing records:
 
-1. **Surface vs substance.** 9 shadow strategy configs + 6 shadow DB sinks + 3
-   file surfaces present as a fleet; the records contain 13 lane-identities with
-   any measurable daily panel. **7 of 13 are >0.95-redundant** with the primary
-   or with another lane under the task's frozen rule
-   [VERIFIED: `_redundancy.csv`].
+1. **Surface vs substance.** 9 shadow strategy configs, 6 recording DB sinks
+   (+2 configured-but-recordless), 6 file surfaces, and 3 MLflow experiments
+   present as a fleet; the records contain 13 lane-identities with any
+   measurable daily panel — every other surface is metadata (health, admission
+   deltas, sleeve book, aggregate metrics) carrying no per-ticker scores (§2b).
+   **7 of 13 are >0.95-redundant** with the primary or with another lane under
+   the task's frozen rule [VERIFIED: `_redundancy.csv`].
 2. **Two lanes are literal duplicates.**
    - `blend_mom` (S1) IS the served primary since the 08-04 promotion: median
      daily Spearman vs the primary canonical panel **0.99976** (n=4 days);
@@ -70,6 +76,71 @@ to" — is [VERIFIED] on every axis measurable from existing records:
   primary recorded that day, so it is selection-biased toward the primary's
   tracked set — stated, not corrected).
 
+## 2b. Enumeration audit (codex MED fix): population derived, asserted, and what it surfaced
+
+The census no longer trusts a hard-coded sink list. The population is derived
+from three authorities and audited against the disk on every run
+([VERIFIED: `_enumeration_audit.csv`]); ANY difference is a `SystemExit`,
+never a silent omission:
+
+- **Runner registry:** non-comment `RENQUANT_READONLY_TAG=` assignments in
+  `daily_104.sh`, paired with the `strategy_config.shadow*.json` each step
+  consumes → the 5 scheduled blend-fleet sinks. A scheduled tag with no DB on
+  disk fails the audit.
+- **Pinned configs:** every `strategy_config.shadow*.json`; the 4 configs with
+  no runner step (`shadow`, `shadow_a`, `shadow_b`, `shadow_momentum`) resolve
+  to historical broker tags via recorded evidence (broker stamps in
+  `admission_shadow.jsonl`, `active_scorer` stamps in the shared sink) — an
+  unresolvable retired config fails the audit.
+- **Pipeline module sink registry:** `shadow_health.py:DEFAULT_SHADOW_HEALTH_RELPATH`,
+  `task_admission_shadow.py:DEFAULT_LOG_RELPATH`,
+  `task_parking_sleeve.py:DEFAULT_LOG_PATH` — each constant re-verified against
+  the pipeline source at run time; a shadow-named jsonl in the strategy logs
+  dir outside this registry fails the audit.
+- **Disk-side sweeps:** every `runs.*shadow*.db` in the data dir, every file in
+  the live-shadow drop dir, and every mlruns experiment whose name contains
+  "shadow" must be accounted for (measured, escape-registered, or
+  configured-but-recordless).
+- **Escape register** (config-external file drops, provenance recorded):
+  `qp-live-shadow.jsonl` (allocator shadow harness), `shadow_predictions.json`
+  (one-shot manual snapshot), `shadow_analyst/` (model artifacts).
+- **Positive control:** injecting a fake `runs.alpaca_shadow_RENAMED_LANE.db`
+  into a scratch data dir makes the script exit 1 naming that file
+  [VERIFIED: run 2026-08-10].
+
+**Verdict of the audit on rev 1:**
+
+- The **DB-sink enumeration was complete**: derived set == the 6 sinks rev 1
+  hard-coded. All seven measurement CSVs (`_pairwise_spearman`, `_matrix`,
+  `_redundancy`, `_bit_identity`, `_corpus_outcome_census`, `_aux_*`,
+  `_primary_daily_scorer`) are **bit-unchanged** on the re-run — stated
+  explicitly per the review [VERIFIED: `git diff` clean on all seven].
+- The **file-surface enumeration was INCOMPLETE** — the derivation surfaced six
+  metadata surfaces rev 1 missed, plus two configured-but-recordless sinks
+  (now inventory rows; none carries per-ticker cross-sectional scores, so no
+  measurement number moves):
+  - `logs/shadow_scorer_health.jsonl` — 82 records, 07-27→08-07 (10 days):
+    per-lane health records naming **four in-run shadow models**
+    (`hf_patchtst_pt07_strict_seed44_previous_primary`,
+    `topdecile_clf_blend_leg`, `momentum_residual_v0_shadow`,
+    `momentum_fast_v1_shadow`) whose per-ticker scores are recorded NOWHERE —
+    only aggregate health and MLflow summary metrics. More fleet surface with
+    no recoverable cross-section: the thesis, again.
+  - `logs/admission_shadow.jsonl` — 136 records, 07-06→08-07 (25 days):
+    admission add/drop deltas across **8 broker identities**, including
+    `alpaca_shadow_a` (2 records) — a lane identity with NO runs DB anywhere
+    on disk.
+  - `logs/parking_sleeve_shadow.jsonl` — 37 records, 07-13→08-07 (18 days):
+    SGOV parking-sleeve shadow book; single-sleeve, not rank-comparable.
+  - MLflow experiments `renquant_104_shadow` (**47,631 runs**),
+    `renquant_104_patchtst_shadow_after_xgb_promotion` (103),
+    `renquant_104_xgb_shadow_after_patchtst_promotion` (6): per-run AGGREGATE
+    metrics only (`corr_primary_shadow`, mean/std diff) — no per-ticker
+    cross-section.
+  - Configured-but-recordless: `runs.alpaca_shadow_a.db`,
+    `runs.alpaca_shadow_b.db` (configs exist; `shadow_a` left 2 admission
+    stamps, `shadow_b` left no record on any surface).
+
 ## 3. Lane inventory ([VERIFIED: `_inventory.csv`])
 
 | lane | sink | first → last | rows | days | med tickers/day | panel days (≥20 scored) |
@@ -91,6 +162,11 @@ to" — is [VERIFIED] on every axis measurable from existing records:
 | file:qp_live_shadow | qp-live-shadow.jsonl | 07-06 → 07-21 | 35 | 10 | ~11 held names | 0 (not rank-comparable) |
 | file:shadow_predictions_snapshot | shadow_predictions.json | 05-05 (1 day) | 30 | 1 | 30 | 0 (one-shot top-30) |
 | file:shadow_analyst_artifacts | shadow_analyst/ | — | 3 json | 0 | — | 0 (model artifacts, no records) |
+| file:shadow_scorer_health (§2b) | logs/shadow_scorer_health.jsonl | 07-27 → 08-07 | 82 | 10 | — | 0 (health records only) |
+| file:admission_shadow (§2b) | logs/admission_shadow.jsonl | 07-06 → 08-07 | 136 | 25 | — | 0 (admission deltas only) |
+| file:parking_sleeve_shadow (§2b) | logs/parking_sleeve_shadow.jsonl | 07-13 → 08-07 | 37 | 18 | — | 0 (sleeve book, 1 symbol) |
+| mlflow: 3 shadow experiments (§2b) | mlruns/ | — | 47,740 runs | — | — | 0 (aggregate metrics only) |
+| config-recordless: shadow_a / shadow_b (§2b) | runs.alpaca_shadow_{a,b}.db | — | **0** | 0 | — | 0 (configured, never recorded) |
 | db:challenger_decisions | all runs.*.db | — | **0** | 0 | — | 0 (designed sink, never wrote) |
 
 Census observations on the inventory itself:
@@ -207,6 +283,12 @@ accrued outcome days within existing records.
 7. **F3's clf mechanism** — records prove the component contributed zero;
    attributing WHERE it died requires pipeline internals (out of this repo's
    boundary).
+8. **Per-ticker rankings of the four in-run shadow models** (§2b) — they score
+   daily inside host runs, but only aggregate health records and MLflow summary
+   metrics survive; no cross-section was ever persisted.
+9. **The shadow_a / shadow_b lane histories** — configured lanes whose only
+   trace is 2 admission-delta stamps (`shadow_a`) and nothing at all
+   (`shadow_b`); no score, no sink, no dates.
 
 ## 8. Reproduction
 
@@ -214,8 +296,15 @@ accrued outcome days within existing records.
 python3 scripts/g_d_shadow_information_census.py \
   --data-dir /Users/renhao/git/github/RenQuant/data \
   --qp-ledger /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/live-shadow/qp-live-shadow.jsonl \
+  --runner /Users/renhao/git/github/RenQuant/scripts/daily_104.sh \
+  --configs-dir /Users/renhao/git/github/renquant-strategy-104/configs \
+  --strategy-dir /Users/renhao/git/github/RenQuant/backtesting/renquant_104 \
+  --pipeline-src /Users/renhao/git/github/renquant-pipeline \
+  --mlruns-dir /Users/renhao/git/github/RenQuant/mlruns \
   --out-dir doc/research/data --out-prefix 2026-08-10-shadow-census
 ```
 
 Read-only over production DBs (`mode=ro` URIs); writes only the CSVs. Paths are
 CLI-overridable; defaults match this machine's live tree (stated, not hidden).
+The run begins with the §2b enumeration audit and refuses to proceed if the
+derived population and the disk disagree.
