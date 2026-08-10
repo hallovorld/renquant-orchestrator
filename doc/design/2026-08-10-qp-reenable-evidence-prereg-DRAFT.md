@@ -136,9 +136,19 @@ leg per its frozen recipe)) and FILTERED by the admission gate per the
 #942 resolution — have mean daily top-5 fwd_5d excess-z ≥ the MDE at
 the realized fold-day count, with a stationary-bootstrap CI excluding
 zero. Open items for rev 2 (each must be closed before freeze):
-1. the momentum leg's historical replay recipe (the ledger begins
-   2026-08 — a backfill rule must be frozen or the leg dropped for the
-   historical window with the composite degradation stated);
+1. the momentum leg's historical replay recipe — RESOLVED FOR REV 2 as
+   follows: replay the FROZEN recipe (the ledger's
+   `momentum-v0-fd65161a…` params fingerprint pins it) at historical
+   weekly cutoffs on the corpus calendar, mirroring the live weekly
+   publish cadence; the leg is recomputed, not backfilled from
+   artifacts (none exist pre-2026-08). VINTAGE CAVEAT stated in the
+   frozen doc: historical OHLCV is today's vintage, not the
+   as-of-then files — acceptable for a WF replay because both legs
+   and the labels share one vintage, and the serving-fidelity line
+   showed same-week reconstruction at 0.97+; the caveat is reported,
+   not hidden. Fallback if the recipe replay fails golden checks at
+   any cutoff: drop the leg for the historical window and state the
+   composite degradation (z(panel) alone), reported alongside;
 2. the exact gate predicate per #942 branch (unchanged from §3);
 3. the realized fold-day count and therefore the numeric bar;
 4. cost/turnover treatment at the selection level (report-only
