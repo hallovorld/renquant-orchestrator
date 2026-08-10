@@ -1,0 +1,30 @@
+{
+  "design_doc": "doc/design/2026-08-10-qp-reenable-evidence-prereg.md",
+  "fixture_mode": false,
+  "freeze_corpus_pin": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+  "scores_csv_sha256": "b7c8158eb621d6337ccff7bdb5e2d01f5513e98431cb7e9045696f664477b772",
+  "stamps_json_sha256": "0533ad12383c65b9ce771d95c7212fe94954db5b723f28069aa95b2b26e4338e",
+  "frozen_corpus_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+  "manifest_sha256": "43939429b87cc99d45b854f2b3f473e187187e8cc41c35a74e6905bba27b3b39",
+  "harness_sha256_schedule_source": "7ca9e48f3be9680ed176ecf49c5c73ea09580cd38bbac278521654be4c70924d",
+  "n_schedule_days_derived": 1357,
+  "k": 5,
+  "bar_sigma_per_day": 0.0658,
+  "bootstrap": {
+    "block": 10,
+    "B": 2000,
+    "seed": 99
+  },
+  "n_days_realized": 898,
+  "n_days_gate_starved": 459,
+  "power_floor_days": 700,
+  "mean_stat_sigma_per_day": 0.0981156244124851,
+  "median_stat_sigma_per_day": 0.11835055962967996,
+  "bootstrap_ci95": [
+    0.013859179526758475,
+    0.17822663531178357
+  ],
+  "oracle_mean_plumbing_control": 3.3414230882609184,
+  "cost_companion_sigma_per_day_report_only": 0.0029824251912941853,
+  "verdict": "PASS"
+}
