@@ -89,9 +89,14 @@ step.
 python data/2026-08-09-blend-recon-score.py \
   RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json \
   RenQuant/backtesting/renquant_104/artifacts/momentum/2026-08-02/momentum_residual_v0.json \
+  renquant-strategy-104/configs/strategy_config.golden.json \
+  RenQuant/backtesting/renquant_104/artifacts/momentum/momentum_artifact_ledger.jsonl \
   <alpha158_extension_fund.parquet> <runs.alpaca.db> \
   2026-08-04 2026-08-07 data/2026-08-09-blend-recon
 ```
-The committed evidence files are these outputs, unmodified. The extension
+Nine arguments, in order: panel artifact, momentum artifact, golden
+config (the pin source the script asserts against), momentum ledger (the
+row-in-force source), extension parquet, DB, W0, W1, output prefix. The
+committed evidence files are these outputs, unmodified. The extension
 panel is rebuilt by the orch#948 recipe (hash-pinned builder patch +
 fundamental merge; both scratch-only).
