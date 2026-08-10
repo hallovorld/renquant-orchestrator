@@ -7,7 +7,12 @@ STATUS:    census of EXISTING records only (operator directive: records +
            REV 2 addresses the codex MED: the sink/surface population is now
            DERIVED (runner tags + pinned configs + pipeline module sink
            registry) and ASSERTED against the disk — a new/renamed lane fails
-           the run loudly instead of being silently omitted.
+           the run loudly instead of being silently omitted. REV 3 addresses
+           the codex r3 MED: the derivation AUTHORITIES are pinned (orch#963
+           pattern) — strategy-104 checkout HEAD hard-asserted equal to the
+           subrepos.lock.json pin with byte-identical config blobs (SystemExit
+           otherwise); daily_104.sh + pipeline modules content-hashed with
+           revision and dirty state recorded-and-reported in the audit CSV.
 
 WHAT:      doc/research/2026-08-10-g-d-shadow-information-census.md — the
            claim "the shadow fleet carries less information than it appears
@@ -38,6 +43,17 @@ WHAT:      doc/research/2026-08-10-g-d-shadow-information-census.md — the
            aggregate metrics only), and the recordless shadow_a/shadow_b
            sinks — all metadata, no per-ticker cross-section, so no
            measurement number moved; note §2b reports it visibly.
+           REV-3 VERDICT (note §2c): authorities pinned — strategy-104
+           lock_pin e00d9356 == checkout_head (assert PASS), 9 configs
+           byte-identical to HEAD blobs; daily_104.sh sha256 c3c641b1…
+           at umbrella HEAD f85a6393, clean; pipeline modules at
+           e13cd3eb == lock pin, clean. PROVENANCE CORRECTION stated
+           visibly: rev 1/2 had read the SIBLING strategy-104 checkout
+           (HEAD 86a78b41 ≠ pin, differing config contents) while calling
+           it pinned; the shadow-config file SET is identical (same 9
+           names), so the derived population and ALL measurement numbers
+           are unchanged — after the rev-3 re-run only
+           _enumeration_audit.csv is modified.
 
 WHY/DIR:   G-D asks for a quantified information census of the shadow fleet
            to inform fleet pruning / MoE routing decisions; this is the
@@ -68,9 +84,15 @@ EVIDENCE:  artifact:      doc/research/data/2026-08-10-shadow-census_{inventory,
                           (DB list complete / file list incomplete) with a
                           positive control (injected fake
                           runs.alpaca_shadow_RENAMED_LANE.db → exit 1 naming
-                          the file); F3/F2 duplication verified at run level
-                          (all time-adjacent pairs bit-identical, cross-time
-                          drift identical in both lanes)
+                          the file); §2c states the rev-3 authority verdict
+                          with two controls (mutated daily_104.sh copy →
+                          recorded hash changes c3c641b1→0fc90792 with
+                          RECORD-ONLY note; sibling checkout → exit 1 naming
+                          HEAD and pin) and the rev-1/2 sibling-checkout
+                          provenance defect visibly; F3/F2 duplication
+                          verified at run level (all time-adjacent pairs
+                          bit-identical, cross-time drift identical in both
+                          lanes)
            scope:         1 script + 9 CSVs + research note + this doc; no
                           config, pin, or live-surface change; follow-ups are
                           NEXT items, not part of this PR
@@ -81,7 +103,10 @@ TESTS:     make test on the branch at rev 1: 6231 passed, 2 skipped, 1
            untouched by this diff; script+docs only, nothing imported by
            src/). Rev 2 adds no importable surface; the census script's
            enumeration audit carries its own positive control (exit-1 on an
-           injected unknown lane, run 2026-08-10).
+           injected unknown lane, run 2026-08-10). Rev 3 controls (run
+           2026-08-10): mutated-fixture daily_104.sh copy → recorded hash
+           visibly changes in the audit CSV; sibling (unpinned) strategy
+           checkout → exit 1 naming both HEAD and pin.
 
 NEXT:      (a) file the F3 (blend_rb_fast) declared-but-inert clf component
            finding with the pipeline/strategy-104 owners — one of F2/F3 is

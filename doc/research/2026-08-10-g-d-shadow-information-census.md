@@ -7,7 +7,16 @@ claimed on single-digit n. REV 2 (codex MED on orch#961): the sink/surface
 population is now DERIVED from the runner + pinned configs + the pipeline's
 module sink registry and ASSERTED against the disk (§2b) — the audit surfaced
 six additional metadata surfaces and two configured-but-recordless sinks, and
-confirmed every measurement number of rev 1 bit-unchanged.
+confirmed every measurement number of rev 1 bit-unchanged. REV 3 (codex r3
+MED): the derivation AUTHORITIES are themselves pinned (§2c, the orch#963
+pattern) — strategy-104 checkout HEAD hard-asserted equal to the
+subrepos.lock.json pin with byte-identical config blobs; daily_104.sh and the
+pipeline modules content-hashed and dirty-state-reported; all recorded in the
+audit CSV. Rev 3 also corrects a rev-1/2 provenance defect: the configs had
+been read from the SIBLING strategy-104 checkout (HEAD 86a78b41, NOT the pin)
+while being described as pinned — the shadow-config file set is identical in
+both checkouts (same 9 names), so the derived population and every measurement
+number are unchanged; only the audit CSV changed.
 
 Derivation: `scripts/g_d_shadow_information_census.py` (CLI paths, re-runnable).
 Evidence CSVs: `doc/research/data/2026-08-10-shadow-census_*.csv` — the verbatim
@@ -140,6 +149,48 @@ never a silent omission:
   - Configured-but-recordless: `runs.alpaca_shadow_a.db`,
     `runs.alpaca_shadow_b.db` (configs exist; `shadow_a` left 2 admission
     stamps, `shadow_b` left no record on any surface).
+
+## 2c. Authority pinning (codex r3 MED fix): the derivation inputs are content-addressed, not trusted paths
+
+Rev 2 read its authorities (runner script, config dir, pipeline checkout) from
+mutable local paths without recording revisions or content hashes. Rev 3 pins
+them; the first four rows of `_enumeration_audit.csv` now carry `revision` and
+`content_sha256` for every authority ([VERIFIED: rev-3 run 2026-08-10]):
+
+| authority | discipline | recorded |
+|---|---|---|
+| `subrepos.lock.json` | content hash | sha256 `da8b3a0cf5c4a578…` (the pin ledger itself) |
+| strategy-104 configs | **HARD assert** | lock_pin `e00d9356` == checkout_head `e00d9356` (PASS); all 9 shadow configs byte-identical to their HEAD blobs; per-config sha256 recorded, combined `e17a48aa58c033d0…` |
+| `daily_104.sh` | record-and-report | umbrella_head `f85a6393`; file sha256 `c3c641b18e9f888a…`; state: clean (read bytes == HEAD blob) |
+| pipeline modules | record-and-report | checkout_head `e13cd3eb` == lock pin (reported, not asserted); per-module sha256 recorded, combined `9624b0e543876c14…`; modules byte-identical to HEAD blobs |
+
+Discipline split, per the review: the strategy-104 configs DEFINE the lane
+population, so an unpinned or dirty config tree is a hard `SystemExit`;
+`daily_104.sh` and the pipeline checkout are working trees, so the audit
+records their revision + content hash + dirty state explicitly instead of
+pretending immutability.
+
+**Provenance correction (stated visibly):** rev 1/2 read the configs from the
+sibling checkout `/Users/renhao/git/github/renquant-strategy-104` — HEAD
+`86a78b41`, which is NOT the lock pin, and whose config CONTENTS differ from
+the pinned tree — while the note called them "pinned". Rev 3 reads
+`.subrepo_runtime/repos/renquant-strategy-104`, asserted equal to the pin.
+The derivation consumes config FILENAMES only, and the shadow-config file set
+is identical in both checkouts (same 9 names, verified by recursive diff with
+zero "Only in" entries), so the derived population and **all measurement
+numbers are unchanged — only `_enumeration_audit.csv` changed** in rev 3
+(stated explicitly per the review; `git status` shows exactly that one file
+modified after the rev-3 re-run).
+
+**Controls ([VERIFIED: runs 2026-08-10]):**
+- *Mutated-fixture authority:* an edited copy of `daily_104.sh` (one appended
+  comment line) changes the recorded hash `c3c641b1…` → `0fc90792…` in the
+  audit CSV, with `umbrella_head=not-a-git-worktree` and the RECORD-ONLY note
+  — the mutation is visible, exactly as required.
+- *Unpinned checkout:* pointing `--strategy-checkout` at the sibling makes the
+  run exit 1 naming both identifiers ("checkout HEAD 86a78b41… != lock pin
+  e00d9356… — refusing to derive the lane population from an unpinned config
+  tree").
 
 ## 3. Lane inventory ([VERIFIED: `_inventory.csv`])
 
@@ -297,14 +348,16 @@ python3 scripts/g_d_shadow_information_census.py \
   --data-dir /Users/renhao/git/github/RenQuant/data \
   --qp-ledger /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/live-shadow/qp-live-shadow.jsonl \
   --runner /Users/renhao/git/github/RenQuant/scripts/daily_104.sh \
-  --configs-dir /Users/renhao/git/github/renquant-strategy-104/configs \
+  --lock /Users/renhao/git/github/RenQuant/subrepos.lock.json \
+  --strategy-checkout /Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104 \
   --strategy-dir /Users/renhao/git/github/RenQuant/backtesting/renquant_104 \
-  --pipeline-src /Users/renhao/git/github/renquant-pipeline \
+  --pipeline-src /Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline \
   --mlruns-dir /Users/renhao/git/github/RenQuant/mlruns \
   --out-dir doc/research/data --out-prefix 2026-08-10-shadow-census
 ```
 
 Read-only over production DBs (`mode=ro` URIs); writes only the CSVs. Paths are
 CLI-overridable; defaults match this machine's live tree (stated, not hidden).
-The run begins with the §2b enumeration audit and refuses to proceed if the
-derived population and the disk disagree.
+The run begins with the §2c authority pinning and the §2b enumeration audit,
+and refuses to proceed if an authority is unpinned or the derived population
+and the disk disagree.
