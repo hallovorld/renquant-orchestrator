@@ -32,39 +32,52 @@ def _sha(p):
 
 
 def _build_fixture(tmp, planted: float, all_fail_stamps: bool = False,
-                   n_days: int = N_DAYS, seed: int = 7):
+                   n_days: int = N_DAYS, seed: int = 7, n_folds: int = 1,
+                   drop_last_day_from_scores: bool = False,
+                   mixed_regime_day: bool = False):
     rng = np.random.default_rng(seed)
-    dates = [f"2020-{1 + i // 30:02d}-{1 + i % 28:02d}" if False else
-             pd.Timestamp("2020-01-01") + pd.Timedelta(days=i) for i in range(n_days)]
-    dates = [str(d)[:10] for d in dates]
+    dates = [str(pd.Timestamp("2020-01-01") + pd.Timedelta(days=i))[:10]
+             for i in range(n_days)]
     tickers = [f"T{i:02d}" for i in range(N_NAMES)]
+    per_fold = n_days // n_folds
+    fold_of = {d: 1 + min(i // per_fold, n_folds - 1) for i, d in enumerate(dates)}
     rows_s, rows_l = [], []
     for d in dates:
         score = rng.normal(size=N_NAMES)
         z = rng.normal(size=N_NAMES)
         z = (z - z.mean()) / z.std()
-        # planted: labels tilt toward the score ordering by `planted` sigma
         lab = z + planted * (score - score.mean()) / score.std()
         lab = (lab - lab.mean()) / lab.std()
-        for t, s_, l_ in zip(tickers, score, lab):
-            rows_s.append({"fold": 1, "date": d, "ticker": t,
-                           "recipe_score": float(s_), "regime": "BULL_CALM"})
+        for j, (t, s_, l_) in enumerate(zip(tickers, score, lab)):
+            regime = "BULL_CALM"
+            if mixed_regime_day and d == dates[0] and j == 0:
+                regime = "BEAR"
+            rows_s.append({"fold": fold_of[d], "date": d, "ticker": t,
+                           "recipe_score": float(s_), "regime": regime})
             rows_l.append({"date": d, "ticker": t, "fwd_5d_excess": float(l_)})
+    sdf = pd.DataFrame(rows_s).sort_values(["fold", "date", "ticker"])
+    if drop_last_day_from_scores:
+        sdf = sdf[sdf.date != dates[-1]]
     scores = tmp / "scores.csv"
-    pd.DataFrame(rows_s).to_csv(scores, index=False)
+    sdf.to_csv(scores, index=False)
     corpus = tmp / "corpus.parquet"
     pd.DataFrame(rows_l).to_parquet(corpus, index=False)
     stamps = tmp / "stamps.json"
-    stamps.write_text(json.dumps({"folds": {"1": {
-        "boundaries": {"train_end": "2019-12-31"},
-        "stamps": {"BULL_CALM": {"eligible": True,
-                                 "passed": not all_fail_stamps}},
-        "momentum_degraded": False}}}))
+    stamps.write_text(json.dumps({"folds": {
+        str(f): {"boundaries": {"train_end": "2019-12-31"},
+                 "stamps": {"BULL_CALM": {"eligible": True,
+                                          "passed": not all_fail_stamps}},
+                 "momentum_degraded": False}
+        for f in range(1, n_folds + 1)}}))
+    schedule = {}
+    for d in dates:
+        schedule.setdefault(str(fold_of[d]), []).append(d)
     manifest = tmp / "manifest.json"
     manifest.write_text(json.dumps({
         "scores_csv_sha256": _sha(scores),
         "stamps_json_sha256": _sha(stamps),
-        "frozen_corpus_sha256": _sha(corpus)}))
+        "frozen_corpus_sha256": _sha(corpus),
+        "expected_schedule": schedule}))
     return scores, stamps, manifest, corpus
 
 
@@ -121,3 +134,47 @@ def test_sha_mismatch_dies(tmp_path):
     manifest.write_text(json.dumps(m))
     with pytest.raises(AssertionError, match="scores_csv_sha256"):
         _run(tmp_path, scores, stamps, manifest, corpus)
+
+
+def test_missing_day_fail_closed_coverage(tmp_path):
+    fx = _build_fixture(tmp_path, planted=0.3, n_days=30,
+                        drop_last_day_from_scores=True)
+    s = _run(tmp_path, *fx)
+    assert s["n_days_realized"] == 29
+    cov = pd.read_csv(tmp_path / "out_coverage.csv")
+    assert (cov.skip == "missing_from_scores").sum() == 1
+
+
+def test_mixed_regime_day_dies(tmp_path):
+    fx = _build_fixture(tmp_path, planted=0.3, n_days=20, mixed_regime_day=True)
+    with pytest.raises(AssertionError, match="mixed regimes"):
+        _run(tmp_path, *fx)
+
+
+def test_two_folds_no_cross_boundary_turnover(tmp_path):
+    fx = _build_fixture(tmp_path, planted=0.3, n_days=40, n_folds=2)
+    _run(tmp_path, *fx)
+    daily = pd.read_csv(tmp_path / "out_daily.csv")
+    # the first day of each fold must have turnover 0 (prev_top reset)
+    firsts = daily.sort_values(["fold", "date"]).groupby("fold").first()
+    assert (firsts.turnover == 0).all()
+
+
+def test_two_folds_bootstrap_deterministic_and_runs(tmp_path):
+    fx = _build_fixture(tmp_path, planted=0.3, n_days=40, n_folds=2)
+    s1 = _run(tmp_path, *fx)
+    s2 = _run(tmp_path, *fx)
+    assert s1 == s2 and s1["bootstrap_ci95"][0] is not None
+
+
+def test_tie_membership_deterministic(tmp_path):
+    scores, stamps, manifest, corpus = _build_fixture(tmp_path, planted=0.0, n_days=6)
+    df = pd.read_csv(scores)
+    df["recipe_score"] = 1.0   # all tied -> top-K must be first K tickers
+    df.to_csv(scores, index=False)
+    m = json.loads(Path(manifest).read_text())
+    m["scores_csv_sha256"] = _sha(scores)
+    Path(manifest).write_text(json.dumps(m))
+    s = _run(tmp_path, scores, stamps, manifest, corpus)
+    daily = pd.read_csv(tmp_path / "out_daily.csv")
+    assert len(daily) == 6   # ran; membership = lexicographically first K

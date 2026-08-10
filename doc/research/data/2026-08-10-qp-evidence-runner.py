@@ -81,16 +81,37 @@ def main(argv):
     assert list(scores.columns) == ["fold", "date", "ticker", "recipe_score", "regime"], scores.columns
     assert not scores.duplicated(["date", "ticker"]).any(), "duplicate score keys"
 
+    # Expected-schedule contract (review r3, P0): the manifest enumerates
+    # every (fold, test date); score coverage must match EXACTLY. Missing
+    # days become fail-closed coverage rows BEFORE any verdict; extra
+    # (fold, date) pairs not in the schedule abort outright.
+    schedule = man["expected_schedule"]
+    expected = {(int(f), d) for f, ds in schedule.items() for d in ds}
+    got_pairs = {(int(f), d) for f, d in scores[["fold", "date"]]
+                 .drop_duplicates().itertuples(index=False)}
+    extra = got_pairs - expected
+    assert not extra, f"scores contain off-schedule (fold,date) pairs: {sorted(extra)[:5]}"
+    missing = sorted(expected - got_pairs)
+
     stamps = json.loads(Path(STAMPS).read_text())["folds"]
 
     labels = pd.read_parquet(CORPUS, columns=["date", "ticker", LABEL])
     labels["date"] = labels["date"].astype(str).str[:10]
 
     rows, cov = [], []
+    for f, d in missing:
+        cov.append({"date": d, "fold": int(f), "regime": None,
+                    "skip": "missing_from_scores", "n_scored": 0})
     prev_top: set = set()
+    prev_fold = None
     for (f, d), g in scores.groupby(["fold", "date"], sort=True):
+        if f != prev_fold:
+            prev_top = set()   # review r3 P1: no turnover transition across folds
+            prev_fold = f
         fold_stamps = (stamps.get(str(f)) or stamps.get(int(f) if isinstance(f, str) else f) or {}).get("stamps", {})
-        regime = str(g.regime.iloc[0])
+        uregs = g.regime.unique()
+        assert len(uregs) == 1, f"{d} fold {f}: mixed regimes {list(uregs)}"
+        regime = str(uregs[0])
         st = fold_stamps.get(regime)
         base_cov = {"date": d, "fold": int(f), "regime": regime}
         # Designed admission on FROZEN stamps, fail-closed (doc §4):
@@ -112,7 +133,11 @@ def main(argv):
             continue
         u_scores = gg.loc[inter, "recipe_score"]
         u_labels = lab_d.loc[inter]
-        top = u_scores.nlargest(K).index
+        # deterministic ties (review r3 P2): sort by (-score, ticker)
+        top = (u_scores.rename("s").reset_index()
+               .sort_values(["s", "ticker"], ascending=[False, True])
+               .head(K).ticker.tolist())
+        top = pd.Index(top)
         base = float(u_labels.mean())
         stat = float(u_labels.loc[top].mean() - base)
         oracle = float(u_labels.nlargest(K).mean() - base)
@@ -130,16 +155,26 @@ def main(argv):
         mean_stat = med_stat = None
         ci = (None, None)
     else:
-        x = daily.stat.values
+        # Per-fold stationary bootstrap (review r3 P0): blocks are drawn
+        # WITHIN each contiguous fold segment (preserving its realized
+        # count) and the draws are combined — no block spans a fold
+        # boundary or wraps the last fold into the first.
+        segments = [daily[daily.fold == f].stat.values
+                    for f in sorted(daily.fold.unique())]
         rng = np.random.default_rng(BOOT_SEED)
         means = []
         for _ in range(B):
-            idx = []
-            while len(idx) < n:
-                start = rng.integers(n)
-                length = rng.geometric(1 / BLOCK)
-                idx.extend(((start + np.arange(length)) % n).tolist())
-            means.append(float(np.mean(x[np.array(idx[:n])])))
+            draw = []
+            for seg in segments:
+                m = len(seg)
+                idx = []
+                while len(idx) < m:
+                    start = rng.integers(m)
+                    length = rng.geometric(1 / BLOCK)
+                    idx.extend(((start + np.arange(length)) % m).tolist())
+                draw.append(seg[np.array(idx[:m])])
+            means.append(float(np.mean(np.concatenate(draw))))
+        x = daily.stat.values
         ci = (float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5)))
         mean_stat, med_stat = float(np.mean(x)), float(np.median(x))
 
