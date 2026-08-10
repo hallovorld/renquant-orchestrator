@@ -1,0 +1,15 @@
+lane,n_days,mean_daily_top5_z,median_daily_top5_z,share_days_positive,mean_top5_coverage_of_5
+blend:blend,4,0.808030545790984,1.0394778932136906,0.75,1.75
+blend:unattributed,1,1.3216925061158302,1.3216925061158302,1.0,2.0
+blend_mom:blend,0,,,,
+blend_mom_fast:blend,0,,,,
+blend_rb_fast:blend,0,,,,
+blend_rb_mom:blend,0,,,,
+primary:served,43,0.21052779679078884,0.21539015341636142,0.5581395348837209,4.674418604651163
+shared:blend,0,,,,
+shared:hf_patchtst,20,0.30942420762637335,-0.10956967480208496,0.45,3.05
+shared:momentum_residual,0,,,,
+shared:momentum_residual_v0,0,,,,
+shared:panel_ltr_xgboost,5,0.16330374476089116,0.14985970903991436,0.8,4.4
+shared:unattributed,11,-0.28607294525872073,-0.5072628838939479,0.36363636363636365,3.6363636363636362
+shared:xgb,1,0.23642633213521588,0.23642633213521588,1.0,1.0

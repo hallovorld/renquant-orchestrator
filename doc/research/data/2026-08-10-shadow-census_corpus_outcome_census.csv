@@ -1,0 +1,17 @@
+lane,lane_days_in_corpus_window,days_scored,mean_top5_label_z
+blend:blend,0,0,
+blend:unattributed,0,0,
+blend_mom:blend,0,0,
+blend_mom_fast:blend,0,0,
+blend_rb_fast:blend,0,0,
+blend_rb_mom:blend,0,0,
+primary:served,0,0,
+shared:blend,0,0,
+shared:hf_patchtst,0,0,
+shared:momentum_residual,0,0,
+shared:momentum_residual_v0,0,0,
+shared:panel_ltr_xgboost,0,0,
+shared:unattributed,0,0,
+shared:xgb,0,0,
+file:shadow_predictions_snapshot:top5,1,1,-0.07898548885048973
+file:shadow_predictions_snapshot:top30,1,1,0.12128516117916421

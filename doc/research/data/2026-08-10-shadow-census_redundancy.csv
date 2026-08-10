@@ -1,0 +1,14 @@
+lane,rho_vs_primary,n_days_vs_primary,max_abs_rho_other_lane,closest_other_lane,n_days_vs_other,redundant_gt_0.95
+blend:blend,0.4089984737776705,9,0.9856520201836619,blend:unattributed,1,True
+blend:unattributed,0.35061663392802905,1,0.9856520201836619,blend:blend,1,True
+blend_mom:blend,0.9997611686854304,4,0.9966173505996514,shared:blend,1,True
+blend_mom_fast:blend,0.36538681920639493,4,1.0,blend_rb_fast:blend,4,True
+blend_rb_fast:blend,0.36538681920639493,4,1.0,blend_mom_fast:blend,4,True
+blend_rb_mom:blend,0.9239534144818293,4,0.9220625036823857,blend_mom:blend,4,False
+shared:blend,0.30987972802132097,1,0.9966173505996514,blend_mom:blend,1,True
+shared:hf_patchtst,-0.09479521222640488,23,0.9418213969938108,shared:momentum_residual,1,False
+shared:momentum_residual,-0.08018844532606001,1,0.9418213969938108,shared:hf_patchtst,1,False
+shared:momentum_residual_v0,0.028752519902962383,1,0.1237863740537537,blend:blend,1,False
+shared:panel_ltr_xgboost,0.9859688334264606,5,0.6501221358030241,shared:hf_patchtst,3,True
+shared:unattributed,0.4413636854029561,11,0.29585819585819584,blend:unattributed,1,False
+shared:xgb,-0.18324669742090233,1,-0.23684461407598945,shared:hf_patchtst,1,False
