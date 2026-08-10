@@ -54,13 +54,23 @@ EVIDENCE:  artifact:      doc/research/data/2026-08-10-bear-exit-episode-
                           changes are named as OTHER repos' reviewed
                           PRs, not smuggled in here
 
-TESTS:     tests/test_bear_exit_episode_derivation.py — 7 passed
-           (planted single/adjacent/clipped/terminal episodes, null
+TESTS:     tests/test_bear_exit_episode_derivation.py — 21 passed:
+           planted single/adjacent/clipped/terminal episodes, null
            control, coverage-flag boundary, committed-CSV end-to-end
-           verify). make test 2026-08-10: 6231 passed, 2 skipped,
-           1 pre-existing FAIL — test_twin_parity byte_identical:
-           alerts.py, the open orch#886 live-tree drift; measures the
-           live checkout, untouched by this additive PR.
+           verify, plus the review-r1 corruption battery (codex MED on
+           #962: verify() compared only start/end/tail_end per row, so
+           compensating/same-total corruption of the other fields
+           passed). check_rows() now compares EVERY field of every
+           episode row (242 field comparisons over 22 rows) on top of
+           the frozen aggregate block; fixtures prove detection of a
+           single-field mutation for each of the 10 fields, an
+           artifact-partition swap, a two-row compensating flag flip
+           whose aggregate is UNCHANGED, and a mid-episode day-label
+           flip. Committed CSVs untouched: verify exit 0. make test
+           2026-08-10: 6231 passed, 2 skipped, 1 pre-existing FAIL —
+           test_twin_parity byte_identical:alerts.py, the open orch#886
+           live-tree drift; measures the live checkout, untouched by
+           this additive PR.
 
 NEXT:      (a) operator/freeze addendum ruling on B4 (artifact identity
            + tail-overlap semantics + placebo-keying reading);

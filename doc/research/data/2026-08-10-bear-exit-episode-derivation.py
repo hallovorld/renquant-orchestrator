@@ -179,50 +179,90 @@ def _summaries_from_rows(day_rows: list[dict], ep_rows: list[dict]) -> dict:
     return out
 
 
+INT_EP_FIELDS = ("episode_id", "n_days", "n_tail_days", "tail_clipped",
+                 "within_wf_2024", "within_aux_2022")
+
+
+def normalize_ep_row(row: dict) -> dict:
+    """Committed CSV row (all strings) -> typed dict over EP_FIELDS."""
+    return {k: int(row[k]) if k in INT_EP_FIELDS else str(row[k])
+            for k in EP_FIELDS}
+
+
+def check_rows(day_rows: list[dict], ep_rows: list[dict]) -> list[str]:
+    """Full structural check of the committed artifacts. Pure — unit-tested
+    with one corruption fixture per episode field.
+
+    Leg 1 (row-level, EVERY field): regrouping the committed day rows must
+    reproduce the committed episode table field-for-field — episode_id,
+    start, end, n_days, tail_start, tail_end, n_tail_days, tail_clipped,
+    both coverage flags, and the artifact partition (codex review on
+    orch#962: the earlier subset comparison — start/end/tail_end only —
+    admitted compensating/same-total corruption of the other fields).
+
+    Leg 2 (aggregate, frozen EXPECTED): anchors the day rows themselves —
+    a consistent joint corruption of days + episodes still has to
+    reproduce the frozen totals.
+
+    Returns a list of human-readable problems; empty = REPRODUCED.
+    """
+    problems: list[str] = []
+    for arm in ("prod_gmm", "sim_hmm"):
+        flags = [(r["date"], r[f"{arm}_label"] == "BEAR") for r in day_rows]
+        derived = [{"artifact": arm, **coverage_flags(e)}
+                   for e in group_episodes(flags)]
+        committed = [normalize_ep_row(r) for r in ep_rows
+                     if r["artifact"] == arm]
+        if len(derived) != len(committed):
+            problems.append(f"{arm}: committed episode count "
+                            f"{len(committed)} != regrouped {len(derived)}")
+            continue
+        for want, have in zip(derived, committed):
+            for k in EP_FIELDS:
+                if want[k] != have[k]:
+                    problems.append(
+                        f"{arm} row episode_id={want['episode_id']}: {k} "
+                        f"committed={have[k]!r} != derived={want[k]!r}")
+
+    got = _summaries_from_rows(day_rows, ep_rows)
+    for key, want in EXPECTED.items():
+        if isinstance(want, dict):
+            for k2, w2 in want.items():
+                if got[key][k2] != w2:
+                    problems.append(f"aggregate {key}.{k2}: got "
+                                    f"{got[key][k2]} expected {w2}")
+        elif got[key] != want:
+            problems.append(f"aggregate {key}: got {got[key]} "
+                            f"expected {want}")
+    return problems
+
+
 def verify() -> int:
     with open(DAYS_CSV, newline="") as fh:
         day_rows = list(csv.DictReader(fh))
     with open(EPISODES_CSV, newline="") as fh:
         ep_rows = list(csv.DictReader(fh))
-    got = _summaries_from_rows(day_rows, ep_rows)
-
-    # Structural re-check: regrouping the committed day rows must reproduce
-    # the committed episode rows exactly (episode table is derived, not
-    # independent).
-    ok = True
-    for arm in ("prod_gmm", "sim_hmm"):
-        flags = [(r["date"], r[f"{arm}_label"] == "BEAR") for r in day_rows]
-        regrouped = [coverage_flags(e) for e in group_episodes(flags)]
-        committed = [e for e in ep_rows if e["artifact"] == arm]
-        if len(regrouped) != len(committed):
-            print(f"  {arm}: episode regroup count {len(regrouped)} != "
-                  f"committed {len(committed)}  MISMATCH")
-            ok = False
-            continue
-        for want, have in zip(regrouped, committed):
-            for k in ("start", "end", "tail_end"):
-                if str(want[k]) != have[k]:
-                    print(f"  {arm} ep{want['episode_id']}: {k} "
-                          f"{want[k]} != {have[k]}  MISMATCH")
-                    ok = False
 
     print(f"== episode-derivation verify from {DAYS_CSV.name} / "
           f"{EPISODES_CSV.name} ==")
+    problems = check_rows(day_rows, ep_rows)
+    print(f"  row-level: {len(ep_rows) * len(EP_FIELDS)} field comparisons "
+          f"over {len(ep_rows)} episode rows "
+          f"({'OK' if not any('row' in p or 'count' in p for p in problems) else 'MISMATCH'})")
+    got = _summaries_from_rows(day_rows, ep_rows)
     for key, want in EXPECTED.items():
         if isinstance(want, dict):
             for k2, w2 in want.items():
-                g2 = got[key][k2]
-                match = g2 == w2
-                ok &= match
-                print(f"  {key}.{k2:26s} got={g2:<8} expected={w2:<8} "
-                      f"{'OK' if match else 'MISMATCH'}")
+                print(f"  {key}.{k2:26s} got={got[key][k2]:<8} "
+                      f"expected={w2:<8} "
+                      f"{'OK' if got[key][k2] == w2 else 'MISMATCH'}")
         else:
-            match = got[key] == want
-            ok &= match
             print(f"  {key:30s} got={got[key]:<8} expected={want:<8} "
-                  f"{'OK' if match else 'MISMATCH'}")
-    print("VERDICT:", "REPRODUCED" if ok else "MISMATCH")
-    return 0 if ok else 1
+                  f"{'OK' if got[key] == want else 'MISMATCH'}")
+    for p in problems:
+        print(f"  PROBLEM: {p}")
+    print("VERDICT:", "REPRODUCED" if not problems else "MISMATCH")
+    return 0 if not problems else 1
 
 
 def derive() -> int:

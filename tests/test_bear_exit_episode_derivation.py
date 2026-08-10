@@ -8,8 +8,11 @@ construction, plus a null control. The artifact/parquet read path is
 --derive-only and machine-local by design (same split as the committed
 reachability script's verify/derive modes).
 """
+import csv
 import importlib.util
 from pathlib import Path
+
+import pytest
 
 MOD = (Path(__file__).resolve().parents[1] / "doc" / "research" / "data"
        / "2026-08-10-bear-exit-episode-derivation.py")
@@ -93,3 +96,83 @@ def test_committed_csvs_verify_end_to_end():
     # EXPECTED number through the module's own verify() — the same check
     # CI would run, wired here so a silent CSV edit fails loudly.
     assert be.verify() == 0
+
+
+# ── corruption fixtures (codex review on orch#962) ──────────────────────
+# The review found the original verify() compared only start/end/tail_end
+# per row, so compensating/same-total corruption of the other fields
+# passed. check_rows() now compares EVERY field of every row; one mutation
+# per previously-unchecked field below proves each is detected.
+
+def _committed_rows():
+    with open(be.DAYS_CSV, newline="") as fh:
+        day_rows = list(csv.DictReader(fh))
+    with open(be.EPISODES_CSV, newline="") as fh:
+        ep_rows = list(csv.DictReader(fh))
+    return day_rows, ep_rows
+
+
+def test_committed_rows_pass_check_rows_clean():
+    day_rows, ep_rows = _committed_rows()
+    assert be.check_rows(day_rows, ep_rows) == []
+
+
+@pytest.mark.parametrize("field,mutate", [
+    # previously UNCHECKED fields — each single-field mutation must fail
+    ("episode_id", lambda v: str(int(v) + 7)),
+    ("n_days", lambda v: str(int(v) + 1)),
+    ("tail_start", lambda v: "1999-01-01"),
+    ("n_tail_days", lambda v: str(int(v) - 1)),
+    ("tail_clipped", lambda v: str(1 - int(v))),
+    ("within_wf_2024", lambda v: str(1 - int(v))),
+    ("within_aux_2022", lambda v: str(1 - int(v))),
+    # previously checked fields — regression: still detected
+    ("start", lambda v: "1999-01-01"),
+    ("end", lambda v: "1999-01-01"),
+    ("tail_end", lambda v: "1999-01-01"),
+])
+def test_single_field_corruption_is_detected(field, mutate):
+    day_rows, ep_rows = _committed_rows()
+    ep_rows[0] = dict(ep_rows[0])
+    ep_rows[0][field] = mutate(ep_rows[0][field])
+    problems = be.check_rows(day_rows, ep_rows)
+    assert problems, f"corrupted {field} passed verification"
+    assert any(field in p for p in problems), (field, problems)
+
+
+def test_artifact_partition_corruption_is_detected():
+    day_rows, ep_rows = _committed_rows()
+    ep_rows[0] = dict(ep_rows[0], artifact="sim_hmm")
+    assert any("count" in p for p in be.check_rows(day_rows, ep_rows))
+
+
+def test_compensating_flag_corruption_same_aggregate_is_detected():
+    # Flip within_aux_2022 in two rows of the same arm, one each
+    # direction: the aggregate episodes_within_aux_2022 count is
+    # unchanged, so ONLY the row-level full comparison can catch it —
+    # the exact corruption class the review named.
+    day_rows, ep_rows = _committed_rows()
+    prod = [i for i, r in enumerate(ep_rows) if r["artifact"] == "prod_gmm"]
+    ones = [i for i in prod if ep_rows[i]["within_aux_2022"] == "1"]
+    zeros = [i for i in prod if ep_rows[i]["within_aux_2022"] == "0"]
+    assert ones and zeros, "fixture premise: both flag values exist"
+    ep_rows[ones[0]] = dict(ep_rows[ones[0]], within_aux_2022="0")
+    ep_rows[zeros[0]] = dict(ep_rows[zeros[0]], within_aux_2022="1")
+    agg = be._summaries_from_rows(day_rows, ep_rows)
+    assert (agg["prod_gmm"]["episodes_within_aux_2022"]
+            == be.EXPECTED["prod_gmm"]["episodes_within_aux_2022"]), \
+        "fixture premise: aggregate must be unchanged"
+    problems = be.check_rows(day_rows, ep_rows)
+    assert sum("within_aux_2022" in p for p in problems) == 2, problems
+
+
+def test_day_row_corruption_is_detected():
+    # Flip one mid-episode BEAR day label: episode boundaries shift, the
+    # committed episode table no longer regroups — row leg catches it
+    # even where aggregate counts barely move.
+    day_rows, ep_rows = _committed_rows()
+    idx = next(i for i, r in enumerate(day_rows)
+               if r["date"] == "2020-03-16")   # inside the COVID episode
+    assert day_rows[idx]["prod_gmm_label"] == "BEAR", "fixture premise"
+    day_rows[idx] = dict(day_rows[idx], prod_gmm_label="BULL_VOLATILE")
+    assert be.check_rows(day_rows, ep_rows)
