@@ -1,4 +1,4 @@
-# Per-ticker data completeness registry (PR #TBD)
+# Per-ticker data completeness registry (PR #963)
 
 STATUS:    delivered
 WHAT:      Task #15 measurement deliverable: committed derivation script
@@ -7,6 +7,17 @@ WHAT:      Task #15 measurement deliverable: committed derivation script
            295 tickers × 31 source metrics over 2023-01-01..2026-08-07), and
            research note (`doc/research/2026-08-10-data-completeness-registry.md`).
            NO pipeline code changes — the registry is the deliverable.
+           Rev2 (codex MED on PR #963): the watchlist read is now
+           pin-validated — the script extracts the strategy-104 pin from
+           `subrepos.lock.json`, asserts the runtime checkout HEAD equals it,
+           and asserts the config bytes read are byte-identical to the blob
+           at that HEAD (dirty tree fails); mismatch = nonzero exit naming
+           both identifiers, enforced BEFORE any data read. Lock pin,
+           checkout HEAD, and config sha256 are recorded as `#` metadata
+           lines in the CSV and in the note. Controls added in
+           `tests/test_data_completeness_registry.py` (positive match,
+           mismatched pin, dirty config, end-to-end CLI mismatch). Re-derived
+           registry data rows are byte-identical to rev1 (diff = empty).
 WHY/DIR:   P0 "per-ticker data completeness check in the pipeline": before an
            enforcement hook can exist, the ground truth had to be measured.
            Headline: 9/145 ACTIVE WATCHLIST names are DEGRADED, every one in

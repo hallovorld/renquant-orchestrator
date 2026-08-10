@@ -1,3 +1,11 @@
+# data-completeness-registry rev2
+# window: 2023-01-01..2026-08-07
+# umbrella: /Users/renhao/git/github/RenQuant
+# corpus_parquet: data/alpha158_291_fundamental_dataset.parquet
+# strategy104_lock_pin: e00d9356ac620426df031e0c08ce66301c50c22e
+# strategy104_checkout_head: e00d9356ac620426df031e0c08ce66301c50c22e
+# strategy_config_sha256: 43cbb9b2021a1c68d45ad937ef2ed3854778e743713babe329929abf21901d77
+# read with: pandas.read_csv(path, comment='#')
 ticker,in_corpus,in_watchlist,is_etf,ohlcv_exists,ohlcv_rows_window,ohlcv_first,ohlcv_last,ohlcv_coverage,ohlcv_missing_days,ohlcv_longest_gap_td,active,sec_rows_window,sec_first,sec_last,sec_fpe_latest,sec_fpe_age_days,sec_null_fund_cols_last,earn_file_exists,earn_rows_total,earn_rows_window,earn_last_quarter,earn_age_days,sent_file_exists,sent_rows_window,sent_first,sent_last,sent_days_window,sent_age_days,class,reasons
 AAPL,True,True,False,True,902,2023-01-03,2026-08-07,1.0,0,0,True,902,2023-01-03,2026-08-07,2026-03-28,132.0,0.0,True,26,15,2026-07-30,8.0,True,1026,2023-01-03,2026-08-07,1026,0.0,COMPLETE,
 ABBV,True,True,False,True,902,2023-01-03,2026-08-07,1.0,0,0,True,902,2023-01-03,2026-08-07,2026-03-31,129.0,0.0,True,26,15,2026-07-31,7.0,True,612,2023-01-04,2026-08-06,612,1.0,COMPLETE,

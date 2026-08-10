@@ -17,10 +17,21 @@ with direct pandas reads of each source file]
 - Universe: 295 = 292 corpus tickers
   (`RenQuant/data/alpha158_291_fundamental_dataset.parquet`) ∪ 145-name live
   watchlist from the PINNED strategy-104 config
-  (`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
-  at pin `e00d9356ac620426df031e0c08ce66301c50c22e`, which matches
-  `subrepos.lock.json`) [VERIFIED — both files read 2026-08-10; watchlist-only
-  names: CRWV, RKLB, SPCX].
+  (`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`)
+  [VERIFIED — both files read 2026-08-10; watchlist-only names: CRWV, RKLB,
+  SPCX].
+- Watchlist pin validation (PR #963 review fix — the runtime checkout is a
+  MUTABLE working tree): before any data read, the script asserts the
+  checkout HEAD equals the `subrepos.lock.json` pin AND that the config bytes
+  read are byte-identical to the blob committed at that HEAD (dirty tree
+  fails); any mismatch exits nonzero naming both identifiers, and the control
+  tests in `tests/test_data_completeness_registry.py` prove both the failure
+  and the matching-pin positive path. Recorded provenance for THIS registry
+  [VERIFIED — script run 2026-08-10, echoed in the CSV `#` header]:
+  - `strategy104_lock_pin` = `e00d9356ac620426df031e0c08ce66301c50c22e`
+  - `strategy104_checkout_head` = `e00d9356ac620426df031e0c08ce66301c50c22e`
+  - `strategy_config_sha256` =
+    `43cbb9b2021a1c68d45ad937ef2ed3854778e743713babe329929abf21901d77`
 - Window: 2023-01-01..2026-08-07 = 902 SPY trading days [VERIFIED — SPY
   `1d.parquet` calendar].
 - Sources: OHLCV (`data/ohlcv/<T>/1d.parquet`), SEC fundamentals
@@ -31,7 +42,12 @@ with direct pandas reads of each source file]
   [VERIFIED — script source, line 353]).
 - Derivation: `scripts/data_completeness_registry.py` (committed with this
   note). Registry: `doc/research/data/2026-08-10-data-completeness-registry.csv`
-  (295 rows × 31 cols). All thresholds are frozen constants in the script.
+  (295 rows × 31 cols; the file starts with `#`-comment provenance lines —
+  read it with `pandas.read_csv(path, comment='#')`). All thresholds are
+  frozen constants in the script. Rev2 (pin validation + metadata header)
+  re-derived byte-identical data rows vs rev1 [VERIFIED — `diff` of the
+  comment-stripped rev2 CSV against the rev1 CSV at commit `ea875c2c`:
+  zero differences].
 
 ## Counts by class
 
