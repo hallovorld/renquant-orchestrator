@@ -1,13 +1,20 @@
-# BEAR-exit prereg scope ruling B3 — the confirmatory run must cover the FULL frozen BEAR episode set (backfill required; no minor-bear-only verdict)
+# BEAR-exit prereg scope ruling B3 — RECOMMENDATION (pending operator ratification): the confirmatory run must cover the FULL frozen BEAR episode set (backfill required; no minor-bear-only verdict)
 
-STATUS: FREEZE AMENDMENT to `doc/design/2026-08-08-bear-exit-prereg.md`,
-per that prereg's own amendment instrument (a new dated document; the
-frozen original is not edited). Scope: ONE ruling — which of the frozen
-BEAR episodes the confirmatory run evaluates over. It changes NO candidate
-value, NO estimand, NO arm/placebo count/threshold/gate. orch#962 blocker B3;
-authorized by the operator's delegation "proceed per your recommendation"
-(2026-08-10), the operator-level scope ruling that B4 (#965 line 47) explicitly
-left open.
+STATUS: **RECOMMENDATION for a freeze amendment — NOT an authorized amendment,
+and NOT yet in force.** It proposes the resolution of the operator-level scope
+ruling that B4 (#965 line 47) explicitly left open (orch#962 blocker B3). It
+changes NO candidate value, NO estimand, NO arm/placebo count/threshold/gate.
+
+AUTHORIZATION STATE (codex #969 P1): this recommendation is **PENDING operator
+ratification**. No immutable, reviewable authorization record exists yet — a
+chat instruction is not a substantiable authorization for an audit document,
+and this GitHub login is shared with the operator, so a self-authored reference
+cannot establish delegated authority (cf. the LONG-ledger countersignature
+rule). The B3 scope decision therefore stays OPEN until such a record exists
+(an operator ratification from a live codex session, or an equivalent durable
+ledger entry). Merging this PR records the RECOMMENDATION; it does not put the
+scope ruling in force. The recommendation stands on its stated scientific
+merits (below), independent of who ratifies it.
 
 ## The question (verified)
 

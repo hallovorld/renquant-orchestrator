@@ -1,8 +1,9 @@
 # G-B B3 scope ruling — confirmatory run must cover the full BEAR set (backfill required)
 
 STATUS:    freeze AMENDMENT (scope ruling only); design doc, nothing runs,
-           nothing deployed. Records the operator-delegated B3 ruling that
-           B4 (#965) left open. Changes no frozen value/estimand/threshold.
+           nothing deployed. RECOMMENDS the B3 ruling B4 (#965) left open — PENDING operator
+           ratification (no immutable authorization record yet; shared login
+           can't self-substantiate; codex #969 P1). Not in force on merge. Changes no frozen value/estimand/threshold.
 
 WHAT:      doc/design/2026-08-10-bear-exit-prereg-scope-ruling-b3.md — rules
            that the frozen BEAR-exit confirmatory evaluation MUST cover the
@@ -14,7 +15,7 @@ WHAT:      doc/design/2026-08-10-bear-exit-prereg-scope-ruling-b3.md — rules
            (COVID, 41d). Until a backfill makes those episodes
            sim-reachable, the run stays blocked (no partial verdict).
 
-WHY/DIR:   Operator delegated "proceed per your recommendation" 2026-08-10.
+WHY/DIR:   A chat instruction ('proceed per your recommendation', 2026-08-10) is NOT a substantiable authorization for an audit doc; this is a recommendation pending a durable operator ratification record.
            B4 explicitly left the sim-artifact-reachable span as an operator
            ruling (#965 line 47). My recommendation: a BEAR-exit policy
            decision that never tests the COVID crash is not credible for its
