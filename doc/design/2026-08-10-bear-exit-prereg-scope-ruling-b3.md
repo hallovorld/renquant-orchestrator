@@ -93,8 +93,27 @@ multi-repo confirmatory assembly. As of 2026-08-10:
    discipline: candidate-pin artifact gate + snapshot regeneration verified
    byte-exact + cross-repo integration check + the resolved run-bundle
    commit/artifact fingerprints recorded.
-2. The B3 backfill artifacts present, with their fingerprints in the run bundle.
+2. The B3 backfill artifacts present AND their **point-in-time validity
+   established** (codex #969 r1). A panel-LTR retrained NOW with a pre-episode
+   data cutoff is a HISTORICAL RECONSTRUCTION, not a contemporaneously-available
+   artifact: a cutoff date alone does not rule out look-ahead from
+   later-revised inputs, today's training code/recipe, later registry
+   availability, or outcome-informed selection among reconstructions. Per this
+   repo's model-freshness governance (fail-closed on missing availability
+   evidence), the backfill counts ONLY under a FROZEN, VERIFIED B3 PIT protocol:
+   (a) the exact per-episode cutoff/eligibility rule; (b) all source-availability
+   + data/recipe/code fingerprints recorded; (c) artifact + gate timestamps, OR
+   an explicit, reviewed historical-reconstruction EXCEPTION that documents the
+   PIT limitations and how the verdict is caveated; (d) deterministic artifact
+   selection (no outcome-informed choice); (e) a verifier that FAILS CLOSED on
+   missing or post-date provenance. If the historical availability record cannot
+   meet this, the confirmatory result stays BLOCKED — newly-made local artifacts
+   are NOT treated as contemporaneously available.
 3. This B3 ruling ratified.
+
+The running isolated backfill produces the artifacts item 2 needs, but does not
+by itself satisfy 2 — the PIT protocol (or a reviewed reconstruction exception)
+is the gate on whether those artifacts may count.
 
 This ruling converts B3 from an open operator question to a recorded
 precondition, and (per the #969 review) makes explicit that a component PR
