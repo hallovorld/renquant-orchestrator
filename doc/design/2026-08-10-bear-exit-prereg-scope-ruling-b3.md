@@ -65,21 +65,39 @@ established.
 
 - It changes no frozen candidate value, no estimand, no placebo/shift/bootstrap
   arm, no PASS rule. All numbers stay frozen as written (B4-corrected model).
-- It does not launch the backfill. **The backfill is a compute campaign
-  (walk-forward retrains + artifact assembly for ~2016–2022 cutoffs) that
-  requires OPERATOR spend authorization** — recorded here as the ruling's
-  precondition, not executed by it.
 - It does not change live config or activate anything. A confirmatory PASS
   (once the run is unblocked) still only earns the amendment the *right to be
   proposed*; the live `strategy_config.json` change remains a separate operator
   grant (§4 item 3, unchanged).
+- The B3 backfill (walk-forward panel-LTR retrains for the ~2016–2020 cutoffs)
+  is **LOCAL compute (alpha158 GBDT, ~1–2 min/cutoff, no cloud/Modal, no dollar
+  spend), built in isolation** — it does not require spend authorization. The
+  prerequisite it does NOT waive is the pin advance below.
 
-## Consequence / next step
+## Consequence / next step (corrected — component-merged ≠ pinned, codex #969 P1)
 
-G-B's confirmatory run is now blocked on exactly two capabilities, both scoped:
-**B2** (book-simulator regime-series injection — the placebo/shift arms;
-renquant-backtesting PR) and **the B3 backfill** (2016–2022 walk-forward
-artifacts; operator spend-gated). Neither is calendar-gated. B1 (#282) and B4
-(#965) are done. This ruling converts B3 from "open operator question" to a
-recorded precondition: schedule the backfill, or G-B's verdict waits — but do
-not substitute a minor-bear-only run for it.
+MERGED to a component repo is NOT the same as available to the pinned
+multi-repo confirmatory assembly. As of 2026-08-10:
+
+- **B1** = renquant-pipeline **#282** (read `_by_regime` keys), **B2** =
+  renquant-backtesting **#111** (regime-series injection seam), **B4** = **#965**
+  — all MERGED to their component `main`. **But the umbrella `subrepos.lock.json`
+  still pins `renquant-pipeline @ e13cd3e` and `renquant-backtesting @ 8c2c4456`
+  — neither pinned revision contains those merge commits [VERIFIED 2026-08-10].**
+  So B1/B2 are NOT runnable in the assembled confirmatory environment yet.
+- **B3 backfill** = local compute (above), built in isolation.
+
+**Prerequisites before ANY confirmatory invocation (fail-closed):**
+1. A **reviewed pin advance** bumping renquant-pipeline past #282 and
+   renquant-backtesting past #111, through renquant's standard pin-bump
+   discipline: candidate-pin artifact gate + snapshot regeneration verified
+   byte-exact + cross-repo integration check + the resolved run-bundle
+   commit/artifact fingerprints recorded.
+2. The B3 backfill artifacts present, with their fingerprints in the run bundle.
+3. This B3 ruling ratified.
+
+This ruling converts B3 from an open operator question to a recorded
+precondition, and (per the #969 review) makes explicit that a component PR
+merged ≠ a capability pinned and integration-verified. Do not substitute a
+minor-bear-only run, and do not invoke the confirmatory run against an
+assembly whose pins predate #282/#111.

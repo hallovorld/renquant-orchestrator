@@ -35,14 +35,15 @@ EVIDENCE:  artifact:      doc/design/2026-08-10-bear-exit-prereg-scope-ruling-b3
                           orch#965 B4 GMM ruling; the frozen 2026-08-08 prereg
            best-known?:   yes — the honest tradeoff (backfill cost vs a
                           non-credible minor-bear-only verdict) is stated, not
-                          buried; the backfill's operator spend-gate is named
+                          buried; the backfill is LOCAL (no spend); the real gate is the pin advance
            scope:         one freeze-amendment design doc + this progress doc;
                           the backfill compute + any live change are OUT of
                           scope and separately gated
 
 TESTS:     n/a (governance doc; no code path).
 
-NEXT:      codex review + operator ratification. Then G-B is blocked on B2
-           (simulator regime injection PR) + the B3 backfill (operator
-           spend-gated compute campaign) — schedule the backfill, or G-B's
-           verdict waits. Do NOT substitute a minor-bear-only run.
+NEXT:      codex review + operator ratification. Then G-B is blocked on a reviewed PIN ADVANCE (renquant-pipeline past #282,
+           renquant-backtesting past #111 — merged but NOT pinned; lock still
+           at e13cd3e / 8c2c4456) + integration check, the B3 backfill (LOCAL
+           compute, no spend, isolated), and this ruling ratified. Component
+           PR merged != pinned+integration-verified (codex #969 P1). Do NOT substitute a minor-bear-only run.
