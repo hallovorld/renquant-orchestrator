@@ -1,13 +1,26 @@
-# agent-pr-loop: skip the review/fix step when the queue is empty
+# agent-pr-loop: skip-when-empty control-plane guard (reviewed-surface primitive)
 
-STATUS:    delivered
+STATUS:    in-progress — reviewed-surface CONTROL-PLANE PRIMITIVE landed and
+           unit-tested; it is NOT yet wired into the running loop, so this PR by
+           itself does NOT change the false-failure behavior. The incident fix
+           is the umbrella wiring, which is a separate operator-gated live-tree
+           change (see NEXT). This PR is deliberately an explicitly-unused API +
+           its regression tests; it is not the incident fix.
 WHAT:      Add a control-plane guard (`run_agent_fix_step` / `fix_step_is_noop`)
-           and a first-class `queue_empty` plan signal to `agent_workflows.py`,
-           so an idle agent-pr-loop cycle (empty review/fix queue) SKIPS the
-           local `claude`/`codex` CLI instead of spawning it and then reporting
-           the whole run failed when the CLI exits non-zero for an unrelated
-           reason (e.g. a monthly spend cap). Skip-when-empty only — a real fix
-           failure on a NON-empty queue still fails closed.
+           and a first-class `queue_empty` plan signal to `agent_workflows.py` —
+           the reviewed orchestrator surface that "owns queue resolution +
+           policy". The guard encodes skip-when-empty (an idle review/fix cycle
+           must not spawn the local `claude`/`codex` CLI, so a spend-cap rc!=0 on
+           a no-op can't fail the run) while still SURFACING a real fix failure
+           on a NON-empty queue (never swallow-all-errors).
+           IMPORTANT (codex P1, 2026-08-12): nothing in the running loop calls
+           this helper yet. The umbrella `RenQuant/scripts/agent_pr_loop.py`
+           (`_run_review_or_fix`, lines 245-263) ALREADY skips exec on an empty
+           aggregated queue and writes `status.json` — that script is where the
+           reported `error:"claude fix failed"` originates, and it is out of
+           scope for an orchestrator PR (live-tree/operator-gated). So this PR
+           lands the tested primitive on the reviewed surface; it does not, on
+           its own, alter loop behavior.
 WHY/DIR:   Loop-idempotence / ops hygiene for the recurring review→fix→merge
            agent-pr-loop (doc/design/2026-06-27-autonomous-ops-loops.md §1A).
            An idle cycle is a success, not a failure; a monthly spend cap on the
