@@ -15,9 +15,11 @@ import pytest
 
 from renquant_orchestrator.intraday_quote_logger import SessionBounds
 from renquant_orchestrator.intraday_session_inputs import (
+    AlpacaLiveStateSource,
     FrozenSignalError,
     OrderStateFileError,
     SignalLeakError,
+    TickInputUnavailable,
     UnboundedBrokerCallError,
     _broker_call_with_retry,
     _call_timeout_var,
@@ -651,6 +653,106 @@ def test_broker_retry_429_zero_retry_after(monkeypatch):
     result = _broker_call_with_retry(_as_reflectable_call(rate_limited), label="test")
     assert result == "ok"
     assert len(calls) == 2
+
+
+# ───── class-C snapshot: transient read failure surfaces as TickInputUnavailable ─────
+class _FakeSession:
+    """Reflectable ``_session`` so ``_call_with_deadline`` accepts the fake
+    client's bound methods; never actually invoked (the methods raise/return
+    before any socket call)."""
+
+    def request(self, *args, **kwargs):  # pragma: no cover - never invoked
+        raise AssertionError("fake client does not touch the socket")
+
+
+class _FakeQuoteSource:
+    def get_quotes(self, tickers):
+        return {}
+
+
+class _FakeAccount:
+    account_number = "TEST-ACCT"
+    cash = "1000.0"
+    equity = "2000.0"
+
+
+def _make_live_state_source(*, account_exc=None, positions=None):
+    account_exc_ = account_exc
+    positions_ = positions or []
+
+    class _FakeClient:
+        def __init__(self):
+            self._session = _FakeSession()
+
+        def get_account(self):
+            if account_exc_ is not None:
+                raise account_exc_
+            return _FakeAccount()
+
+        def get_all_positions(self):
+            return positions_
+
+    return AlpacaLiveStateSource(
+        quote_source=_FakeQuoteSource(),
+        tickers=["AAA"],
+        _client=_FakeClient(),
+    )
+
+
+def test_snapshot_wraps_transient_broker_timeout(monkeypatch):
+    """The 2026-07-14 condition: a transient broker read timeout on the
+    READ-ONLY class-C GET, after the retry budget, surfaces as
+    TickInputUnavailable (recoverable) — NOT a raw halt-the-session error."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_MAX_RETRIES", 1)  # no sleeps in the test
+    source = _make_live_state_source(account_exc=_HTTPError(504))
+    with pytest.raises(TickInputUnavailable, match="transient"):
+        source.snapshot(
+            now=datetime(2026, 7, 14, 9, 49, tzinfo=ET), trading_day="2026-07-14"
+        )
+
+
+def test_snapshot_wraps_transient_timeout_by_message(monkeypatch):
+    """A timeout with no HTTP status (a bare ``request timed out`` — the
+    2026-07-13 ReadTimeout shape) is still classified transient and wrapped."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_MAX_RETRIES", 1)
+    source = _make_live_state_source(account_exc=_TransientError("request timed out"))
+    with pytest.raises(TickInputUnavailable):
+        source.snapshot(
+            now=datetime(2026, 7, 13, 11, 25, tzinfo=ET), trading_day="2026-07-13"
+        )
+
+
+def test_snapshot_reraises_non_transient_broker_error(monkeypatch):
+    """A NON-transient broker error (auth/permission/validation) is NOT
+    wrapped — it propagates unchanged so a genuine config/credential fault
+    still HARD-halts, never gets absorbed as a skippable blip."""
+    import renquant_orchestrator.intraday_session_inputs as mod
+
+    monkeypatch.setattr(mod, "_BROKER_MAX_RETRIES", 1)
+    source = _make_live_state_source(account_exc=_HTTPError(403))
+    with pytest.raises(_HTTPError) as excinfo:
+        source.snapshot(
+            now=datetime(2026, 7, 14, 9, 49, tzinfo=ET), trading_day="2026-07-14"
+        )
+    assert not isinstance(excinfo.value, TickInputUnavailable)
+
+
+def test_snapshot_happy_path_assembles_read_only_state():
+    """The success path still assembles a plain JSON-able class-C snapshot
+    (guards the try/except wrap around the two GETs)."""
+    source = _make_live_state_source()
+    state = source.snapshot(
+        now=datetime(2026, 7, 14, 9, 49, tzinfo=ET), trading_day="2026-07-14"
+    )
+    assert state["account"] == "TEST-ACCT"
+    assert state["cash"] == 1000.0
+    assert state["equity"] == 2000.0
+    assert state["positions"] == {}
+    assert state["trading_day"] == "2026-07-14"
 
 
 def test_broker_retry_429_http_date_retry_after(monkeypatch):
