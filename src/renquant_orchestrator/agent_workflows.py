@@ -735,6 +735,61 @@ def build_queue(
     return out
 
 
+# ─────────────────── agent-pr-loop step guard (skip-when-empty) ──────────
+
+def fix_step_is_noop(queue: "Sequence[Any] | int | None") -> bool:
+    """Whether the review/fix step has nothing to act on this cycle.
+
+    The launchd agent-pr-loop pipes a prompt to the local ``claude``/``codex``
+    CLI **only** when the resolved queue has work. An empty queue is an idle
+    cycle: spawning the agent anyway spends budget on a no-op, and when the CLI
+    then exits non-zero for a reason unrelated to any PR (e.g. a monthly spend
+    cap) that no-op turns an idle cycle into a *failed run*. So an empty queue
+    must SKIP the step — not run it and then fail.
+
+    Accepts either the resolved queue (a sequence) or its length (an int).
+    """
+    if queue is None:
+        return True
+    if isinstance(queue, int):
+        return queue <= 0
+    return len(queue) == 0
+
+
+def run_agent_fix_step(queue: "Sequence[Any] | int | None", runner) -> dict:
+    """Guarded runner for one agent review/fix step (skip-when-empty).
+
+    * **empty queue** → SKIP: ``runner`` is *not* called and the step is
+      ``ok`` — an idle cycle is a success, not a failure.
+    * **non-empty queue** → run ``runner()`` (which invokes the agent CLI) and
+      SURFACE its return code: a non-zero rc is a real fix failure and stays
+      ``ok == False`` (fail-closed; never swallowed).
+
+    ``runner`` is a zero-arg callable returning an int rc or a mapping carrying
+    an ``rc`` key. This is the control-plane guard the agent-pr-loop uses so a
+    spend cap during an idle cycle no longer marks the whole run failed, while a
+    genuine fix failure on a non-empty queue still fails.
+    """
+    n = 0 if queue is None else (queue if isinstance(queue, int) else len(queue))
+    if fix_step_is_noop(queue):
+        return {
+            "skipped": True,
+            "ran": False,
+            "ok": True,
+            "queue_total": int(n),
+            "reason": "empty queue — nothing to review/fix this cycle",
+        }
+    outcome = runner()
+    rc = outcome if isinstance(outcome, int) else int((outcome or {}).get("rc", 0))
+    return {
+        "skipped": False,
+        "ran": True,
+        "ok": rc == 0,
+        "rc": int(rc),
+        "queue_total": int(n),
+    }
+
+
 # ─────────────────────────── gh fetch + actions ─────────────────────────
 
 _PR_FIELDS = (
@@ -1008,6 +1063,11 @@ def run_agent_workflow(
         "require_distinct_actor_tokens": bool(require_distinct_actor_tokens),
         "reviewer_login": reviewer_login,
         "queue": [w.to_dict() for w in queue],
+        # First-class "nothing to do" signal for the agent-pr-loop: when a
+        # review/fix queue is empty the loop must SKIP the agent CLI, not spawn
+        # it (and then fail the run if the CLI exits non-zero for an unrelated
+        # reason such as a spend cap). See ``run_agent_fix_step``.
+        "queue_empty": workflow in ("review", "fix") and not queue,
         "executed": [],
     }
     if workflow == "review" and reviewer_login:

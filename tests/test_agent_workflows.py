@@ -16,6 +16,7 @@ from renquant_orchestrator.agent_workflows import (
     contract_findings,
     explicit_contributor_logins,
     fetch_open_prs,
+    fix_step_is_noop,
     has_head_approval_from_agent,
     has_head_changes_requested_from_agent,
     has_unaddressed_findings,
@@ -28,6 +29,7 @@ from renquant_orchestrator.agent_workflows import (
     reviewer_is_pr_contributor,
     resolve_token,
     resolve_token_with_source,
+    run_agent_fix_step,
     run_agent_workflow,
 )
 
@@ -1271,3 +1273,56 @@ def test_a_merge_exactly_ON_the_cutoff_counts_as_reaching_back_past_it(monkeypat
     assert audit["n_merged_in_window"] == 2     # the boundary merge IS in the window…
     assert audit["window_fully_covered"] is True   # …and therefore was observed
     assert audit["ok"] is True
+
+
+# ── agent-pr-loop step guard: skip on empty queue, surface real failures ──
+
+def test_agent_fix_step_skips_when_queue_empty():
+    """An idle cycle (empty fix queue) must SKIP the agent CLI, not run it.
+
+    Regression guard for the agent-pr-loop reporting `ok:false,
+    error:"claude fix failed"` every iteration when there was nothing to fix
+    and the `claude` CLI happened to exit non-zero for an unrelated reason (a
+    monthly spend cap). An empty queue is a success, not a failure.
+    """
+    calls: list[int] = []
+
+    def runner() -> int:
+        calls.append(1)          # must NOT be invoked when the queue is empty
+        return 1
+
+    step = run_agent_fix_step([], runner)
+    assert calls == []           # the agent CLI was never spawned
+    assert step["skipped"] is True and step["ran"] is False
+    assert step["ok"] is True    # idle cycle reports success, run not failed
+    assert step["queue_total"] == 0
+    # the length-int and None forms are treated as empty too
+    assert run_agent_fix_step(0, runner)["ok"] is True
+    assert run_agent_fix_step(None, runner)["skipped"] is True
+    assert calls == []           # still never invoked
+    assert fix_step_is_noop([]) and fix_step_is_noop(0) and fix_step_is_noop(None)
+
+
+def test_agent_fix_step_surfaces_failure_on_nonempty_queue():
+    """A real fix failure on a NON-empty queue must still fail (never swallowed).
+
+    The guard is skip-when-empty, NOT swallow-all-errors: once there is work in
+    the queue, a non-zero rc from the agent CLI is a genuine failure and stays
+    `ok == False`.
+    """
+    ran: list[int] = []
+
+    def failing_runner() -> int:
+        ran.append(1)
+        return 1                 # rc != 0 == a genuine fix failure
+
+    step = run_agent_fix_step([{"number": 7}], failing_runner)
+    assert ran == [1]            # the fix step actually ran
+    assert step["skipped"] is False and step["ran"] is True
+    assert step["ok"] is False   # failure surfaced, not hidden
+    assert step["rc"] == 1
+    assert step["queue_total"] == 1
+    # a passing runner (rc==0, or a mapping carrying rc) on a non-empty queue is ok
+    assert run_agent_fix_step([{"number": 7}], lambda: 0)["ok"] is True
+    assert run_agent_fix_step([{"number": 7}], lambda: {"rc": 0})["ok"] is True
+    assert fix_step_is_noop([{"number": 7}]) is False
