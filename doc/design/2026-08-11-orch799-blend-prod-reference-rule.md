@@ -79,8 +79,35 @@ improve the frozen WF metric?* Three conditions, fixed before any run:
 3. **A paired held-out decision metric with the PASS/FAIL rule fixed in advance**,
    evaluated on the same dates for both arms.
 
-Until these are recorded in a frozen prereg, this document recommends the rule but
-does **not** license a promotion decision made under it.
+### What this document fixes, and what it explicitly does not
+
+Splitting these is the point: a fact I can read from the system belongs here, and a
+judgment I would be inventing does not.
+
+**Fixed here (facts, read from the pinned system):**
+
+| | |
+|---|---|
+| combine rule | `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py::BlendPanelScorer.score` — unweighted Σ of per-component cross-sectional z, `ddof=0` over each component's finite-scored universe |
+| the pinned object | the **pipeline commit** supplying that module, recorded in the prereg at run time. I am deliberately not pasting today's runtime commit: `.subrepo_runtime` currently reads `e13cd3eb` while the lock has already advanced past it, so any commit quoted here would be stale before the run |
+| missing scores | already defined by the implementation, not a free choice: a name a healthy leg cannot score finitely becomes NaN and is dropped downstream as unscored |
+| degenerate leg | `std == 0` or `< 2` finitely scored names → contributes 0, token in `metadata["degraded_reason"]`, SOFT inside the composite |
+| exclusion rule | folds carrying a `degraded_reason` token for either leg are excluded, and the excluded count is reported |
+
+**NOT fixed here — and this document does not have the standing to fix them.** The
+maximum exclusion fraction, the fold/date construction, the held-out metric and its
+horizon, the PASS/FAIL threshold or comparison statistic: each of these determines
+whether the comparison can manufacture an apparent benefit, and I would be choosing
+them from nothing rather than from evidence. Picking numbers here to make the
+document look complete is the failure this repo has been bitten by before — a
+threshold asserted in prose reads as preregistered when it was improvised.
+
+**Therefore this recommendation is explicitly CONDITIONAL** on a separate,
+committed, versioned prereg artifact that fixes those quantities, is approved before
+any umbrella gate change, and is frozen before any run is executed. Until that
+artifact exists and is approved, this document recommends the reference **rule** and
+licenses **no** promotion decision made under it — including a decision that would
+merely "try it and see".
 
 ### Rejected alternatives
 
@@ -99,7 +126,11 @@ does **not** license a promotion decision made under it.
 
 1. The gate constructs the candidate blend = served blend recipe with the xgb leg
    artifact swapped to the candidate; re-uses the served blend's momentum_residual
-   leg + z-blend weights verbatim (no re-fit).
+   leg verbatim (no re-fit) and leaves the combine rule untouched. **There are no
+   weights to reuse** — the combine rule is the unweighted z-sum implemented in
+   `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py::BlendPanelScorer.score`,
+   so the object to hold fixed is that MODULE at a pinned pipeline commit, not a
+   config value.
 2. The same-kind reference check (`subrepo_ops_contract.py`) accepts a `kind=blend`
    pinned prod reference when the candidate is a leg of that blend, instead of
    requiring a top-level `kind=xgb` config.

@@ -65,7 +65,14 @@ weights are deliberately not introduced ("weighting is the MoE stage's own
 preregistered change (AC5)"). So there is no weight vector to hold fixed. The
 invariant to pin is therefore the PIPELINE COMMIT supplying the combine rule,
 not a config key — the doc has been corrected accordingly.
-NEXT:      Operator decision on the reference rule, THEN a separate,
+NEXT:      This recommendation is CONDITIONAL on a separate, committed, versioned
+           prereg artifact fixing the quantities this doc deliberately does not
+           fix (max exclusion fraction, fold/date construction, held-out metric
+           and horizon, PASS/FAIL statistic) — approved before any gate change
+           and frozen before any run. Choosing those numbers here would be
+           inventing them; a threshold asserted in prose reads as preregistered
+           when it was improvised. THEN operator decision on the reference rule,
+           THEN a separate,
            operator-gated umbrella/live-tree change to
            `scripts/weekly_wf_promote.sh` + `scripts/subrepo_ops_contract.py`
            implementing it (full dry-run against the served blend, standard
