@@ -45,11 +45,42 @@ blend-vs-blend on the frozen WF metric.**
   (return-space + sanity battery) actually measures. No phantom config, no
   cross-kind comparison.
 - The candidate blend differs from the reference blend in exactly one factor — the
-  refreshed xgb leg — so the measured delta attributes cleanly to the retrain,
-  which is precisely the promotion question ("does refreshing the panel-ltr leg
-  improve the served blend?").
+  refreshed xgb leg — so the measured delta attributes to the retrain **on folds
+  where both legs scored non-degenerately**. That qualifier is load-bearing and is
+  not a formality; see "Preregistered evaluation" below.
 - Promotion, on PASS, swaps only the xgb leg into the served blend
-  (momentum_residual leg unchanged); the blend recipe/weights are unchanged.
+  (momentum_residual leg unchanged). **There is no weight vector to hold fixed:**
+  the blend is an unweighted sum of per-component cross-sectional z-scores, with
+  per-component weights deliberately not introduced (weighting is the MoE stage's
+  own preregistered change, AC5). `ranking.blend_weights` is absent from the served
+  config; its only occurrence in the pinned strategy repo is in `config_drift.py`'s
+  `DEFAULT_IGNORES`. The invariant to pin is the **pipeline commit** supplying the
+  combine rule, not a config key.
+
+## Preregistered evaluation — what makes the delta attributable
+
+The estimand is: *does replacing the served blend's xgb leg with the candidate leg
+improve the frozen WF metric?* Three conditions, fixed before any run:
+
+1. **Degenerate-leg exclusion (the one that would silently break it).** The pinned
+   `BlendPanelScorer` gives a degenerate leg — `std == 0`, or fewer than 2 finitely
+   scored names — a contribution of **0**, recording
+   `component{i}[…]_n_lt_2` / `_std_zero` in `metadata["degraded_reason"]`. It fails
+   SOFT inside the composite. So on any fold where the momentum_residual leg
+   degrades, `blend == z(xgb)` alone, and a blend-vs-blend comparison there measures
+   the xgb swap **unblended** — a different estimand. Folds carrying a
+   `degraded_reason` token for either leg are **excluded**, and the excluded count is
+   reported; a run excluding more than a preregistered fraction is a FAIL of the
+   comparison, not a smaller sample.
+2. **Fold-local fitting.** The candidate xgb leg is retrained per fold on
+   training-only data, with fold-local normalization/calibration. The
+   momentum_residual leg and the combine rule (pipeline commit) are held fixed
+   across both arms and all folds. Identical universe, costs, and constraints.
+3. **A paired held-out decision metric with the PASS/FAIL rule fixed in advance**,
+   evaluated on the same dates for both arms.
+
+Until these are recorded in a frozen prereg, this document recommends the rule but
+does **not** license a promotion decision made under it.
 
 ### Rejected alternatives
 
@@ -88,6 +119,9 @@ blend-vs-blend on the frozen WF metric.**
   PASS/FAIL verdict (no orch#799 refusal), production unchanged.
 - The candidate blend differs from the served blend only in the xgb leg artifact
   (verified by fingerprint diff of the two blend recipes).
-- On a synthetic PASS, only the xgb leg artifact is swapped; momentum_residual +
-  weights byte-identical.
+- On a synthetic PASS, only the xgb leg artifact is swapped; the
+  momentum_residual leg is byte-identical and the pipeline commit supplying the
+  unweighted z-sum is unchanged (there is no weight object to compare).
+- The comparison reports its degenerate-leg exclusion count, and that count is
+  within the preregistered bound.
 - The weekly not-acting alarm clears (the gate now decides instead of refusing).
