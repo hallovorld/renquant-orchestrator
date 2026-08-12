@@ -29,7 +29,9 @@ No further arms — 3 keeps FWER manageable at policy-grade n.
   point-in-time: the momentum_residual leg is a momentum-factor residual (cheap to PIT-
   compute from price data at each cutoff — it does NOT need the full 2023–2026 GBDT WF
   corpus). Window (FROZEN, feasibility-confirmed 2026-08-12): the **extended
-  2019-01-14 .. 2026-03-02 walk-forward fold set = 125 recipe-consistent folds** — the
+  2019-01-14 .. 2026-03-02 walk-forward fold set = 125 recipe-consistent folds**
+  `[VERIFIED — 82 + 43 fold dirs counted 2026-08-12; recipe-compat evidence in the
+  provenance bullet below]` — the
   82-fold recipe-consistent backfill (2019-01-14 .. 2023-09-11) concatenated with the 43-fold
   prod xgb WF manifest (2023-10-02 .. 2026-03-02). The two cutoff sets do NOT overlap
   (backfill ends 2023-09-11, manifest starts 2023-10-02), so no dedup is needed. The window was
@@ -37,10 +39,14 @@ No further arms — 3 keeps FWER manageable at policy-grade n.
   power** — see the power statement below.
 - **Extension provenance (FROZEN)**: the 2019-2023 legs come from the recipe-consistent
   backfill `doc/research/data/2026-08-02-jobb-gbdt-depth-extension-run001/window_artifacts/`
-  — verified same recipe as the prod manifest (byte-identical 172 `feature_cols`, identical
-  model params incl. `max_depth=5`, `label_col=fwd_60d_excess`, `lookahead=60`, `embargo=60`;
-  the only cross-set delta is the `config_fingerprint`, which differs solely because the
-  watchlist/sector_map grow with the universe over time, not the recipe). momentum_residual is
+  — `[VERIFIED — read-only compare of all 125 fold panel-ltr.json, 2026-08-12]` same recipe as
+  the prod manifest: byte-identical 172 `feature_cols` (sha `c1dc4f7f897495fe` both sets),
+  identical model params (sha `112fae206d60`; `max_depth=5` in EVERY backfill fold — the dir's
+  "depth-extension" label is time-depth, not tree-depth), `label_col=fwd_60d_excess`,
+  `lookahead=60`, `embargo=60`. The only cross-set delta is the `config_fingerprint`
+  (`f8fb2259` vs `14586756`), which differs solely because the `config_fingerprint_fields`
+  watchlist/sector_map grow with the universe over time (145/144 vs 142/141), not the recipe;
+  neither set carries a `recipe_fingerprint` field. momentum_residual is
   **PIT-recomputed at every one of the 125 extended cutoffs** (never carried over), same
   cutoff-gated guard as the manifest span.
 - **Walk-forward, fold-local both legs**: at each fold cutoff, xgb_leg = that cutoff's fold
@@ -48,12 +54,13 @@ No further arms — 3 keeps FWER manageable at policy-grade n.
   that); momentum_residual_leg = PIT-computed at that cutoff; W (for A2)
   re-fit only on data preceding the fold. NO look-ahead (cutoff+lookahead < eval, reuse the
   existing loader leakage guard).
-- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage recomputed via
-  `RenQuant/kernel/hmm_regime_labels.py` on SPY at each of the 125 cutoffs = **15 BEAR
+- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage `[DERIVED —
+  RenQuant/kernel/hmm_regime_labels.py on SPY at all 125 cutoffs, 2026-08-12; prod-only
+  43-fold subset reproduces the prereg's n_eff = 2 exactly, validating the method]` = **15 BEAR
   fold-cutoffs across 8 contiguous BEAR runs ≈ 6 distinct macro bear regimes** (2019 vol-spike,
   COVID 2020-03, Sept-2020, the 2022 bear [H1+H2, split by the summer rally], 2024-08 carry
   unwind, 2025-04 tariff selloff) → **n_eff BEAR ≈ 6–8, up from n_eff = 2** on the prod-only
-  window (the same method reproduces that 2 exactly: 2024-08, 2025-04). This materially raises
+  window (2024-08, 2025-04). This materially raises
   BEAR power but is **still policy-grade / annotation-grade** (single-digit independent BEAR
   episodes), **NOT t≥2** — declared up front, per [[goal-b-bear-exit-line]] discipline. BEAR is
   the model's only genuine-edge regime ([[pwf-gate-live-diverges-from-kernel-rfc210]]).

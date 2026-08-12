@@ -8,7 +8,7 @@ WHAT:      Commit the frozen prereg
            AMENDED 2026-08-12 (§3 Data/window ONLY — extended fold set for BEAR
            power; arms/metric/decision-rule Δ_BEAR≥+0.03 UNCHANGED; see AMENDMENT
            below). Current sha256
-           `9924bbe91b5df607ec5983501047ddaee8ddebec8224ceddef5393b922f05816`
+           `7644acddcacbe4d2212d97bd09fe3b5cd2da5ca319330959544632a92e524f41`
            (original authored source was `d36033570b6e4a1fe7190394981761a39b959492fca428bb1b3d7408a4ace7a2`).
            It preregisters the empirical decider for orch#799: is the served
            model better as **solo-xgb** (A0 — revert, unblocks the weekly promote
