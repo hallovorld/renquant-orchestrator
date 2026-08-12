@@ -42,15 +42,29 @@ Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directl
 
   | quantity | frozen value | source |
   |---|---|---|
-  | incremental-edge margin | `aligned_real_ic − placebo_ic > margin`, **margin = +0.01** | `scripts/run_wf_gate.py` pre-registered config default `[VERIFIED — read from the pinned script]` |
-  | real-IC floor | `aligned_real_ic > real_ic_floor` (pre-registered config value; the incremental criterion ALONE is unsafe — it passes a negative-IC model whenever the placebo is more negative) | same |
-  | time-shift placebo ceiling | `\|placebo_ic\| ≤ max(0.005, 0.5 × \|aligned_real_ic\|)` | `_placebo_ic_threshold()` |
-  | placebo evaluation mode | **`absolute`** (the default, reproducing the §5.2 ceiling exactly). The opt-in `difference` mode is NOT used by this gate | same |
+  | placebo evaluation mode | **`absolute`** — `DEFAULT_PLACEBO_MODE = "absolute"`; the authoritative verdict is selected by mode, and an unknown mode falls back to absolute | `scripts/run_wf_gate.py:276,500-520` `[VERIFIED — read from the pinned script]` |
+  | time-shift placebo ceiling | `\|placebo_ic\| ≤ max(0.005, 0.5 × \|aligned_real_ic\|)` — **the whole of the authoritative placebo bar** | `_placebo_ic_threshold()` |
   | decision statistic | the **paired per-fold difference** `B_cand − B_ref` on the identical fold set | §4.5 |
   | fold/date construction | the **existing WF manifest's** folds, unchanged — this comparison introduces no new fold scheme; a candidate that is not a fold-local WF manifest fails closed (§4.1) | §4.1, §4.5 |
   | degenerate-leg exclusion fraction | **ZERO** — see §4.6 | §4.6 |
 
   …AND `B_cand` passes the sanity battery (shuffled-label placebo + time-shift placebo) AND the recipe/fingerprint recipe-match guard passes. Else FAIL → **production unchanged** (fail-closed, as today).
+
+  **What is deliberately NOT in this table, and why.** An earlier draft also
+  froze `margin = +0.01` and `aligned_real_ic > real_ic_floor`. Those are real
+  constants, but they feed the **opt-in `difference` verdict only**: the gate
+  computes both verdicts and selects the authoritative one by mode, and under the
+  default `absolute` mode the decision rests on the time-shift ceiling alone
+  `[VERIFIED — `run_wf_gate.py:264-278,308-333,500-520`]`. Listing all three
+  together froze a **hybrid rule the gate has never applied**, which would have
+  left the implementer free to read this document as either preserving the
+  current bar or quietly upgrading it.
+
+  **This prereg preserves the current bar.** Switching the authoritative mode to
+  `difference` would be a deliberate tightening — defensible on its merits, since
+  the incremental criterion plus a positive-IC floor is the stronger test — but it
+  is a SEPARATE preregistered change with its own justification, not something
+  this document smuggles in under "no new threshold".
 
 ## 4. No-leakage protocol (the load-bearing methodology codex required)
 1. **Fold-local walk-forward legs.** The candidate xgb leg MUST be walk-forward
@@ -92,7 +106,8 @@ Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directl
 - No new threshold, no new estimand beyond "does the served blend improve"; the
   bar is the existing gate's.
 - Structure unchanged: only component[0] (the xgb leg) is swapped on PASS;
-  momentum_residual + weights + blend recipe stay.
+  the momentum_residual leg and the combine rule stay (there is no weight
+  object — §3).
 - RFC#210 freshness governance, the scorer/calibrator binding gate, and the live
   `strategy_config.json` deploy remain SEPARATE operator-gated steps — a PASS earns
   the leg the right to be pin-proposed, not an automatic live swap.
@@ -102,8 +117,9 @@ Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directl
 ## 6. Implementation feasibility gate (for the implementer)
 Before coding, verify the existing WF gate (`run_wf_gate.py` + the
 walkforward_manifest machinery) can evaluate a BLEND config over per-fold blend
-artifacts (i.e. construct `B_cand`/`B_ref` per fold from the leg + momentum_residual
-+ W/N and score the return metric). If it can, implement §3 as the
+artifacts (i.e. construct `B_cand`/`B_ref` per fold from the leg +
+momentum_residual under the pinned combine rule, and score the return metric).
+If it can, implement §3 as the
 reference-resolution + candidate-construction. If it CANNOT without new blend-eval
 machinery, STOP and report the gap — do NOT fall back to a bare-leg (option A) or
 any banned reference source; the alarm staying is preferable to a scientifically
@@ -114,8 +130,11 @@ invalid promote.
   reaches a real PASS/FAIL verdict (no orch#799 refusal), production untouched.
 - `B_cand` differs from `B_ref` ONLY in the xgb-leg artifact (fingerprint diff).
 - The candidate is rejected fail-closed if it is not a fold-local WF manifest.
-- On a synthetic PASS, only component[0] is swapped; momentum_residual + W + N
-  byte-identical.
+- On a synthetic PASS, only component[0] is swapped; the momentum_residual leg
+  is byte-identical and the pipeline commit supplying the combine rule is
+  unchanged (there is no weight object to compare).
 - The weekly not-acting alarm clears (the gate DECIDES instead of refusing);
-  a subsequent PASS lets the refreshed leg be pin-proposed → unblocks the 25
-  missing-model coverage via the normal retrain→promote→pin path.
+  a subsequent PASS lets the refreshed leg be pin-proposed via the normal
+  retrain→promote→pin path. **No coverage count is asserted** — the earlier
+  "25 missing-model names" figure had no reproducible source here and is removed
+  with the rest.

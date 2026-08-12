@@ -35,10 +35,14 @@ EVIDENCE:
                  `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py`; the
                  served blend's shape from `strategy_config.json` at
                  strategy-104 `e00d935`; and the gate's own bar from
-                 `scripts/run_wf_gate.py` — **margin `+0.01`**, real-IC floor,
-                 and time-shift placebo ceiling `max(0.005, 0.5×|aligned_real_ic|)`
-                 under placebo mode `absolute`
-                 `[VERIFIED — read from the pinned script and config, 2026-08-12]`.
+                 `scripts/run_wf_gate.py` — placebo mode **`absolute`**
+                 (`DEFAULT_PLACEBO_MODE`), whose authoritative bar is the
+                 time-shift ceiling `max(0.005, 0.5×|aligned_real_ic|)` ALONE
+                 `[VERIFIED — `run_wf_gate.py:276,500-520`, read 2026-08-12]`.
+                 An earlier draft of this record also listed `margin +0.01` and
+                 the real-IC floor as part of the bar; those feed the opt-in
+                 `difference` verdict only, so listing them froze a hybrid rule
+                 the gate never applies. Corrected in the design doc's §3 table.
                  No run performed, no data generated.
   best-known?:   yes among the four options, CONDITIONAL on §4.6. Option A
                  (bare-leg) is invalid for a served blend; this measures the
