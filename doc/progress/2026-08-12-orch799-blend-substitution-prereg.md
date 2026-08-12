@@ -7,14 +7,14 @@ WHAT: commits `doc/design/2026-08-12-orch799-blend-substitution-prereg.md`
 verbatim — the binding spec for orch#799 option B (blend-substitution). The
 weekly WF-promote gate refuses every cycle because the served prod primary is a
 `kind=blend` z-blend while the retrain yields a solo `xgb` candidate leg, so
-`_find_gbdt_config` finds no kind-matched xgb prod reference and exits 2
-(3 jobs stuck; the served model cannot refresh; 25/145 watchlist names remain
-un-coverable). The prereg's rule: promote the fresh xgb leg iff it improves the
-SERVED BLEND, measured directly — `B_cand = z-blend(xgb_leg_new,
-momentum_residual, W, N)` vs `B_ref = z-blend(xgb_leg_cur, momentum_residual, W,
-N)`, paired per-fold on the same walk-forward manifest, momentum leg + weights W
-+ z-norm N held FIXED, all §4 leakage guards fail-closed. This PR changes NO
-code.
+`_find_gbdt_config` finds no kind-matched xgb prod reference and the chain
+refuses. The prereg's rule: promote the fresh xgb leg iff it improves the SERVED
+BLEND, measured directly — `B_cand = Σ z(xgb_leg_new), z(momentum_residual)` vs
+`B_ref = Σ z(xgb_leg_cur), z(momentum_residual)`, paired per-fold on the same
+walk-forward manifest, with the momentum leg and the combine rule held FIXED and
+all §4 leakage guards fail-closed. **There is no weight vector and no stored
+z-normalization state** — an earlier draft froze `W` and `N`; both are fictions
+and are removed. This PR changes NO code.
 
 WHY/DIR: option A (bare-leg, #589 — compare the candidate xgb leg vs the current
 xgb leg in isolation) was codex-rejected: a leg's standalone WF metric need not
@@ -24,11 +24,43 @@ This prereg establishes the valid estimand ("does the served blend improve")
 and freezes every threshold to the existing gate's bar (no new threshold
 invented) so the implementation cannot drift the criterion after the fact.
 
-EVIDENCE: doc-only (prereg + this progress doc); no runtime claim. Byte-identical
-copy of the operator-lead's authored source confirmed by matching sha256 before
-commit. The separate READ-ONLY feasibility investigation that accompanies this
-prereg (prereg §6 implementation-feasibility gate) is reported to the lead
-directly, not asserted here.
+EVIDENCE:
+  artifact:      `doc/design/2026-08-12-orch799-blend-substitution-prereg.md`
+                 (the frozen spec) + this record. **No code.**
+  prod or exp:   neither — a preregistration for a future production-gate rule.
+                 It changes nothing today and authorizes no promotion; the gate
+                 change it governs is separately operator-gated.
+  existing data: yes — the frozen values were READ from the pinned system, not
+                 chosen here: the combine rule from
+                 `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py`; the
+                 served blend's shape from `strategy_config.json` at
+                 strategy-104 `e00d935`; and the gate's own bar from
+                 `scripts/run_wf_gate.py` — **margin `+0.01`**, real-IC floor,
+                 and time-shift placebo ceiling `max(0.005, 0.5×|aligned_real_ic|)`
+                 under placebo mode `absolute`
+                 `[VERIFIED — read from the pinned script and config, 2026-08-12]`.
+                 No run performed, no data generated.
+  best-known?:   yes among the four options, CONDITIONAL on §4.6. Option A
+                 (bare-leg) is invalid for a served blend; this measures the
+                 object that is actually served. The one quantity not readable
+                 from the system — the degenerate-leg tolerance — is set to
+                 **zero**, which is the only value defensible without a power
+                 calibration this document does not have.
+  scope:         "this is the orch#799 blend-substitution promote rule (frozen
+                 prereg, not implemented), vs existing best = the gate's current
+                 structural refusal, which returns no verdict at all. The
+                 estimand is 'does replacing the served blend's xgb leg improve
+                 the frozen WF metric', paired per-fold on the existing WF
+                 manifest, restricted to folds where BOTH legs scored
+                 non-degenerately — and a single degenerate fold fails the run
+                 rather than shrinking the sample. It makes no alpha claim."
+
+REMOVED FROM AN EARLIER DRAFT, deliberately: this record previously asserted
+`exits 2`, `3 jobs stuck`, and `25/145 watchlist names` while its EVIDENCE line
+said "no runtime claim". Those are operational measurements and this document
+has no reproducible source for them, so they are gone rather than tagged. If
+they are load-bearing for prioritization they belong in the document that
+measures them, cited from there.
 
 NEXT: the umbrella gate change is GATED ON this PR's codex approval and MUST NOT
 merge before it. The prereg §6 feasibility gate must be settled first: if the

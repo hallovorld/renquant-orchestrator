@@ -9,12 +9,18 @@ amendment doc, not an edit.
 ## 1. The problem (verified 2026-08-12)
 Served prod primary = a **z-blend**: `kind=blend`,
 `ranking.panel_scoring.components = [xgb_leg (panel-ltr.alpha158_fund), momentum_residual_leg]`
-with fixed z-blend weights W and z-normalization params N. The weekly retrain
+combined by an **unweighted** sum of per-component cross-sectional z-scores. The weekly retrain
 produces a fresh **xgb leg**. The WF promote gate only accepts a top-level
 `kind=xgb` config as the production reference → with a blend prod it refuses
-(orch#799) → 3 jobs (weekly-wf-promote, retrain-panel104, conditional-retrain104)
-cannot promote, cycle after cycle; the served model cannot be refreshed, and the
-25/145 un-modelled watchlist names (17% coverage gap) cannot be covered.
+(orch#799), so the weekly promote chain returns no verdict and the served model
+cannot be refreshed.
+
+No count of stuck jobs or uncovered names is asserted here. An earlier draft
+carried "3 jobs" and "25/145 un-modelled watchlist names (17% coverage gap)";
+this document has no reproducible source for either, and a prereg is the last
+place an unsourced number should sit — it would read as frozen evidence. If the
+scale of the blockage is load-bearing, it belongs in the document that measures
+it, cited from there with its artifacts.
 
 ## 2. Why NOT option A (bare-leg) — codex-correct rejection of #589
 Comparing the candidate xgb leg vs the current xgb leg **in isolation** evaluates
@@ -27,10 +33,24 @@ criterion for a served blend. REJECTED.
 ## 3. Option B — the blend-substitution rule (THE gate)
 Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directly:
 
-- **Reference (control) = the current served blend** `B_ref = z-blend(xgb_leg_cur, momentum_residual_leg, W, N)`.
-- **Candidate (treatment) = the leg-swapped blend** `B_cand = z-blend(xgb_leg_new, momentum_residual_leg, W, N)` — the xgb leg replaced by the candidate; **momentum_residual leg, weights W, and z-norm N held FIXED from the served config** (single-factor change → the measured Δ attributes cleanly to the leg swap; z-blend-attribution caveat honoured).
+- **Reference (control) = the current served blend** `B_ref = Σ z(xgb_leg_cur), z(momentum_residual_leg)`.
+- **Candidate (treatment) = the leg-swapped blend** `B_cand = Σ z(xgb_leg_new), z(momentum_residual_leg)` — the xgb leg replaced by the candidate; the **momentum_residual leg and the combine rule held FIXED** (single-factor change → the measured Δ attributes to the leg swap **on non-degenerate folds**; see §4.6).
+
+  **There is no weight vector and no stored z-normalization state to hold fixed.** `BlendPanelScorer.score` is an *unweighted* sum of per-component cross-sectional z-scores, `ddof=0` over each component's finite-scored universe, computed at scoring time; per-component weights are deliberately not introduced (they are the MoE stage's own preregistered change, AC5), and `ranking.blend_weights` is **absent** from the served config `[VERIFIED — pinned `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py`; served `strategy_config.json` at strategy-104 `e00d935`; recorded in doc/design/2026-08-11-orch799-blend-prod-reference-rule.md]`. **The object to pin is therefore the PIPELINE COMMIT supplying that module**, recorded in the run receipt — not a config value. An earlier draft of this prereg froze `W` and `N`; both are fictions and are removed.
 - **Metric**: the SAME return-space WF metric + §5.2 sanity battery the existing gate applies to a solo config, evaluated on `B_ref` and `B_cand` over the SAME walk-forward folds/manifest (paired, per-fold).
-- **PASS iff**: `B_cand` beats `B_ref` by the existing pre-declared gate threshold (the same ΔSharpe/IC bar the solo-xgb gate used — NO new threshold invented here) AND `B_cand` passes the sanity battery (shuffled-label placebo + time-shift placebo) AND the recipe/fingerprint recipe-match guard passes. Else FAIL → **production unchanged** (fail-closed, as today).
+- **PASS iff** all of the following hold. These are the existing gate's own pre-declared values, transcribed here so this document freezes them rather than pointing at "whatever the gate uses" — a pointer a later implementation could still resolve after seeing results:
+
+  | quantity | frozen value | source |
+  |---|---|---|
+  | incremental-edge margin | `aligned_real_ic − placebo_ic > margin`, **margin = +0.01** | `scripts/run_wf_gate.py` pre-registered config default `[VERIFIED — read from the pinned script]` |
+  | real-IC floor | `aligned_real_ic > real_ic_floor` (pre-registered config value; the incremental criterion ALONE is unsafe — it passes a negative-IC model whenever the placebo is more negative) | same |
+  | time-shift placebo ceiling | `\|placebo_ic\| ≤ max(0.005, 0.5 × \|aligned_real_ic\|)` | `_placebo_ic_threshold()` |
+  | placebo evaluation mode | **`absolute`** (the default, reproducing the §5.2 ceiling exactly). The opt-in `difference` mode is NOT used by this gate | same |
+  | decision statistic | the **paired per-fold difference** `B_cand − B_ref` on the identical fold set | §4.5 |
+  | fold/date construction | the **existing WF manifest's** folds, unchanged — this comparison introduces no new fold scheme; a candidate that is not a fold-local WF manifest fails closed (§4.1) | §4.1, §4.5 |
+  | degenerate-leg exclusion fraction | **ZERO** — see §4.6 | §4.6 |
+
+  …AND `B_cand` passes the sanity battery (shuffled-label placebo + time-shift placebo) AND the recipe/fingerprint recipe-match guard passes. Else FAIL → **production unchanged** (fail-closed, as today).
 
 ## 4. No-leakage protocol (the load-bearing methodology codex required)
 1. **Fold-local walk-forward legs.** The candidate xgb leg MUST be walk-forward
@@ -39,9 +59,10 @@ Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directl
    A single today-trained leg scored over historical folds is LOOK-AHEAD and is
    FORBIDDEN — the gate must FAIL CLOSED if the candidate is not a fold-local WF
    manifest (reuse the existing `manifest recipe mismatch` fail-closed path).
-2. **Fixed blend parameters.** W and N are read from the served blend config and
-   held constant across both arms and all folds; they are NOT refit on the eval
-   data. momentum_residual leg = the served one, unchanged.
+2. **Fixed combine rule.** There are no blend parameters to fix or refit — the
+   combine rule is code, not config (§3). Both arms MUST run under the SAME
+   pipeline commit, recorded in the run receipt; a differing commit invalidates
+   the comparison. momentum_residual leg = the served one, unchanged.
 3. **Deterministic candidate selection.** Exactly one candidate leg per run (the
    week's retrain output); no outcome-informed choice among reconstructions.
 4. **Recipe/fingerprint parity.** `B_cand` and `B_ref` share every recipe field
@@ -50,6 +71,22 @@ Promote the fresh xgb leg **iff it improves the SERVED BLEND**, measured directl
    a mismatched recipe still fails closed — no silent cross-recipe comparison.
 5. **Paired, same folds.** Both arms evaluated on the identical fold set; the
    decision statistic is the paired per-fold difference.
+6. **Degenerate-leg exclusion — ZERO tolerance, and why zero is not an invented
+   number.** `BlendPanelScorer` gives a leg with `std == 0` or fewer than 2
+   finitely scored names a contribution of **0**, recording
+   `component{i}[…]_n_lt_2` / `_std_zero` in `metadata["degraded_reason"]` and
+   failing SOFT inside the composite. On such a fold `blend == z(xgb)` alone, so
+   a blend-vs-blend comparison there measures the leg swap **unblended** — a
+   different estimand silently averaged in.
+
+   **Any fold carrying a `degraded_reason` token for either leg invalidates the
+   run: the comparison FAILS CLOSED. It does not proceed on the surviving folds.**
+   Every other tolerance would need a calibration this document does not have
+   (how much contamination is acceptable is a power question, not a taste
+   question), and a fraction chosen without one would read as preregistered while
+   being improvised. **Zero is the only value that requires no calibration to
+   defend.** If practice shows it is too strict, that is a dated amendment doc
+   carrying the evidence — not an edit to this one.
 
 ## 5. Scope / what this does NOT change
 - No new threshold, no new estimand beyond "does the served blend improve"; the
