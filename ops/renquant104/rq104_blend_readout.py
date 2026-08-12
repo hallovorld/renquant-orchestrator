@@ -30,6 +30,13 @@ import pandas as pd
 
 TOP_N = 10
 SHADOW_NAME = "topdecile_clf_blend_leg"
+
+#: Env switch gating the daily blend-readout INFO ntfy SEND. DEFAULT OFF
+#: (operator directive 2026-08-11 "这个ntfy不用发了"). The readout still computes
+#: the blend and appends/back-fills the ledger every run — only the notification
+#: POST is suppressed. Re-enable by exporting RQ104_BLEND_READOUT_NTFY=1 (also
+#: accepts true/yes/on, case-insensitive); anything else (incl. unset) = OFF.
+NTFY_ENV_FLAG = "RQ104_BLEND_READOUT_NTFY"
 MATURITY_TDAYS = 61          # fwd_60d + 1 session settle (was 21 for
                              # fwd_20d; changed with the horizon 2026-07-29 —
                              # leaving it at 21 would have marked rows mature
@@ -357,11 +364,32 @@ def main() -> int:
     return 0
 
 
+def _ntfy_enabled() -> bool:
+    """Whether the daily blend-readout INFO ntfy is SENT (default OFF).
+
+    Suppressed by default per the 2026-08-11 operator directive
+    ("这个ntfy不用发了"). This gates ONLY the notification POST — the blend
+    computation and the append-only ledger write/back-fill are unaffected.
+    Re-enable with ``RQ104_BLEND_READOUT_NTFY=1`` (also true/yes/on,
+    case-insensitive)."""
+    return os.environ.get(NTFY_ENV_FLAG, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _notify_picks(row: dict) -> None:
     """Operator-visibility INFO ntfy (2026-07-27 operator directive): the
     day's hypothetical blend top-10 vs prod, sent once per appended session
     (idempotent-skip paths never re-notify). Best-effort — a notify failure
-    must never fail the ledger job."""
+    must never fail the ledger job.
+
+    SUPPRESSED BY DEFAULT (2026-08-11 operator directive "这个ntfy不用发了"):
+    the SEND is gated behind ``_ntfy_enabled()`` (env ``RQ104_BLEND_READOUT_NTFY``,
+    default OFF). When disabled this returns before importing/calling ``alert``,
+    so no ntfy POST is attempted; the ledger row has already been written by the
+    caller, so the data path is untouched."""
+    if not _ntfy_enabled():
+        print(f"blend-readout ntfy suppressed (default OFF; set {NTFY_ENV_FLAG}=1 "
+              f"to re-enable) — ledger/back-fill unaffected")
+        return
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         from liveness_common import alert  # noqa: PLC0415

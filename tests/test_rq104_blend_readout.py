@@ -2,6 +2,8 @@
 import importlib.util
 import json
 import sqlite3
+import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -218,3 +220,69 @@ def test_premature_fwd_60d_write_does_not_realize_before_maturity_tdays(tmp_path
     assert row["realized"] is True
     assert row["aged"] is True
     assert row["spread_prod"] == 0.05
+
+
+# ── ntfy suppression (2026-08-11 operator directive "这个ntfy不用发了") ──────
+
+def _install_fake_liveness_common(monkeypatch):
+    """Inject a recording `liveness_common.alert` so a would-be ntfy POST is
+    observable. `_notify_picks` does `from liveness_common import alert`, which
+    resolves from sys.modules first — so this records any SEND without touching
+    the real notifier or the network."""
+    calls: list[dict] = []
+    fake = types.ModuleType("liveness_common")
+
+    def alert(title, body, rq_root=None):   # matches _notify_picks call shape
+        calls.append({"title": title, "body": body, "rq_root": rq_root})
+
+    fake.alert = alert
+    monkeypatch.setitem(sys.modules, "liveness_common", fake)
+    return calls
+
+
+def _sample_row():
+    return {"run_date": "2026-08-11", "run_id": "r1",
+            "picks_prod": ["A", "B"], "picks_blend": ["A", "C"],
+            "n_clf_scored": 5, "n_candidates": 10, "realized": False}
+
+
+def test_blend_readout_ntfy_suppressed_by_default(monkeypatch, capsys):
+    """Default OFF: no ntfy POST is attempted, and it says so."""
+    monkeypatch.delenv(mod.NTFY_ENV_FLAG, raising=False)
+    calls = _install_fake_liveness_common(monkeypatch)
+    assert mod._ntfy_enabled() is False
+    mod._notify_picks(_sample_row())
+    assert calls == []                                  # no ntfy POST attempted
+    assert "suppressed" in capsys.readouterr().out
+
+
+def test_blend_readout_ntfy_sends_when_flag_on(monkeypatch):
+    """Re-enable path: with the flag truthy, exactly one ntfy POST is sent."""
+    monkeypatch.setenv(mod.NTFY_ENV_FLAG, "1")
+    calls = _install_fake_liveness_common(monkeypatch)
+    assert mod._ntfy_enabled() is True
+    mod._notify_picks(_sample_row())
+    assert len(calls) == 1                              # the SEND happened
+    assert "2026-08-11" in calls[0]["title"]
+    # a few case-insensitive truthy spellings also enable
+    for val in ("true", "YES", "On"):
+        monkeypatch.setenv(mod.NTFY_ENV_FLAG, val)
+        assert mod._ntfy_enabled() is True
+    monkeypatch.setenv(mod.NTFY_ENV_FLAG, "0")
+    assert mod._ntfy_enabled() is False
+
+
+def test_blend_readout_ledger_write_independent_of_ntfy_flag(tmp_path, monkeypatch):
+    """Data path preserved: with the ntfy OFF, the ledger still gets the row.
+
+    Suppressing the notification must not touch the readout's data collection —
+    the append-only ledger write is what the job exists for."""
+    monkeypatch.delenv(mod.NTFY_ENV_FLAG, raising=False)
+    calls = _install_fake_liveness_common(monkeypatch)
+    led = tmp_path / "ledger.jsonl"
+    row = {"run_date": "2026-08-11", "picks_prod": ["A"], "picks_blend": ["B"],
+           "realized": False}
+    assert mod.append_ledger(led, row) is True          # ledger written regardless
+    mod._notify_picks(row)                              # suppressed (flag off)
+    assert calls == []                                  # no POST
+    assert len(led.read_text().splitlines()) == 1       # the data survived
