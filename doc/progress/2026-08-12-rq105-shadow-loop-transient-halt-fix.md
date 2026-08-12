@@ -26,15 +26,15 @@ EVIDENCE: read-only diagnosis, path-pinned. Pilot corpus is a DURABLE operator a
   Claim 1 — the 2026-07-14 halt was a transient broker read timeout on the class-C GET,
             NOT a critical safety condition.
     artifact:   logs/renquant105_pilot/intraday_session_manifest_2026-07-14.json
-    prod/exp:   production pilot corpus (read-only)
-    existing:   `"status": "halted_tick_error"`, `"errors": ["APIError: {\"code\":50410000,
+    prod or exp:   production pilot corpus (read-only)
+    existing data:   `"status": "halted_tick_error"`, `"errors": ["APIError: {\"code\":50410000,
                 \"message\":\"request timed out\"}"]`, `tick_count: 1`, `last_tick_at
                 09:37:05`, `updated_at 09:52:58` (~16 min of ret+ retries then give-up).
                 2026-07-13 twin: same `halted_tick_error`, `errors: ["ReadTimeout:
                 HTTPSConnectionPool(host='paper-api.alpaca.markets', ...): Read timed out"]`,
                 `tick_count: 9`. Shadow log confirms 1 recorded tick on 07-14, 9 on 07-13 —
                 i.e. the halt hit the NEXT tick's live-state snapshot, not a decision fault.
-    best-known: n/a — the incident under diagnosis
+    best-known?: n/a — the incident under diagnosis
     scope:      2 halted sessions (07-13, 07-14); both broker read timeouts on read-only GETs
     [VERIFIED — the two manifests + intraday_decisions_shadow.jsonl, read-only]
 
@@ -43,13 +43,13 @@ EVIDENCE: read-only diagnosis, path-pinned. Pilot corpus is a DURABLE operator a
     artifact:   src/renquant_orchestrator/intraday_session_scheduler.py (run_session loop)
                 + src/renquant_orchestrator/intraday_session_inputs.py
                 (`AlpacaLiveStateSource.snapshot` -> `_broker_call_with_retry`)
-    prod/exp:   production code (main)
-    existing:   pre-fix `except Exception as exc: self._stamp("halted_tick_error", ...); raise`
+    prod or exp:   production code (main)
+    existing data:   pre-fix `except Exception as exc: self._stamp("halted_tick_error", ...); raise`
                 catches the retry-exhausted broker timeout raised by `snapshot()` via
                 `live_state_provider`; `main()` returns 1 -> launchd wrapper fires a FAILED
                 alert. `_broker_call_with_retry` already rides out transients (3 attempts /
                 60s) but RE-RAISES on exhaustion — with no resilient landing in the loop.
-    best-known: n/a
+    best-known?: n/a
     scope:      the Stage-1 shadow scheduler tick loop
     [VERIFIED — code read, main == pilot-run pin for both files]
 
@@ -57,15 +57,15 @@ EVIDENCE: read-only diagnosis, path-pinned. Pilot corpus is a DURABLE operator a
             completes shadow-clean; a sustained outage still hard-halts; non-transient and
             never-submit faults still hard-halt.
     artifact:   tests/test_intraday_session_scheduler.py, tests/test_intraday_session_inputs.py
-    prod/exp:   experiment (regression tests)
-    existing:   new tests — `test_transient_input_failure_skips_tick_and_completes` (07-14
+    prod or exp:   experiment (regression tests)
+    existing data:   new tests — `test_transient_input_failure_skips_tick_and_completes` (07-14
                 repro: status `completed`, `tick_input_error_count==1`, 4 recorded ticks),
                 `test_persistent_input_outage_still_hard_halts` (fuse -> `halted_tick_error`),
                 `test_intermittent_input_failures_reset_the_fuse`,
                 `test_non_transient_tick_error_still_hard_halts`,
                 `test_snapshot_wraps_transient_broker_timeout` (+ by-message +
                 non-transient-reraise + happy-path). Full suite green.
-    best-known: n/a
+    best-known?: n/a
     scope:      scheduler loop + class-C snapshot; shadow mode only
     [VERIFIED — pytest, see PR CI]
 
@@ -74,7 +74,7 @@ SAFETY: no live arming. `mode` stays shadow (`assert_shadow_never_submits` untou
         triple gate, the §9.4 economic-authorization gate, and `intraday_session_runner`'s
         live path are all untouched. No live-tree / umbrella / launchd writes in this PR.
 
-NEXT (lead, NOT done here — merged != deployed): after codex approval + merge, advance the
+NEXT: (lead, NOT done here — merged != deployed) after codex approval + merge, advance the
       `renquant-orchestrator-run` pin to include this fix, then re-arm the shadow loop by
       uncommenting `export RENQUANT_INTRADAY_DECISIONING=1` in
       `ops/renquant105/run_session_scheduler.sh` (launchd label
