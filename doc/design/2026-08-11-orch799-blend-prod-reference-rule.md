@@ -25,13 +25,25 @@ the RFC#210 freshness fallback indefinitely.
 ## Priority note (honest)
 
 This is **low current value** and is filed as a recommendation, not an urgent fix.
-The served scorer's genuine placebo-controlled IC is positive only in BEAR; in the
-current BULL_CALM regime its IC is placebo/negative. Refreshing the xgb leg does
-NOT create bull alpha that the data says does not exist, and the fallback model is
-9 days fresh (≤28d SLA). Unsticking this gate is **pipeline hygiene** (restores the
-ability to promote a refreshed leg + stops the weekly not-acting alarm), not an
-alpha lever. It should not displace [[goal-b-bear-exit-line]] (making the genuine
-BEAR edge tradeable), which is the higher-value line.
+The argument is structural, and deliberately carries no empirical claim:
+
+**A change to which object the gate compares against cannot create edge.** It
+changes whether a verdict is reachable, not what the verdict will be. So unsticking
+this gate is **pipeline hygiene** — it restores the ability to promote a refreshed
+leg and stops the weekly not-acting alarm — and it is not an alpha lever under any
+outcome. That holds by construction; it needs no measurement, and it is why this
+should not displace higher-value lines.
+
+An earlier draft ranked this work using regime-conditional IC and model-freshness
+assertions. Those are **removed, not demoted**: this document has no reproducible
+source for them (no run ID, no measurement command, no named object whose freshness
+was measured), and `ranking.blend_updated = 2026-05-06` — the only freshness field
+this doc actually measured — does not substantiate any such statement. If a
+regime/freshness argument is load-bearing for prioritization, it belongs in the
+document that establishes it, cited from there with its artifacts. Borrowing a
+conclusion across documents without its evidence is how an unverified number
+acquires the authority of a citation, even when — as here — it was being used to
+argue for LOWER priority rather than higher.
 
 ## The recommended reference rule: blend-substitution (option B)
 
