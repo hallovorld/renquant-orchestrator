@@ -78,6 +78,7 @@ from .intraday_quote_logger import (
 from .intraday_session_inputs import (
     FrozenSignalError,
     SignalLeakError,
+    TickInputUnavailable,
     assert_signal_predates_session,
     capture_session_start,
     live_state_fingerprint,
@@ -106,6 +107,17 @@ MODE_LIVE = "live"
 DEFAULT_TICK_SECONDS = 180  # 3-min tick cadence (operator directive 2026-07-06)
 DEFAULT_ENTRY_OPEN_DELAY_SECONDS = 300  # no entries in the first 5 min
 DEFAULT_ENTRY_CLOSE_CUTOFF_SECONDS = 1800  # no NEW entries in the last 30 min
+
+#: §9.3 resilience fuse. A TRANSIENT class-C/D input failure (a broker read
+#: timeout / throttle / no-quote on a READ-ONLY GET, surfaced as
+#: :class:`~renquant_orchestrator.intraday_session_inputs.TickInputUnavailable`)
+#: SKIPS just that tick and the observe-only session continues — transient
+#: non-critical conditions are "counted for the ledger", never a Tier-1 halt
+#: (RFC #208 §9.3). This many CONSECUTIVE transient input failures — a
+#: sustained data-plane outage, not a blip — escalates to a HARD ``halted_tick_error``
+#: so a real outage still fails loudly (non-zero exit → launchd alert) rather
+#: than spinning silently all session. A single successful tick resets the run.
+MAX_CONSECUTIVE_TICK_INPUT_FAILURES = 5
 
 #: Window phases, in session order.
 PHASE_BEFORE_SESSION = "before_session"
@@ -713,6 +725,50 @@ class SessionScheduler:
         _atomic_write_json(self.manifest_path, self._manifest)
         return dict(self._manifest)
 
+    # -- transient input skip (§9.3 non-critical) ----------------------------
+    def _record_skipped_tick(
+        self,
+        *,
+        now: datetime,
+        phase: str,
+        tick_index: int,
+        exc: Exception,
+        consecutive: int,
+    ) -> None:
+        """Record a tick skipped for a TRANSIENT class-C/D input failure.
+
+        Appends an audit row to the manifest's ``skipped_ticks`` and bumps
+        ``tick_input_error_count`` (the §9.3 ledger count). Writes NOTHING to
+        the shadow decision log — the tick's inputs never assembled, so there
+        is no decision to record — and does not consume ``tick_index`` (the
+        next successful tick reuses it, keeping recorded indices contiguous).
+        """
+        tick_at = _as_aware(now).astimezone(ET).isoformat()
+        skips = list(self._manifest.get("skipped_ticks") or [])
+        skips.append(
+            {
+                "tick_index": tick_index,
+                "tick_at": tick_at,
+                "window_phase": phase,
+                "reason": "tick_input_unavailable",
+                "error": f"{type(exc).__name__}: {exc}",
+                "consecutive": consecutive,
+            }
+        )
+        self._manifest["skipped_ticks"] = skips
+        self._manifest["tick_input_error_count"] = (
+            int(self._manifest.get("tick_input_error_count", 0)) + 1
+        )
+        log.warning(
+            "tick input unavailable at %s (%s: %s) — recording skip and "
+            "continuing shadow session (%d/%d consecutive)",
+            tick_at,
+            type(exc).__name__,
+            exc,
+            consecutive,
+            MAX_CONSECUTIVE_TICK_INPUT_FAILURES,
+        )
+
     # -- one decision tick ----------------------------------------------------
     def _run_tick(
         self,
@@ -865,6 +921,7 @@ class SessionScheduler:
         seen_parents: set[str] = set()
         tick_index = 0
         cycles = 0
+        consecutive_input_failures = 0
         status = "completed"
 
         while True:
@@ -897,24 +954,59 @@ class SessionScheduler:
                         session_date=session_date,
                     )
                 except ShadowModeViolation:
+                    # Tier-1 CRITICAL (§9.3): the never-submit invariant would
+                    # be violated — hard-halt, zero tolerance.
                     self._stamp("halted_shadow_violation")
                     raise
+                except TickInputUnavailable as exc:
+                    # TRANSIENT non-critical (§9.3): a broker read timeout /
+                    # throttle / no-quote on a READ-ONLY class-C GET. Count it
+                    # and skip THIS tick; never lose the whole observe-only
+                    # session to one blip. A sustained outage
+                    # (MAX_CONSECUTIVE_TICK_INPUT_FAILURES in a row) still
+                    # HARD-halts loudly so a real data-plane failure is not
+                    # silently absorbed all session.
+                    consecutive_input_failures += 1
+                    self._record_skipped_tick(
+                        now=now,
+                        phase=phase,
+                        tick_index=tick_index,
+                        exc=exc,
+                        consecutive=consecutive_input_failures,
+                    )
+                    if (
+                        consecutive_input_failures
+                        >= MAX_CONSECUTIVE_TICK_INPUT_FAILURES
+                    ):
+                        self._stamp(
+                            "halted_tick_error",
+                            errors=[
+                                f"{consecutive_input_failures} consecutive "
+                                "transient tick-input failures (sustained "
+                                f"data-plane outage; last: {type(exc).__name__}: "
+                                f"{exc})"
+                            ],
+                        )
+                        raise
+                    self._stamp("running")
                 except Exception as exc:
-                    # Fail closed and loudly: stamp the manifest so the
-                    # session is auditable, then propagate (the launchd
-                    # wrapper alerts on a non-zero exit).
+                    # Tier-1 CRITICAL / unknown: fail closed and loudly — stamp
+                    # the manifest so the session is auditable, then propagate
+                    # (the launchd wrapper alerts on a non-zero exit).
                     self._stamp("halted_tick_error", errors=[f"{type(exc).__name__}: {exc}"])
                     raise
-                seen_parents |= {
-                    str(i.get("parent_intent_id"))
-                    for i in record["decisions"].get("intents", [])
-                    if i.get("parent_intent_id")
-                }
-                tick_index += 1
-                self._manifest["tick_count"] = tick_index
-                self._manifest["last_tick_at"] = record["tick_at"]
-                self._manifest["counters"] = dict(counters)
-                self._stamp("running")
+                else:
+                    consecutive_input_failures = 0
+                    seen_parents |= {
+                        str(i.get("parent_intent_id"))
+                        for i in record["decisions"].get("intents", [])
+                        if i.get("parent_intent_id")
+                    }
+                    tick_index += 1
+                    self._manifest["tick_count"] = tick_index
+                    self._manifest["last_tick_at"] = record["tick_at"]
+                    self._manifest["counters"] = dict(counters)
+                    self._stamp("running")
             # PHASE_BEFORE_SESSION / PHASE_SETTLING: wait, no decisions yet.
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:

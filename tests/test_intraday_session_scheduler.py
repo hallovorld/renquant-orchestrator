@@ -20,6 +20,7 @@ from renquant_orchestrator.intraday_session_scheduler import (
     DEFAULT_ENTRY_OPEN_DELAY_SECONDS,
     DEFAULT_TICK_SECONDS,
     ENV_FLAG,
+    MAX_CONSECUTIVE_TICK_INPUT_FAILURES,
     MODE_PAPER,
     MODE_SHADOW,
     PHASE_ENTRIES_OPEN,
@@ -32,6 +33,7 @@ from renquant_orchestrator.intraday_session_scheduler import (
     SessionWindows,
     ShadowModeViolation,
     ShadowTickWriter,
+    TickInputUnavailable,
     apply_entry_window_policy,
     assert_shadow_never_submits,
     bind_pipeline_tick_runner,
@@ -558,6 +560,106 @@ def test_submission_evidence_halts_session_and_writes_nothing(tmp_path):
     assert read_ticks(tmp_path) == []  # asserted BEFORE persisting
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "halted_shadow_violation"
+
+
+# ─────────── transient input resilience (RFC #208 §9.3) ───────────
+def _flaky_live_state(fail_on_calls: set[int]):
+    """A live-state provider that raises TickInputUnavailable on the Nth
+    call(s) in ``fail_on_calls`` (1-based), succeeding otherwise — models a
+    transient broker read timeout on a READ-ONLY class-C GET (the 2026-07-14
+    ``APIError: request timed out`` / 2026-07-13 ``ReadTimeout`` halt)."""
+    calls = {"n": 0}
+
+    def provider(*, now: datetime, trading_day: str):
+        calls["n"] += 1
+        if calls["n"] in fail_on_calls:
+            raise TickInputUnavailable(
+                "class-C read-only broker snapshot unavailable after retries "
+                '(transient): APIError: {"code":50410000,"message":'
+                '"request timed out"}'
+            )
+        return fake_live_state(now=now, trading_day=trading_day)
+
+    return provider
+
+
+def test_transient_input_failure_skips_tick_and_completes(tmp_path):
+    """The 2026-07-14 halt condition: a transient broker read timeout on one
+    tick's class-C snapshot must SKIP that tick and let the observe-only
+    session run clean to the close — not halt the whole session (§9.3
+    transient non-critical → counted, not a Tier-1 halt)."""
+    scheduler = make_scheduler(tmp_path)
+    scheduler.live_state_provider = _flaky_live_state(fail_on_calls={2})
+    manifest = run_full_session(scheduler)
+
+    # Clean completion despite the timeout (pre-fix: halted_tick_error on tick 1).
+    assert manifest["status"] == "completed"
+    assert manifest["tick_input_error_count"] == 1
+    assert len(manifest["skipped_ticks"]) == 1
+    skip = manifest["skipped_ticks"][0]
+    assert skip["reason"] == "tick_input_unavailable"
+    assert skip["tick_index"] == 1
+    assert skip["consecutive"] == 1
+    assert "request timed out" in skip["error"]
+
+    # 5 decision cycles, 1 skipped → 4 recorded ticks with contiguous indices,
+    # and NOTHING was written to the shadow log for the skipped tick.
+    ticks = read_ticks(tmp_path)
+    assert manifest["tick_count"] == 4
+    assert len(ticks) == 4
+    assert [t["tick_index"] for t in ticks] == [0, 1, 2, 3]
+    assert all(t["mode"] == MODE_SHADOW for t in ticks)
+
+
+def test_persistent_input_outage_still_hard_halts(tmp_path):
+    """A SUSTAINED class-C outage (every tick's read times out) must still
+    fail loudly: after MAX_CONSECUTIVE_TICK_INPUT_FAILURES in a row the
+    session HARD-halts (non-zero exit → launchd alert), never spins silently."""
+    config = IntradayDecisioningConfig(enabled=True, tick_seconds=300.0)
+    scheduler = make_scheduler(tmp_path, config=config)
+    scheduler.live_state_provider = _flaky_live_state(
+        fail_on_calls=set(range(1, 50))  # every call fails
+    )
+    with pytest.raises(TickInputUnavailable):
+        run_full_session(scheduler)
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "halted_tick_error"
+    assert manifest["tick_input_error_count"] == MAX_CONSECUTIVE_TICK_INPUT_FAILURES
+    assert manifest["tick_count"] == 0
+    assert read_ticks(tmp_path) == []
+
+
+def test_intermittent_input_failures_reset_the_fuse(tmp_path):
+    """A success between transient failures resets the consecutive counter, so
+    scattered blips never trip the sustained-outage fuse."""
+    config = IntradayDecisioningConfig(enabled=True, tick_seconds=300.0)
+    scheduler = make_scheduler(tmp_path, config=config)
+    # Fail calls 1,3,5,7 (never two in a row) — 4 skips, fuse never reaches 2.
+    scheduler.live_state_provider = _flaky_live_state(fail_on_calls={1, 3, 5, 7})
+    manifest = run_full_session(scheduler)
+
+    assert manifest["status"] == "completed"
+    assert manifest["tick_input_error_count"] == 4
+    assert all(s["consecutive"] == 1 for s in manifest["skipped_ticks"])
+
+
+def test_non_transient_tick_error_still_hard_halts(tmp_path):
+    """A NON-transient tick error (not TickInputUnavailable) keeps the Tier-1
+    fail-closed semantics: stamp halted_tick_error and propagate."""
+    scheduler = make_scheduler(tmp_path)
+
+    def boom(*, now: datetime, trading_day: str):
+        raise RuntimeError("unexpected non-transient fault")
+
+    scheduler.live_state_provider = boom
+    with pytest.raises(RuntimeError, match="non-transient"):
+        run_full_session(scheduler)
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "halted_tick_error"
+    assert manifest["tick_count"] == 0
+    assert "skipped_ticks" not in manifest or manifest["skipped_ticks"] == []
 
 
 def test_live_mode_config_downgrades_and_counts(tmp_path):

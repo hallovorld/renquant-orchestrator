@@ -90,6 +90,24 @@ class OrderStateFileError(ValueError):
     """The slice-1 order-state file is present but not readable as such."""
 
 
+class TickInputUnavailable(RuntimeError):
+    """A point-in-time tick input could not be assembled this tick because of a
+    TRANSIENT, non-critical environmental condition — e.g. a broker API read
+    timeout / throttle / connection reset on a READ-ONLY class-C GET
+    (``get_account`` / ``get_all_positions``) after the retry budget was spent.
+
+    This is deliberately NOT an integrity violation. Per RFC #208 §9.3 the
+    Tier-1 HARD-halt is reserved for *critical* conditions (invalid
+    order/state/contract, a stale/inconsistent snapshot, an idempotency-key
+    violation, the never-submit breach) — while *transient non-critical*
+    conditions (venue/throttle/no-quote/timeout) are "counted for the ledger",
+    not halted on. The shadow scheduler catches this exception specifically,
+    records the tick as skipped, and continues the observe-only session; every
+    genuine integrity fault keeps its own hard-halt exception type and is never
+    wrapped in this one.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Calendar helper — the prior session per the SAME injected NYSE primitive.
 # ---------------------------------------------------------------------------
@@ -683,9 +701,30 @@ class AlpacaLiveStateSource:
     def snapshot(self, *, now: datetime, trading_day: str) -> dict[str, Any]:
         """One class-C + class-D snapshot as plain JSON-able state."""
         client = self._trading_client()
-        account = _broker_call_with_retry(client.get_account, label="get_account")
+        # Class-C is READ-ONLY (GET account / GET positions). A transient
+        # broker failure here (timeout / throttle / connection reset) that
+        # survives the retry budget is a non-critical environmental condition,
+        # NOT an integrity fault: surface it as TickInputUnavailable so the
+        # shadow scheduler can skip+count this tick and keep the observe-only
+        # session running (RFC #208 §9.3 transient-vs-critical), instead of
+        # letting one broker read timeout kill the whole session. Genuine,
+        # NON-transient failures (missing credentials, 403/404, an unbounded
+        # call) propagate unchanged and still HARD-halt.
+        try:
+            account = _broker_call_with_retry(client.get_account, label="get_account")
+            raw_positions = _broker_call_with_retry(
+                client.get_all_positions, label="get_all_positions"
+            )
+        except Exception as exc:  # noqa: BLE001 — classify, then re-raise
+            cause = exc.__cause__
+            if _is_transient(exc) or (cause is not None and _is_transient(cause)):
+                raise TickInputUnavailable(
+                    "class-C read-only broker snapshot unavailable after "
+                    f"retries (transient): {type(exc).__name__}: {exc}"
+                ) from exc
+            raise
         positions: dict[str, dict[str, Any]] = {}
-        for pos in _broker_call_with_retry(client.get_all_positions, label="get_all_positions"):
+        for pos in raw_positions:
             ticker = str(getattr(pos, "symbol", "")).upper()
             if not ticker:
                 continue
@@ -744,6 +783,7 @@ __all__ = [
     "ORDER_STATE_SCHEMA_VERSION",
     "OrderStateFileError",
     "SignalLeakError",
+    "TickInputUnavailable",
     "UnboundedBrokerCallError",
     "assert_signal_predates_session",
     "capture_session_start",
