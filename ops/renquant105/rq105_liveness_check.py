@@ -61,6 +61,30 @@ Checked (session days only):
                                (mtime only on the no-timestamp branch) meant a collector's
                                liveness MEANING silently changed based on policy outcome.
 
+                           NO-ADMIT-AWARE staleness for the ADMIT-CONTINGENT collector
+                           (intraday_pairing_logger only). intraday_pairing_logger writes ONE
+                           row per daily-ADMITTED name (pair_records: "one raw-observation
+                           record per admitted name"), so on a day renquant105 admits 0 names
+                           — the current norm: the model has no bull edge and most watchlist
+                           names have no panel score (orch#799) — the collector legitimately
+                           writes 0 rows and its last row stays YESTERDAY's date. Before that
+                           stale-date is reported as a failure, the check consults the
+                           AUTHORITATIVE session manifest for today
+                           (intraday_session_scheduler.default_manifest_path): if the session
+                           status == "completed" AND the collector's OWN admission query
+                           (runs DB: load_admitted UNION load_submitted_entries)
+                           returns ZERO names, the stale-
+                           dated paired_is is EXPECTED (nothing to pair), not a pairing-logger
+                           failure, and passes. It still FAILS if the session admitted >=1 name
+                           (a real pairing-logger failure) or if no completed session exists for
+                           today (the "session didn't run" signal is never weakened). This is
+                           scoped to the admit-contingent collector: entry_timing_shadow is NOT
+                           admit-contingent — in production (run_postclose_loggers.sh, --date
+                           only) its admits are every ticker present in the #216 tick feed, not
+                           the batch admits, so it writes fresh rows on a 0-admit day (verified
+                           2026-08-13: paired_is last row 08-12 while entry_timing_shadow wrote
+                           08-13) — it keeps the unmodified date+mtime freshness logic.
+
                            A corrupt/truncated/missing-required-field last row is NEVER treated
                            as evidence of liveness via a raw-mtime fallback substituting for
                            genuine schema validation (that was the original fail-open bug: a
@@ -122,25 +146,37 @@ _ROW_EVENT_TIME = "row_event_time"
 _FILE_MTIME = "file_mtime"
 
 
-def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor", str]]:
+def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor", str, bool]]:
     """Exact per-collector data-output contract, resolved via each module's
     OWN path resolver (never a hardcoded/guessed relative path or a glob) —
     verifies against the collector's actual current contract, so this check
     cannot silently drift out of sync if a collector's output path ever
     changes.
 
-    Each entry is ``(name, path, timestamp_extractor, freshness_basis)``.
-    The three collectors do NOT share one row schema (verified against their
-    real record constructors, not assumed) — each gets its OWN
-    ``timestamp_extractor(row) -> datetime | None``. ``freshness_basis`` is
-    ``_ROW_EVENT_TIME`` (the row's own extracted timestamp is the age
+    Each entry is ``(name, path, timestamp_extractor, freshness_basis,
+    admit_contingent)``. The three collectors do NOT share one row schema
+    (verified against their real record constructors, not assumed) — each gets
+    its OWN ``timestamp_extractor(row) -> datetime | None``. ``freshness_basis``
+    is ``_ROW_EVENT_TIME`` (the row's own extracted timestamp is the age
     signal, tight bound — correct for a continuously-sampled feed) or
     ``_FILE_MTIME`` (the file's own mtime is the age signal, wider bound —
     correct for a post-close one-shot batch writer, where the row's own
     timestamp is a market-event instant, not a collector-completion time;
     see module docstring). ``freshness_basis`` applies UNCONDITIONALLY to
     every row from that collector, not only ones where the extractor
-    returns None."""
+    returns None.
+
+    ``admit_contingent`` is True ONLY for a collector that writes one row per
+    daily-ADMITTED name (intraday_pairing_logger — ``pair_records`` writes
+    "one raw-observation record per admitted name"): on a completed 0-admit
+    day it legitimately writes 0 rows, so a stale row-date is EXPECTED, not a
+    failure (see ``_completed_session_zero_admits`` / module docstring). It is
+    False for intraday_quote_logger (a continuous sampler) and for
+    entry_timing_shadow: entry_timing_shadow is NOT admit-contingent — in
+    production (run_postclose_loggers.sh invokes it with ``--date`` only) its
+    admits fall back to every ticker present in the #216 tick feed, not the
+    batch admits, so it writes fresh rows even on a 0-admit day (verified
+    2026-08-13) and keeps the unmodified date+mtime freshness logic."""
     _orch_src_on_path()
     from renquant_orchestrator.intraday_quote_logger import default_tick_feed_path
     from renquant_orchestrator.intraday_pairing_logger import (
@@ -152,11 +188,11 @@ def _data_outputs(data_root: Path) -> list[tuple[str, Path, "TimestampExtractor"
 
     return [
         ("intraday_quote_logger", default_tick_feed_path(data_root),
-         _row_timestamp_quote, _ROW_EVENT_TIME),
+         _row_timestamp_quote, _ROW_EVENT_TIME, False),
         ("intraday_pairing_logger", pairing_pilot_path(data_root),
-         _row_timestamp_pairing, _FILE_MTIME),
+         _row_timestamp_pairing, _FILE_MTIME, True),
         ("entry_timing_shadow", shadow_pilot_path(data_root),
-         _row_timestamp_entry_timing, _FILE_MTIME),
+         _row_timestamp_entry_timing, _FILE_MTIME, False),
     ]
 
 
@@ -386,9 +422,129 @@ def _last_complete_jsonl_row(
         chunk = min(chunk * 2, _TAIL_CHUNK_MAX_BYTES)
 
 
+# Session-manifest status meaning the intraday session RAN FULLY to its close
+# (not halted / disabled / aborted). Only under a genuinely completed session is a
+# 0-admit day a LEGITIMATE reason for an admit-contingent post-close collector to
+# have written no rows — a halted/disabled/missing session is NOT (that path keeps
+# its existing "session didn't run" staleness signal, never weakened here).
+_SESSION_COMPLETED_STATUS = "completed"
+
+
+def _pairing_admit_count(as_of: dt.date) -> tuple[int | None, str]:
+    """Count the admissions ``collect_pairs()`` would pair for session ``as_of``,
+    using the SAME functions and the SAME dedupe key it uses.
+
+    This must not be re-derived from a different object. ``collect_pairs()``
+    resolves its admission set from the runs DB as
+    ``load_admitted(T)`` UNION ``load_submitted_entries(resolve_admitting_run_date(T))``,
+    deduplicated on ``(signal_version, ticker)`` — the batch that placed the
+    entries ran post-close on the PREVIOUS session. The intraday session
+    manifest's ``counters.entries_count`` is a different quantity (intraday tick
+    intents), so a completed session with zero intraday entries can coexist with
+    a nonempty batch admission set that legitimately requires pairing rows.
+    Reading the manifest instead would suppress that real failure.
+
+    Returns ``(count, evidence)``, or ``(None, reason)`` when the count cannot be
+    established — the caller treats ``None`` as "do not exempt".
+    """
+    _orch_src_on_path()
+    try:
+        from renquant_orchestrator.intraday_pairing_logger import (  # noqa: PLC0415
+            DEFAULT_RUNS_DB,
+            connect,
+            load_admitted,
+            load_submitted_entries,
+            resolve_admitting_run_date,
+        )
+    except Exception as exc:  # collector unimportable — do NOT suppress the alarm
+        return None, f"pairing-collector admission API unavailable ({exc})"
+    if not os.path.exists(str(DEFAULT_RUNS_DB)):
+        return None, f"runs DB absent ({DEFAULT_RUNS_DB})"
+    try:
+        conn = connect(DEFAULT_RUNS_DB)
+    except Exception as exc:
+        return None, f"runs DB unreadable ({exc})"
+    try:
+        admitted = load_admitted(conn, as_of, run_type="live")
+        seen = {(n.signal_version, n.ticker) for n in admitted}
+        admit_date = resolve_admitting_run_date(conn, as_of, run_type="live")
+        if admit_date is not None:
+            for name in load_submitted_entries(
+                conn, admit_date, session_date=as_of, run_type="live"
+            ):
+                seen.add((name.signal_version, name.ticker))
+    except Exception as exc:
+        return None, f"admission query failed ({exc})"
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    where = f"admit_run_date={admit_date}" if admit_date is not None else "no admitting run"
+    return len(seen), f"runs DB admissions for {as_of.isoformat()}: {len(seen)} ({where})"
+
+
+def _completed_session_zero_admits(
+    as_of: dt.date, data_root: Path,
+) -> tuple[bool, str]:
+    """AUTHORITATIVE no-admit signal for ``as_of``: a session that COMPLETED and
+    for which the pairing collector's OWN admission query returns zero names.
+
+    Two independent conditions, both required:
+
+    1. today's session manifest exists and its ``status == "completed"`` — the
+       session ran fully to its close (resolved via the scheduler's own
+       ``default_manifest_path``, never a hardcoded path); and
+    2. :func:`_pairing_admit_count` — the collector's admission set — is **0**.
+
+    Condition 2 replaces an earlier reading of ``counters.entries_count``, which
+    was the WRONG OBJECT: the manifest counts intraday tick intents while the
+    collector pairs batch admissions resolved from the runs DB. A session can
+    complete with zero intraday entries while the batch admitted names that
+    require pairing rows, and exempting on the manifest count would have marked a
+    stale ``paired_is`` OK and suppressed a genuine collector failure.
+
+    FAILS TOWARD ALARMING: any uncertainty (no manifest, unreadable, not
+    completed, admissions unknown, or >=1 admission) returns ``(False, reason)``
+    so a real staleness is never suppressed."""
+    _orch_src_on_path()
+    try:
+        from renquant_orchestrator.intraday_session_scheduler import (
+            default_manifest_path,
+        )
+    except Exception as exc:  # scheduler unimportable — do NOT suppress the alarm
+        return False, f"session-manifest resolver unavailable ({exc})"
+    mpath = default_manifest_path(as_of.isoformat(), data_root)
+    if not os.path.exists(mpath):
+        return False, f"no session manifest for {as_of.isoformat()} ({mpath})"
+    try:
+        with open(mpath, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return False, f"session manifest unreadable ({exc})"
+    if not isinstance(manifest, dict):
+        return False, f"session manifest {mpath} is not a JSON object"
+    status = manifest.get("status")
+    if status != _SESSION_COMPLETED_STATUS:
+        return False, (
+            f"session status={status!r} is not {_SESSION_COMPLETED_STATUS!r} "
+            "(session did not complete — staleness stands)")
+    n_admits, admit_evidence = _pairing_admit_count(as_of)
+    if n_admits is None:
+        return False, f"admission count unavailable — staleness stands ({admit_evidence})"
+    if n_admits != 0:
+        return False, (
+            f"{admit_evidence} — the collector had names to pair, so a stale "
+            "row-date is a real failure")
+    return True, (
+        f"session manifest {os.path.basename(str(mpath))}: status='completed'; "
+        f"{admit_evidence}")
+
+
 def _data_output_fresh(
     path: str, today_iso: str, extract_ts, freshness_basis: str,
     session_close_utc: dt.datetime | None = None,
+    no_admit_exempt: tuple[bool, str] | None = None,
 ) -> tuple[bool, str, dict | None]:
     """Returns ``(ok, reason, selected_row)`` — ``selected_row`` is the exact
     dict that determined the verdict (the same object ``_last_complete_
@@ -396,7 +552,17 @@ def _data_output_fresh(
     file, empty file, or no parseable complete row at all). Exposing the
     real selected row (not a generic tail-read blob) lets a caller compute
     provenance evidence that is guaranteed to correspond to the row that
-    actually determined the liveness verdict."""
+    actually determined the liveness verdict.
+
+    ``no_admit_exempt`` is the AUTHORITATIVE no-admit signal
+    (``_completed_session_zero_admits``), passed ONLY for an admit-contingent
+    collector (intraday_pairing_logger). When it is ``(True, evidence)`` and the
+    file's last complete row is stale-dated (``date != today``), the collector
+    legitimately wrote no rows on a completed 0-admit session, so this returns
+    ``ok=True`` instead of flagging stale. It has NO effect on any other path —
+    a >=1-admit / no-completed-session signal ``(False, ...)`` (or ``None`` for a
+    non-admit-contingent collector) leaves the original stale behavior intact,
+    and all freshness/age/corrupt/clock-skew logic below is unchanged."""
     if not os.path.exists(path):
         return False, f"{path} missing", None
     if os.path.getsize(path) == 0:
@@ -410,6 +576,14 @@ def _data_output_fresh(
             "— corrupt/truncated/missing required field"), None
     date_val = row["date"]
     if date_val != today_iso:
+        if no_admit_exempt is not None and no_admit_exempt[0]:
+            # Admit-contingent collector + AUTHORITATIVE confirmation that today's
+            # session completed with 0 admitted names: it legitimately wrote no
+            # rows, so a yesterday-dated last row is EXPECTED, not a failure.
+            return True, (
+                f"{path} not updated today but session completed with 0 admitted "
+                f"names — pairing collector legitimately wrote no rows "
+                f"(last complete row date={date_val!r}; {no_admit_exempt[1]})"), row
         return False, f"{path} last complete row date={date_val!r} != today {today_iso!r} (stale)", row
     corrupt_note = " [most-recent physical line was truncated/corrupt; used prior complete row]" if tail_was_corrupt else ""
 
@@ -525,10 +699,22 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     today_iso = as_of.isoformat()
     bounds = _session_calendar().session_bounds(as_of)
     session_close_utc = bounds.close.astimezone(dt.timezone.utc) if bounds is not None else None
-    for name, full_path, extract_ts, freshness_basis in _data_outputs(data_root):
+    # AUTHORITATIVE no-admit signal for today, read once. Only an admit-contingent
+    # collector consults it: a stale-dated file on a completed 0-admit session is
+    # EXPECTED for it (one row per admitted name → zero admits = zero rows), never
+    # a collector failure. Non-admit-contingent collectors get ``None`` (unchanged).
+    zero_admit_today = _completed_session_zero_admits(as_of, data_root)
+    for entry in _data_outputs(data_root):
+        # Tolerate both the current 5-tuple (..., admit_contingent) and any
+        # legacy/mocked 4-tuple shape — this function promises callers that
+        # _data_outputs()'s positional arity is free to change. A 4-tuple has no
+        # admit-contingent flag, so it defaults to False (never exempted).
+        name, full_path, extract_ts, freshness_basis = entry[:4]
+        admit_contingent = entry[4] if len(entry) > 4 else False
         ok, reason, row = _data_output_fresh(
             str(full_path), today_iso, extract_ts, freshness_basis,
             session_close_utc=session_close_utc,
+            no_admit_exempt=zero_admit_today if admit_contingent else None,
         )
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()
