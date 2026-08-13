@@ -252,6 +252,38 @@ def test_cli_shadow_even_when_mode_live_requested(
     assert not default_live_log_path(tmp_path).exists()
 
 
+def test_cli_manifest_flag_overrides_default_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """``--manifest`` redirects the shadow session manifest to the operator
+    path instead of the hard-coded ``logs/renquant105_pilot/session_manifest_*``.
+
+    Regression guard: the flag was parsed but ``args.manifest`` was never
+    threaded into the runner, so an operator-supplied manifest path was
+    silently dropped and the default location was always used (codex PR #977).
+    """
+    monkeypatch.setenv("RENQUANT_INTRADAY_DECISIONING", "1")
+    _patch_frozen_signal(monkeypatch)
+    cfg = _write_strategy_config(tmp_path)
+    out = tmp_path / "shadow.jsonl"
+    custom_manifest = tmp_path / "custom" / "operator-manifest.json"
+
+    rc = _run_cli(
+        tmp_path, cfg, calendar=_WindowAroundNowCalendar(), out=out,
+        extra=["--manifest", str(custom_manifest), "--max-cycles", "1"],
+    )
+    assert rc == 0
+
+    # The override path was written (parent dir created on demand) ...
+    assert custom_manifest.exists(), "operator --manifest path was ignored"
+    written = json.loads(custom_manifest.read_text(encoding="utf-8"))
+    assert written.get("status") in ("completed", "stopped_max_cycles")
+
+    # ... and the hard-coded default location was NOT used.
+    default_dir = tmp_path / "logs" / "renquant105_pilot"
+    assert not list(default_dir.glob("session_manifest_*.json"))
+
+
 # ─────────────── live-state read account follows the §9.4 gate ───────────
 def _write_section_94_paper(tmp_path: Path) -> None:
     d = tmp_path / "data" / "rq105"

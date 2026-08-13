@@ -85,6 +85,25 @@ EVIDENCE:
     scope:      CLI pipeline binding
     [VERIFIED — pytest]
 
+  Claim 5 — `--manifest` actually redirects the shadow session manifest (was parsed but
+            ignored, so the "mirrors the scheduler surface" claim above was overstated;
+            codex PR #977 finding). `SessionRunnerConfig` gains a `manifest_path` field;
+            `main` threads `args.manifest` into it; `_run_shadow` uses it when set, else the
+            unchanged `logs/renquant105_pilot/session_manifest_<day>.json` default.
+    artifact:   src/renquant_orchestrator/intraday_session_runner.py (SessionRunnerConfig
+                .manifest_path, _run_shadow, main) + tests/test_intraday_session_runner_cli.py
+                ::test_cli_manifest_flag_overrides_default_path
+    prod or exp:   experiment (regression test) over production code
+    existing data:   `main([... --manifest <custom> --max-cycles 1])` writes the manifest to
+                the operator path (parent dir created) and leaves the default
+                `logs/renquant105_pilot/session_manifest_*.json` absent. Oracle-checked:
+                reverting the `args.manifest` wiring makes the test FAIL (custom path absent,
+                default written).
+    best-known?: n/a
+    scope:      shadow manifest path override only; live-path manifest is returned/printed,
+                not file-written, so unaffected
+    [VERIFIED — pytest, 45 passed under the reviewer's PYTHONPATH]
+
 SAFETY: no live arming. `SessionRunner`/`SessionScheduler` class behavior untouched; the §9.4
         economic-authorization gate and the §9.3a quintuple arm are the same code paths; no
         authorization file is created, placed, or templated; `AlpacaLiveStateSource` stays

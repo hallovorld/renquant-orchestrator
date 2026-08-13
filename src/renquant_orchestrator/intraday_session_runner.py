@@ -112,6 +112,7 @@ class SessionRunnerConfig:
     canary_state_path: Path | None = None
     order_state_book_path: Path | None = None
     shadow_log_path: Path | None = None
+    manifest_path: Path | None = None
     live_log_path: Path | None = None
     live_actions_path: Path | None = None
     stop_log_path: Path | None = None
@@ -402,7 +403,7 @@ class SessionRunner:
         """Delegate to the unchanged Stage-1 scheduler (shadow mode)."""
         from renquant_artifacts import hash_jsonable
 
-        manifest_path = (
+        manifest_path = self.config.manifest_path or (
             Path(self.config.data_root)
             / "logs"
             / "renquant105_pilot"
@@ -782,6 +783,8 @@ def main(
     )
     if args.out:
         runner_config.shadow_log_path = Path(args.out)
+    if args.manifest:
+        runner_config.manifest_path = Path(args.manifest)
 
     def port_factory() -> Any:
         """Construct the submitting broker port — ONLY reached from
