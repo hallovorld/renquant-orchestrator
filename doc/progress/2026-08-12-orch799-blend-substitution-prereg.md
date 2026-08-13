@@ -41,23 +41,24 @@ EVIDENCE:
                  An earlier draft of this record also listed `margin +0.01` and
                  the real-IC floor as part of the bar; those feed the opt-in
                  `difference` verdict only, so listing them froze a hybrid rule
-                 the gate never applies. Corrected in the design doc's §3 table.
-                 No run performed, no data generated.
-  best-known?:   yes among the four options, CONDITIONAL on §4.6. Option A
-                 (bare-leg) is invalid for a served blend; this measures the
-                 object that is actually served. The one quantity not readable
-                 from the system — the degenerate-leg tolerance — is set to
-                 **zero**, which is the only value defensible without a power
-                 calibration this document does not have.
+                 the gate never applies. Recorded as a defect in the finding,
+                 not corrected into a spec. No run performed, no data generated.
+  best-known?:   not applicable — this document selects no option and specifies
+                 no rule. It records that the attempt to preregister option B
+                 hit a data-level blocker (the 60-day label overlap on a 21-day
+                 cadence) and stopped there. Whether option B remains the right
+                 direction is for the future prereg to argue on its own
+                 evidence; the only claim made here is the measured n_eff, α,
+                 and power.
   scope:         "this is a feasibility finding about the orch#799
-                 blend-substitution promote rule (NOT a prereg, nothing
-                 implemented or authorized), vs existing best = the gate's current
-                 structural refusal, which returns no verdict at all. The
-                 estimand is 'does replacing the served blend's xgb leg improve
-                 the frozen WF metric', paired per-fold on the existing WF
-                 manifest, restricted to folds where BOTH legs scored
-                 non-degenerately — and a single degenerate fold fails the run
-                 rather than shrinking the sample. It makes no alpha claim."
+                 blend-substitution promote rule — NOT a prereg, nothing
+                 implemented, specified, or authorized. What it establishes:
+                 with a 21-day retrain cadence and a 60-day forward label, the
+                 manifest's 43 rows yield n_eff = 15 independent units, giving
+                 a one-sided exact sign test k >= 12, α = 0.0176, and power
+                 0.17 at a win-rate of 0.65. That is the whole of the claim.
+                 It makes no alpha claim, proposes no threshold, and does not
+                 argue for or against implementing option B."
 
 REMOVED FROM AN EARLIER DRAFT, deliberately: this record previously asserted
 `exits 2`, `3 jobs stuck`, and `25/145 watchlist names` while its EVIDENCE line
