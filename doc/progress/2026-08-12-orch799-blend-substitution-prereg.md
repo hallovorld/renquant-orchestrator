@@ -1,7 +1,11 @@
-# orch#799 blend-substitution WF-promote gate — FROZEN preregistration
+# orch#799 blend-substitution — FEASIBILITY & POWER FINDING (not a preregistration)
 
-STATUS: frozen preregistration (design record; must be codex-approved BEFORE any
-umbrella `weekly_wf_promote.sh` / `run_wf_gate.py` gate change implements it)
+STATUS: **NOT a preregistration; authorizes nothing.** An earlier revision was
+titled and presented as FROZEN. It could not be: on independent units the paired
+rule has power **0.17** at a win-rate of 0.65 (n_eff = 15 after removing the
+60-day label overlap from a 21-day cadence), so the decisive rule cannot be
+frozen at usable power today. Any future option-B implementation needs a NEW,
+complete, independently reviewable prereg and inherits nothing here.
 
 WHAT: commits `doc/design/2026-08-12-orch799-blend-substitution-prereg.md`
 verbatim — the binding spec for orch#799 option B (blend-substitution). The
