@@ -5,11 +5,15 @@ STATUS:    frozen experiment preregistration (design) — commit + codex-approve
 
 WHAT:      Commit the frozen prereg
            `doc/design/2026-08-12-served-model-architecture-experiment-prereg.md`.
-           AMENDED 2026-08-12 (§3 Data/window ONLY — extended fold set for BEAR
-           power; arms/metric/decision-rule Δ_BEAR≥+0.03 [ASSUMED — pre-registered threshold, frozen pre-run] UNCHANGED; see AMENDMENT
-           below). Current sha256
-           `7644acddcacbe4d2212d97bd09fe3b5cd2da5ca319330959544632a92e524f41`
-           (original authored source was `d36033570b6e4a1fe7190394981761a39b959492fca428bb1b3d7408a4ace7a2`).
+           AMENDED 2026-08-12 (§3 Data/window + §8 build/process — window/power
+           provenance recast [ASSUMED, pending durable commit] → [VERIFIED, committed]
+           now that the 82-fold backfill corpus + reviewable `fold_manifest.json` land
+           in THIS PR; extended fold set for BEAR power; arms/metric/decision-rule
+           Δ_BEAR≥+0.03 [ASSUMED — pre-registered threshold, frozen pre-run] UNCHANGED;
+           see AMENDMENT below). Current sha256
+           `f6665b7a90511400e8ba6d1094a2b87ec6246a799fbb9ea20bfdda318ee9c47b`
+           (pre-amendment committed source was `7644acddcacbe4d2212d97bd09fe3b5cd2da5ca319330959544632a92e524f41`;
+           original authored source was `d36033570b6e4a1fe7190394981761a39b959492fca428bb1b3d7408a4ace7a2`).
            It preregisters the empirical decider for orch#799: is the served
            model better as **solo-xgb** (A0 — revert, unblocks the weekly promote
            + the 25-missing-model coverage, no new subsystem) or the **z-blend**
@@ -32,12 +36,13 @@ AMENDMENT (2026-08-12, §3 only — extend window for BEAR power):
            BEAR = 2 — too weak to test the z-blend's BEAR-regime value. §3 now
            evaluates over the **extended 2019-01-14..2026-03-02 fold set = 125
            recipe-consistent folds** = the 82-fold recipe-consistent backfill
-           (`doc/research/data/2026-08-02-jobb-gbdt-depth-extension-run001/window_artifacts/`,
-           2019-01-14..2023-09-11) concatenated with the 43-fold prod manifest
+           (committed in THIS PR at `doc/research/data/2026-08-12-served-model-experiment/backfill_2019-2023_window_artifacts/`,
+           regenerated 2026-08-02 jobb-gbdt-depth-extension run, 2019-01-14..2023-09-11)
+           concatenated with the 43-fold prod manifest
            (2023-10-02..2026-03-02); cutoff sets do NOT overlap → no dedup.
-           RECIPE-COMPATIBILITY [ASSUMED — pending durable commit in the execution PR's fold-manifest; feasibility read only]: byte-identical
-           172 `feature_cols` (sha `c1dc4f7f897495fe` both sets), identical model
-           params (sha `112fae206d60`; `max_depth=5` in EVERY backfill fold — the
+           RECIPE-COMPATIBILITY [VERIFIED — committed corpus at doc/research/data/2026-08-12-served-model-experiment/ + fold_manifest.json (recipe_consistent:true across all 125 folds); 2026-08-12]: byte-identical
+           172 `feature_cols` (sha256 `f17e96b56c1220fa…` both sets), identical model
+           params (sha256 `1d1211ade4f792ae…`; `max_depth=5` in EVERY backfill fold — the
            dir's "depth-extension" name is time-depth, not tree-depth),
            `label_col=fwd_60d_excess`, `lookahead=60`, `embargo=60`,
            `feature_preprocess_version=2`, format `version=3`. Only cross-set delta
@@ -47,15 +52,21 @@ AMENDMENT (2026-08-12, §3 only — extend window for BEAR power):
            Neither set carries a `recipe_fingerprint` field. BEAR power recomputed
            via `RenQuant/kernel/hmm_regime_labels.py` on SPY at all 125 cutoffs =
            15 BEAR fold-cutoffs / 8 contiguous runs / ~6 distinct macro bear
-           regimes → **n_eff BEAR ≈ 6–8, up from 2** [ASSUMED — to be committed+verified in the execution PR] (same method reproduces the
+           regimes → **n_eff BEAR ≈ 6–8, up from 2** [VERIFIED — fold_manifest.json computes n_bear_folds=15, n_bear_episodes=8; regime labels recomputable from SPY via kernel/hmm_regime_labels.py; 2026-08-12] (same method reproduces the
            prod-only 2 exactly). Still policy/annotation-grade, NOT t≥2.
            momentum_residual PIT-recomputed at every extended cutoff.
 
 EVIDENCE:
   artifact:      `doc/design/2026-08-12-served-model-architecture-experiment-prereg.md`
-                 (the frozen prereg, committed verbatim as authored) + this
-                 progress record. No code. [VERIFIED — diff vs authored source
-                 EMPTY; sha256 identical both sides.]
+                 (the frozen prereg; §3/§8 window-power tags recast [ASSUMED,pending]
+                 → [VERIFIED,committed] now that the evidence base lands in THIS PR) +
+                 the durable evidence base `doc/research/data/2026-08-12-served-model-experiment/`
+                 (82-fold backfill corpus `backfill_2019-2023_window_artifacts/` [82 verbatim
+                 `<cutoff>/panel-ltr.json`, byte-identical to the 2026-08-02 run] + README +
+                 the reviewable `fold_manifest.json`) + this progress record. No code.
+                 [VERIFIED — 82 backfill artifacts byte-identical (sha256) to source;
+                 fold_manifest.json recipe_consistent:true, n_folds=125, n_bear_folds=15,
+                 n_bear_episodes=8; 2026-08-12.]
   prod or exp:   neither — design only; no confirmatory computation. No
                  live-config / production write. The prereg's own §8.2 gate
                  (feasibility: momentum_residual PIT-computability + actual
@@ -65,20 +76,22 @@ EVIDENCE:
                  reads recorded in-transcript — orch#799 gate feasibility
                  (run_wf_gate.py/loader.py single-scorer WF path) and the 120/145
                  model-load count (intraday_104 2026-08-12 log). The 125-fold
-                 recipe-compat + BEAR n_eff≈6-8 are TRANSCRIPT-ONLY feasibility
-                 reads over scratch backfill artifacts (not durably reviewable
-                 from this branch): they are ASSUMED here, to be COMMITTED as a
-                 reviewable fold-manifest artifact and independently re-verified
-                 in the EXECUTION PR — the verdict is gated on that committed
-                 manifest, NOT on the scratch reads. This PR itself writes only
-                 the two docs.
+                 recipe-compat + BEAR n_eff≈6-8 are now COMMITTED and independently
+                 recomputable in THIS PR: the 82-fold backfill corpus + the reviewable
+                 `fold_manifest.json` (per-fold cutoff, feature_cols_sha256, params_sha256,
+                 config_fingerprint, n_features, label_col, regime_label, is_bear;
+                 top-level recipe_consistent:true, n_bear_folds=15, n_bear_episodes=8) —
+                 regime labels regenerable from SPY via `kernel/hmm_regime_labels.py`.
+                 No longer transcript-only; codex can re-verify from this branch. This PR
+                 writes the two docs + that research corpus/manifest (NO code, NO production
+                 or live-config path).
   best-known?:   yes among the framings — 3 arms (A0/A1/A2) keep FWER manageable
                  at policy-grade n [ASSUMED — pre-registered design choice: 3 arms to keep FWER manageable at policy-grade n]; the decision rule and window are frozen here,
                  pre-result, so the verdict cannot be outcome-shopped. The
                  extended-window choice (125 folds, for BEAR power) is frozen as a
-                 DESIGN commitment; its feasibility evidence is ASSUMED pending the
-                 execution PR's committed fold-manifest, NOT verified from this
-                 branch.
+                 DESIGN commitment; its feasibility evidence is now VERIFIED — the
+                 committed corpus + fold_manifest.json make it independently
+                 recomputable from this branch, not deferred to the execution PR.
   scope:         "this is the served-model-architecture prereg (frozen design,
                  NOT executed and NOT implemented), vs existing best = orch#799's
                  structural stalemate, which returns no verdict. The estimand is
@@ -89,11 +102,12 @@ EVIDENCE:
 
 TESTS:     none — doc-only PR; no code touched.
 
-NEXT:      (1) feasibility confirm (prereg §8.2, read-only) — n_folds and BEAR
-           n_eff now RESOLVED in the AMENDMENT above (125 folds, n_eff BEAR ≈ 6–8),
-           and the backfill recipe-compatibility (feasibility read; to be committed+verified in the execution PR); the residual §8.2 item
-           is momentum_residual PIT-computability over the 2019-2023 span, exercised
-           at execution (a non-PIT/post-cutoff input drops that fold, per §7);
+NEXT:      (1) feasibility confirm (prereg §8.2, read-only) — n_folds, BEAR n_eff,
+           and backfill recipe-compatibility now COMMITTED + independently recomputable
+           in THIS PR (125 folds, n_bear_folds=15, n_bear_episodes=8, recipe_consistent:true
+           in fold_manifest.json); the only residual §8.2 item is momentum_residual
+           PIT-computability over the 2019-2023 span, exercised at execution (a
+           non-PIT/post-cutoff input drops that fold, per §7);
            (2) codex approval of this frozen
            prereg; (3) execution (isolated, no-spend local compute) of the 3 arms
            + placebos, double-audited; (4) verdict → operator-authorized live

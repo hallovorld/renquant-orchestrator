@@ -30,19 +30,22 @@ No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep 
   compute from price data at each cutoff — it does NOT need the full 2023–2026 GBDT WF
   corpus). Window (FROZEN, feasibility-confirmed 2026-08-12): the **extended
   2019-01-14 .. 2026-03-02 walk-forward fold set = 125 recipe-consistent folds**
-  `[ASSUMED — pending durable commit: 82+43 fold dirs counted in scratch; recipe-compat + fold-manifest committed in the execution PR (see the reframed provenance bullet)]` — the
+  `[VERIFIED — committed corpus at doc/research/data/2026-08-12-served-model-experiment/ + fold_manifest.json (125 folds, recipe-consistent shas, regime labels recomputable from SPY via kernel/hmm_regime_labels.py); 2026-08-12]` — the
   82-fold recipe-consistent backfill (2019-01-14 .. 2023-09-11) concatenated with the 43-fold
   prod xgb WF manifest (2023-10-02 .. 2026-03-02). The two cutoff sets do NOT overlap
   (backfill ends 2023-09-11, manifest starts 2023-10-02), so no dedup is needed. The window was
   extended from the manifest-only ~2024-01..2026-03 (43 folds) **specifically to raise BEAR
   power** — see the power statement below.
-- **Extension provenance (FROZEN)**: the 2019-2023 legs come from the recipe-consistent
-  backfill `doc/research/data/2026-08-02-jobb-gbdt-depth-extension-run001/window_artifacts/`
-  — `[ASSUMED — pending durable commit: the feasibility reads (recipe-consistency of the 82 backfill folds + the 125-fold BEAR regime recompute) are transcript-recorded only; they will be COMMITTED as a reviewable fold-manifest artifact (per-fold cutoff, feature_cols sha, params sha, config_fingerprint, HMM regime label, is_bear) in the EXECUTION PR, and the experiment verdict is GATED on that committed, independently-recomputable manifest — NOT on the scratch artifacts]` same recipe as
-  the prod manifest: byte-identical 172 `feature_cols` (sha `c1dc4f7f897495fe` both sets),
-  identical model params (sha `112fae206d60`; `max_depth=5` in EVERY backfill fold — the dir's
-  "depth-extension" label is time-depth, not tree-depth), `label_col=fwd_60d_excess`,
-  `lookahead=60`, `embargo=60`. The only cross-set delta is the `config_fingerprint`
+- **Extension provenance (FROZEN)**: the 2019-2023 legs are the recipe-consistent backfill
+  **committed in THIS PR** at `doc/research/data/2026-08-12-served-model-experiment/backfill_2019-2023_window_artifacts/`
+  (82 verbatim `<cutoff>/panel-ltr.json`, regenerated 2026-08-02 `jobb-gbdt-depth-extension` run)
+  — `[VERIFIED — committed corpus at doc/research/data/2026-08-12-served-model-experiment/ + fold_manifest.json (125 folds, recipe-consistent shas, regime labels recomputable from SPY via kernel/hmm_regime_labels.py); 2026-08-12]` same recipe as
+  the prod manifest, asserted `recipe_consistent: true` across all 125 folds in the manifest:
+  byte-identical 172 `feature_cols` (sha256 `f17e96b56c1220fa…` both sets — full value + hash
+  method in `fold_manifest.json`), identical model params (sha256 `1d1211ade4f792ae…`;
+  `max_depth=5` in EVERY backfill fold — the dir's "depth-extension" label is time-depth, not
+  tree-depth), `label_col=fwd_60d_excess`, `lookahead=60`, `embargo=60`. The only cross-set delta
+  is the `config_fingerprint`
   (`f8fb2259` vs `14586756`), which differs solely because the `config_fingerprint_fields`
   watchlist/sector_map grow with the universe over time (145/144 vs 142/141), not the recipe;
   neither set carries a `recipe_fingerprint` field. momentum_residual is
@@ -53,7 +56,7 @@ No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep 
   that); momentum_residual_leg = PIT-computed at that cutoff; W (for A2)
   re-fit only on data preceding the fold. NO look-ahead (cutoff+lookahead < eval, reuse the
   existing loader leakage guard).
-- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage `[ASSUMED — pending durable commit: the feasibility reads (recipe-consistency of the 82 backfill folds + the 125-fold BEAR regime recompute) are transcript-recorded only; they will be COMMITTED as a reviewable fold-manifest artifact (per-fold cutoff, feature_cols sha, params sha, config_fingerprint, HMM regime label, is_bear) in the EXECUTION PR, and the experiment verdict is GATED on that committed, independently-recomputable manifest — NOT on the scratch artifacts]` = **15 BEAR
+- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage `[VERIFIED — committed corpus at doc/research/data/2026-08-12-served-model-experiment/ + fold_manifest.json (125 folds, recipe-consistent shas, regime labels recomputable from SPY via kernel/hmm_regime_labels.py); 2026-08-12 — the manifest computes n_bear_folds=15, n_bear_episodes=8]` = **15 BEAR
   fold-cutoffs across 8 contiguous BEAR runs ≈ 6 distinct macro bear regimes** (2019 vol-spike,
   COVID 2020-03, Sept-2020, the 2022 bear [H1+H2, split by the summer rally], 2024-08 carry
   unwind, 2025-04 tariff selloff) → **n_eff BEAR ≈ 6–8, up from n_eff = 2** on the prod-only
@@ -100,15 +103,23 @@ arm or window choice — the window + arms are frozen here); placebo mandatory; 
 recomputation cutoff-gated; a non-PIT or post-cutoff input → fold dropped, not imputed.
 
 ## 8. Build / process (operator: 设计→PR→实行)
-1. **This design PR** (frozen prereg, doc-only) → codex approve.
-2. **Feasibility PR**: confirm the momentum_residual PIT recompute over the target window
-   (report actual n_folds + BEAR n_eff BEFORE committing to the run — if BEAR n_eff is ~0,
-   the experiment is honestly under-powered and the design says so, defaulting to A0).
+1. **This design PR** (frozen prereg) → codex approve. It now ALSO carries the durable
+   window/power evidence base: the 82-fold backfill corpus
+   (`doc/research/data/2026-08-12-served-model-experiment/backfill_2019-2023_window_artifacts/`)
+   + the reviewable `fold_manifest.json` (125 folds, per-fold recipe fingerprints + regime labels).
+   So codex CAN certify the window + power numbers (n_folds=125, recipe_consistent, n_bear_folds=15,
+   n_bear_episodes=8) from THIS PR — they are no longer deferred.
+2. **Feasibility (residual)**: n_folds + BEAR n_eff are now COMMITTED and independently
+   recomputable in `fold_manifest.json` (regime labels regenerable from SPY via
+   `kernel/hmm_regime_labels.py`); the only residual feasibility item is the momentum_residual
+   PIT recompute over the 2019-2023 span, exercised at execution (a non-PIT / post-cutoff input
+   drops that fold, per §7 — never imputed). If BEAR n_eff were ~0 the design would say so and
+   default to A0; the manifest shows n_eff BEAR ≈ 6-8, not ~0.
 3. **Execution** (isolated, no-spend local compute): run the 3 arms + placebos over the frozen
    window, emit the paired Δ_BEAR table + placebo table. Double-audited (independent re-derivation).
-   The execution PR MUST commit the 125-fold manifest (per-fold recipe fingerprints + regime labels,
-   regenerable from the repo's SPY data via `kernel/hmm_regime_labels.py`) as the durable,
-   independently-reviewable evidence base for the window + power claims; codex approval of THIS design
-   PR does not certify those numbers — they are certified at execution.
+   The window + power evidence base (the 125-fold manifest, per-fold recipe fingerprints + regime
+   labels, regenerable from the repo's SPY data via `kernel/hmm_regime_labels.py`) is committed HERE
+   and independently reviewable now; execution certifies only the Δ_BEAR / placebo RESULT, not the
+   window/power numbers (already certifiable from this PR's manifest).
 4. **Verdict → operator-authorized live config change** (revert-to-solo-xgb, or keep-blend + fund A).
 No live-config / production write until the verdict + operator authorization.
