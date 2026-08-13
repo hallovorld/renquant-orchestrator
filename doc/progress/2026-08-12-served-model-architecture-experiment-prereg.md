@@ -6,7 +6,7 @@ STATUS:    frozen experiment preregistration (design) — commit + codex-approve
 WHAT:      Commit the frozen prereg
            `doc/design/2026-08-12-served-model-architecture-experiment-prereg.md`.
            AMENDED 2026-08-12 (§3 Data/window ONLY — extended fold set for BEAR
-           power; arms/metric/decision-rule Δ_BEAR≥+0.03 UNCHANGED; see AMENDMENT
+           power; arms/metric/decision-rule Δ_BEAR≥+0.03 [ASSUMED — pre-registered threshold, frozen pre-run] UNCHANGED; see AMENDMENT
            below). Current sha256
            `7644acddcacbe4d2212d97bd09fe3b5cd2da5ca319330959544632a92e524f41`
            (original authored source was `d36033570b6e4a1fe7190394981761a39b959492fca428bb1b3d7408a4ace7a2`).
@@ -15,7 +15,7 @@ WHAT:      Commit the frozen prereg
            + the 25-missing-model coverage, no new subsystem) or the **z-blend**
            (A1 current / A2 weight-reoptimised — justifies funding the blend-WF
            subsystem). Primary metric = BEAR-regime paired IC difference vs A0;
-           decision rule FROZEN (retain z-blend iff Δ_BEAR ≥ +0.03 & placebo-clean
+           decision rule FROZEN (retain z-blend iff Δ_BEAR ≥ +0.03 [ASSUMED — pre-registered threshold, frozen pre-run] & placebo-clean
            & no bull harm; else revert to A0; underpowered → default A0).
 
 WHY/DIR:   The 08-04 z-blend cutover made prod `kind=blend`, which structurally
@@ -68,7 +68,7 @@ EVIDENCE:
                  125-fold recipe-compat + BEAR n_eff≈6-8 (feasibility subagent
                  2026-08-12); this PR itself writes only the two docs.
   best-known?:   yes among the framings — 3 arms (A0/A1/A2) keep FWER manageable
-                 at policy-grade n; the decision rule and window are frozen here,
+                 at policy-grade n [ASSUMED — pre-registered design choice: 3 arms to keep FWER manageable at policy-grade n]; the decision rule and window are frozen here,
                  pre-result, so the verdict cannot be outcome-shopped.
   scope:         "this is the served-model-architecture prereg (frozen design,
                  NOT executed and NOT implemented), vs existing best = orch#799's
