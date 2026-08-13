@@ -7,35 +7,30 @@ rule has power **0.17** at a win-rate of 0.65 (n_eff = 15 after removing the
 frozen at usable power today. Any future option-B implementation needs a NEW,
 complete, independently reviewable prereg and inherits nothing here.
 
-WHAT: commits `doc/design/2026-08-12-orch799-blend-substitution-prereg.md`
-verbatim — the binding spec for orch#799 option B (blend-substitution). The
-weekly WF-promote gate refuses every cycle because the served prod primary is a
-`kind=blend` z-blend while the retrain yields a solo `xgb` candidate leg, so
-`_find_gbdt_config` finds no kind-matched xgb prod reference and the chain
-refuses. The prereg's rule: promote the fresh xgb leg iff it improves the SERVED
-BLEND, measured directly — `B_cand = Σ z(xgb_leg_new), z(momentum_residual)` vs
-`B_ref = Σ z(xgb_leg_cur), z(momentum_residual)`, paired per-fold on the same
-walk-forward manifest, with the momentum leg and the combine rule held FIXED and
-all §4 leakage guards fail-closed. **There is no weight vector and no stored
-z-normalization state** — an earlier draft froze `W` and `N`; both are fictions
-and are removed. This PR changes NO code.
+WHAT: records a measured feasibility result for the orch#799 option-B estimand,
+and the defects found while attempting to preregister it. **It commits no
+specification.** The option-B rule sketch that earlier revisions carried is
+deleted (not fenced — fencing failed twice, with normative text surviving inside
+the fence).
 
-WHY/DIR: option A (bare-leg, #589 — compare the candidate xgb leg vs the current
-xgb leg in isolation) was codex-rejected: a leg's standalone WF metric need not
-describe its contribution inside the served blend, so promoting on a
-standalone-leg metric is a scientifically invalid criterion for a served blend.
-This prereg establishes the valid estimand ("does the served blend improve")
-and freezes every threshold to the existing gate's bar (no new threshold
-invented) so the implementation cannot drift the criterion after the fact.
+WHY/DIR: an attempt to freeze an option-B preregistration ran into a blocker that
+is a property of the data, not of the drafting: a 21-day retrain cadence against
+a 60-day forward label means the manifest's 43 rows are not 43 independent
+trials. On a deterministic non-overlapping subsample n_eff = 15, giving a
+one-sided exact sign test critical value k >= 12, alpha = 0.0176, and power
+**0.17** at a true win-rate of 0.65. A gate may accept under-promotion, but it
+may not present an independence calculation that does not hold as a valid
+rejection threshold. So the honest output of the attempt is this finding, not a
+preregistration.
 
 EVIDENCE:
   artifact:      `doc/design/2026-08-12-orch799-blend-substitution-prereg.md`
-                 (the frozen spec) + this record. **No code.**
-  prod or exp:   neither — a preregistration for a future production-gate rule.
+                 (the feasibility finding + recorded defects) and this record. **No code, no specification.**
+  prod or exp:   neither — a feasibility finding about a future production-gate rule.
                  It changes nothing today and authorizes no promotion; the gate
                  change it governs is separately operator-gated.
-  existing data: yes — the frozen values were READ from the pinned system, not
-                 chosen here: the combine rule from
+  existing data: yes — every quantity below was READ from the pinned system, not
+                 chosen here, and none of them is frozen BY this document: the combine rule from
                  `renquant_pipeline/kernel/panel_pipeline/blend_scorer.py`; the
                  served blend's shape from `strategy_config.json` at
                  strategy-104 `e00d935`; and the gate's own bar from
@@ -54,8 +49,9 @@ EVIDENCE:
                  from the system — the degenerate-leg tolerance — is set to
                  **zero**, which is the only value defensible without a power
                  calibration this document does not have.
-  scope:         "this is the orch#799 blend-substitution promote rule (frozen
-                 prereg, not implemented), vs existing best = the gate's current
+  scope:         "this is a feasibility finding about the orch#799
+                 blend-substitution promote rule (NOT a prereg, nothing
+                 implemented or authorized), vs existing best = the gate's current
                  structural refusal, which returns no verdict at all. The
                  estimand is 'does replacing the served blend's xgb leg improve
                  the frozen WF metric', paired per-fold on the existing WF
@@ -70,10 +66,12 @@ has no reproducible source for them, so they are gone rather than tagged. If
 they are load-bearing for prioritization they belong in the document that
 measures them, cited from there.
 
-NEXT: the umbrella gate change is GATED ON this PR's codex approval and MUST NOT
-merge before it. The prereg §6 feasibility gate must be settled first: if the
-existing WF gate cannot score a blend over per-fold blend artifacts without new
-blend-eval machinery, the implementation STOPS and the gap is reported rather
-than falling back to option A or any banned reference source (umbrella working
-copy / sibling checkout). The weekly not-acting alarm stays until a valid gate
-DECIDES — that alarm is preferable to a scientifically invalid promote.
+NEXT: nothing here authorizes anything, and no implementation is gated on this
+PR's approval. A future option-B gate change requires a NEW, complete,
+independently reviewable preregistration that inherits nothing from this
+document — it must choose an inference unit that respects the 60-day overlap and
+state its own alpha and power for a declared minimum effect. Two routes were
+considered and NOT taken here, each needing its own prereg: block-aware paired
+resampling (reintroduces block-length > h and rho1 assumptions) and prospective
+accumulation (~60 days per additional independent unit). Separately, orch#976
+carries the same class of defect and is being corrected on its own branch.
