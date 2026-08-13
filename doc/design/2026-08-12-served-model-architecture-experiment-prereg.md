@@ -10,7 +10,7 @@ option A). No value below may change after approval; changes = a new dated amend
 The 08-04 z-blend cutover made prod `kind=blend` = z-blend(xgb_leg, momentum_residual_leg, W, N).
 This structurally broke the weekly xgb promote (orch#799: the WF gate can only score a
 solo GBDT; it cannot evaluate the blend — verified), so the model can't refresh and 25/145
-watchlist names stay un-modelled. The blend was never validated as OUTPERFORMING solo-xgb
+watchlist names stay un-modelled [VERIFIED — orch#799 feasibility (PR #975/#976 subagents): the WF gate loads ONE solo scorer per fold (run_wf_gate.py / walk_forward/loader.py), cannot assemble the blend; 120/145 models loaded, intraday_104 2026-08-12 log]. The blend was never validated as OUTPERFORMING solo-xgb
 out-of-sample. This experiment measures that head-to-head; the winner is the served
 architecture, decided by a pre-registered rule.
 
@@ -22,7 +22,7 @@ solo-xgb's by a pre-declared margin. Null H0: it does not (⇒ revert to solo-xg
 - **A0 — solo-xgb** (`panel-ltr.alpha158_fund`, component[0] alone). The revert candidate.
 - **A1 — current z-blend** (xgb_leg + momentum_residual_leg, CURRENT weights W / z-norm N from the served config). The status quo.
 - **A2 — z-blend, weight-reoptimised** (the same two legs, W re-fit on a walk-forward INNER fold only — never on the eval window; a single re-optimisation policy, not a grid, to preserve power). Tests whether a better-weighted z-blend beats both. (Honours operator "考虑 zblend".)
-No further arms — 3 keeps FWER manageable at policy-grade n.
+No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep FWER manageable at policy-grade n] keeps FWER manageable at policy-grade n.
 
 ## 3. Data / window (FEASIBLE — the "可落地" constraint)
 - Evaluate over a **PIT-reconstructable window** where BOTH legs can be computed
@@ -74,13 +74,13 @@ No further arms — 3 keeps FWER manageable at policy-grade n.
   top-decile long book per arm, and the BULL regimes' IC (must not be MADE WORSE — a guard,
   not a target).
 - **Placebo controls (mandatory)**: shuffled-label + time-shift placebo for EACH arm; trust
-  only placebo-clean DIFFERENCES (the ~+0.04 shuffled-label leakage floor — [[wf-gate-embargo-leakage-floor]]).
+  only placebo-clean DIFFERENCES (the ~+0.04 `[VERIFIED — measured shuffled-label embargo floor, [[wf-gate-embargo-leakage-floor]]]` shuffled-label leakage floor — [[wf-gate-embargo-leakage-floor]]).
 
 ## 5. Pre-registered decision rule (FROZEN — chosen before any result)
 Let Δ_BEAR(arm) = paired BEAR-regime IC of (arm − A0), placebo-corrected.
-- **Retain the z-blend (A1 or A2)** iff its Δ_BEAR ≥ **+0.03** (a genuine, material BEAR-IC
+- **Retain the z-blend (A1 or A2)** iff its Δ_BEAR ≥ **+0.03** [ASSUMED — pre-registered threshold, frozen pre-run per the prereg discipline] (a genuine, material BEAR-IC
   gain over solo-xgb) AND its placebo arm is clean (placebo IC ≤ floor) AND it does NOT
-  reduce any BULL regime's IC by >0.02 (no bull-regime harm). If BOTH A1 and A2 qualify,
+  reduce any BULL regime's IC by >0.02 [ASSUMED — pre-registered guardrail, frozen pre-run] (no bull-regime harm). If BOTH A1 and A2 qualify,
   pick the higher Δ_BEAR (FWER: Holm across the 2 blend arms).
 - **Else REVERT to solo-xgb (A0)** — the null outcome. This is the EXPECTED-and-clean
   result if the z-blend adds no genuine BEAR skill.
@@ -91,11 +91,11 @@ Let Δ_BEAR(arm) = paired BEAR-regime IC of (arm − A0), placebo-corrected.
 ## 6. Actionable outcome (可落地 — what each result DOES)
 - **A0 wins/ties/inconclusive → REVERT served model to solo-xgb** (operator-gated live
   config change): the weekly xgb promote immediately works (same-kind reference exists) →
-  orch#799 alarm clears, model refreshes, **25 missing models covered** via the normal
+  orch#799 alarm clears, model refreshes, **25 missing models [VERIFIED — 120/145 models loaded = 25 un-modelled, intraday_104 2026-08-12 log] covered** via the normal
   retrain→promote→pin path. NO blend-WF subsystem needed. #975 (option-B prereg) is then moot.
 - **A1/A2 wins → fund option A** (the blend-WF subsystem, #975): the experiment JUSTIFIES
   the investment; and A2 winning also tells us the optimal W to bake in.
-Either way the 8× alarm is resolved by a DATA verdict, not deferral.
+Either way the 8× [ASSUMED — operator-stated complaint count, 2026-08-12] alarm is resolved by a DATA verdict, not deferral.
 
 ## 7. Leakage / integrity (fail-closed)
 Fold-local both legs; W/N fit only on inner/pre-fold data; deterministic (no outcome-informed

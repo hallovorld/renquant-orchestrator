@@ -20,10 +20,10 @@ WHAT:      Commit the frozen prereg
 
 WHY/DIR:   The 08-04 z-blend cutover made prod `kind=blend`, which structurally
            broke the weekly xgb promote (orch#799 — the WF gate can only score a
-           solo GBDT, not the blend) and left 25/145 watchlist names un-modelled.
+           solo GBDT, not the blend) and left 25/145 watchlist names un-modelled [VERIFIED — orch#799 feasibility (PR #975/#976 subagents): the WF gate loads ONE solo scorer per fold (run_wf_gate.py / walk_forward/loader.py), cannot assemble the blend; 120/145 models loaded, intraday_104 2026-08-12 log].
            The blend was never validated as OUTPERFORMING solo-xgb OOS. This
            prereg settles that head-to-head by a DATA verdict, not deferral,
-           resolving the 8× alarm. It is the sibling decider to the option-B
+           resolving the 8× [ASSUMED — operator-stated complaint count, 2026-08-12] alarm. It is the sibling decider to the option-B
            reference-rule recommendation (`doc/design/2026-08-11-orch799-blend-prod-reference-rule.md`):
            if A0 wins, that subsystem is moot; if A1/A2 wins, it is justified.
 
@@ -61,9 +61,12 @@ EVIDENCE:
                  (feasibility: momentum_residual PIT-computability + actual
                  n_folds + BEAR n_eff) is a SEPARATE read-only investigation
                  that must clear before execution.
-  existing data: none read/written for this doc-only PR; the prereg cites the
-                 served config's blend structure and the xgb WF manifest as the
-                 fold set, to be confirmed by the feasibility gate.
+  existing data: the design's factual claims are backed by prior read-only
+                 reads recorded in-transcript — orch#799 gate feasibility
+                 (run_wf_gate.py/loader.py single-scorer WF path), the 120/145
+                 model-load count (intraday_104 2026-08-12 log), and the
+                 125-fold recipe-compat + BEAR n_eff≈6-8 (feasibility subagent
+                 2026-08-12); this PR itself writes only the two docs.
   best-known?:   yes among the framings — 3 arms (A0/A1/A2) keep FWER manageable
                  at policy-grade n; the decision rule and window are frozen here,
                  pre-result, so the verdict cannot be outcome-shopped.
