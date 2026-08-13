@@ -24,6 +24,7 @@ this additional authorization that is not satisfiable today.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import time
@@ -56,6 +57,7 @@ from .intraday_session_scheduler import (
     PHASE_ENTRIES_OPEN,
     PHASE_EXITS_ONLY,
     PHASE_SETTLING,
+    PipelineContractUnavailable,
     SessionCalendar,
     SessionScheduler,
     SessionWindows,
@@ -63,15 +65,18 @@ from .intraday_session_scheduler import (
     TickRunner,
     _as_aware,
     _atomic_write_json,
+    _load_json_object,
     apply_entry_window_policy,
     assert_shadow_never_submits,
+    bind_pipeline_tick_runner,
     default_session_calendar,
     default_shadow_log_path,
     env_flag_enabled,
     load_intraday_config,
     normalize_tick_result,
 )
-from .runtime_paths import default_data_root
+from .env_files import load_env_file
+from .runtime_paths import default_data_root, default_strategy_config_path
 from .software_stop import (
     SoftwareStopEvaluator,
     SoftwareStopShadowLog,
@@ -588,3 +593,244 @@ class SessionRunner:
             manifest=manifest,
             stop_summary=self._stop_evaluator.to_record(),
         )
+
+
+# ---------------------------------------------------------------------------
+# CLI — the deferred "LiveSessionRunner + CLI" of RFC #208.
+#
+# Shadow by DEFAULT and by construction: ``run_session`` self-gates on the
+# §9.3a quintuple arming gate AND the §9.4 economic-authorization file. With
+# NO authorization files present (the normal state) it falls through to the
+# unchanged Stage-1 ``SessionScheduler`` (shadow) and submits NOTHING — the
+# ``port_factory`` this CLI wires is never even invoked. A real/paper submit
+# path can only activate when the operator has recorded BOTH arming artifacts;
+# this CLI creates neither.
+#
+# The provider setup DUPLICATES the shadow scheduler's CLI wiring (config /
+# pipeline tick_runner / Alpaca live-state read source / frozen-signal loader /
+# session-start / entry-timing shadow observer) rather than refactoring the
+# running ``intraday_session_scheduler:main`` — the running shadow path stays
+# byte-for-byte unchanged (additive-only, GOAL-5 fix-wave discipline).
+# ---------------------------------------------------------------------------
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    tick_runner: TickRunner | None = None,
+    live_state_provider: Callable[..., Mapping[str, Any]] | None = None,
+    calendar: SessionCalendar | None = None,
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="intraday-session-runner",
+        description=(
+            "renquant105 SessionRunner CLI (RFC #208 deferred 'LiveSessionRunner "
+            "+ CLI'). Runs the FULL session lifecycle but is SHADOW by default: "
+            "without the §9.4 economic-authorization file (and the §9.3a "
+            "quintuple arming gate) it delegates to the Stage-1 shadow scheduler "
+            "and submits nothing (self-gated in run_session)."
+        ),
+    )
+    parser.add_argument("--strategy-config", default=None, help="pinned strategy config JSON")
+    parser.add_argument("--data-root", default=None, help="operator data root")
+    parser.add_argument("--db", default=None, help="runs.alpaca.db path (read-only)")
+    parser.add_argument("--out", default=None, help="shadow decisions JSONL path")
+    parser.add_argument("--manifest", default=None, help="session manifest JSON path")
+    parser.add_argument(
+        "--order-state-file",
+        default=None,
+        help="slice-1 OrderStateBook snapshot for today's reservations (optional)",
+    )
+    parser.add_argument(
+        "--data-manifest", default=None, help="data manifest JSON for the pipeline tick"
+    )
+    parser.add_argument(
+        "--artifact-manifest",
+        default=None,
+        help="artifact manifest JSON for the pipeline tick",
+    )
+    parser.add_argument("--env-file", default=None, help=".env with Alpaca credentials")
+    parser.add_argument(
+        "--mode", default=None, choices=["shadow", "paper", "live"],
+        help="override intraday_decisioning.mode from strategy config",
+    )
+    parser.add_argument("--max-cycles", type=int, default=None)
+    parser.add_argument("--json", action="store_true", help="print the final SessionResult")
+    parser.add_argument("--log-level", default="INFO")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=getattr(logging, str(args.log_level).upper(), logging.INFO))
+    if args.env_file:
+        load_env_file(args.env_file)
+
+    data_root = Path(args.data_root) if args.data_root else default_data_root()
+    strategy_config_path = (
+        Path(args.strategy_config) if args.strategy_config else default_strategy_config_path()
+    )
+    strategy_config = _load_json_object(strategy_config_path)
+    # A --mode override must flow into the strategy_config the SessionRunner
+    # re-derives its IntradayDecisioningConfig from (the runner reads the dict,
+    # not a pre-built config), so rewrite the section rather than a throwaway
+    # config object. This never enables live submission on its own: mode='live'
+    # only satisfies arming gate 1; gates 2-5 + the §9.4 file remain required.
+    if args.mode:
+        section = dict(strategy_config.get("intraday_decisioning") or {})
+        section["mode"] = args.mode
+        strategy_config = {**strategy_config, "intraday_decisioning": section}
+    config = load_intraday_config(strategy_config)
+
+    cal = calendar or default_session_calendar()
+    db_path = Path(args.db) if args.db else data_root / "data" / "runs.alpaca.db"
+
+    # Fail-closed pipeline binding — identical to the scheduler CLI: without an
+    # injected tick_runner AND both manifests, refuse rather than invent a
+    # local decision path (hard boundary: no decision/sizing internals here).
+    if tick_runner is None:
+        if not (args.data_manifest and args.artifact_manifest):
+            print(
+                "refusing to run: --data-manifest and --artifact-manifest are "
+                "required for the real pipeline tick (fail closed; RFC #208 §8)",
+                flush=True,
+            )
+            return 2
+        try:
+            tick_runner = bind_pipeline_tick_runner(
+                strategy_config=strategy_config,
+                data_manifest=_load_json_object(args.data_manifest),
+                artifact_manifest=_load_json_object(args.artifact_manifest),
+            )
+        except PipelineContractUnavailable as exc:
+            print(f"refusing to run: {exc}", flush=True)
+            return 2
+
+    if live_state_provider is None:
+        from .intraday_quote_logger import AlpacaQuoteSource, load_watchlist  # noqa: PLC0415
+        from .intraday_session_inputs import AlpacaLiveStateSource  # noqa: PLC0415
+
+        # The read account MUST match the execution backend the §9.4 gate
+        # selects, or sizing splits its brain — reading the LIVE book while
+        # orders route to paper. Derive it from the SAME authoritative artifact
+        # run_session uses to pick the port (check_section_9_4_authorization):
+        #   no §9.4 file -> (False, False) -> paper=False  (shadow default: live read)
+        #   §9.4 paper   -> (True,  True)  -> paper=True   (paper read ⇄ PaperBrokerPort)
+        #   §9.4 real    -> (True,  False) -> paper=False  (live read ⇄ AlpacaBrokerPort)
+        _s94_ok, s94_is_paper = check_section_9_4_authorization(data_root)
+
+        source = AlpacaLiveStateSource(
+            quote_source=AlpacaQuoteSource(),
+            tickers=load_watchlist(strategy_config_path),
+            order_state_path=args.order_state_file,
+            paper=s94_is_paper,
+        )
+
+        def live_state_provider(**kwargs: Any) -> Mapping[str, Any]:
+            return source.snapshot(**kwargs)
+
+    from .intraday_session_inputs import load_frozen_daily_signal  # noqa: PLC0415
+
+    def signal_loader(day: str) -> Mapping[str, Any]:
+        return load_frozen_daily_signal(db_path=db_path, session_date=day, calendar=cal)
+
+    def session_start_provider(day: str, now: datetime) -> Mapping[str, Any]:
+        return {
+            "session_date": day,
+            "strategy_config_path": str(strategy_config_path),
+            "watchlist": list(strategy_config.get("watchlist") or []),
+            "canary_allowlist": list(config.canary_allowlist),
+        }
+
+    # Entry-timing policy SHADOW evaluator (observe-only tick observer) — the
+    # same wiring the scheduler CLI runs; it never touches the decision path.
+    from .entry_timing_policy import (  # noqa: PLC0415
+        ShadowEntryTimingEvaluator,
+        default_policy_shadow_log_path,
+        load_entry_timing_config,
+    )
+
+    et_config = load_entry_timing_config(strategy_config)
+    if et_config.config_errors:
+        log.warning(
+            "entry_timing config errors (fail-safe to baseline): %s",
+            "; ".join(et_config.config_errors),
+        )
+    prior_close_refs: dict[str, float] | None = None
+    if et_config.prior_close_refs_path:
+        try:
+            prior_close_refs = {
+                str(k): float(v)
+                for k, v in _load_json_object(et_config.prior_close_refs_path).items()
+            }
+        except (OSError, ValueError, TypeError) as exc:
+            log.warning(
+                "entry_timing prior_close_refs_path unreadable (%s) — gap "
+                "reference absent; reversion policy will record degraded rows",
+                exc,
+            )
+    evaluator = ShadowEntryTimingEvaluator(
+        config=et_config,
+        log_path=(
+            Path(et_config.shadow_log)
+            if et_config.shadow_log
+            else default_policy_shadow_log_path(data_root)
+        ),
+        prior_close_refs=prior_close_refs,
+        tick_seconds=config.tick_seconds,
+    )
+
+    runner_config = SessionRunnerConfig(
+        data_root=data_root,
+        strategy_config=strategy_config,
+        strategy_config_path=strategy_config_path,
+    )
+    if args.out:
+        runner_config.shadow_log_path = Path(args.out)
+
+    def port_factory() -> Any:
+        """Construct the submitting broker port — ONLY reached from
+        ``_run_live`` after the quintuple gate + §9.4 both arm. Never called
+        in the shadow default; the lazy AlpacaBrokerPort import keeps the
+        broker adapter out of the shadow path.
+
+        The paper-vs-real choice reads ``runner_config.paper``, which
+        ``run_session`` sets from the §9.4 file's prereg_id BEFORE it can call
+        this. ``_run_live`` independently re-verifies the constructed port is a
+        genuine ``PaperBrokerPort`` when paper=True and fails closed on
+        mismatch, so a relaxed K=1 paper evidence floor can never combine with
+        a real broker.
+        """
+        if runner_config.paper:
+            return PaperBrokerPort()
+        from renquant_execution.alpaca_broker_port import AlpacaBrokerPort  # noqa: PLC0415
+
+        return AlpacaBrokerPort(paper=False)
+
+    runner = SessionRunner(
+        runner_config=runner_config,
+        tick_runner=tick_runner,
+        signal_loader=signal_loader,
+        session_start_provider=session_start_provider,
+        live_state_provider=live_state_provider,
+        calendar=cal,
+        port_factory=port_factory,
+        tick_observer=evaluator.on_tick,
+    )
+    try:
+        result = runner.run_session(max_cycles=args.max_cycles)
+    finally:
+        # Censored entry-timing cells are recorded by cause, never dropped,
+        # even when the session halts early.
+        evaluator.flush()
+
+    if args.json:
+        print(json.dumps(result.to_dict(), sort_keys=True, indent=2))
+
+    ok_statuses = {
+        "completed",
+        "stopped_max_cycles",
+        "non_session_day",
+        "disabled_config",
+        "disabled_env_flag",
+    }
+    return 0 if result.status in ok_statuses else 1
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
