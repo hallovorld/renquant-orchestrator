@@ -63,13 +63,22 @@ EVIDENCE:
                  that must clear before execution.
   existing data: the design's factual claims are backed by prior read-only
                  reads recorded in-transcript — orch#799 gate feasibility
-                 (run_wf_gate.py/loader.py single-scorer WF path), the 120/145
-                 model-load count (intraday_104 2026-08-12 log), and the
-                 125-fold recipe-compat + BEAR n_eff≈6-8 (feasibility subagent
-                 2026-08-12); this PR itself writes only the two docs.
+                 (run_wf_gate.py/loader.py single-scorer WF path) and the 120/145
+                 model-load count (intraday_104 2026-08-12 log). The 125-fold
+                 recipe-compat + BEAR n_eff≈6-8 are TRANSCRIPT-ONLY feasibility
+                 reads over scratch backfill artifacts (not durably reviewable
+                 from this branch): they are ASSUMED here, to be COMMITTED as a
+                 reviewable fold-manifest artifact and independently re-verified
+                 in the EXECUTION PR — the verdict is gated on that committed
+                 manifest, NOT on the scratch reads. This PR itself writes only
+                 the two docs.
   best-known?:   yes among the framings — 3 arms (A0/A1/A2) keep FWER manageable
                  at policy-grade n [ASSUMED — pre-registered design choice: 3 arms to keep FWER manageable at policy-grade n]; the decision rule and window are frozen here,
-                 pre-result, so the verdict cannot be outcome-shopped.
+                 pre-result, so the verdict cannot be outcome-shopped. The
+                 extended-window choice (125 folds, for BEAR power) is frozen as a
+                 DESIGN commitment; its feasibility evidence is ASSUMED pending the
+                 execution PR's committed fold-manifest, NOT verified from this
+                 branch.
   scope:         "this is the served-model-architecture prereg (frozen design,
                  NOT executed and NOT implemented), vs existing best = orch#799's
                  structural stalemate, which returns no verdict. The estimand is

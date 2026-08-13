@@ -39,7 +39,7 @@ No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep 
   power** — see the power statement below.
 - **Extension provenance (FROZEN)**: the 2019-2023 legs come from the recipe-consistent
   backfill `doc/research/data/2026-08-02-jobb-gbdt-depth-extension-run001/window_artifacts/`
-  — `[VERIFIED — read-only compare of all 125 fold panel-ltr.json, 2026-08-12]` same recipe as
+  — `[ASSUMED — pending durable commit: the feasibility reads (recipe-consistency of the 82 backfill folds + the 125-fold BEAR regime recompute) are transcript-recorded only; they will be COMMITTED as a reviewable fold-manifest artifact (per-fold cutoff, feature_cols sha, params sha, config_fingerprint, HMM regime label, is_bear) in the EXECUTION PR, and the experiment verdict is GATED on that committed, independently-recomputable manifest — NOT on the scratch artifacts]` same recipe as
   the prod manifest: byte-identical 172 `feature_cols` (sha `c1dc4f7f897495fe` both sets),
   identical model params (sha `112fae206d60`; `max_depth=5` in EVERY backfill fold — the dir's
   "depth-extension" label is time-depth, not tree-depth), `label_col=fwd_60d_excess`,
@@ -54,9 +54,7 @@ No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep 
   that); momentum_residual_leg = PIT-computed at that cutoff; W (for A2)
   re-fit only on data preceding the fold. NO look-ahead (cutoff+lookahead < eval, reuse the
   existing loader leakage guard).
-- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage `[DERIVED —
-  RenQuant/kernel/hmm_regime_labels.py on SPY at all 125 cutoffs, 2026-08-12; prod-only
-  43-fold subset reproduces the prereg's n_eff = 2 exactly, validating the method]` = **15 BEAR
+- **Honest power statement (FROZEN)**: n_folds = **125**. BEAR coverage `[ASSUMED — pending durable commit: the feasibility reads (recipe-consistency of the 82 backfill folds + the 125-fold BEAR regime recompute) are transcript-recorded only; they will be COMMITTED as a reviewable fold-manifest artifact (per-fold cutoff, feature_cols sha, params sha, config_fingerprint, HMM regime label, is_bear) in the EXECUTION PR, and the experiment verdict is GATED on that committed, independently-recomputable manifest — NOT on the scratch artifacts]` = **15 BEAR
   fold-cutoffs across 8 contiguous BEAR runs ≈ 6 distinct macro bear regimes** (2019 vol-spike,
   COVID 2020-03, Sept-2020, the 2022 bear [H1+H2, split by the summer rally], 2024-08 carry
   unwind, 2025-04 tariff selloff) → **n_eff BEAR ≈ 6–8, up from n_eff = 2** on the prod-only
@@ -109,5 +107,9 @@ recomputation cutoff-gated; a non-PIT or post-cutoff input → fold dropped, not
    the experiment is honestly under-powered and the design says so, defaulting to A0).
 3. **Execution** (isolated, no-spend local compute): run the 3 arms + placebos over the frozen
    window, emit the paired Δ_BEAR table + placebo table. Double-audited (independent re-derivation).
+   The execution PR MUST commit the 125-fold manifest (per-fold recipe fingerprints + regime labels,
+   regenerable from the repo's SPY data via `kernel/hmm_regime_labels.py`) as the durable,
+   independently-reviewable evidence base for the window + power claims; codex approval of THIS design
+   PR does not certify those numbers — they are certified at execution.
 4. **Verdict → operator-authorized live config change** (revert-to-solo-xgb, or keep-blend + fund A).
 No live-config / production write until the verdict + operator authorization.
