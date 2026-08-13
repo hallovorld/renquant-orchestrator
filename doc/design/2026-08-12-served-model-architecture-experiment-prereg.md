@@ -30,8 +30,7 @@ No further arms — 3 [ASSUMED — pre-registered design choice: 3 arms to keep 
   compute from price data at each cutoff — it does NOT need the full 2023–2026 GBDT WF
   corpus). Window (FROZEN, feasibility-confirmed 2026-08-12): the **extended
   2019-01-14 .. 2026-03-02 walk-forward fold set = 125 recipe-consistent folds**
-  `[VERIFIED — 82 + 43 fold dirs counted 2026-08-12; recipe-compat evidence in the
-  provenance bullet below]` — the
+  `[ASSUMED — pending durable commit: 82+43 fold dirs counted in scratch; recipe-compat + fold-manifest committed in the execution PR (see the reframed provenance bullet)]` — the
   82-fold recipe-consistent backfill (2019-01-14 .. 2023-09-11) concatenated with the 43-fold
   prod xgb WF manifest (2023-10-02 .. 2026-03-02). The two cutoff sets do NOT overlap
   (backfill ends 2023-09-11, manifest starts 2023-10-02), so no dedup is needed. The window was
