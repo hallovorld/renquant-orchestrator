@@ -40,9 +40,10 @@ REVISION 2 (2026-08-12, pre-approval — closes codex CHANGES_REQUESTED on HEAD 
   - **Corpus removed (boundary fix).** The 82 raw WF fold artifacts (~30MB) rev-1
     copied into renquant-orchestrator are removed — WF fold artifacts belong in
     renquant-backtesting. This PR keeps only the small digest-only
-    `fold_manifest.json`. Raw folds are materialized + committed to
-    renquant-backtesting AT EXECUTION and byte-verified against the manifest's
-    recipe digests then.
+    `fold_manifest.json`. At execution the raw folds are read in place from their
+    existing renquant-backtesting-owned run — not copied or committed here — and
+    recipe-fingerprint-matched against the manifest (recipe-identity, not
+    byte/content verification).
   - **Momentum feasibility de-asserted.** Rev-1 claimed momentum_residual was
     "PIT-recomputed at every one of the 125 cutoffs" — nothing here demonstrates
     it. Corrected: PIT-recomputed at execution, gated by a fail-closed 3-cutoff
@@ -65,8 +66,8 @@ EVIDENCE:
                  blend_scorer.py:122-126; 2026-08-12.]
   prod or exp:   neither — design only; no confirmatory computation, no live-config
                  / production write. Execution (arm run + momentum feasibility
-                 spot-check + backtesting corpus materialization) is a SEPARATE
-                 gated step after codex approval.
+                 spot-check + in-place recipe-fingerprint match of the backfill
+                 folds) is a SEPARATE gated step after codex approval.
   existing data: the design's factual claims are backed by read-only reads —
                  orch#799 gate feasibility (run_wf_gate.py/loader.py single-scorer
                  WF path), the 120/145 model-load count (intraday_104 2026-08-12
@@ -95,8 +96,10 @@ EVIDENCE:
 TESTS:     none — doc-only PR; no code touched.
 
 NEXT:      (1) codex approval of this frozen rev-2 prereg; (2) execution step 1 —
-           fail-closed feasibility (materialize + byte-verify the backfill corpus
-           into renquant-backtesting; momentum_residual PIT spot-check at 3
+           fail-closed feasibility (read the backfill folds in place from their
+           existing renquant-backtesting-owned run and recipe-fingerprint-match each
+           against the manifest — recipe-identity, NOT byte/content verification; no
+           raw WF corpus copied or committed; momentum_residual PIT spot-check at 3
            cutoffs; trim + restate n_BEAR if it fails); (3) execution step 2 — run
            the 2 arms + shuffled-label placebos over the frozen 125-fold window,
            emit the Δ_BEAR table + episode-block-bootstrap CI, double-audited;

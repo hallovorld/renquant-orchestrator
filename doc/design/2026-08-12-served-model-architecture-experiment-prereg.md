@@ -21,12 +21,13 @@ REVISION 2 (2026-08-12, pre-approval — closes codex CHANGES_REQUESTED on #976 
    rev-1 copied into `renquant-orchestrator` are removed. WF fold artifacts belong in
    `renquant-backtesting` (their generator's repo), not here. This PR keeps only the small,
    digest-only **`fold_manifest.json`** (the window definition + per-fold recipe fingerprints +
-   regime labels) as the reference-by-digest anchor. The raw folds are materialized and
-   committed to `renquant-backtesting` **at execution** and byte-verified against the manifest's
-   recipe digests then (§8).
+   regime labels) as the reference-by-digest anchor. At execution the raw folds are read in place
+   from their existing `renquant-backtesting`-owned run — not copied or committed here — and each
+   fold's recipe fingerprint is checked against the manifest (a recipe-identity check, not
+   byte/content verification; §8).
 3. **Momentum feasibility de-asserted.** Rev-1 stated momentum_residual was "PIT-recomputed at
    every one of the 125 cutoffs" — but nothing in this PR demonstrates that (the manifest only
-   materialises the xgb leg). Corrected: the momentum_residual leg is PIT-recomputed **at
+   pins the xgb leg's recipe fingerprints). Corrected: the momentum_residual leg is PIT-recomputed **at
    execution**, gated by a fail-closed feasibility spot-check that runs FIRST (§3, §8).
 4. **Decision rule made executable** — exact placebo correction, episode-block bootstrap over
    the 8 BEAR episodes (not a borrowed 1.96), a numeric PASS inequality, and a numeric
@@ -70,12 +71,12 @@ Two arms ⇒ a **single** planned comparison (A1 vs A0); no family-wise correcti
 - **Reference by digest, not by copy (boundary):** this PR carries `fold_manifest.json` only —
   per-fold `cutoff`, `feature_cols_sha256`, `params_sha256`, `config_fingerprint`, `n_features`,
   `label_col`, `regime_label`, `is_bear`. The RAW fold artifacts live in `renquant-backtesting`
-  (their generator's repo); they are materialized + committed there at execution and byte-verified
-  against these recipe digests (§8). The manifest pins the **recipe identity** (feature_cols
-  sha256 `f17e96b5…`, params sha256 `1d1211ad…`, both common to all 125 folds
-  `[VERIFIED — fold_manifest.json; 2026-08-12]`); it does NOT byte-pin individual artifacts (no
-  per-file content digest) — recipe-identity is the design-time freeze, byte-materialization is
-  the execution step.
+  (their generator's repo); at execution they are read in place from that existing run — not
+  copied or committed here — and each fold's recipe fingerprint is checked against these digests
+  (a recipe-identity check, not byte/content verification; §8). The manifest pins the **recipe
+  identity** (feature_cols sha256 `f17e96b5…`, params sha256 `1d1211ad…`, both common to all 125
+  folds `[VERIFIED — fold_manifest.json; 2026-08-12]`); it does NOT byte-pin individual artifacts
+  (no per-file content digest) — recipe-identity is the only thing frozen here.
 - **Recipe consistency (FROZEN):** all 125 folds share 172 `feature_cols` (sha256 `f17e96b5…`),
   identical model params (sha256 `1d1211ad…`; `max_depth=5` in EVERY backfill fold — the dir's
   "depth-extension" label is time-depth, not tree-depth), `label_col=fwd_60d_excess`,
@@ -165,10 +166,14 @@ non-PIT / post-cutoff / non-finite input → fold dropped, not imputed.
    labels, regenerable from SPY via `kernel/hmm_regime_labels.py`) so codex can certify the
    window + power numbers (n_folds=125, recipe_consistent, n_bear_folds=15, n_bear_episodes=8)
    WITHOUT any copied corpus. NO code, NO production/live-config path.
-2. **Execution, step 1 — feasibility (fail-closed):** materialize the 82 backfill fold artifacts
-   into `renquant-backtesting` (their home repo), byte-verify each against the manifest's recipe
-   digests; run the momentum_residual PIT spot-check at 3 cutoffs (§3). If either fails, trim the
-   window to where both legs compute and restate n_BEAR before proceeding.
+2. **Execution, step 1 — feasibility (fail-closed):** read the 82 backfill fold artifacts in place
+   from their existing home — the 2026-08-02 `jobb-gbdt-depth-extension` run under
+   `renquant-backtesting` (read-only; this PR neither copies nor commits raw WF corpora) — and
+   confirm each fold's RECIPE FINGERPRINT (`feature_cols_sha256` / `params_sha256` /
+   `config_fingerprint`) matches this manifest. That is a recipe-IDENTITY check, NOT byte/content
+   verification: the manifest pins no per-artifact content digest. Run the momentum_residual PIT
+   spot-check at 3 cutoffs (§3). If either fails, trim the window to where both legs compute and
+   restate n_BEAR before proceeding.
 3. **Execution, step 2 — run** (isolated, no-spend local compute): the 2 arms + shuffled-label
    placebos over the frozen 125-fold window; emit the paired Δ_BEAR table + episode-block-bootstrap
    CI + placebo table. **Double-audited** (independent re-derivation).

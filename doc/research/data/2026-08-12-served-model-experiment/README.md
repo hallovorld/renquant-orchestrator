@@ -10,13 +10,15 @@ experiment (`doc/design/2026-08-12-served-model-architecture-experiment-prereg.m
   `kernel/hmm_regime_labels.py`). Top-level: `recipe_consistent:true`, `n_folds:125`,
   `n_bear_folds:15`, `n_bear_episodes:8`.
 
-**No raw fold artifacts are committed here.** WF fold artifacts belong in
-`renquant-backtesting` (their generator's repo), not in the orchestrator. This manifest
-is a **reference-by-digest** anchor: recipe identity is pinned by the common
-`feature_cols_sha256` + `params_sha256` (identical across all 125 folds). The raw
-2019-2023 backfill folds (from the 2026-08-02 `jobb-gbdt-depth-extension` run) are
-**materialized + committed to `renquant-backtesting` at execution** and byte-verified
-against these recipe digests then — see the prereg §8.
+**No raw fold artifacts are committed here, and none are prescribed for commit.** WF fold
+artifacts belong in `renquant-backtesting` (their generator's repo), not in the orchestrator.
+This manifest is a **reference-by-digest** anchor: recipe identity is pinned by the common
+`feature_cols_sha256` + `params_sha256` (identical across all 125 folds). At execution the raw
+2019-2023 backfill folds (from the 2026-08-02 `jobb-gbdt-depth-extension` run) are **read in place
+from that existing `renquant-backtesting`-owned run**; each fold's recipe fingerprint is checked
+against these digests — a **recipe-identity check, not byte/content verification** — see the
+prereg §8. Whether those artifacts are durably retained in `renquant-backtesting` is that repo's
+own decision under its own review, not something this manifest defines.
 
-The manifest does NOT byte-pin individual artifacts (no per-file content digest);
-recipe-identity is the design-time freeze, byte-materialization is the execution step.
+The manifest does NOT byte-pin individual artifacts (no per-file content digest); recipe-identity
+is the only thing frozen here.
