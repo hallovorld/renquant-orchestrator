@@ -46,7 +46,7 @@
     "is_bear": "regime_label == 'BEAR'"
   },
   "source_roots": {
-    "backfill": "doc/research/data/2026-08-12-served-model-experiment/ (committed in this repo; relpath is relative to the experiment dir)",
+    "backfill": "renquant-backtesting (raw fold artifacts NOT committed in renquant-orchestrator; materialized + committed to renquant-backtesting at execution and byte-verified against the recipe digests below). Provenance: 2026-08-02 jobb-gbdt-depth-extension run. relpath is the intended path under the backtesting research-data dir.",
     "prod": "RenQuant umbrella root (read-only; relpath is relative to the RenQuant umbrella repo root)"
   },
   "folds": [
@@ -1675,5 +1675,6 @@
       "regime_label": "BULL_VOLATILE",
       "is_bear": false
     }
-  ]
+  ],
+  "raw_artifacts_note": "REV-2 boundary fix: the 82 raw backfill fold JSONs were removed from renquant-orchestrator (WF fold artifacts belong in renquant-backtesting). This manifest is the digest-only window definition; recipe identity is pinned by common_feature_cols_sha256 + common_params_sha256 (identical across all 125 folds). Per-fold artifact BYTES are not pinned here (no per-file content digest); execution materializes + byte-verifies them in renquant-backtesting."
 }
