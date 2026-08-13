@@ -5,7 +5,7 @@ WHAT:     rq105_liveness_check no longer false-fires "paired_is stale" on a day 
           admits 0 names. intraday_pairing_logger writes ONE row per daily-ADMITTED name, so on a
           0-admit day it legitimately writes 0 rows and its last row keeps yesterday's date; the
           check now consults the AUTHORITATIVE session manifest and, when the session COMPLETED with
-          counters.entries_count == 0, treats the stale-dated paired_is as EXPECTED, not a failure.
+          the collector's own admission query returning ZERO names, treats the stale-dated paired_is as EXPECTED, not a failure.
 WHY/DIR:  0-admit is the CURRENT norm (model has no bull edge + most watchlist names have no panel
           score, orch#799), so the daily rq105 sentinel was raising an urgent "rq105 DOWN" ntfy every
           session — alarm fatigue on the shared "renquant" topic (the exact GOAL-5 failure mode). The
@@ -63,7 +63,7 @@ last complete row stays *yesterday's* date and the `date != today` gate reported
 The fix makes that one gate **no-admit-aware** for the admit-contingent collector:
 before reporting stale, it reads the AUTHORITATIVE session manifest for today via
 the scheduler's own resolver (`intraday_session_scheduler.default_manifest_path`).
-If `status == "completed"` and `counters.entries_count == 0`, the empty paired_is
+If `status == "completed"` and `the collector's own admission query returning ZERO names`, the empty paired_is
 is expected and passes. Everything else is unchanged and still alarms.
 
 ## Why entry_timing_shadow is deliberately NOT touched
@@ -86,3 +86,31 @@ the unmodified date+mtime freshness logic, and the exemption is scoped away from
 no manifest, unreadable, a halted/disabled session, `entries_count` missing or `>= 1`,
 or the scheduler being unimportable — returns `(False, reason)`, so a real staleness
 is never suppressed. The "session didn't run on a trading day" signal is never weakened.
+
+
+## Review correction (BLOCKER, 2026-08-13)
+
+The first revision keyed the exemption on the session manifest's
+`counters.entries_count`. **That is not the collector's admission set.**
+`SessionScheduler` increments it from intraday tick intents, whereas
+`collect_pairs()` resolves admissions from the runs DB as
+`load_admitted(T)` UNION `load_submitted_entries(resolve_admitting_run_date(T))`,
+deduplicated on `(signal_version, ticker)` — the batch that placed the entries
+ran post-close on the PREVIOUS session.
+
+So a session could COMPLETE with zero intraday entries while the batch had
+admitted names that owed pairing rows, and the exemption would have marked a
+stale `paired_is` OK — suppressing exactly the failure this check exists to
+catch. Guarding on a proxy instead of the object being trusted is the recurring
+shape here.
+
+**Fix:** `_pairing_admit_count()` calls the SAME functions with the SAME dedupe
+key, so the two cannot drift; the exemption now requires a completed session AND
+a zero count from that query. Any failure to establish the count (collector
+unimportable, runs DB absent or unreadable, query error) returns "unavailable"
+and the staleness STANDS.
+
+**Oracle, not exercise:** reverting the signal to the manifest count fails 5
+tests, including
+`test_zero_intraday_entries_but_nonempty_batch_admits_is_NOT_exempt` — the exact
+scenario the review described. Restored: **17 passed**.

@@ -71,7 +71,9 @@ Checked (session days only):
                            stale-date is reported as a failure, the check consults the
                            AUTHORITATIVE session manifest for today
                            (intraday_session_scheduler.default_manifest_path): if the session
-                           status == "completed" AND counters.entries_count == 0, the stale-
+                           status == "completed" AND the collector's OWN admission query
+                           (runs DB: load_admitted UNION load_submitted_entries)
+                           returns ZERO names, the stale-
                            dated paired_is is EXPECTED (nothing to pair), not a pairing-logger
                            failure, and passes. It still FAILS if the session admitted >=1 name
                            (a real pairing-logger failure) or if no completed session exists for
@@ -428,28 +430,83 @@ def _last_complete_jsonl_row(
 _SESSION_COMPLETED_STATUS = "completed"
 
 
+def _pairing_admit_count(as_of: dt.date) -> tuple[int | None, str]:
+    """Count the admissions ``collect_pairs()`` would pair for session ``as_of``,
+    using the SAME functions and the SAME dedupe key it uses.
+
+    This must not be re-derived from a different object. ``collect_pairs()``
+    resolves its admission set from the runs DB as
+    ``load_admitted(T)`` UNION ``load_submitted_entries(resolve_admitting_run_date(T))``,
+    deduplicated on ``(signal_version, ticker)`` — the batch that placed the
+    entries ran post-close on the PREVIOUS session. The intraday session
+    manifest's ``counters.entries_count`` is a different quantity (intraday tick
+    intents), so a completed session with zero intraday entries can coexist with
+    a nonempty batch admission set that legitimately requires pairing rows.
+    Reading the manifest instead would suppress that real failure.
+
+    Returns ``(count, evidence)``, or ``(None, reason)`` when the count cannot be
+    established — the caller treats ``None`` as "do not exempt".
+    """
+    _orch_src_on_path()
+    try:
+        from renquant_orchestrator.intraday_pairing_logger import (  # noqa: PLC0415
+            DEFAULT_RUNS_DB,
+            connect,
+            load_admitted,
+            load_submitted_entries,
+            resolve_admitting_run_date,
+        )
+    except Exception as exc:  # collector unimportable — do NOT suppress the alarm
+        return None, f"pairing-collector admission API unavailable ({exc})"
+    if not os.path.exists(str(DEFAULT_RUNS_DB)):
+        return None, f"runs DB absent ({DEFAULT_RUNS_DB})"
+    try:
+        conn = connect(DEFAULT_RUNS_DB)
+    except Exception as exc:
+        return None, f"runs DB unreadable ({exc})"
+    try:
+        admitted = load_admitted(conn, as_of, run_type="live")
+        seen = {(n.signal_version, n.ticker) for n in admitted}
+        admit_date = resolve_admitting_run_date(conn, as_of, run_type="live")
+        if admit_date is not None:
+            for name in load_submitted_entries(
+                conn, admit_date, session_date=as_of, run_type="live"
+            ):
+                seen.add((name.signal_version, name.ticker))
+    except Exception as exc:
+        return None, f"admission query failed ({exc})"
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    where = f"admit_run_date={admit_date}" if admit_date is not None else "no admitting run"
+    return len(seen), f"runs DB admissions for {as_of.isoformat()}: {len(seen)} ({where})"
+
+
 def _completed_session_zero_admits(
     as_of: dt.date, data_root: Path,
 ) -> tuple[bool, str]:
-    """AUTHORITATIVE no-admit signal for ``as_of`` (today), read from the intraday
-    session manifest via the scheduler's OWN path resolver
-    (``intraday_session_scheduler.default_manifest_path`` — never a hardcoded
-    path, matching this module's per-collector-resolver discipline).
+    """AUTHORITATIVE no-admit signal for ``as_of``: a session that COMPLETED and
+    for which the pairing collector's OWN admission query returns zero names.
 
-    Returns ``(True, evidence)`` IFF today's manifest exists, its
-    ``status == "completed"`` (the session ran fully to its close), AND
-    ``counters.entries_count == 0`` (the manifest's count of admitted/entered
-    names is exactly zero). ``entries_count`` is the authoritative admit count:
-    the intraday session and the post-close batch are driven by the SAME frozen
-    daily signal (design §6 class A), so a completed 0-entry session is the day
-    the daily signal admitted no name — exactly when the admit-contingent pairing
-    collector legitimately writes no rows.
+    Two independent conditions, both required:
+
+    1. today's session manifest exists and its ``status == "completed"`` — the
+       session ran fully to its close (resolved via the scheduler's own
+       ``default_manifest_path``, never a hardcoded path); and
+    2. :func:`_pairing_admit_count` — the collector's admission set — is **0**.
+
+    Condition 2 replaces an earlier reading of ``counters.entries_count``, which
+    was the WRONG OBJECT: the manifest counts intraday tick intents while the
+    collector pairs batch admissions resolved from the runs DB. A session can
+    complete with zero intraday entries while the batch admitted names that
+    require pairing rows, and exempting on the manifest count would have marked a
+    stale ``paired_is`` OK and suppressed a genuine collector failure.
 
     FAILS TOWARD ALARMING: any uncertainty (no manifest, unreadable, not
-    completed, >=1 admit, or the resolver being unimportable) returns
-    ``(False, reason)`` so a real staleness is never suppressed — the caller only
-    exempts a stale row-date on a POSITIVE confirmation of a completed 0-admit
-    session, and leaves every other case to the existing freshness logic."""
+    completed, admissions unknown, or >=1 admission) returns ``(False, reason)``
+    so a real staleness is never suppressed."""
     _orch_src_on_path()
     try:
         from renquant_orchestrator.intraday_session_scheduler import (
@@ -472,13 +529,16 @@ def _completed_session_zero_admits(
         return False, (
             f"session status={status!r} is not {_SESSION_COMPLETED_STATUS!r} "
             "(session did not complete — staleness stands)")
-    counters = manifest.get("counters")
-    entries = counters.get("entries_count") if isinstance(counters, dict) else None
-    if entries != 0:
-        return False, f"session counters.entries_count={entries!r} (not a 0-admit day)"
+    n_admits, admit_evidence = _pairing_admit_count(as_of)
+    if n_admits is None:
+        return False, f"admission count unavailable — staleness stands ({admit_evidence})"
+    if n_admits != 0:
+        return False, (
+            f"{admit_evidence} — the collector had names to pair, so a stale "
+            "row-date is a real failure")
     return True, (
-        f"session manifest {os.path.basename(str(mpath))}: "
-        f"status='completed', counters.entries_count=0")
+        f"session manifest {os.path.basename(str(mpath))}: status='completed'; "
+        f"{admit_evidence}")
 
 
 def _data_output_fresh(

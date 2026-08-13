@@ -152,23 +152,35 @@ class TestNoAdmitExemptionOnDataOutputFresh:
 
 
 class TestAuthoritativeZeroAdmitSignal:
-    """``_completed_session_zero_admits`` reads the AUTHORITATIVE session manifest
-    and fails toward alarming on any uncertainty."""
+    """``_completed_session_zero_admits`` requires BOTH a completed session
+    manifest AND a zero admission set from the collector's own query, and fails
+    toward alarming on any uncertainty.
 
-    def test_completed_zero_admit_is_true(self, tmp_path):
+    These originally asserted on ``counters.entries_count``. That was the wrong
+    object (review BLOCKER): the manifest counts intraday tick intents, while the
+    collector pairs batch admissions from the runs DB. They now assert the
+    corrected contract; the entries_count-only cases live in the module-level
+    regressions below.
+    """
+
+    def test_completed_zero_admit_is_true(self, tmp_path, monkeypatch):
         as_of = dt.date(2026, 8, 13)
         _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+        _patch_admissions(monkeypatch, legacy=(), submitted=())
         ok, evidence = _completed_session_zero_admits(as_of, tmp_path)
         assert ok is True, evidence
-        assert "entries_count=0" in evidence
         assert "completed" in evidence
+        assert "admissions" in evidence
 
-    def test_completed_with_admits_is_false(self, tmp_path):
+    def test_completed_with_admits_is_false(self, tmp_path, monkeypatch):
+        """Admits are counted from the COLLECTOR's query, not the manifest: a
+        manifest saying 0 entries does not exempt a day with batch admissions."""
         as_of = dt.date(2026, 8, 13)
-        _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=3)
+        _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+        _patch_admissions(monkeypatch, submitted=[_Name("ANET"), _Name("NVDA"), _Name("MU")])
         ok, reason = _completed_session_zero_admits(as_of, tmp_path)
         assert ok is False
-        assert "entries_count=3" in reason
+        assert "3" in reason and "names to pair" in reason
 
     def test_halted_session_zero_admits_is_false(self, tmp_path):
         """A halted/aborted session that happens to show 0 entries is NOT a
@@ -189,14 +201,23 @@ class TestAuthoritativeZeroAdmitSignal:
         assert ok is False
         assert "no session manifest" in reason
 
-    def test_missing_counters_is_false(self, tmp_path):
-        """A completed manifest whose entries_count is absent/None -> not exempt
-        (fail toward alarming — never suppress on a missing count)."""
+    def test_manifest_counters_no_longer_decide(self, tmp_path, monkeypatch):
+        """The manifest's counters are no longer consulted for the admit signal.
+
+        A completed manifest with NO counters at all is exempt when the
+        collector's admission set is empty, and NOT exempt when it is not —
+        proving the decision moved to the right object rather than merely being
+        supplemented by it."""
         as_of = dt.date(2026, 8, 13)
         _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=None)
+
+        _patch_admissions(monkeypatch, legacy=(), submitted=())
+        ok, evidence = _completed_session_zero_admits(as_of, tmp_path)
+        assert ok is True, evidence
+
+        _patch_admissions(monkeypatch, submitted=[_Name("ANET")])
         ok, reason = _completed_session_zero_admits(as_of, tmp_path)
-        assert ok is False
-        assert "not a 0-admit day" in reason
+        assert ok is False and "names to pair" in reason
 
 
 class TestCheckCollectorDataOutputsIntegration:
@@ -249,3 +270,107 @@ class TestCheckCollectorDataOutputsIntegration:
         )
         out = check_collector_data_outputs(Path(tmp_path), dt.date(2026, 8, 13))
         assert out["intraday_pairing_logger"]["status"] == "stale_or_missing", out
+
+
+# ---------------------------------------------------------------------------
+# The admit signal must come from the collector's OWN admission query.
+#
+# Regression for the review BLOCKER: an earlier revision read
+# `counters.entries_count` from the session manifest. That counts intraday tick
+# intents; `collect_pairs()` pairs batch admissions resolved from the runs DB as
+# load_admitted(T) UNION load_submitted_entries(resolve_admitting_run_date(T)).
+# A session can COMPLETE with zero intraday entries while the batch admitted
+# names that require pairing rows -- exempting on the manifest count would mark a
+# stale paired_is OK and suppress a real collector failure.
+# ---------------------------------------------------------------------------
+
+
+class _Name:
+    """Minimal stand-in for the collector's admitted-name record."""
+
+    def __init__(self, ticker: str, signal_version: str = "v1") -> None:
+        self.ticker = ticker
+        self.signal_version = signal_version
+
+
+def _patch_admissions(monkeypatch, *, legacy=(), submitted=(), admit_date="2026-08-12"):
+    """Patch the exact functions `_pairing_admit_count` calls."""
+    import types
+
+    fake = types.ModuleType("renquant_orchestrator.intraday_pairing_logger")
+    fake.DEFAULT_RUNS_DB = __file__  # any existing path; connect() is patched too
+    fake.connect = lambda db: types.SimpleNamespace(close=lambda: None)
+    fake.load_admitted = lambda conn, date, run_type="live": list(legacy)
+    fake.resolve_admitting_run_date = lambda conn, date, run_type="live": admit_date
+    fake.load_submitted_entries = (
+        lambda conn, d, session_date=None, run_type="live": list(submitted)
+    )
+    monkeypatch.setitem(
+        sys.modules, "renquant_orchestrator.intraday_pairing_logger", fake
+    )
+
+
+def test_zero_intraday_entries_but_nonempty_batch_admits_is_NOT_exempt(
+    tmp_path: Path, monkeypatch
+):
+    """THE regression: completed session, manifest entries_count=0, but the batch
+    admitted two names -> the collector owed pairing rows, so a stale row-date is
+    a REAL failure and must not be exempted."""
+    as_of = dt.date(2026, 8, 13)
+    _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+    _patch_admissions(monkeypatch, submitted=[_Name("ANET"), _Name("NVDA")])
+
+    ok, evidence = _completed_session_zero_admits(as_of, tmp_path)
+    assert ok is False, f"exempted a day the collector owed rows for: {evidence}"
+    assert "2" in evidence and "names to pair" in evidence
+
+
+def test_zero_batch_admits_is_exempt(tmp_path: Path, monkeypatch):
+    """The legitimate case is unchanged: completed session AND the collector's own
+    admission query returns zero names."""
+    as_of = dt.date(2026, 8, 13)
+    _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+    _patch_admissions(monkeypatch, legacy=(), submitted=())
+
+    ok, evidence = _completed_session_zero_admits(as_of, tmp_path)
+    assert ok is True, evidence
+    assert "0" in evidence
+
+
+def test_legacy_selected_rows_alone_block_the_exemption(tmp_path: Path, monkeypatch):
+    """`load_admitted` (the legacy same-session path) counts too -- the union is
+    the admission set, not just the submitted-entries leg."""
+    as_of = dt.date(2026, 8, 13)
+    _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+    _patch_admissions(monkeypatch, legacy=[_Name("MSFT")], submitted=())
+
+    ok, _ = _completed_session_zero_admits(as_of, tmp_path)
+    assert ok is False
+
+
+def test_dedupe_matches_the_collector(tmp_path: Path, monkeypatch):
+    """Same (signal_version, ticker) in both legs is ONE admission, as the
+    collector dedupes -- so the count cannot be inflated into a false alarm."""
+    as_of = dt.date(2026, 8, 13)
+    _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+    _patch_admissions(
+        monkeypatch, legacy=[_Name("ANET")], submitted=[_Name("ANET")]
+    )
+    count, evidence = liveness._pairing_admit_count(as_of)
+    assert count == 1, evidence
+
+
+def test_unavailable_admission_source_fails_closed(tmp_path: Path, monkeypatch):
+    """If the admission query cannot run, the staleness STANDS -- no exemption."""
+    import types
+
+    as_of = dt.date(2026, 8, 13)
+    _write_manifest(tmp_path, as_of.isoformat(), status="completed", entries_count=0)
+    fake = types.ModuleType("renquant_orchestrator.intraday_pairing_logger")
+    fake.DEFAULT_RUNS_DB = str(tmp_path / "definitely-absent.db")
+    monkeypatch.setitem(
+        sys.modules, "renquant_orchestrator.intraday_pairing_logger", fake
+    )
+    ok, evidence = _completed_session_zero_admits(as_of, tmp_path)
+    assert ok is False
+    assert "staleness stands" in evidence
