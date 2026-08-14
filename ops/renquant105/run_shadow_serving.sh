@@ -44,9 +44,13 @@ if [ ! -f "$FEATURE_SNAPSHOT" ]; then
   # missing snapshot). No producer for this file exists yet (Stage-3 wiring,
   # tracked separately) — skip cleanly rather than invoke a binary whose
   # required argument we cannot supply.
-  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
-  rq_notify "rq105 shadow serving SKIPPED ($TS)" \
-    "no feature-snapshot producer yet (Stage-3 wiring pending) — see #221" || true
+  # NOTE: this "no feature-snapshot producer yet" state is EXPECTED and stable
+  # until Stage-3 (intraday re-scoring) is built (tracked: #208 Stage-3 / #221) —
+  # it is NOT a failure. It was ntfy'ing every scheduled run, which is pure noise
+  # (a healthy job reporting a designed, unchanged deferral). Record it durably in
+  # the skip log (below) but do NOT page: only a REAL failure (missing upstream
+  # scores L38, bundle-verification failure L70) still notifies. Restore the ntfy
+  # here iff the not-wired state should ever become unexpected.
   skip_log "SKIP not-wired: no producer exists for $FEATURE_SNAPSHOT (Stage-3, #221)"
   exit "$EXIT_NOT_WIRED"
 fi
