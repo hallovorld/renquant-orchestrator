@@ -26,21 +26,28 @@ EVIDENCE:
                  (`_selected_config_fingerprint`) includes `ranking.panel_scoring`
                  (per-lane scorer) → per-lane cache miss.
   best-known?:   yes — the root cause is [VERIFIED] from the lane logs + code; the fix's
-                 output-invariance is NOT assumed — §5 makes a byte-identical
-                 (assert_frame_equal check_exact) test across differing `panel_scoring`
-                 the FIRST implementation gate, because the panel-jobs file does read
-                 `panel_scoring`; the change is flag-gated + behaviour-invariant.
+                 output-invariance is NOT assumed but a HYPOTHESIS to prove — §5 makes a
+                 byte-identical (assert_frame_equal check_exact) test across EVERY
+                 resolved lane config (prod + 5 shadow), over ALL FOUR returned artifacts
+                 (`neutralized_frames, factor_frames, macro_frame, asset_embeddings`),
+                 plus a lane-2 cache-hit proof, the FIRST implementation gate — because
+                 the panel-jobs file does read `panel_scoring`; the change is flag-gated
+                 + behaviour-invariant.
   scope:         "a design to share the daily-full inference feature panel across its
                  ~6 scoring lanes (NOT executed, NOT implemented). Authorizes no code,
-                 no config, no live change. Implementation lands in the umbrella
-                 (training_panel/pipeline.py cache key), output-invariance-tested +
-                 flag-gated, then operator-gated live-tree deploy. Compounds with the
-                 already-deployed G-J per-lane feature-prep speedup."
+                 no config, no live change. Implementation lands in the OWNING subrepo
+                 `renquant-pipeline` (per RENQUANT_REPOS.md — runtime inference code, NOT
+                 the umbrella), with a migration/thin-adapter path reconciling the
+                 pre-existing umbrella-copy + G-J boundary debt; four-artifact
+                 output-invariance-tested + flag-gated, then operator-gated live-tree
+                 deploy. Compounds with the already-deployed G-J per-lane feature-prep
+                 speedup."
 
 TESTS:     none — doc-only PR.
 
-NEXT:      (1) codex approval; (2) implementation step 1 = the §5 byte-identical proof
-           (frames unchanged across differing panel_scoring) + resolve §6 cross-lane
-           cache-dir parity; (3) cache-key change + lane-sharing test; (4)
-           operator-gated live-tree deploy. Also: confirm G-J's real magnitude from
-           the first post-G-J daily-full (08-14) before sizing G-K's marginal gain.
+NEXT:      (1) codex approval; (2) implementation step 1 (in `renquant-pipeline`) = the §5
+           four-artifact byte-identical proof across every resolved lane config +
+           lane-2 cache-hit proof + resolve §6 cross-lane cache-dir parity; (3)
+           cache-key change + lane-sharing test; (4) operator-gated live-tree deploy.
+           Also: confirm G-J's real magnitude from the first post-G-J daily-full
+           (08-14) before sizing G-K's marginal gain.
