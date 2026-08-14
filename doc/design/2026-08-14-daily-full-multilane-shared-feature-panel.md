@@ -49,11 +49,23 @@ macro_frame, asset_embeddings` — `asset_embeddings` was added as the 4th retur
 (`pp_panel_training.py`) DOES read `ranking.panel_scoring` in places (inference `artifact_path`,
 `ngboost`, `global_calibration`). So we CANNOT assume ANY of the four returned artifacts is
 scorer-blind. Mandatory gate before the cache-key change:
-- Enumerate **every resolved lane config** the daily-full actually runs — the prod lane plus the
-  five `daily_104.sh` shadow lanes (`shadow_blend`, `shadow_blend_mom`, `shadow_blend_mom_fast`,
-  `shadow_blend_rb_fast`, `shadow_blend_rb_mom`) — resolving each to its full `panel_scoring` config,
-  not a hand-picked "≥2". A lane-specific conditional field (e.g. a scorer sub-key only one lane
-  sets) must be exercised, so the oracle uses the real fleet, not a representative pair.
+- Enumerate **every resolved lane config** the daily-full actually runs — the prod lane plus every
+  shadow lane `scripts/daily_104.sh` resolves — by **reading the script at proof time**, never from a
+  list written here. A hand-picked "≥2" is insufficient, and so is a hardcoded roster: a
+  lane-specific conditional field (a scorer sub-key only one lane sets) must be exercised, so the
+  oracle has to use the real fleet.
+
+  **Why the roster is not written into this document:** an earlier revision of this section named
+  five lanes, and the names did not match the script. The distinct shadow config filenames actually
+  referenced by `scripts/daily_104.sh` are **six** — `strategy_config.shadow_blend.json`,
+  `…shadow_blend_mom.json`, `…shadow_blend_momentum.json`, `…shadow_blend_momentum_fast.json`,
+  `…shadow_blend_rb_fast.json`, `…shadow_blend_rb_mom.json` — i.e. the earlier list both misnamed
+  one lane (`shadow_blend_mom_fast` vs the real `shadow_blend_momentum_fast`) and omitted another
+  (`shadow_blend_momentum`) `[VERIFIED — grep of distinct shadow config tokens in
+  scripts/daily_104.sh, 2026-08-14]`. A roster frozen in prose goes stale the moment a lane is added
+  or renamed, and a stale roster makes the oracle silently incomplete while still reading as
+  exhaustive. **The requirement is therefore "every lane the script resolves", enforced by
+  enumerating from the script, with the resolved set recorded in the proof's own output.**
 - Run `prepare_inference_panel_frames` on the SAME feature inputs under each resolved lane config;
   assert **ALL FOUR** returned artifacts are **byte-identical** across every lane pair —
   `neutralized_frames`, `factor_frames`, `macro_frame`, AND `asset_embeddings`
