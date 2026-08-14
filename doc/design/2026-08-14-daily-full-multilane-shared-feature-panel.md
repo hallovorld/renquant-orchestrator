@@ -56,14 +56,21 @@ scorer-blind. Mandatory gate before the cache-key change:
   oracle has to use the real fleet.
 
   **Why the roster is not written into this document:** an earlier revision of this section named
-  five lanes, and the names did not match the script. The distinct shadow config filenames actually
-  referenced by `scripts/daily_104.sh` are **six** — `strategy_config.shadow_blend.json`,
-  `…shadow_blend_mom.json`, `…shadow_blend_momentum.json`, `…shadow_blend_momentum_fast.json`,
-  `…shadow_blend_rb_fast.json`, `…shadow_blend_rb_mom.json` — i.e. the earlier list both misnamed
-  one lane (`shadow_blend_mom_fast` vs the real `shadow_blend_momentum_fast`) and omitted another
-  (`shadow_blend_momentum`) `[VERIFIED — grep of distinct shadow config tokens in
-  scripts/daily_104.sh, 2026-08-14]`. A roster frozen in prose goes stale the moment a lane is added
-  or renamed, and a stale roster makes the oracle silently incomplete while still reading as
+  the lanes by their lane/log **alias** and conflated those aliases with config filenames — which is
+  exactly the mistake that makes a prose roster unreliable. The distinct shadow config filenames
+  actually referenced by `scripts/daily_104.sh` are **five** — `strategy_config.shadow_blend.json`,
+  `…shadow_blend_momentum.json`, `…shadow_blend_momentum_fast.json`, `…shadow_blend_rb_fast.json`,
+  `…shadow_blend_rb_mom.json`. The lane/log **aliases** `shadow_blend_mom` and `shadow_blend_mom_fast`
+  (used ONLY for `${DATE}_<lane>.log` filenames and the `RENQUANT_READONLY_TAG`) are NOT config
+  filenames: the Step 5b lane logged as `shadow_blend_mom` resolves
+  `strategy_config.shadow_blend_momentum.json`, and the Step 5c lane logged as `shadow_blend_mom_fast`
+  resolves `strategy_config.shadow_blend_momentum_fast.json` — there is no
+  `strategy_config.shadow_blend_mom.json` in the script or the pinned strategy configs. The §2 lane
+  list uses those log aliases (matching the log filenames); the config-filename roster here is the
+  five above `[VERIFIED — grep -oE 'strategy_config\.shadow[a-z_]*\.json' scripts/daily_104.sh →
+  5 distinct filenames, none named shadow_blend_mom.json, 2026-08-14]`. A roster frozen in prose goes
+  stale the moment a lane is added or renamed — and, as this very alias/filename slip shows, is easy
+  to get wrong even when current — making the oracle silently incomplete while still reading as
   exhaustive. **The requirement is therefore "every lane the script resolves", enforced by
   enumerating from the script, with the resolved set recorded in the proof's own output.**
 - Run `prepare_inference_panel_frames` on the SAME feature inputs under each resolved lane config;
