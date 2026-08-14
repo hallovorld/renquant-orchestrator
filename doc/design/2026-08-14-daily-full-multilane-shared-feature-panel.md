@@ -50,10 +50,19 @@ macro_frame, asset_embeddings` — `asset_embeddings` was added as the 4th retur
 `ngboost`, `global_calibration`). So we CANNOT assume ANY of the four returned artifacts is
 scorer-blind. Mandatory gate before the cache-key change:
 - Enumerate **every resolved lane config** the daily-full actually runs — the prod lane plus every
-  shadow lane `scripts/daily_104.sh` resolves — by **reading the script at proof time**, never from a
-  list written here. A hand-picked "≥2" is insufficient, and so is a hardcoded roster: a
+  shadow lane `scripts/daily_104.sh` **successfully resolves and admits at runtime** — by capturing
+  the **executable lane-resolution path**, NOT by a static read of the script text. Each shadow lane
+  runs on the proof run ONLY if `renquant_strategy_config "$SUBREPO_ROOT" <config>` succeeds — a
+  file-existence check for the config under the pinned subrepo (`scripts/subrepo_env.sh`) — otherwise
+  that lane is skipped with an INFO line and never resolves. A static grep/token read of the script
+  therefore proves safety against the **wrong fleet**: it counts dormant or commented references
+  whether or not the pinned runtime actually resolved them, and it cannot show which lanes were
+  admitted on the proof run. The oracle must instead record the set of **successful
+  `renquant_strategy_config(...)` resolutions** (or an equivalent invocation-capture manifest) from
+  the SAME proof run, and drive the four-artifact equality + lane-2 cache-hit checks across exactly
+  that resolved runtime set. A hand-picked "≥2" is insufficient, and so is a hardcoded roster: a
   lane-specific conditional field (a scorer sub-key only one lane sets) must be exercised, so the
-  oracle has to use the real fleet.
+  oracle has to use the real, **resolved** fleet.
 
   **Why the roster is not written into this document:** an earlier revision of this section named
   the lanes by their lane/log **alias** and conflated those aliases with config filenames — which is
@@ -71,8 +80,10 @@ scorer-blind. Mandatory gate before the cache-key change:
   5 distinct filenames, none named shadow_blend_mom.json, 2026-08-14]`. A roster frozen in prose goes
   stale the moment a lane is added or renamed — and, as this very alias/filename slip shows, is easy
   to get wrong even when current — making the oracle silently incomplete while still reading as
-  exhaustive. **The requirement is therefore "every lane the script resolves", enforced by
-  enumerating from the script, with the resolved set recorded in the proof's own output.**
+  exhaustive. **The requirement is therefore "every lane the pinned runtime actually resolves and
+  admits", enforced by capturing the successful `renquant_strategy_config(...)` resolutions of the
+  proof run itself — NOT by reading the script text — with that resolved runtime set recorded in the
+  proof's own output.**
 - Run `prepare_inference_panel_frames` on the SAME feature inputs under each resolved lane config;
   assert **ALL FOUR** returned artifacts are **byte-identical** across every lane pair —
   `neutralized_frames`, `factor_frames`, `macro_frame`, AND `asset_embeddings`

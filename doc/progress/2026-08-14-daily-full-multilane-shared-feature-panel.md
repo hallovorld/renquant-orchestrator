@@ -46,8 +46,11 @@ EVIDENCE:
 TESTS:     none — doc-only PR.
 
 NEXT:      (1) codex approval; (2) implementation step 1 (in `renquant-pipeline`) = the §5
-           four-artifact byte-identical proof across every resolved lane config +
-           lane-2 cache-hit proof + resolve §6 cross-lane cache-dir parity; (3)
+           four-artifact byte-identical proof across the resolved runtime set captured
+           from the executable lane-resolution path (the proof run's successful
+           `renquant_strategy_config(...)` resolutions / invocation-capture manifest, NOT
+           a static read of `daily_104.sh`) + lane-2 cache-hit proof + resolve §6
+           cross-lane cache-dir parity; (3)
            cache-key change + lane-sharing test; (4) operator-gated live-tree deploy.
            Also: confirm G-J's real magnitude from the first post-G-J daily-full
            (08-14) before sizing G-K's marginal gain.
