@@ -33,9 +33,21 @@ REVIEW FIX (codex #983, 2026-08-16): the shortcut also blessed a lineup MEMBERSH
            `retired` even with a valid in-window ledger (the lifecycle gate, not a missing
            file, is what blocks it — both fail with the gate removed).
 
+REVIEW FIX 2 (codex #983 round-2, 2026-08-16): `_ledger_append_explains` legitimized from
+           the LIVE on-disk ledger without proving it was the bytes the `curr` run actually
+           stamped. If the ledger ADVANCED after the run (a later append), a genuine
+           unexplained change could be downgraded because that later in-window append still
+           looked link-intact. Fixed: read the ledger bytes once, hash them, and require the
+           on-disk file sha to equal `change.curr.artifact_sha` (via the prefix-tolerant
+           `_digest_matches`) before reading any legitimizing append -- else fail closed
+           `(False, None)`. Regression coverage added (1 test):
+           `test_ledger_advanced_after_run_fails_closed` -- curr stamps a sha that no longer
+           matches the advanced on-disk ledger, so it stays CRITICAL (fails with the bind
+           removed).
+
 EVIDENCE:
   artifact:      `scorer_identity_monitor.py` (helper + explain_boundary step) +
-                 `tests/test_scorer_identity_monitor.py` (6 new tests) + this doc.
+                 `tests/test_scorer_identity_monitor.py` (7 new tests) + this doc.
   prod or exp:   neither — monitor logic + unit tests; no live/production write. The
                  monitor is observe-only (opens the DB read-only).
   existing data: [VERIFIED] the run bundle stamps the momentum lane path ABSOLUTE
@@ -45,23 +57,26 @@ EVIDENCE:
                  `appended_at_utc`; the 08-08 12:00 UTC append (Sat weekly job) is what
                  flipped the file sha 9aa2d8c9→65d09112 inside the 08-07→08-10 boundary.
   best-known?:   yes — GUARD PRESERVED and tested: a file SWAP breaks linkage → still
-                 CRITICAL; a change with no in-window append → still CRITICAL; the
-                 genuine-same-lane-substitution guard test still passes; only
+                 CRITICAL; a change with no in-window append → still CRITICAL; a ledger that
+                 ADVANCED past the stamped `curr` sha → still CRITICAL (fails closed, review
+                 fix 2); the genuine-same-lane-substitution guard test still passes; only
                  `_ledger.jsonl` lanes are eligible (prod/calibrator/clf untouched). 47
                  pre-existing tests pass unchanged. Honest limitation (in the docstring):
-                 this proves "a valid scheduled append happened in-window", not a
-                 cryptographic B-extends-A binding — the prev run stamps only the file
-                 sha, not the tail `row_sha`; sufficient for never-submit shadow lanes, a
-                 stronger binding would stamp the tail row_sha upstream.
+                 legitimization is now bound to the stamped `curr` file sha, so it proves
+                 "the exact stamped-identity ledger had a valid scheduled append in-window",
+                 not a cryptographic B-extends-A tail binding — the prev run stamps only the
+                 file sha, not the tail `row_sha`; sufficient for never-submit shadow lanes,
+                 a stronger binding would stamp the tail row_sha upstream.
   scope:         "legitimizes a scheduled append-only-ledger refit on a shadow (never-
                  submit) lane so it stops false-alarming, WITHOUT weakening the silent-
                  swap guard for any lane. Touches no production, no order path, no
                  threshold. Source-repo; operator-gated deploy to -run brings it live."
 
-TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 53 passed (47 pre-existing +
-           6 new: refit legitimized, broken-linkage still fires, out-of-window still
-           fires, non-ledger lane ineligible, ledger-backed `added` stays CRITICAL,
-           `_ledger_append_explains` refuses `added`/`retired` lineup changes).
+TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 54 passed [VERIFIED — pytest,
+           this session] (47 pre-existing + 7 new: refit legitimized, broken-linkage still
+           fires, out-of-window still fires, non-ledger lane ineligible, ledger-backed
+           `added` stays CRITICAL, `_ledger_append_explains` refuses `added`/`retired`
+           lineup changes, ledger-advanced-after-run fails closed → CRITICAL).
 
 NEXT:      codex review → merge → -run sync (operator-gated) → the Saturday false CRITICAL
            stops while a genuine swap still fires. Deferred (optional hardening): stamp the
