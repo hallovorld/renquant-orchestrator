@@ -761,6 +761,39 @@ def _lane_events(change: LaneChange, window_events: list[PromoteEvent]) -> list[
 _LEDGER_SUFFIX = "_ledger.jsonl"
 
 
+def _ledger_extends_prev(raw: bytes, prev_sha: str | None) -> bool:
+    """Prove the current ledger is an APPEND of the previously stamped revision.
+
+    The ledger writer only ever opens the file in append mode and never rewrites
+    existing bytes (``renquant_model_momentum.ledger.append_chained_row``), so the
+    revision the prev run stamped is an exact byte-PREFIX of the current file,
+    ending at a row's terminating newline. Ancestry therefore holds iff some
+    newline-terminated STRICT prefix of the current bytes hashes to ``prev_sha``
+    (the file sha the prev run stamped for this lane).
+
+    Without this, a full-file REPLACEMENT at the same path — different rows, same
+    lane — would pass the curr-identity + link-intact + in-window checks and be
+    laundered as a scheduled append (codex #983 round 3). Requiring prev to be a
+    prefix distinguishes a genuine append from a replacement. Fail closed when
+    prev carries no usable digest (the ancestry cannot be proven).
+    """
+    if not prev_sha or prev_sha == _ABSENT:
+        return False
+    end = len(raw)
+    offset = 0
+    while True:
+        nl = raw.find(b"\n", offset)
+        if nl == -1:
+            break
+        prefix_end = nl + 1
+        if prefix_end < end:  # a STRICT prefix — a prior revision, never curr
+            prefix_sha = "sha256:" + hashlib.sha256(raw[:prefix_end]).hexdigest()
+            if _digest_matches(prev_sha, prefix_sha):
+                return True
+        offset = prefix_end
+    return False
+
+
 def _ledger_append_explains(
     change: LaneChange, boundary: Boundary
 ) -> tuple[bool, str | None]:
@@ -780,11 +813,14 @@ def _ledger_append_explains(
     Guard preserved: a file SWAP breaks linkage, and a change with no
     contemporaneous append is NOT legitimized — both still report CRITICAL.
 
-    Bound to the stamped identity: the on-disk ledger's current file sha must
-    equal ``change.curr.artifact_sha`` (the sha the curr run actually stamped).
-    If the ledger has ADVANCED since the run (a later append), the on-disk state
-    no longer proves this boundary's transition, so we fail closed rather than
-    read a legitimizing append that belongs to a different revision (codex #983).
+    Bound at BOTH ends of the transition (codex #983): the on-disk ledger's
+    current file sha must equal ``change.curr.artifact_sha`` (the sha the curr
+    run stamped), AND the sha the prev run stamped must be a byte-prefix of that
+    same append-only file — proving the current ledger EXTENDS the previous
+    stamped revision rather than replacing it in place at the same path. If the
+    ledger ADVANCED since the run (a later append) the curr bind fails; if the
+    boundary cannot prove prev is a prefix the ancestry bind fails; either way we
+    fail closed rather than launder a same-path replacement as a scheduled refit.
     Only lanes whose ``artifact_path`` ends with ``_ledger.jsonl`` are eligible —
     the prod and calibrator lanes (and non-ledger shadow lanes) are untouched.
 
@@ -829,6 +865,13 @@ def _ledger_append_explains(
         prev_sha = prev.get("row_sha")
         if not prev_sha or cur.get("prev_row_sha") != prev_sha:
             return False, None
+    # Ancestry: prove the current ledger EXTENDS the revision the prev run
+    # stamped — not a full-file replacement at the same path. The prev run's
+    # stamped file sha must be a byte-prefix of this append-only ledger, else
+    # fail closed so a same-path replacement is never laundered as a scheduled
+    # refit (codex #983 round 3).
+    if not _ledger_extends_prev(raw, change.prev.artifact_sha):
+        return False, None
     lo = boundary.prev_run.created_at
     hi = boundary.curr_run.created_at
     for row in rows:

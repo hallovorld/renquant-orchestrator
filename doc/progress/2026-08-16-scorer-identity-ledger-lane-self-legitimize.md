@@ -45,9 +45,25 @@ REVIEW FIX 2 (codex #983 round-2, 2026-08-16): `_ledger_append_explains` legitim
            matches the advanced on-disk ledger, so it stays CRITICAL (fails with the bind
            removed).
 
+REVIEW FIX 3 (codex #983 round-3, 2026-08-16): binding only the CURR side still let a
+           full-file REPLACEMENT at the same path masquerade as a scheduled append — set
+           `curr.artifact_sha` to the (replaced) on-disk bytes and `prev.artifact_sha` to any
+           unrelated digest and the change downgraded to `warn`, even though the current
+           ledger need not EXTEND the previously stamped revision. Fixed: bind the PREV side
+           too. New helper `_ledger_extends_prev(raw, prev_sha)` requires the sha the prev run
+           stamped to be a byte-PREFIX of the current append-only file — provable because the
+           writer only ever opens the ledger in append mode and never rewrites existing bytes
+           (`renquant_model_momentum.ledger.append_chained_row`), so a prior revision is an
+           exact byte-prefix of a later one. No prefix matches ⇒ ancestry unproven ⇒ fail
+           closed `(False, None)`. Regression coverage added (2 tests):
+           `test_ledger_full_file_replacement_at_same_path_still_fires` (the reviewer's exact
+           repro — curr-bound + link-intact + in-window but prev is no prefix → stays CRITICAL)
+           and `test_ledger_extends_prev_distinguishes_append_from_replacement` (the helper
+           accepts a genuine prefix, refuses unrelated/None/absent/full-file digests).
+
 EVIDENCE:
-  artifact:      `scorer_identity_monitor.py` (helper + explain_boundary step) +
-                 `tests/test_scorer_identity_monitor.py` (7 new tests) + this doc.
+  artifact:      `scorer_identity_monitor.py` (2 helpers + explain_boundary step) +
+                 `tests/test_scorer_identity_monitor.py` (9 new tests) + this doc.
   prod or exp:   neither — monitor logic + unit tests; no live/production write. The
                  monitor is observe-only (opens the DB read-only).
   existing data: [VERIFIED] the run bundle stamps the momentum lane path ABSOLUTE
@@ -59,25 +75,33 @@ EVIDENCE:
   best-known?:   yes — GUARD PRESERVED and tested: a file SWAP breaks linkage → still
                  CRITICAL; a change with no in-window append → still CRITICAL; a ledger that
                  ADVANCED past the stamped `curr` sha → still CRITICAL (fails closed, review
-                 fix 2); the genuine-same-lane-substitution guard test still passes; only
-                 `_ledger.jsonl` lanes are eligible (prod/calibrator/clf untouched). 47
-                 pre-existing tests pass unchanged. Honest limitation (in the docstring):
-                 legitimization is now bound to the stamped `curr` file sha, so it proves
-                 "the exact stamped-identity ledger had a valid scheduled append in-window",
-                 not a cryptographic B-extends-A tail binding — the prev run stamps only the
-                 file sha, not the tail `row_sha`; sufficient for never-submit shadow lanes,
-                 a stronger binding would stamp the tail row_sha upstream.
+                 fix 2); a full-file REPLACEMENT at the same path (prev is no byte-prefix of
+                 curr) → still CRITICAL (fails closed, review fix 3); the genuine-same-lane-
+                 substitution guard test still passes; only `_ledger.jsonl` lanes are eligible
+                 (prod/calibrator/clf untouched). 47 pre-existing tests pass unchanged.
+                 Binding is now at BOTH ends of the transition: curr = the stamped on-disk
+                 bytes, and prev = a byte-prefix of that same append-only file. Because the
+                 writer only ever appends (never rewrites existing bytes), a prefix match IS a
+                 cryptographic proof that the current ledger EXTENDS the previously stamped
+                 revision — the B-extends-A ancestry the round-3 review asked for, provable
+                 from the file sha the prev run already stamps (no upstream tail-row change
+                 required). A tail `row_sha` stamp upstream would remain a redundant belt-and-
+                 suspenders, no longer load-bearing.
   scope:         "legitimizes a scheduled append-only-ledger refit on a shadow (never-
                  submit) lane so it stops false-alarming, WITHOUT weakening the silent-
                  swap guard for any lane. Touches no production, no order path, no
                  threshold. Source-repo; operator-gated deploy to -run brings it live."
 
-TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 54 passed [VERIFIED — pytest,
-           this session] (47 pre-existing + 7 new: refit legitimized, broken-linkage still
+TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 56 passed [VERIFIED — pytest,
+           this session] (47 pre-existing + 9 new: refit legitimized, broken-linkage still
            fires, out-of-window still fires, non-ledger lane ineligible, ledger-backed
            `added` stays CRITICAL, `_ledger_append_explains` refuses `added`/`retired`
-           lineup changes, ledger-advanced-after-run fails closed → CRITICAL).
+           lineup changes, ledger-advanced-after-run fails closed → CRITICAL, same-path
+           full-file replacement fails closed → CRITICAL, ancestry helper accepts a prefix /
+           refuses unrelated·None·absent·full-file digests).
 
 NEXT:      codex review → merge → -run sync (operator-gated) → the Saturday false CRITICAL
-           stops while a genuine swap still fires. Deferred (optional hardening): stamp the
-           ledger tail row_sha in the run bundle for a cryptographic B-extends-A binding.
+           stops while a genuine swap (added/retired lane, broken linkage, out-of-window,
+           advanced-past-stamp, or same-path replacement) still fires. Ancestry is now proven
+           from the prev run's already-stamped file sha; the upstream tail-row stamp is
+           optional redundancy, not a prerequisite.

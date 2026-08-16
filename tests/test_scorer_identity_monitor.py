@@ -901,7 +901,12 @@ def test_genesis_receipt_explains_a_lane_addition():
 
 
 def _write_linked_ledger(path: Path, rows: list[dict]) -> None:
-    """Write an append-only ledger with valid prev_row_sha/row_sha linkage."""
+    """Write an append-only ledger with valid prev_row_sha/row_sha linkage.
+
+    Each row is terminated by a newline, exactly as the real append writer
+    (``append_chained_row``: ``open(path, "a")`` + ``... + "\\n"``) produces, so a
+    prior revision is an exact byte-PREFIX of a later one.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     linked = []
     prev_sha = None
@@ -911,12 +916,27 @@ def _write_linked_ledger(path: Path, rows: list[dict]) -> None:
         r["row_sha"] = f"row{i}"
         linked.append(r)
         prev_sha = r["row_sha"]
-    path.write_text("\n".join(json.dumps(r) for r in linked), encoding="utf-8")
+    path.write_text("".join(json.dumps(r) + "\n" for r in linked), encoding="utf-8")
 
 
 def _file_sha(path: Path) -> str:
     """The sha256 of a file's bytes, as the run bundle stamps it."""
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _prev_revision_sha(path: Path, n_rows: int = 1) -> str:
+    """The file sha a PRIOR run would have stamped for this append-only ledger:
+    the sha of the byte-prefix ending at the ``n_rows``-th row's terminating
+    newline. Since the ledger is byte-append-only, that prefix IS the earlier
+    revision the prev run stamped (used to prove append-ancestry, codex #983)."""
+    raw = path.read_bytes()
+    count = 0
+    for i, byte in enumerate(raw):
+        if byte == 0x0A:  # newline
+            count += 1
+            if count == n_rows:
+                return "sha256:" + hashlib.sha256(raw[: i + 1]).hexdigest()
+    raise AssertionError(f"ledger has fewer than {n_rows} newline-terminated rows")
 
 
 def _mom_run(run_id: str, day: str, sha: str, ledger_path: Path) -> sim.RunIdentity:
@@ -944,7 +964,9 @@ def test_ledger_backed_shadow_refit_is_not_a_silent_swap(tmp_path):
         {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
         {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
     ])
-    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    # prev stamped the 1-row revision (a genuine byte-prefix of the current
+    # ledger); the Saturday refit APPENDED row 2 → ancestry proven.
+    prev = _mom_run("r1", "2026-08-07", _prev_revision_sha(ledger), ledger)
     curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
 
     report = sim.evaluate([prev, curr], [])
@@ -978,7 +1000,9 @@ def test_ledger_append_outside_window_still_fires(tmp_path):
         {"appended_at_utc": "2026-07-01T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
         {"appended_at_utc": "2026-07-02T12:00:00Z", "artifact_content_sha256": "sha256:bbb"},  # before window
     ])
-    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    # prev is a genuine prefix (ancestry holds) so the ONLY reason this stays
+    # CRITICAL is the append landing OUTSIDE the boundary window.
+    prev = _mom_run("r1", "2026-08-07", _prev_revision_sha(ledger), ledger)
     curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
 
     report = sim.evaluate([prev, curr], [])
@@ -1094,3 +1118,43 @@ def test_ledger_append_refuses_lineup_membership_changes(tmp_path):
     )
     assert retired.lifecycle == "retired"
     assert sim._ledger_append_explains(retired, boundary) == (False, None)
+
+
+def test_ledger_full_file_replacement_at_same_path_still_fires(tmp_path):
+    """REGRESSION (codex #983 round 3): a link-intact, in-window ledger whose
+    on-disk bytes match the stamped `curr` sha is STILL a silent swap when the
+    prev run's stamped sha is NOT a byte-prefix of it — i.e. the same path was
+    REPLACED wholesale, not appended to. Ancestry cannot be proven, so it must
+    stay CRITICAL rather than be laundered as a scheduled refit."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    # curr correctly binds to the current on-disk bytes, but prev stamped an
+    # UNRELATED digest that is no prefix of this file — a same-path replacement.
+    prev = _mom_run("r1", "2026-08-07", "sha256:" + "1" * 64, ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+    assert any("silent scorer swap" in ln for ln in report["lines"])
+
+
+def test_ledger_extends_prev_distinguishes_append_from_replacement(tmp_path):
+    """The ancestry helper accepts only a byte-prefix predecessor (a genuine
+    append) and refuses an unrelated / absent digest (a replacement)."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},
+    ])
+    raw = ledger.read_bytes()
+    # the 1-row prefix the prev run would have stamped → append-ancestry holds
+    assert sim._ledger_extends_prev(raw, _prev_revision_sha(ledger)) is True
+    # an unrelated digest / no digest / the absent marker → no ancestry, fail closed
+    assert sim._ledger_extends_prev(raw, "sha256:" + "1" * 64) is False
+    assert sim._ledger_extends_prev(raw, None) is False
+    assert sim._ledger_extends_prev(raw, sim._ABSENT) is False
+    # the FULL-file sha is curr, not a strict prefix → not accepted as prev
+    assert sim._ledger_extends_prev(raw, _file_sha(ledger)) is False
