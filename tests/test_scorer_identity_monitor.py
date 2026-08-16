@@ -914,6 +914,11 @@ def _write_linked_ledger(path: Path, rows: list[dict]) -> None:
     path.write_text("\n".join(json.dumps(r) for r in linked), encoding="utf-8")
 
 
+def _file_sha(path: Path) -> str:
+    """The sha256 of a file's bytes, as the run bundle stamps it."""
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def _mom_run(run_id: str, day: str, sha: str, ledger_path: Path) -> sim.RunIdentity:
     """A run stamping ONE ledger-backed momentum shadow lane (artifact_path set
     to the absolute on-disk ledger, as the real run bundle stamps it)."""
@@ -940,7 +945,7 @@ def test_ledger_backed_shadow_refit_is_not_a_silent_swap(tmp_path):
         {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
     ])
     prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
-    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
 
     report = sim.evaluate([prev, curr], [])
 
@@ -958,7 +963,7 @@ def test_broken_ledger_linkage_still_fires(tmp_path):
     ]
     ledger.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
     prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
-    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
 
     report = sim.evaluate([prev, curr], [])
     assert report["status"] == sim.STATUS_CRITICAL
@@ -974,7 +979,26 @@ def test_ledger_append_outside_window_still_fires(tmp_path):
         {"appended_at_utc": "2026-07-02T12:00:00Z", "artifact_content_sha256": "sha256:bbb"},  # before window
     ])
     prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
-    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_ledger_advanced_after_run_fails_closed(tmp_path):
+    """GUARD (codex #983): if the on-disk ledger has ADVANCED since the run (its
+    current file sha != the stamped change.curr.artifact_sha), the boundary's
+    real transition is unproven — a LATER in-window append must NOT downgrade a
+    genuine unexplained change. Bind to the stamped sha → fail closed → CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    # curr recorded a sha that does NOT match the current on-disk ledger — i.e.
+    # the ledger advanced (a later append) after the run was stamped.
+    curr = _mom_run("r2", "2026-08-10", "sha256:deadbeef00000000", ledger)
 
     report = sim.evaluate([prev, curr], [])
     assert report["status"] == sim.STATUS_CRITICAL

@@ -780,12 +780,13 @@ def _ledger_append_explains(
     Guard preserved: a file SWAP breaks linkage, and a change with no
     contemporaneous append is NOT legitimized — both still report CRITICAL.
 
-    Scope: proves "a valid scheduled append happened in-window", NOT a
-    cryptographic B-extends-A binding (the prev run stamps only the file sha, not
-    the tail ``row_sha``); sufficient for never-submit shadow lanes, and a
-    stronger binding would stamp the tail ``row_sha`` upstream. Only lanes whose
-    ``artifact_path`` ends with ``_ledger.jsonl`` are eligible — the prod and
-    calibrator lanes (and non-ledger shadow lanes) are untouched.
+    Bound to the stamped identity: the on-disk ledger's current file sha must
+    equal ``change.curr.artifact_sha`` (the sha the curr run actually stamped).
+    If the ledger has ADVANCED since the run (a later append), the on-disk state
+    no longer proves this boundary's transition, so we fail closed rather than
+    read a legitimizing append that belongs to a different revision (codex #983).
+    Only lanes whose ``artifact_path`` ends with ``_ledger.jsonl`` are eligible —
+    the prod and calibrator lanes (and non-ledger shadow lanes) are untouched.
 
     Only an in-place same-lane file-sha swap (``change.lifecycle is None``) is
     eligible. A lane JOINING or LEAVING the lineup (``lifecycle`` "added" /
@@ -802,12 +803,23 @@ def _ledger_append_explains(
     if not path.is_absolute() or not path.exists():
         return False, None
     try:
+        raw = path.read_bytes()
+    except OSError:
+        return False, None
+    # Bind to the stamped identity: the ledger on disk must be the EXACT bytes
+    # the curr run stamped. If it advanced after the run, this boundary's real
+    # transition is unproven — fail closed (codex #983) so a genuine unexplained
+    # change is never downgraded because a LATER append happens to be in-window.
+    on_disk_sha = "sha256:" + hashlib.sha256(raw).hexdigest()
+    if not _digest_matches(change.curr.artifact_sha, on_disk_sha):
+        return False, None
+    try:
         rows = [
             json.loads(line)
-            for line in path.read_text().splitlines()
+            for line in raw.decode("utf-8").splitlines()
             if line.strip()
         ]
-    except (OSError, ValueError):
+    except (ValueError, UnicodeDecodeError):
         return False, None
     if not rows:
         return False, None
