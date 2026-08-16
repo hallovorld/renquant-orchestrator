@@ -758,6 +758,76 @@ def _lane_events(change: LaneChange, window_events: list[PromoteEvent]) -> list[
     ]
 
 
+_LEDGER_SUFFIX = "_ledger.jsonl"
+
+
+def _ledger_append_explains(
+    change: LaneChange, boundary: Boundary
+) -> tuple[bool, str | None]:
+    """Self-legitimize a shadow-lane change backed by an append-only ledger.
+
+    The momentum / momentum_fast shadow lanes are served from an append-only
+    hash-chained ledger (``*_ledger.jsonl``); their stamped "identity" is the
+    ledger FILE sha, which changes on EVERY scheduled weekly refit append even
+    though nothing was silently swapped. Such lanes carry no promotion receipt
+    (the weekly refit is scheduled, not promoted), so the receipt path reports
+    them unexplained forever — a standing false CRITICAL every Saturday.
+
+    The ledger IS the promote record for these never-submit lanes: legitimize the
+    change iff the on-disk ledger is LINK-INTACT (each row's ``prev_row_sha``
+    chains from the previous row's ``row_sha``) AND a row was appended within the
+    boundary window (``appended_at_utc`` between the two runs' ``created_at``).
+    Guard preserved: a file SWAP breaks linkage, and a change with no
+    contemporaneous append is NOT legitimized — both still report CRITICAL.
+
+    Scope: proves "a valid scheduled append happened in-window", NOT a
+    cryptographic B-extends-A binding (the prev run stamps only the file sha, not
+    the tail ``row_sha``); sufficient for never-submit shadow lanes, and a
+    stronger binding would stamp the tail ``row_sha`` upstream. Only lanes whose
+    ``artifact_path`` ends with ``_ledger.jsonl`` are eligible — the prod and
+    calibrator lanes (and non-ledger shadow lanes) are untouched.
+    """
+    path_str = (change.curr.artifact_path or "").strip()
+    if not path_str.endswith(_LEDGER_SUFFIX):
+        return False, None
+    path = Path(path_str)
+    if not path.is_absolute() or not path.exists():
+        return False, None
+    try:
+        rows = [
+            json.loads(line)
+            for line in path.read_text().splitlines()
+            if line.strip()
+        ]
+    except (OSError, ValueError):
+        return False, None
+    if not rows:
+        return False, None
+    # Append-only linkage: each row chains from the previous row's row_sha. A
+    # tamper/replacement that is not a clean append breaks this and is refused.
+    for prev, cur in zip(rows, rows[1:]):
+        prev_sha = prev.get("row_sha")
+        if not prev_sha or cur.get("prev_row_sha") != prev_sha:
+            return False, None
+    lo = boundary.prev_run.created_at
+    hi = boundary.curr_run.created_at
+    for row in rows:
+        stamp = row.get("appended_at_utc")
+        if not stamp:
+            continue
+        try:
+            ts = _parse_created_at(stamp)
+        except (TypeError, ValueError):
+            continue
+        if lo <= ts <= hi:
+            return True, (
+                "ledger-backed shadow lane: link-intact append at "
+                f"{stamp} within the boundary window (scheduled refit, "
+                "self-documented — no silent swap)"
+            )
+    return False, None
+
+
 def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
     """Mark each lane change explained/unexplained in place."""
     window = events_in_window(events, boundary.prev_run, boundary.curr_run)
@@ -766,6 +836,15 @@ def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
         if matched:
             change.explained = True
             change.events = matched
+    # Ledger-backed shadow lanes (append-only ``*_ledger.jsonl``) self-legitimize
+    # a scheduled refit append — they carry no promotion receipt by design.
+    for change in boundary.changes:
+        if change.explained:
+            continue
+        ledger_ok, ledger_note = _ledger_append_explains(change, boundary)
+        if ledger_ok:
+            change.explained = True
+            change.note = ledger_note
     # A recorded promotion swaps prod and shadow lanes atomically: an explained
     # prod change legitimizes same-boundary shadow (and calibrator) changes.
     prod_change = next((c for c in boundary.changes if c.lane == LANE_PROD), None)

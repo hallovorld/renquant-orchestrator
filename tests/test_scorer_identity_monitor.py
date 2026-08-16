@@ -895,3 +895,105 @@ def test_genesis_receipt_explains_a_lane_addition():
     # The converse never matches: the receipt names an artifact the lane lacked.
     assert sim._side_matches(sim._ABSENT, "sha256:" + "a" * 64) is False
     assert sim._side_matches("sha256:" + "a" * 64, None) is False
+
+
+# --- ledger-backed shadow lane self-legitimizes a scheduled refit append ------
+
+
+def _write_linked_ledger(path: Path, rows: list[dict]) -> None:
+    """Write an append-only ledger with valid prev_row_sha/row_sha linkage."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    linked = []
+    prev_sha = None
+    for i, row in enumerate(rows):
+        r = dict(row)
+        r["prev_row_sha"] = prev_sha
+        r["row_sha"] = f"row{i}"
+        linked.append(r)
+        prev_sha = r["row_sha"]
+    path.write_text("\n".join(json.dumps(r) for r in linked), encoding="utf-8")
+
+
+def _mom_run(run_id: str, day: str, sha: str, ledger_path: Path) -> sim.RunIdentity:
+    """A run stamping ONE ledger-backed momentum shadow lane (artifact_path set
+    to the absolute on-disk ledger, as the real run bundle stamps it)."""
+    name = f"shadow:{ledger_path}"
+    return sim.RunIdentity(
+        run_id=run_id,
+        run_date=day,
+        created_at=datetime.fromisoformat(f"{day}T12:00:00+00:00"),
+        lanes={
+            name: sim.LaneIdentity(
+                lane=name, artifact_sha=sha, artifact_path=str(ledger_path)
+            )
+        },
+        usable=True,
+    )
+
+
+def test_ledger_backed_shadow_refit_is_not_a_silent_swap(tmp_path):
+    """A scheduled weekly momentum refit appends a link-intact row within the
+    boundary window → the file-sha change is legitimized, NOT a silent swap."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+
+    report = sim.evaluate([prev, curr], [])
+
+    assert not any("silent scorer swap" in ln for ln in report["lines"])
+    assert report["status"] != sim.STATUS_CRITICAL
+
+
+def test_broken_ledger_linkage_still_fires(tmp_path):
+    """GUARD: a file swap that breaks the append-only linkage is NOT legitimized."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "row_sha": "r0", "prev_row_sha": None},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "row_sha": "r1", "prev_row_sha": "TAMPERED"},
+    ]
+    ledger.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+    assert any("silent scorer swap" in ln for ln in report["lines"])
+
+
+def test_ledger_append_outside_window_still_fires(tmp_path):
+    """GUARD: a link-intact ledger with NO append inside the boundary window is
+    not legitimized (the change is not tied to a contemporaneous refit)."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-07-01T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-07-02T12:00:00Z", "artifact_content_sha256": "sha256:bbb"},  # before window
+    ])
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    curr = _mom_run("r2", "2026-08-10", "sha256:65d09112", ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_non_ledger_shadow_lane_unaffected_by_ledger_path(tmp_path):
+    """A non-ledger shadow lane (e.g. clf .json) is NOT eligible for ledger
+    legitimization — it still needs a receipt, unchanged."""
+    change = sim.LaneChange(
+        lane=_CLF,
+        prev=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:1e644354",
+                              artifact_path="/abs/artifacts/shadow/panel-clf.top-decile.fwd60.json"),
+        curr=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:deadbeef",
+                              artifact_path="/abs/artifacts/shadow/panel-clf.top-decile.fwd60.json"),
+    )
+    boundary = sim.Boundary(
+        prev_run=_mom_run("r1", "2026-08-07", "x", tmp_path / "unused_ledger.jsonl"),
+        curr_run=_mom_run("r2", "2026-08-10", "y", tmp_path / "unused_ledger.jsonl"),
+        changes=[change],
+    )
+    ok, note = sim._ledger_append_explains(change, boundary)
+    assert ok is False and note is None
