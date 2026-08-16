@@ -997,3 +997,76 @@ def test_non_ledger_shadow_lane_unaffected_by_ledger_path(tmp_path):
     )
     ok, note = sim._ledger_append_explains(change, boundary)
     assert ok is False and note is None
+
+
+def test_ledger_backed_ADDED_lane_stays_critical(tmp_path):
+    """REGRESSION (codex #983 review): a lane JOINING the lineup is a membership
+    change, NOT an in-place scheduled refit of an existing lane. Even a valid,
+    in-window, link-intact ledger must not self-legitimize the addition — the
+    monitor exists to shout exactly this lineup change, so it stays CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    name = f"shadow:{ledger}"
+    prev = _shadow_run("r1", "2026-08-07", {_CLF: "sha256:1e644354"})  # no momentum lane yet
+    curr = sim.RunIdentity(
+        run_id="r2",
+        run_date="2026-08-10",
+        created_at=datetime.fromisoformat("2026-08-10T12:00:00+00:00"),
+        lanes={
+            _CLF: sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:1e644354"),
+            name: sim.LaneIdentity(
+                lane=name, artifact_sha="sha256:65d09112", artifact_path=str(ledger)
+            ),
+        },
+        usable=True,
+    )
+
+    report = sim.evaluate([prev, curr], [])
+
+    added = [ln for ln in report["lines"] if str(ledger) in ln]
+    assert len(added) == 1
+    assert "shadow lane added" in added[0]
+    assert "explained by" not in added[0]
+    assert added[0].startswith("CRITICAL:")
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_ledger_append_refuses_lineup_membership_changes(tmp_path):
+    """GUARD: `_ledger_append_explains` only legitimizes an in-place same-lane
+    swap (``lifecycle is None``). An added/retired lane is refused even with a
+    valid in-window ledger, so the lifecycle gate — not a missing/invalid file —
+    is what keeps the change CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    name = f"shadow:{ledger}"
+    boundary = sim.Boundary(
+        prev_run=_mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger),
+        curr_run=_mom_run("r2", "2026-08-10", "sha256:65d09112", ledger),
+        changes=[],
+    )
+
+    added = sim.LaneChange(
+        lane=name,
+        prev=sim.LaneIdentity(lane=name, artifact_sha=sim._ABSENT),
+        curr=sim.LaneIdentity(
+            lane=name, artifact_sha="sha256:65d09112", artifact_path=str(ledger)
+        ),
+    )
+    assert added.lifecycle == "added"
+    assert sim._ledger_append_explains(added, boundary) == (False, None)
+
+    retired = sim.LaneChange(
+        lane=name,
+        prev=sim.LaneIdentity(
+            lane=name, artifact_sha="sha256:9aa2d8c9", artifact_path=str(ledger)
+        ),
+        curr=sim.LaneIdentity(lane=name, artifact_sha=sim._ABSENT, artifact_path=str(ledger)),
+    )
+    assert retired.lifecycle == "retired"
+    assert sim._ledger_append_explains(retired, boundary) == (False, None)

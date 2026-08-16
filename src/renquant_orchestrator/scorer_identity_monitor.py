@@ -786,7 +786,15 @@ def _ledger_append_explains(
     stronger binding would stamp the tail ``row_sha`` upstream. Only lanes whose
     ``artifact_path`` ends with ``_ledger.jsonl`` are eligible — the prod and
     calibrator lanes (and non-ledger shadow lanes) are untouched.
+
+    Only an in-place same-lane file-sha swap (``change.lifecycle is None``) is
+    eligible. A lane JOINING or LEAVING the lineup (``lifecycle`` "added" /
+    "retired") is a membership change, not a scheduled refit of an existing
+    lane — self-legitimizing it would silence exactly the CRITICAL event this
+    monitor exists to raise, so those stay unexplained here.
     """
+    if change.lifecycle is not None:
+        return False, None
     path_str = (change.curr.artifact_path or "").strip()
     if not path_str.endswith(_LEDGER_SUFFIX):
         return False, None

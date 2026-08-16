@@ -21,9 +21,21 @@ WHY/DIR:   The momentum/momentum_fast shadow lanes are append-only ledgers; thei
            08-22…). The PRODUCTION scorer never changed (forensic: panel 6461b827,
            calibrator bce257d19a3d, trained 2026-08-02 byte-identical 08-07/10/14).
 
+REVIEW FIX (codex #983, 2026-08-16): the shortcut also blessed a lineup MEMBERSHIP
+           change (a lane `added`/`retired`) as an in-place refit — a lane joining the
+           lineup with a valid in-window ledger returned `explained=True` and downgraded
+           to `warn`, silencing exactly the CRITICAL event the monitor exists for. Fixed:
+           `_ledger_append_explains` now returns early `(False, None)` unless
+           `change.lifecycle is None` (an in-place same-lane file-sha swap). Only an
+           existing lane's scheduled refit self-legitimizes; added/retired stay CRITICAL.
+           Regression coverage added (2 tests): an evaluate-level ledger-backed `added`
+           lane stays CRITICAL, and `_ledger_append_explains` refuses both `added` and
+           `retired` even with a valid in-window ledger (the lifecycle gate, not a missing
+           file, is what blocks it — both fail with the gate removed).
+
 EVIDENCE:
   artifact:      `scorer_identity_monitor.py` (helper + explain_boundary step) +
-                 `tests/test_scorer_identity_monitor.py` (4 new tests) + this doc.
+                 `tests/test_scorer_identity_monitor.py` (6 new tests) + this doc.
   prod or exp:   neither — monitor logic + unit tests; no live/production write. The
                  monitor is observe-only (opens the DB read-only).
   existing data: [VERIFIED] the run bundle stamps the momentum lane path ABSOLUTE
@@ -46,9 +58,10 @@ EVIDENCE:
                  swap guard for any lane. Touches no production, no order path, no
                  threshold. Source-repo; operator-gated deploy to -run brings it live."
 
-TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 51 passed (47 pre-existing +
-           4 new: refit legitimized, broken-linkage still fires, out-of-window still
-           fires, non-ledger lane ineligible).
+TESTS:     `pytest tests/test_scorer_identity_monitor.py` → 53 passed (47 pre-existing +
+           6 new: refit legitimized, broken-linkage still fires, out-of-window still
+           fires, non-ledger lane ineligible, ledger-backed `added` stays CRITICAL,
+           `_ledger_append_explains` refuses `added`/`retired` lineup changes).
 
 NEXT:      codex review → merge → -run sync (operator-gated) → the Saturday false CRITICAL
            stops while a genuine swap still fires. Deferred (optional hardening): stamp the
