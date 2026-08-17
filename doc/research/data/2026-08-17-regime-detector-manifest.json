@@ -58,15 +58,19 @@
   },
   "phase_a_forward_returns": {
    "path": "renquant-orchestrator:experiments/phase_a_data/forward_returns.csv",
-   "sha256": "96094d29481543c748d58aa9709654de0e6bd134bb1f01ddac33cc5d1bd9c972",
    "committed": false,
-   "note": "local extraction corpus, not in git"
+   "present_at_run": false,
+   "sha256_pin": "96094d29481543c748d58aa9709654de0e6bd134bb1f01ddac33cc5d1bd9c972",
+   "pin_recorded": "2026-08-17 full run (corpus present)",
+   "note": "local extraction corpus, not in git; absent at this run \u2014 identity pin recorded at the corpus-present full run"
   },
   "phase_a_xgb_scores": {
    "dir": "renquant-orchestrator:experiments/phase_a_data/xgb",
-   "n_files": 230,
-   "sha256_aggregate": "d37f9633d74b186eaa700deb53394485a0fc427db90c96e8d5599777b0272bbf",
-   "committed": false
+   "committed": false,
+   "present_at_run": false,
+   "n_files_pin": 230,
+   "sha256_aggregate_pin": "d37f9633d74b186eaa700deb53394485a0fc427db90c96e8d5599777b0272bbf",
+   "pin_recorded": "2026-08-17 full run (corpus present)"
   },
   "vixcls_parquet": {
    "path": "RenQuant:data/fred/VIXCLS.parquet",

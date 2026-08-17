@@ -13,6 +13,12 @@ only COMMITTED inputs:
      for. Checked at source level so the test needs no heavy runtime deps.
   3. The Hurst white-noise null (P1) re-derives when the umbrella kernel is
      importable; skipped (not failed) on focused checkouts without it.
+  4. (Round 3) The replication script's phase-A consumers are guarded the same
+     way — the P6 split skips when part 2 ran without the corpus, and the
+     manifest records the corpus identity pin instead of hashing absent files.
+  5. (Round 3) The committed JSON artifacts embed no machine-local absolute
+     paths — the script itself emits `<repo>:<relpath>` ids, so the committed
+     outputs regenerate from the committed code.
 """
 from __future__ import annotations
 
@@ -25,6 +31,9 @@ REPO = Path(__file__).resolve().parents[1]
 DATA = REPO / "doc" / "research" / "data"
 POSTERIORS_CSV = DATA / "2026-08-08-regime-posteriors.csv"
 DERIVATION_SCRIPT = DATA / "2026-08-17-regime-detector-posteriors-ic.py"
+REPLICATION_SCRIPT = DATA / "2026-08-17-regime-detector-replication.py"
+REPLICATION_JSON = DATA / "2026-08-17-regime-detector-replication.json"
+MANIFEST_JSON = DATA / "2026-08-17-regime-detector-manifest.json"
 
 
 def test_prereg_plane_counts_regenerate_from_committed_snapshot():
@@ -59,6 +68,39 @@ def test_phase_a_section_is_guarded_not_load_bearing():
     assert src.index('forward_returns.csv").exists()') < src.index(
         'pd.read_csv(PA / "forward_returns.csv")'
     ), "guard appears after the corpus read — fail-open ordering"
+
+
+def test_replication_phase_a_sections_are_guarded():
+    """Round 3 (Codex): part 3's phase-A consumers must be guarded too — on a
+    clean checkout the P6 split skips (after a corpus-absent part-2 re-run)
+    and the manifest records the corpus identity pin instead of crashing on a
+    hash of absent files. Source-level, like the part-2 guard test above."""
+    src = REPLICATION_SCRIPT.read_text(encoding="utf-8")
+    # P6 split: presence check on part 2's output before any read of it.
+    assert '"ic_daily" not in' in src, "P6 guard missing"
+    assert src.index('"ic_daily" not in') < src.index('pa_ic["ic_daily"]'), (
+        "P6 guard appears after the phase-A read — fail-open ordering"
+    )
+    # Manifest: corpus existence check strictly before hashing the corpus.
+    assert "pa_fr.exists()" in src, "manifest corpus guard missing"
+    assert src.index("pa_fr.exists()") < src.index("sha(pa_fr)"), (
+        "corpus hashed before the existence guard — fail-open ordering"
+    )
+    # The corpus-absent branch records the recorded identity pins.
+    assert "PA_FR_SHA256_PIN" in src and '"sha256_pin"' in src, (
+        "corpus-absent branch drops the identity pin"
+    )
+
+
+def test_committed_result_jsons_embed_no_machine_local_paths():
+    """The committed JSON artifacts must be machine-independent: every path in
+    them is a `<repo>:<relpath>` id emitted by the script itself (round 3 —
+    previously the JSONs were normalized but the script emitted absolute
+    paths, so the committed outputs could not regenerate from committed code)."""
+    for path in (REPLICATION_JSON, MANIFEST_JSON):
+        text = path.read_text(encoding="utf-8")
+        for marker in ("/Users/", "/home/", "/private/tmp"):
+            assert marker not in text, f"{path.name} embeds {marker}"
 
 
 def test_hurst_white_noise_null_reproduces_when_kernel_available():

@@ -85,9 +85,14 @@ lag_vs_peak_td 37, decline_coverage 0.094]`).
 These two observations depend on a **local, uncommitted** phase-A extraction corpus
 (`experiments/phase_a_data`; path + sha256 pinned in `MF:` for identity, not
 reproducibility). Per Codex review 2026-08-17 they are demoted to exploratory: no ranked
-item's decision basis rests on them, and the derivation script's phase-A section skips
-cleanly on a checkout without the corpus (`PHASE_A_DIR` absent → reproducible core still
-runs; `phase_a_ic.skipped = true`).
+item's decision basis rests on them, and BOTH phase-A consumers skip cleanly on a
+checkout without the corpus (`PHASE_A_DIR` absent → part 2 writes
+`phase_a_ic.skipped = true`; part 3 skips the P6 split after a corpus-absent part-2
+re-run and records the corpus identity pin in `MF:` instead of hashing absent files).
+Part 3 run directly against part 2's committed corpus-present output reproduces E1;
+the committed `R:`/`MF:` JSONs were regenerated from a corpus-absent clean worktree
+(replication JSON byte-identical; manifest phase-A entries in pin form,
+`present_at_run = false`).
 
 - **E1 (was in P6):** within the phase-A window, BEAR-day IC 0.575 in drawdown-validated
   episodes (n=37 days) vs 0.032 in outside-drawdown episodes (n=1 day — indicative only)
@@ -184,9 +189,12 @@ Committed, deterministic, read-only derivation scripts (run in order; ~4 min tot
   value-for-value (0 diffs across all keys of the measurements JSON).
 - `MF:` (the manifest) records every source path + sha256 (SPY parquet whole-file and
   clamped-slice, strategy config, GMM artifact, served panel artifact, 08-08 posterior
-  snapshot, phase-A corpus, VIXCLS), date bounds, detector params, code-repo git heads,
-  the Hurst-null seeds, and the bear-dating / hysteresis / episode / prereg-plane
-  algorithms.
+  snapshot, VIXCLS — and the phase-A corpus as an identity PIN, hashed live and checked
+  against the pin only when the corpus is present, `present_at_run` marking which),
+  date bounds, detector params, code-repo git heads, the Hurst-null seeds, and the
+  bear-dating / hysteresis / episode / prereg-plane algorithms. All emitted paths are
+  normalized by the script itself to `<repo>:<relpath>` ids, so the committed JSONs
+  regenerate from the committed code.
 - Intermediate series are committed as CSV:
   `2026-08-17-regime-detector-label-series.csv` (serving/research/legacy labels,
   confidence, transition flag) and `2026-08-17-regime-detector-posterior-series.csv`

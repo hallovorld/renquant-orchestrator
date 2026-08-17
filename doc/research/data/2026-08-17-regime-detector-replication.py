@@ -5,6 +5,16 @@ Read-only derivation script for doc/research/2026-08-17-regime-detector-assessme
 Run parts 1 and 2 first (this reads their CSV/JSON outputs). Deterministic:
 the only RNG (the Hurst white-noise null) uses the fixed seeds below.
 
+Phase-A-dependent pieces are GUARDED (exploratory E1 only, not part of the
+reproducible core): on a checkout without the local corpus
+(experiments/phase_a_data), the P6 bear_ic_split is computed from part 2's
+committed output when available and skipped otherwise, and the manifest
+records the corpus identity PIN (sha256 recorded at the 2026-08-17 full run)
+instead of hashing absent files — so the reproducible core runs end-to-end
+on a clean checkout. All paths emitted into the JSON outputs are normalized
+to stable `<repo>:<relpath>` ids (the outputs are committed; machine-local
+absolute paths must not leak into them).
+
 Checks (each is a memo claim keyed by the memo's pathology numbers):
   hurst_null          P1 — kernel compute_hurst on 63-day iid N(0,1) draws;
                       share of draws with H>0.65 (two independent seeds)
@@ -56,6 +66,29 @@ COMMON = Path(os.environ.get("RQ_COMMON_SRC",
 R104 = RQ / "backtesting" / "renquant_104"
 PA = Path(os.environ.get("PHASE_A_DIR", str(REPO / "experiments" / "phase_a_data")))
 sys.path.insert(0, str(R104))
+
+
+def rel(p: Path) -> str:
+    """Stable `<repo>:<relpath>` id for a machine-local path. The JSON outputs
+    are committed, so absolute paths must not leak into them."""
+    for root, name in ((REPO, "renquant-orchestrator"), (RQ, "RenQuant"),
+                       (COMMON.parent, "renquant-common")):
+        try:
+            return f"{name}:{Path(p).relative_to(root)}"
+        except ValueError:
+            continue
+    return str(p)
+
+
+# Identity pins for the LOCAL, uncommitted phase-A corpus (exploratory E1 only —
+# not part of the reproducible core). Recorded at the 2026-08-17 corpus-present
+# full run; when the corpus is present the live hashes are checked against them.
+PA_FR_SHA256_PIN = \
+    "96094d29481543c748d58aa9709654de0e6bd134bb1f01ddac33cc5d1bd9c972"
+PA_XGB_N_FILES_PIN = 230
+PA_XGB_AGG_SHA256_PIN = \
+    "d37f9633d74b186eaa700deb53394485a0fc427db90c96e8d5599777b0272bbf"
+PIN_RECORDED = "2026-08-17 full run (corpus present)"
 
 from kernel.regime import compute_hurst  # noqa: E402
 
@@ -170,7 +203,7 @@ gm = art["metadata"]["wf_gate_metadata"]
 regimes = gm["sanity_regime_ic"]["regimes"]
 win = lbl.loc[gm["sanity_eval_start"]:gm["sanity_eval_end"], "S"].value_counts()
 wf_replay_counts = {
-    "artifact": str(ART),
+    "artifact": rel(ART),
     "sanity_window": [gm["sanity_eval_start"], gm["sanity_eval_end"]],
     "artifact_n_dates": {k: v["n_dates"] for k, v in regimes.items()},
     "replica_counts": {k: int(v) for k, v in win.items()},
@@ -201,27 +234,40 @@ recovery_days = {
 }
 
 # ── P6: phase-A BEAR-day IC, validated vs false-alarm serving episodes ───────
-ic = pd.DataFrame(pic["phase_a_ic"]["ic_daily"])
-ic["date"] = pd.to_datetime(ic["date"])
-bear_ic = ic[ic["S"] == "BEAR"].set_index("date")
-fa_windows = [(pd.Timestamp(x["start"]), pd.Timestamp(x["end"]))
-              for x in meas["false_alarms_S_vs_10pct"]]
-in_fa = bear_ic.index.map(lambda d: any(lo <= d <= hi for lo, hi in fa_windows))
-bear_ic_split = {
-    "definition": "phase-A BEAR days split by serving-episode validation: a day "
-                  "is 'false-alarm' when its BEAR episode lies entirely outside "
-                  "every mechanical -10% drawdown window (M:false_alarms_S_vs_10pct)",
-    "n_days_validated_episodes": int((~in_fa.values).sum()),
-    "n_days_false_alarm_episodes": int(in_fa.values.sum()),
-    "mean_ic_validated": round(float(bear_ic.loc[~in_fa.values, "ic"].mean()), 3),
-    "mean_ic_false_alarm": (round(float(bear_ic.loc[in_fa.values, "ic"].mean()), 3)
-                            if in_fa.values.any() else None),
-}
+# Exploratory E1 (memo): phase-A-dependent. Guarded — after a clean-checkout
+# re-run of part 2 (phase_a_ic.skipped=true) this check skips instead of
+# crashing; against part 2's committed corpus-present output it reproduces E1.
+pa_ic = pic.get("phase_a_ic", {})
+if "ic_daily" not in pa_ic:
+    bear_ic_split = {
+        "skipped": True,
+        "reason": "phase-A corpus output unavailable (part 2 ran without "
+                  "experiments/phase_a_data) — exploratory E1 only, not part "
+                  "of the reproducible core",
+    }
+else:
+    ic = pd.DataFrame(pa_ic["ic_daily"])
+    ic["date"] = pd.to_datetime(ic["date"])
+    bear_ic = ic[ic["S"] == "BEAR"].set_index("date")
+    fa_windows = [(pd.Timestamp(x["start"]), pd.Timestamp(x["end"]))
+                  for x in meas["false_alarms_S_vs_10pct"]]
+    in_fa = bear_ic.index.map(
+        lambda d: any(lo <= d <= hi for lo, hi in fa_windows))
+    bear_ic_split = {
+        "definition": "phase-A BEAR days split by serving-episode validation: a day "
+                      "is 'false-alarm' when its BEAR episode lies entirely outside "
+                      "every mechanical -10% drawdown window (M:false_alarms_S_vs_10pct)",
+        "n_days_validated_episodes": int((~in_fa.values).sum()),
+        "n_days_false_alarm_episodes": int(in_fa.values.sum()),
+        "mean_ic_validated": round(float(bear_ic.loc[~in_fa.values, "ic"].mean()), 3),
+        "mean_ic_false_alarm": (round(float(bear_ic.loc[in_fa.values, "ic"].mean()), 3)
+                                if in_fa.values.any() else None),
+    }
 
 # ── as-built: GMM artifact + VIXCLS staleness ────────────────────────────────
 gmm_art_path = R104 / "artifacts" / "prod" / "spy-gmm-regime.json"
 g = json.load(open(gmm_art_path))
-gmm_artifact = {"path": str(gmm_art_path), "as_of_date": g["as_of_date"],
+gmm_artifact = {"path": rel(gmm_art_path), "as_of_date": g["as_of_date"],
                 "trained_date": g["trained_date"],
                 "cluster_labels": g["cluster_labels"],
                 "has_choppy_cluster": "CHOPPY" in g["cluster_labels"]}
@@ -229,7 +275,7 @@ gmm_artifact = {"path": str(gmm_art_path), "as_of_date": g["as_of_date"],
 vix_path = RQ / "data" / "fred" / "VIXCLS.parquet"
 vix = pd.read_parquet(vix_path)
 vix_last = pd.Timestamp(vix.index[-1])
-vixcls_staleness = {"path": str(vix_path), "last_row": str(vix_last.date()),
+vixcls_staleness = {"path": rel(vix_path), "last_row": str(vix_last.date()),
                     "memo_date": str(MEMO_DATE.date()),
                     "calendar_days_stale": int((MEMO_DATE - vix_last).days)}
 
@@ -266,12 +312,42 @@ spy_clamped = spy.loc[:END_DATE]
 clamped_hash = hashlib.sha256(
     spy_clamped.to_csv(float_format="%.10g").encode()).hexdigest()
 
+# Phase-A corpus identity: hash live when present (and check against the
+# recorded pins); on a clean checkout record the pins instead of crashing.
 pa_fr = PA / "forward_returns.csv"
-xgb_files = sorted((PA / "xgb").glob("*.json"))
-xgb_agg = hashlib.sha256()
-for f in xgb_files:
-    xgb_agg.update(f.name.encode())
-    xgb_agg.update(f.read_bytes())
+if pa_fr.exists():
+    fr_sha = sha(pa_fr)
+    xgb_files = sorted((PA / "xgb").glob("*.json"))
+    xgb_agg = hashlib.sha256()
+    for f in xgb_files:
+        xgb_agg.update(f.name.encode())
+        xgb_agg.update(f.read_bytes())
+    phase_a_sources = {
+        "phase_a_forward_returns": {
+            "path": rel(pa_fr), "sha256": fr_sha,
+            "matches_pin": fr_sha == PA_FR_SHA256_PIN,
+            "committed": False, "present_at_run": True,
+            "note": "local extraction corpus, not in git"},
+        "phase_a_xgb_scores": {
+            "dir": rel(PA / "xgb"), "n_files": len(xgb_files),
+            "sha256_aggregate": xgb_agg.hexdigest(),
+            "matches_pin": (len(xgb_files) == PA_XGB_N_FILES_PIN
+                            and xgb_agg.hexdigest() == PA_XGB_AGG_SHA256_PIN),
+            "committed": False, "present_at_run": True},
+    }
+else:
+    phase_a_sources = {
+        "phase_a_forward_returns": {
+            "path": rel(pa_fr), "committed": False, "present_at_run": False,
+            "sha256_pin": PA_FR_SHA256_PIN, "pin_recorded": PIN_RECORDED,
+            "note": "local extraction corpus, not in git; absent at this run "
+                    "— identity pin recorded at the corpus-present full run"},
+        "phase_a_xgb_scores": {
+            "dir": rel(PA / "xgb"), "committed": False, "present_at_run": False,
+            "n_files_pin": PA_XGB_N_FILES_PIN,
+            "sha256_aggregate_pin": PA_XGB_AGG_SHA256_PIN,
+            "pin_recorded": PIN_RECORDED},
+    }
 
 config = json.load(open(R104 / "strategy_config.json"))
 manifest = {
@@ -292,25 +368,20 @@ manifest = {
         "wf_sanity_window": wf_replay_counts["sanity_window"],
     },
     "sources": {
-        "spy_1d_parquet": {"path": str(spy_path), "sha256_at_run": sha(spy_path),
+        "spy_1d_parquet": {"path": rel(spy_path), "sha256_at_run": sha(spy_path),
                            "rows_at_run": int(len(spy)),
                            "last_row_at_run": str(spy.index[-1].date()),
                            "sha256_clamped_slice_csv": clamped_hash,
                            "rows_clamped": int(len(spy_clamped))},
-        "strategy_config": {"path": str(R104 / "strategy_config.json"),
+        "strategy_config": {"path": rel(R104 / "strategy_config.json"),
                             "sha256": sha(R104 / "strategy_config.json")},
-        "gmm_artifact": {"path": str(gmm_art_path), "sha256": sha(gmm_art_path),
+        "gmm_artifact": {"path": rel(gmm_art_path), "sha256": sha(gmm_art_path),
                          "as_of_date": g["as_of_date"]},
-        "served_panel_artifact": {"path": str(ART), "sha256": sha(ART)},
+        "served_panel_artifact": {"path": rel(ART), "sha256": sha(ART)},
         "posterior_snapshot_csv": {"path": str(SNAP.relative_to(REPO)),
                                    "sha256": sha(SNAP), "committed": True},
-        "phase_a_forward_returns": {"path": str(pa_fr), "sha256": sha(pa_fr),
-                                    "committed": False,
-                                    "note": "local extraction corpus, not in git"},
-        "phase_a_xgb_scores": {"dir": str(PA / "xgb"), "n_files": len(xgb_files),
-                               "sha256_aggregate": xgb_agg.hexdigest(),
-                               "committed": False},
-        "vixcls_parquet": {"path": str(vix_path), "sha256": sha(vix_path),
+        **phase_a_sources,
+        "vixcls_parquet": {"path": rel(vix_path), "sha256": sha(vix_path),
                            "last_row": str(vix_last.date())},
     },
     "code_versions": {
