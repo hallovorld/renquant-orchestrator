@@ -10,12 +10,20 @@ WHAT:      Commit `doc/design/2026-08-17-gi-moe-sector-regime-routing.md`: the f
            candidates at zero new data/architecture cost), the strategy-facing alias
            registry, the momentum-path qualification pipeline with an
            incremental-information gate, the frozen §5b cell-assignment decision rule
-           (estimand + pinned champion comparator, coverage minima, Holm FWER ≤ 5%
-           across the candidate×cell family, ΔIC ≥ +0.02 minimum effect, no-decision
-           ⇒ champion, two-stage assignment/confirmation separation, demotion
-           ratchet, honest downside guarantee — added on codex review 2026-08-17),
-           serving via the existing blend/regime_router composition machinery,
-           measurable AC1–AC6, and an explicit honesty ledger.
+           (candidate-manifest freeze BEFORE any corpus scoring; estimand + pinned
+           champion comparator; coverage minima; Holm FWER ≤ 5% over the FULL
+           frozen-manifest × cell family, screen failures included — codex review
+           2026-08-17 round 3; ΔIC ≥ +0.02 minimum effect; no-decision ⇒ champion;
+           Stage-A assignment + Stage-B operational fail-safe (NOT statistical
+           confirmation); demotion ratchet; honest downside guarantee), serving via
+           the existing blend/regime_router composition machinery, measurable
+           AC1–AC6, an explicit honesty ledger, and a visible §10 Corrections
+           section (LONG row 10): the sample-geometry episode counts were
+           re-measured in-session and the earlier 17/8/5/3 estimate did not
+           reproduce — realistic v1 Stage-A outcome corrected to all-champion
+           (m = 2 blocks at the fwd-60d horizon under the frozen gap-merge rule,
+           below the frozen m ≥ 10 floor; rule-and-occupancy joint, per §3's
+           Sensitivity note).
 
 WHY/DIR:   Operator-directed 2026-08-17 ("自己set goal和loop来drive这个moe模型！设计
            要发pr被approve之后再开始impl"), consolidating the 08-13..08-17 decisions:
@@ -25,27 +33,47 @@ WHY/DIR:   Operator-directed 2026-08-17 ("自己set goal和loop来drive这个moe
            bar (simple sort + walked our kill path). The bar is NOT a t-threshold:
            an earlier draft cited transfer t≈3.17, which is the iid figure; the
            dependence-adjusted one is +0.71
-           `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`.
+           `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`;
+           the later 278-date purged re-run reports ADJUSTED t = +3.17
+           `[VERIFIED — prior work, doc/research/2026-08-08-moe-s10-confirmatory-kill.md]`
+           — machinery validated at depth, still not an admission bar.
 
 EVIDENCE:
   artifact:      `doc/design/2026-08-17-gi-moe-sector-regime-routing.md` + this doc.
                  No code, no config, no production/live path.
   prod or exp:   neither — design only; no computation run, no live change.
-  existing data: [VERIFIED/DERIVED] the 2026-08-13 sample-geometry groundwork — regime
-                 episodes over the 125-fold WF set (BULL_VOLATILE 17 / BEAR 8 / CHOPPY 5
-                 / BULL_CALM 3; fold-granularity caveat stated) → 33/44 cells
-                 pre-emptively hard-wired; 11 GICS sectors from data/ticker_sectors.json
-                 (304 tickers). [VERIFIED] blend + regime_router are registered
-                 inference-only composition kinds in the pipeline model registry; the
-                 momentum ledger emitter (weekly, hash-chained) is the live pattern the
-                 candidate emitters clone — its home is the model factory
-                 (`renquant-model` `src/renquant_model_momentum/{train,ledger}.py`
+  existing data: sample geometry re-measured in-session this fix round `[VERIFIED —
+                 kernel.hmm_regime_labels.compute_hmm_regime_labels(
+                 data/ohlcv/SPY/1d.parquet), window 2019-01-14..2026-03-02, 1,792
+                 trading days]`: BULL_VOLATILE 1,399 days / 80 raw day-level
+                 episodes / m = 2 blocks after the §5b <60-calendar-day gap-merge;
+                 BEAR 260/53/12; CHOPPY 63/28/13; BULL_CALM 70/9/6. The earlier
+                 "17/8/5/3 episodes at ~3-week fold granularity" (uncommitted 08-13
+                 session estimate) did NOT reproduce and is corrected visibly in
+                 the design's §10; m = 2 is a joint property of the frozen merge
+                 rule + 78% day-occupancy (§3 Sensitivity note). 33/44 cells
+                 pre-emptively hard-wired `[DERIVED — 44 − 11 BULL_VOLATILE
+                 cells]`; on measured geometry the realistic Stage-A outcome is
+                 all-champion (m = 2 < 10). 11 GICS sectors / 304 tickers
+                 `[VERIFIED — python read of data/ticker_sectors.json,
+                 2026-08-17]`. Corpus span 2019-01-14..2026-03-02 = the 125-window
+                 WF lineage cutoff range `[VERIFIED — prior work,
+                 renquant-backtesting
+                 doc/progress/2026-08-02-lineage-stage2-scoring-slice.md]`.
+                 [VERIFIED — read 2026-08-17] blend + regime_router are registered
+                 inference-only composition kinds in the pipeline model registry;
+                 the momentum ledger emitter (weekly, hash-chained) is the live
+                 pattern the candidate emitters clone — its home is the model
+                 factory (`renquant-model`
+                 `src/renquant_model_momentum/{train,ledger}.py`
                  [VERIFIED — read 2026-08-17]), which fixes emitter ownership per
                  RENQUANT_REPOS.md; GOAL-8 momentum transfer t(iid)=+3.17 /
                  t(n_eff-adjusted)=+0.71
                  `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`
-                 — the adjusted figure is the honest one and no admission rests on
-                 the iid value; the tail_q90_20d rationale's "DGTW t=2.92"
+                 — and at 278 purged dates ADJUSTED t=+3.17
+                 `[VERIFIED — prior work, doc/research/2026-08-08-moe-s10-confirmatory-kill.md]`
+                 — no admission rests on a t-threshold either way; the
+                 tail_q90_20d rationale's "DGTW t=2.92"
                  `[ASSUMED — appears only in doc/memory/mid-term/model-edge.md with no
                  research artifact behind it; demoted from evidence to hypothesis]`;
                  fundmom previously tested and REJECTED (kill list)
@@ -53,15 +81,22 @@ EVIDENCE:
                  for the five canonical price-trend factors]`.
   best-known?:   yes — the design's degrees of freedom are bounded by the measured
                  power map (effective-sample-BEFORE-decision-rule, the #975/#976
-                 lesson) and by the frozen §5b assignment rule; hard-wired cells are
-                 byte-identical to today by construction, tested cells carry a
-                 bounded probabilistic downside (FWER ≤ 5%/batch + prospective
-                 confirmation + demotion ratchet — the earlier blanket "worst case =
-                 today by construction" claim was over-broad and is corrected in
-                 §5b step 9); candidates are restricted to zero-marginal-cost
-                 builds and must clear a cheap IC screen BEFORE any prereg cathedral;
-                 an incremental-information gate (|ρ|<0.7) blocks re-skinned
-                 duplicates; the kill list is carried forward explicitly.
+                 lesson — applied for real this round: the in-session count says
+                 m = 2, so the frozen rule is expected to no-op to champion rather
+                 than have its floor quietly lowered) and by the frozen §5b
+                 assignment rule; hard-wired cells are byte-identical to today by
+                 construction; tested cells carry a bounded probabilistic downside
+                 (Holm FWER ≤ 5%/batch over the FULL frozen manifest — valid
+                 because the family is not reduced by same-corpus screening — with
+                 Stage B as an operational fail-safe and the demotion ratchet
+                 bounding exposure, not probability; the earlier blanket "worst
+                 case = today by construction" claim was over-broad and is
+                 corrected in §5b step 9); candidates are restricted to
+                 zero-marginal-cost builds and must clear a cheap IC screen (run
+                 only after the manifest freeze) BEFORE any prereg cathedral; an
+                 incremental-information gate (|ρ|<0.7 `[ASSUMED — frozen diversity
+                 threshold]`) blocks re-skinned duplicates; the kill list is
+                 carried forward explicitly.
   scope:         "a design for the MoE v1 routing table (NOT executed, NOT
                  implemented). Authorizes no code, no config, no live change, no data
                  spend. Implementation is a separate phase of codex-gated PRs that
@@ -70,10 +105,12 @@ EVIDENCE:
                  weight components (AC5 deferred), or close the blend-level WF-gating
                  gap (deferred per #982)."
 
-TESTS:     none — doc-only PR.
+TESTS:     doc-only PR; focused repo checks run this round:
+           `pytest tests/test_require_progress_doc.py tests/test_repos.py -q` → 22 passed.
 
 NEXT:      codex review (design-review fixes personal) → on APPROVAL, impl phase:
            (1) emitter clones high52w/lowbeta/quality_gp + tail_q90_20d recipe;
-           (2) cheap IC screen with recorded kill/advance verdicts; (3) router config
-           schema + frozen hard-wire list + alias registry; (4) MoE shadow lane;
-           (5) AC4 replay attribution. Each its own codex-gated PR.
+           (2) §5b candidate-manifest freeze (before any corpus scoring);
+           (3) cheap IC screen with recorded kill/advance verdicts; (4) router config
+           schema + frozen hard-wire list + alias registry; (5) MoE shadow lane;
+           (6) AC4 replay attribution. Each its own codex-gated PR.

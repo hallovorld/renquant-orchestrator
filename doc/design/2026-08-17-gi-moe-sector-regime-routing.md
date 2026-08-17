@@ -10,10 +10,18 @@ The MoE is **a list of models filling a (sector × regime) table** — the opera
 definition, verbatim. Each cell of the 11-sector × 4-regime grid is served by the expert
 best suited to it; **cells without the statistical power to choose an expert are
 hard-wired to the champion** (today's prod blend). For hard-wired cells the worst case
-equals today's system *by construction*; for the few tested cells the downside is
-probabilistic and bounded by the frozen assignment rule in §5b — FWER ≤ 5% per batch,
-prospective confirmation, and a demotion ratchet — not zero (§5b step 9 states the
-honest guarantee). v1 is a **static, config-declared router** over models that
+equals today's system *by construction*; for any tested cell the downside is
+probabilistic and bounded by the frozen assignment rule in §5b — Holm FWER ≤ 5% per
+batch over the FULL frozen candidate manifest, screen failures included (§5b step 4),
+with Stage B as an operational fail-safe (not statistical confirmation) and a demotion
+ratchet — not zero (§5b step 9 states the honest guarantee). In-session re-measurement
+of the sample geometry (§3, corrected this revision) finds the BULL_VOLATILE column
+carries only m = 2 independent blocks at the fwd-60d label horizon under §5b's own
+gap-merge rule, so the honest v1 Stage-A expectation is **zero specialist assignments
+— the entire grid serves the champion** until an extended corpus or a reviewed
+estimand amendment clears the admissibility floor (§3, §10). v1 is still worth
+building: it delivers the router machinery, the alias registry, the qualification
+pipeline, and the fail-safe rule. v1 is a **static, config-declared router** over models that
 already exist or are derivable at ~zero marginal cost — **zero new data sources, zero new
 training architecture** (operator constraint). Weighting is deferred (AC5); learned/
 dispersion-gated routing ("living MoE") is a later stage.
@@ -42,6 +50,14 @@ dispersion-gated routing ("living MoE") is a later stage.
    ignores the very dependence this repo has been bitten by. **The bar is therefore
    "walked the same kill path", not "cleared t≈3.17"** — the adjusted statistic does not
    support a t-threshold, and no MoE admission decision here rests on one.
+   Completing the record (reconciled this revision): the later 278-date purged re-run
+   of the SAME transfer regression reports **adjusted** t = +3.17 (β̂ = +3115 bps of
+   top-3 fwd_20d per 1.0 IC, n = 278, clears the frozen n_eff-adjusted ≥ 2.0
+   convention) `[VERIFIED — prior work,
+   doc/research/2026-08-08-moe-s10-confirmatory-kill.md, subsidiary finding 1]` — the
+   transfer MACHINERY is validated at depth, while the momentum-blend hypothesis it
+   measured was killed by that same record. Neither reading changes the bar:
+   admission is "walk the kill path", never a t-threshold.
 
 ## 3. The grid and its power map
 
@@ -49,25 +65,53 @@ dispersion-gated routing ("living MoE") is a later stage.
 `[VERIFIED/DERIVED]` header cannot say which of its numbers were measured and which
 were computed, which is the ambiguity row 10 exists to remove.*
 
-44 cells = 11 GICS sectors (`data/ticker_sectors.json`, 304 tickers) × 4 HMM regimes
-(`kernel/hmm_regime_labels.py` on SPY over the 125-fold WF set, 2019-01-14..2026-03-02).
-The binding per-cell effective n is the **regime's independent episode count** — sector
-breadth adds cross-section, never time-independence:
+44 cells = 11 GICS sectors × 4 HMM regimes. Sector map: 304 tickers across exactly 11
+distinct sectors `[VERIFIED — python read of data/ticker_sectors.json, 2026-08-17]`.
+Regime labels: `kernel/hmm_regime_labels.py` (the stateless approximation of the prod
+detector) on SPY daily closes over the frozen corpus span 2019-01-14..2026-03-02 —
+the 125-window WF lineage's cutoff range (43 production + 82 extension windows)
+`[VERIFIED — prior work, renquant-backtesting
+doc/progress/2026-08-02-lineage-stage2-scoring-slice.md]`. The binding per-cell
+effective n is the **regime column's count of independent evidence blocks at the
+label horizon** — sector breadth adds cross-section, never time-independence.
 
-| regime column | episodes | v1 treatment |
-|---|---:|---|
-| BULL_VOLATILE | 17 | **the ONLY candidate-testable column** (11 cells); specialists assigned ONLY through the frozen §5b decision rule |
-| BEAR | 8 | champion default; challenger only on a huge frozen-gate effect (this wall killed preregs #975/#976); `bear_exit` enters as the BEAR **policy overlay** (exit/defense), pending G-B — NOT as a per-cell scorer swap |
-| CHOPPY | 5 | **hard-wired champion** |
-| BULL_CALM | 3 | **hard-wired champion** |
+Measured in-session `[VERIFIED —
+kernel.hmm_regime_labels.compute_hmm_regime_labels(data/ohlcv/SPY/1d.parquet),
+window 2019-01-14..2026-03-02 (1,792 trading days; SPY parquet starts 2016-01-04, so
+no warm-up contamination); day-level maximal same-label runs; blocks = runs merged
+when the gap < 60 calendar days, i.e. §5b step 1's rule]`:
 
-**≈33 of 44 cells are pre-emptively hard-wired.** The frozen hard-wire list is prereg
-content (runner-guards-are-prereg-content): no later rule may touch it. Realistic v1
-outcome: **1–3 BULL_VOLATILE cells** get a specialist; everything else serves the
-champion. That is the honest scope, not a defeat; downside on tested cells is bounded
-per §5b step 9, and everywhere else equals today's system by construction.
-Episode-granularity caveat: episodes counted at ~3-week fold granularity
-(order-of-magnitude, not exact); the hopeless-column conclusion is robust to this.
+| regime column | days | raw episodes | blocks after <60d merge | v1 treatment |
+|---|---:|---:|---:|---|
+| BULL_VOLATILE | 1,399 | 80 | **2** (split only at the 2020-02-24..2020-05-07 COVID gap) | the only column with material day-count, BUT m = 2 < the m ≥ 10 admissibility floor (§5b step 3) at the fwd-60d estimand ⇒ Stage A resolves to champion on current geometry |
+| BEAR | 260 | 53 | 12 | champion default; short episodes whose fwd-60d labels mostly realize OUTSIDE the episode — the wall that killed preregs #975/#976; `bear_exit` enters as the BEAR **policy overlay** (exit/defense), pending G-B — NOT as a per-cell scorer swap |
+| CHOPPY | 63 | 28 | 13 | **hard-wired champion** (63 total days) |
+| BULL_CALM | 70 | 9 | 6 | **hard-wired champion** (70 total days) |
+
+**Sensitivity — what m = 2 is and is not.** m = 2 is a JOINT property of the frozen
+merge rule (gap < label horizon = 60 calendar days) and BULL_VOLATILE's day-occupancy
+(1,399/1,792 ≈ 78% `[DERIVED — table above]`): the column's raw episodes are
+separated by mostly-short non-BULL_VOLATILE interludes, so a 60-day gap-merge
+collapses them. It does NOT say regime-conditional testing is impossible — a
+shorter-horizon estimand (e.g. a fwd-20d variant) would merge less and yield a
+different m. Any such variant is a NEW frozen batch spec (reviewed before corpus
+scores are viewed), not a post-hoc knob.
+
+**≈33 of 44 cells are pre-emptively hard-wired** `[DERIVED — 44 cells − the 11
+BULL_VOLATILE cells]`. The frozen hard-wire list is prereg content
+(runner-guards-are-prereg-content): no later rule may touch it. The 11 BULL_VOLATILE
+cells stay testable IN PRINCIPLE through §5b — but on the current corpus the measured
+m = 2 fails the m ≥ 10 admissibility floor, so the realistic v1 outcome — corrected
+from an earlier revision's "1–3 BULL_VOLATILE cells get a specialist" — is
+**0 specialist assignments; the entire grid serves the champion**, until either (i)
+an extended corpus yields enough post-merge blocks or (ii) a reviewed amendment
+freezes a shorter-horizon estimand (see Sensitivity above). Either route is a NEW
+frozen §5b batch spec, committed before any corpus scores are viewed. Not a defeat:
+the v1 deliverables are the router machinery, the alias registry, the qualification
+pipeline, and the fail-safe rule itself (§7 AC1–AC4), plus an honestly-measured
+power map. (An earlier revision claimed 17/8/5/3 episodes at ~3-week fold
+granularity from an uncommitted 2026-08-13 session estimate; it does not reproduce
+under the declared labeler at any granularity tried — see §10.)
 
 ## 4. Expert roster + alias registry
 
@@ -78,7 +122,7 @@ Existing (6) — already trained, in prod or shadow:
 | strategy name | serving identity | tilt | status |
 |---|---|---|---|
 | `multifactor_core` | panel-ltr.alpha158_fund (rank:pairwise) | price/volume+fundamental composite | prod blend leg 1 |
-| `mom_slow_12m` | momentum ledger (12-1 residual, weekly) | slow momentum | prod blend leg 2; transfer t(iid)=+3.17 / t(n_eff-adj)=+0.71 `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]` |
+| `mom_slow_12m` | momentum ledger (12-1 residual, weekly) | slow momentum | prod blend leg 2; transfer at 33 dates t(iid)=+3.17 / t(n_eff-adj)=+0.71 `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`; at 278 purged dates adj t=+3.17 `[VERIFIED — prior work, doc/research/2026-08-08-moe-s10-confirmatory-kill.md]` (§2 item 6) |
 | `mom_fast` | momentum_fast ledger | fast momentum | shadow |
 | `mom_panel_60d` | xgb_mom_60d | momentum-factor panel learner | shadow (passed WF) |
 | `topdecile_60d` | panel-clf.top-decile.fwd60 | top-decile classifier | shadow |
@@ -103,9 +147,12 @@ our cost capacity — declared, not tested).
 Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harness:
 1. **Standalone emitter** (weekly, append-only hash-chained ledger — the momentum
    emitter pattern; new formula, same mechanics, same scorer-identity monitoring).
-2. **Cheap IC screen first** (over-engineering-validation): score on the existing WF
-   corpora; a candidate that can't show a placebo-clean IC *difference* dies before any
-   prereg cathedral. Trust differences, not absolute IC (embargo-leakage floor ~+0.04 `[VERIFIED — prior work, doc/research/2026-06-28-renquant105-pead-signal.md:62 — shuffled-label floor on overlapping ~60d labels with a ~30d embargo gap]`).
+2. **Cheap IC screen** (over-engineering-validation), run ONLY AFTER the §5b candidate
+   manifest is frozen — the screen views corpus scores, so it must not be able to
+   shape the multiplicity family: score on the existing WF corpora; a candidate that
+   can't show a placebo-clean IC *difference* dies before any prereg cathedral — it
+   leaves the roster but stays counted in the §5b step-4 family. Trust differences,
+   not absolute IC (embargo-leakage floor ~+0.04 `[VERIFIED — prior work, doc/research/2026-06-28-renquant105-pead-signal.md:62 — shuffled-label floor on overlapping ~60d labels with a ~30d embargo gap]`).
 3. **Prereg + WF gate** for survivors — frozen before the run; episode-block inference
    (block ≥ horizon; block-t critical values, never hardcoded 1.96 on single-digit
    blocks); effective sample counted BEFORE the decision rule (the #975/#976 lesson).
@@ -125,31 +172,56 @@ It is prereg content: implementation parameterizes nothing here, and the hypothe
 family below is tested **once per frozen corpus** — re-running the batch on the same
 corpus is forbidden.
 
+**Candidate-manifest freeze (the selection-bias wall; codex review 2026-08-17).**
+Before ANY candidate score is computed on the frozen corpus — including the §5 step-2
+cheap screen — the batch manifest is committed, listing every candidate name and its
+EXACT formula/variant. The step-4 multiplicity family is defined by THAT manifest,
+never by who survives screening or qualification: those steps run on this same
+corpus, so a family reduced by them would be data-dependent hypothesis selection and
+would void the FWER claim. A formula variant tried after the freeze cannot join this
+batch — the corpus is burned for it; it waits for the next frozen corpus.
+
 1. **Unit of inference.** One block = one BULL_VOLATILE episode from the frozen corpus
-   (125-fold WF set, 2019-01-14..2026-03-02; 17 episodes). Consecutive episodes whose
-   gap is < 60 calendar days (the label horizon) merge into ONE block — labels that
-   straddle the gap otherwise correlate adjacent blocks (the #975/#976 defect class).
-   Effective block count `m` is counted BEFORE any test statistic is computed.
+   (the 125-window WF lineage span, 2019-01-14..2026-03-02). Consecutive episodes
+   whose gap is < 60 calendar days (the label horizon) merge into ONE block — labels
+   that straddle the gap otherwise correlate adjacent blocks (the #975/#976 defect
+   class). Effective block count `m` is counted BEFORE any test statistic is
+   computed. Counted in-session on current data: 80 raw day-level episodes merge to
+   **m = 2** `[VERIFIED — the §3 measurement command]`; see §3's Sensitivity note
+   for what that number is a property of. (An earlier revision claimed "17
+   episodes" from an uncommitted 2026-08-13 session estimate; it does not reproduce
+   under the declared labeler — see §10.)
 2. **Estimand + champion comparator.** For sector cell `s` and admitted candidate `c`:
    the block-level mean of daily cross-sectional Spearman rank IC of `c`'s score
    against the fwd-60d label on the cell's names, MINUS the same quantity for the
    champion — paired by (day, name), same panel, same label. The comparator is
    pinned: the prod champion blend at corpus freeze (config hash + pipeline commit
    recorded in the batch manifest).
-3. **Coverage minima.** A `(c, s)` hypothesis is admissible iff ≥ 12 of the 17
-   episodes qualify AND post-merge `m ≥ 10`, where an episode qualifies iff the cell
-   has ≥ 8 names scored by BOTH `c` and the champion on ≥ 60% of its days.
-   Inadmissible ⇒ the cell hard-wires to the champion (no-decision). Thresholds
-   [ASSUMED — design choices frozen here: 8 names is the minimum cross-section for a
-   stable rank IC on this universe (304 tickers / 11 sectors ≈ 28 median names per
-   sector); `m ≥ 10` keeps block-t d.f. ≥ 9, off the single-digit-block regime that
-   killed preregs #975/#976].
+3. **Coverage minima.** A `(c, s)` hypothesis is admissible iff ≥ 70% of the corpus's
+   raw day-level episodes qualify `[DERIVED — the fraction originally frozen as
+   "12 of 17" ≈ 70%, re-based off the corrected episode count]` AND post-merge
+   `m ≥ 10`, where an episode qualifies iff the cell has ≥ 8 names scored by BOTH
+   `c` and the champion on ≥ 60% of its days. Inadmissible ⇒ the cell hard-wires to
+   the champion (no-decision). Thresholds `[ASSUMED — design choices frozen here:
+   8 names is the minimum cross-section for a stable rank IC on this universe
+   (304 tickers / 11 sectors ≈ 28 mean names per sector [DERIVED — 304/11 ≈ 27.6]);
+   m ≥ 10 keeps block-t d.f. ≥ 9, off the single-digit-block regime that killed
+   preregs #975/#976]`. On the current corpus the measured m = 2 (§3) fails this
+   floor for EVERY BULL_VOLATILE cell ⇒ the whole batch resolves to champion. The
+   floor is NOT lowered to fit the data — that would be the #975/#976 mistake with
+   extra steps.
 4. **Test + multiplicity family.** One-sided paired block-t over the `m` blocks;
-   critical values from t(m−1), never a hardcoded 1.96. The family = ALL admissible
-   `(c, s)` pairs in the batch (up to 4 candidates × 11 cells = 44 hypotheses);
-   Holm–Bonferroni at family-wise α = 0.05 [ASSUMED — FWER rather than FDR because a
-   false specialist serves real money; 0.05 is the repo's standing gate α]. Only
-   survivors reach step 5.
+   critical values from t(m−1), never a hardcoded 1.96. The family = the FULL frozen
+   manifest × the 11 cells — EVERY manifest candidate counts, including §5 screen
+   failures and pairs with inadmissible coverage (their hypotheses enter at p = 1,
+   which only makes Holm stricter); for the §4 roster that is 4 × 11 = 44 hypotheses
+   `[DERIVED — |manifest| × 11 cells]`. Defining the family by the manifest rather
+   than by post-screen survivors is what makes the FWER claim valid: screening and
+   qualification run on this same corpus, so a family reduced by them would
+   understate multiplicity (codex review 2026-08-17). Holm–Bonferroni at
+   family-wise α = 0.05 `[ASSUMED — FWER rather than FDR because a false specialist
+   serves real money; 0.05 is the repo's standing gate α]`. Only survivors reach
+   step 5.
 5. **Minimum economically meaningful improvement.** A surviving `(c, s)` must also
    show pooled episode-weighted ΔIC ≥ +0.02 [ASSUMED — half the ~+0.04
    embargo-leakage floor §5 step 2 already uses: an improvement smaller than half a
@@ -161,27 +233,34 @@ corpus is forbidden.
    no-decision. EVERY failure mode — inadmissible, non-significant, sub-threshold,
    tie, missing data, ambiguity of any kind — resolves to the champion. There is no
    discretionary branch.
-7. **Selection-bias separation (two stages).** Stage A (steps 1–6) yields a
-   PROVISIONAL assignment from the frozen corpus. Stage B is prospective
-   confirmation with its criterion frozen here, before any Stage-A result exists:
-   the provisional router runs in the MoE shadow lane (AC4) until ≥ 40 trading days
-   classify BULL_VOLATILE [ASSUMED — spans ≥ 1 fresh episode at observed episode
-   lengths without stalling rollout]; the specialist confirms iff its cumulative net
-   per-cell replay attribution (existing cost model) ≥ the champion's on the same
-   cell-days. Fail or ambiguous ⇒ demote to champion. Stage B cannot resurrect a
-   Stage-A loser and cannot re-litigate Stage-A numbers — evidence collected after
-   assignment cannot have been selected on.
+7. **Stage separation + the operational promotion gate.** Stage A (steps 1–6) yields
+   a PROVISIONAL assignment from the frozen corpus. Stage B is the actual promotion
+   gate — no specialist serves a live cell without it — but it is an **operational
+   fail-safe, NOT statistical confirmation**: ~40 trading days is a single-episode
+   sign check with no meaningful power, and it must NOT be read as strengthening
+   the step-4 FWER number (codex review 2026-08-17). Criterion, frozen here before
+   any Stage-A result exists: the provisional router runs in the MoE shadow lane
+   (AC4) until ≥ 40 trading days classify BULL_VOLATILE `[ASSUMED — spans ≥ 1 fresh
+   episode at the measured mean episode length of ≈17 trading days [DERIVED — 1,399
+   days / 80 episodes, §3] without stalling rollout]`; the specialist confirms iff
+   its cumulative net per-cell replay attribution (existing cost model) ≥ the
+   champion's on the same cell-days. Fail or ambiguous ⇒ demote to champion. Stage B
+   cannot resurrect a Stage-A loser and cannot re-litigate Stage-A numbers —
+   evidence collected after assignment cannot have been selected on.
 8. **Fallback ratchet.** Post-confirmation, at every BULL_VOLATILE episode close: a
    specialist whose cumulative net cell attribution trails the champion's demotes to
    champion, one-way. Re-admission requires a NEW Stage-A batch on an extended
    corpus.
 9. **Honest downside guarantee (corrects the claim made by an earlier revision of §1).**
    "Worst case = today by construction" holds ONLY for the ≈33 hard-wired cells
-   (byte-identical serving). For tested cells the guarantee is probabilistic and
-   bounded: under the null of no true specialist, P(any false specialist
-   provisionally assigned) ≤ 5% per batch (step 4); a false positive must still pass
-   Stage B (step 7) and remains subject to the episode-close ratchet (step 8),
-   bounding its exposure to the shadow window plus at most one episode of live
+   (byte-identical serving). For tested cells the guarantee is probabilistic,
+   bounded, and rests ENTIRELY on Stage A: under the null of no true specialist,
+   P(any false specialist provisionally assigned) ≤ 5% per batch `[DERIVED — Holm at
+   α = 0.05 over the step-4 family; valid BECAUSE the family is the full frozen
+   manifest, not the post-screen survivors, and conditional on the manifest freeze
+   preceding all corpus scoring]`. Stage B (step 7) and the ratchet (step 8) do NOT
+   tighten that probability — they are operational fail-safes that bound a false
+   positive's EXPOSURE to the shadow window plus at most one episode of live
    underperformance in its single cell. Selected-cell downside is bounded and
    temporary — NOT zero.
 
@@ -218,7 +297,7 @@ corpus is forbidden.
   itself is the deliverable.
 - **AC4** MoE shadow lane live in the daily-full producing per-cell-routed scores, with
   replay attribution (which expert served which cell on which day) — this lane is also
-  the §5b Stage-B confirmation surface.
+  the §5b Stage-B fail-safe surface.
 - **AC5** (deferred, explicit non-goal of v1) per-component weights.
 - **AC6** Promotion to prod: operator-gated, only after shadow evidence; the blend-level
   WF-gating gap (#982 deferred item) applies to the MoE composition identically and is
@@ -239,8 +318,36 @@ corpus is forbidden.
 
 This design PR → codex approve → **impl phase** (each step its own codex-gated PR):
 (1) emitter clones (`high52w`, `lowbeta`, `quality_gp`) + `tail_q90_20d` recipe →
-(2) cheap IC screen, kill/advance verdicts recorded → (3) router config schema +
-hard-wire list + alias registry → (4) §5b Stage-A assignment batch (frozen manifest,
-one run per corpus) → (5) MoE shadow lane (§5b Stage-B confirmation) → (6) AC4 replay
-attribution → operator-gated deploys throughout. Design-review fixes on THIS doc are
-personal (not delegated).
+(2) §5b candidate-manifest freeze (names + exact formulas, committed BEFORE any
+corpus scoring) → (3) cheap IC screen, kill/advance verdicts recorded (kills leave
+the roster, never the step-4 family) → (4) router config schema + hard-wire list +
+alias registry → (5) §5b Stage-A assignment batch (one run per corpus; expected
+all-champion on current geometry, §3) → (6) MoE shadow lane (§5b Stage-B fail-safe)
+→ (7) AC4 replay attribution → operator-gated deploys throughout. Design-review
+fixes on THIS doc are personal (not delegated).
+
+## 10. Corrections (2026-08-17, this revision — visible per LONG ledger row 10)
+
+0. *(prior commit 63aed761, same day)* the `t≈3.17` sourcing correction is recorded
+   in-place in §2 item 6; this revision adds the 278-date s10 adjusted figure there
+   to complete that record.
+1. **Episode counts replaced.** The earlier "BULL_VOLATILE 17 / BEAR 8 / CHOPPY 5 /
+   BULL_CALM 3 episodes (~3-week fold granularity)" came from an uncommitted
+   2026-08-13 session estimate and does NOT reproduce under this doc's own declared
+   method. In-session re-measurement (§3, exact command in the tag): days
+   1,399 / 260 / 63 / 70; raw day-level episodes 80 / 53 / 28 / 9; blocks after the
+   §5b <60-calendar-day gap-merge 2 / 12 / 13 / 6. Every downstream figure is
+   reconciled (§1, §3 table, §5b steps 1/3/7). The m = 2 result is
+   rule-and-occupancy joint, not a data-only fact — §3's Sensitivity note scopes it.
+2. **Realistic v1 outcome revised** from "1–3 BULL_VOLATILE cells get a specialist"
+   to "0 — the Stage-A batch is expected to resolve all-champion on current corpus
+   geometry" (m = 2 < 10, §5b step 3). The admissibility floor is NOT lowered to
+   rescue the outcome.
+3. **Multiplicity family redefined** (codex review 2026-08-17, design (a)): the Holm
+   family is the FULL frozen candidate manifest × 11 cells, screen failures
+   included, with the manifest committed before any corpus scores are viewed.
+   Previously the family was only post-screen admitted candidates — data-dependent
+   hypothesis selection that voided the 5% FWER claim.
+4. **Stage B demoted** from "prospective confirmation" to "operational fail-safe
+   promotion gate with no statistical weight"; the ≤5% claim now rests on Stage A
+   alone (§5b steps 7/9).
