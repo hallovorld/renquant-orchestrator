@@ -325,12 +325,21 @@ def merge_audit_summary(result: dict) -> str:
     if unc:
         return ("merge-audit COVERAGE INCOMPLETE — "
                 f"{unc[0]['repo']}: {unc[0]['why']}. Not a clean verdict: raise --limit")
+    attested = sum(
+        int((r.get("audit") or {}).get("n_review_attested_in_window") or 0)
+        for r in result.get("repos") or []
+    )
     if win == 0:
-        return f"merge-audit OK — 0/{of} merges in the last {days}d missing a pre-merge marker"
+        note = f" ({attested} review-attested)" if attested else ""
+        return (f"merge-audit OK — 0/{of} merges in the last {days}d unaudited"
+                f"{note}")
     ex = result.get("missing_in_window") or []
     first = ex[0] if ex else {}
     who = first.get("merged_by") or "?"
-    return (f"merge-audit: {win}/{of} merges in the last {days}d lack a pre-merge "
-            f"'Merged by' comment (e.g. {first.get('repo','?')}#{first.get('number','?')} "
-            f"by {who}). Post it BEFORE merging; it cannot be added afterwards. "
-            f"[{hist} historical, not gating]")
+    # orch#988: a merge is audited by EITHER a pre-merge 'Merged by' comment OR
+    # the merger's own pre-merge APPROVED review on a peer's PR. What remains
+    # here has NEITHER — a genuinely untraceable merge, not a ceremony miss.
+    return (f"merge-audit: {win}/{of} merges in the last {days}d are UNAUDITED — "
+            f"no pre-merge 'Merged by' comment AND no pre-merge approval by the "
+            f"merger (e.g. {first.get('repo','?')}#{first.get('number','?')} "
+            f"by {who}). [{attested} review-attested; {hist} historical, not gating]")

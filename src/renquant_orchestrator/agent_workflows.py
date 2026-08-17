@@ -808,7 +808,8 @@ def merge_audit_comment(agent: str, item: WorkItem) -> str:
 
 
 _MERGE_AUDIT_FIELDS = (
-    "number,title,url,author,headRefName,headRefOid,labels,body,mergedAt,mergedBy,comments"
+    "number,title,url,author,headRefName,headRefOid,labels,body,mergedAt,mergedBy,"
+    "comments,reviews"
 )
 
 
@@ -846,8 +847,67 @@ def is_merge_audit_comment(body: str) -> bool:
     return bool(re.search(r"(?im)^\s*merged\s+by\b", body or ""))
 
 
+def _review_attestation(pr: dict) -> Optional[dict]:
+    """The merger's own pre-merge APPROVED review, when it can serve as the audit.
+
+    orch#988: the ``merged by`` comment convention is satisfiable only on the
+    two-token ``agent-workflow merge`` path. The counterpart approve-and-merge
+    path (codex reviews the peer's PR, approves, presses merge) posts no comment
+    — 84% of codex's merges in the measured window — yet GitHub's own review
+    record already carries EXACTLY what the marker encodes: who reviewed, that
+    it happened BEFORE the merge, and that reviewer and author are different
+    parties. Treat that record as the attestation instead of demanding a
+    ceremony only one path can perform.
+
+    Deliberately narrow — returns the attesting review only when ALL hold:
+      * the PR has a recorded merger and a recorded author LOGIN, and they
+        DIFFER (a self-merge can never self-attest, whatever it approved);
+      * the merger's LATEST state-changing review (APPROVED /
+        CHANGES_REQUESTED / DISMISSED — mirroring
+        :func:`_effective_reviews_at_head`) submitted at or before
+        ``mergedAt`` has state APPROVED (``<=``: approve-then-merge lands in
+        the same second). An approval the merger later superseded with
+        CHANGES_REQUESTED before the merge does NOT attest. Ordering is
+        deterministic: parsed timestamps, list position breaking ties.
+    Anything else returns None and the merge stays unaudited.
+    """
+    merged_by = ((pr.get("mergedBy") or {}).get("login") or "").strip()
+    author = ((pr.get("author") or {}).get("login") or "").strip()
+    if not merged_by or not author or merged_by == author:
+        return None
+    merged_at = _parse_github_datetime(pr.get("mergedAt"))
+    if merged_at is None:
+        return None
+    latest: Optional[tuple[datetime, int, dict]] = None
+    for idx, review in enumerate(pr.get("reviews") or []):
+        if str(review.get("state") or "").upper() not in (
+            "APPROVED", "CHANGES_REQUESTED", "DISMISSED",
+        ):
+            continue
+        reviewer = ((review.get("author") or {}).get("login") or "").strip()
+        if reviewer != merged_by:
+            continue
+        submitted = _parse_github_datetime(review.get("submittedAt"))
+        if submitted is None or submitted > merged_at:
+            continue
+        if latest is None or (submitted, idx) > (latest[0], latest[1]):
+            latest = (submitted, idx, review)
+    if latest is not None and str(latest[2].get("state") or "").upper() == "APPROVED":
+        return {"author": merged_by, "submitted_at": latest[2].get("submittedAt")}
+    return None
+
+
 def merge_audit_status(pr: dict) -> dict:
-    """Audit whether a merged PR had a visible pre-merge ``merged by`` comment."""
+    """Audit a merged PR's traceability.
+
+    A merge is AUDITED by either of two records (orch#988):
+      * a visible pre-merge ``merged by`` comment (the original convention), or
+      * a review attestation — the merger's own APPROVED review submitted at or
+        before the merge, on a PR they did not author (:func:`_review_attestation`).
+    ``status`` distinguishes the two (``ok`` / ``review_attested``) so the audit
+    never collapses "marked before" into "approved before"; ``audited`` is the
+    single gate-facing bit.
+    """
     merged_at = _parse_github_datetime(pr.get("mergedAt"))
     pre_merge: list[dict] = []
     post_merge: list[dict] = []
@@ -865,8 +925,14 @@ def merge_audit_status(pr: dict) -> dict:
         else:
             post_merge.append(row)
 
+    attestation = _review_attestation(pr) if not pre_merge else None
     first_pre = pre_merge[0] if pre_merge else {}
-    status = "ok" if pre_merge else "missing_pre_merge_audit"
+    if pre_merge:
+        status = "ok"
+    elif attestation:
+        status = "review_attested"
+    else:
+        status = "missing_pre_merge_audit"
     return {
         "number": pr.get("number"),
         "title": pr.get("title"),
@@ -876,6 +942,9 @@ def merge_audit_status(pr: dict) -> dict:
         "merged_by": (pr.get("mergedBy") or {}).get("login"),
         "status": status,
         "has_pre_merge_audit": bool(pre_merge),
+        "review_attested": bool(attestation),
+        "review_attested_at": (attestation or {}).get("submitted_at"),
+        "audited": bool(pre_merge) or bool(attestation),
         "pre_merge_audit_comment_at": first_pre.get("created_at"),
         "pre_merge_audit_comment_author": first_pre.get("author"),
         "post_merge_audit_count": len(post_merge),
@@ -911,12 +980,15 @@ def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
     """
     prs = fetch_merged_prs(repo, token, limit=limit)
     rows = [merge_audit_status(pr) for pr in prs]
-    missing = [row for row in rows if not row["has_pre_merge_audit"]]
+    # UNAUDITED = neither a pre-merge marker NOR a review attestation (orch#988).
+    # The marker-only count is still reported so the two records never blur.
+    missing = [row for row in rows if not row["audited"]]
 
     cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=int(gate_window_days))
     in_window = [r for r in rows
                  if (_parse_github_datetime(r.get("merged_at")) or cutoff) >= cutoff]
-    window_missing = [r for r in in_window if not r["has_pre_merge_audit"]]
+    window_missing = [r for r in in_window if not r["audited"]]
+    window_attested = [r for r in in_window if r["status"] == "review_attested"]
 
     # COVERAGE, or the window verdict is a guess (review round 1 on the rescope).
     # `fetch_merged_prs` returns only the `limit` most recent merges. If every fetched
@@ -954,6 +1026,7 @@ def audit_merged_prs(repo: str, token: Optional[str], limit: int = 50,
         "gate_window_days": int(gate_window_days),
         "n_merged_in_window": len(in_window),
         "n_missing_in_window": len(window_missing),
+        "n_review_attested_in_window": len(window_attested),
         "missing_in_window": [
             {"number": r.get("number"), "url": r.get("url"),
              "merged_by": r.get("merged_by"), "merged_at": r.get("merged_at")}
