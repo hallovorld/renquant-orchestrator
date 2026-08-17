@@ -1,31 +1,53 @@
-# G-I MoE step 2 — IC screen RESULTS (the one authorized run)
+# G-I MoE step 2 — IC screen: EXPLORATORY PILOT (superseded, not the authorized run)
 
-STATUS: **final one-shot result of the frozen triage spec**
-`doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md` (orch#987, merged).
+STATUS: **exploratory pilot — WITHDRAWN as a verdict.** These numbers were
+produced by a runner whose genuine and placebo legs were filtered
+INDEPENDENTLY and then subtracted, so a lag-dependent difference in which
+NAMES each leg covered could appear as Delta — the one quantity the screen
+decides on (codex HIGH on orch#990; G7 in the runner header). The defect is
+fixed in this same PR, but a corrected runner has NOT been run: spec §7 step 2
+requires the runner reviewed BEFORE execution, and re-running it here would
+repeat the very sequencing error that produced this correction.
+
+**Nothing below advances any candidate.** `quality_gp` is NOT promoted to the
+#984 §5b manifest freeze on the strength of these numbers, and the one-shot
+budget of the frozen spec is NOT considered spent — the authorized run has yet
+to happen, under the corrected and separately-reviewed runner.
+
+Retained rather than deleted because the pilot is genuine evidence about the
+PIPELINE (it ran end to end, the guards fired, the corpus and pins resolved)
+even though it is not evidence about the CANDIDATES.
+
+Spec: `doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md` (orch#987, merged).
 DATE: 2026-08-17 (run at 2026-08-17T23:04:42Z, runtime 105.5 s).
-SEMANTICS: the screen **TRIAGES** — a FLAGGED candidate is deprioritised in the
-#984 §5b queue and requires a point-in-time rerun before any kill; a NOT FLAGGED
-candidate has shown only "not obviously dead" (spec §1). Nothing here kills or
-admits anything. One shot — no re-run, no parameter search, no h=60 rescue.
+SEMANTICS (of the spec, for reference — NOT exercised by this pilot): the screen
+**TRIAGES** — a FLAGGED candidate is deprioritised in the #984 §5b queue and
+requires a point-in-time rerun before any kill; a NOT FLAGGED candidate has shown
+only "not obviously dead" (spec §1). Nothing kills or admits anything. The
+one-shot budget applies to the AUTHORIZED run, which has not yet happened — this
+pilot does not consume it.
 
 PROVENANCE: every number below is `[VERIFIED — read from the committed
 doc/research/data/2026-08-17-gi-moe-screen-results.json, produced by the
 committed runner doc/research/data/2026-08-17-gi-moe-screen-derivation.py]`
 unless tagged otherwise. The runner was committed BEFORE the run (spec §7
-step 2; commit precedes the results commit in this branch's history), the
+step 2 requires committed AND REVIEWED; only the first held — commit order
+within one branch is author-controlled and the results carry no runner digest,
+so the ordering claim was never externally checkable, which is part of why the
+G7 defect reached the numbers), the
 emitter pin `74c22647` (model#227 merge) was verified as ancestor — it is in
 fact renquant-model main HEAD exactly — and the run wrote only to
 `doc/research/data/` in an isolated worktree.
 
-## 1. Verdict table (h=20, the frozen §5 rule — FINAL)
+## 1. Pilot table (h=20, the frozen §5 rule applied — NOT a verdict)
 
-| candidate | Δ = mean(gen)−mean(plac) | block-t (89 blocks) | % pos blocks | VERDICT |
+| candidate | Δ = mean(gen)−mean(plac) | block-t (89 blocks) | % pos blocks | pilot outcome (NOT a verdict) |
 |---|---|---|---|---|
 | `high52w` | +0.00863 | 0.528 | 49.4% | **FLAGGED** (t < 1.0 AND pos ≤ 50%) |
 | `lowbeta` | +0.00495 | 0.911 | 50.6% | **FLAGGED** (t < 1.0) |
 | `quality_gp` | +0.00417 | 1.443 | 51.7% | **NOT FLAGGED** (all three criteria met) |
 
-**1 of 3 not flagged.** `quality_gp` proceeds to the #984 §5b manifest freeze;
+**1 of 3 not flagged — as a PILOT outcome only.** `quality_gp` does NOT proceed to the #984 §5b manifest freeze on this evidence;
 `high52w` and `lowbeta` are deprioritised and may only be killed after a
 point-in-time-universe rerun (spec §1/§2 — for `lowbeta` especially, the
 survivorship direction argues the current-watchlist corpus may UNDERSTATE it).

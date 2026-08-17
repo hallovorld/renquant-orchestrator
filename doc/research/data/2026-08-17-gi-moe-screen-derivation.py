@@ -53,12 +53,24 @@ G6  Placebo: the SAME candidate's score cross-section computed at the date
     forward label at the grid date. Lag dates are 5-day aligned by
     construction, so scores are computed once on an extended grid
     (calendar indices i0-120 .. i0+5*(n-1) step 5, i0 = corpus start).
-G7  Per-date floor + the common genuine/placebo date set: for candidate c
-    and horizon h, a grid date is KEPT iff its genuine pair count >= 50 AND
-    its placebo pair count >= 50, where pairs = names with a finite score
-    AND a finite label (NAMES_PER_DATE_FLOOR=50, the emitters' frozen
-    floor, applied to the cross-section actually correlated). Both series
-    are then computed on exactly that common set — identical dates asserted.
+G7  Per-date PAIRED cross-section (corrected 2026-08-17, codex on orch#990).
+    The first version enforced only a common DATE set: it computed the two
+    legs with two independent inner-joins and subtracted them, so a name
+    present in the genuine leg but absent from the lagged placebo leg
+    silently changed the composition between the two ICs. Because the
+    placebo IS the same score lagged 2h trading days, that difference is
+    lag-dependent by construction -- a coverage artifact able to appear as
+    Delta, which is the one quantity the screen decides on.
+    Now: for candidate c and horizon h, intersect finite genuine score,
+    finite placebo score AND finite label FIRST; apply
+    NAMES_PER_DATE_FLOOR=50 to that SHARED set; correlate both legs against
+    the label over exactly those names (:func:`paired_spearman_ic`). A date
+    is KEPT iff the shared count clears the floor and both ICs are finite.
+    Identical ticker IDENTITIES are asserted, not just identical dates or
+    equal counts. The per-leg counts survive as telemetry
+    (`n_pairs_genuine_leg_only`, `n_pairs_placebo_leg_only`,
+    `coverage_gap_genuine_minus_placebo`) so the size of the confound the
+    correction removes is visible in the output rather than inferred.
     Every dropped date is counted, with its reason.
 G8  Spearman: scipy.stats.spearmanr on the pre-filtered finite pairs.
     Tie behaviour: average ranks (scipy's default; frozen here). A kept
@@ -318,6 +330,12 @@ def close_panel(readers: ScreenReaders, universe: list[str],
 
 
 def spearman_ic(scores: pd.Series, labels: pd.Series) -> tuple[float, int]:
+    """Single-leg IC. Retained for the rho matrix (G12) and for TELEMETRY only.
+
+    NOT used for the genuine/placebo decision quantity -- see
+    :func:`paired_spearman_ic` and the G7 note. Computing the two legs with
+    two independent inner-joins is exactly the defect codex found on orch#990.
+    """
     both = pd.concat([scores, labels], axis=1, join="inner").dropna()
     both = both[np.isfinite(both).all(axis=1)]
     n = len(both)
@@ -325,6 +343,35 @@ def spearman_ic(scores: pd.Series, labels: pd.Series) -> tuple[float, int]:
         return float("nan"), n
     rho = spearmanr(both.iloc[:, 0], both.iloc[:, 1]).statistic
     return float(rho), n
+
+
+def paired_spearman_ic(
+    gen: pd.Series, pla: pd.Series, labels: pd.Series
+) -> tuple[float, float, int, tuple[str, ...]]:
+    """Both legs on ONE shared cross-section (G7, corrected).
+
+    Delta = mean(genuine IC) - mean(placebo IC) is only a signal difference if
+    both ICs are measured over the SAME names. The placebo is the same score
+    lagged by 2h trading days, so a name short of history at the lagged date
+    drops out of the placebo leg while surviving in the genuine leg. Filtering
+    each leg separately then subtracting lets that lag-dependent coverage
+    difference appear as Delta -- a composition artifact wearing the shape of
+    the estimand.
+
+    So: intersect finite genuine score, finite placebo score AND finite label
+    FIRST, apply NAMES_PER_DATE_FLOOR to that shared set, and correlate both
+    legs against the label over exactly those names. Returns the shared ticker
+    identities so the caller can assert identity rather than trust it.
+    """
+    both = pd.concat([gen, pla, labels], axis=1, join="inner").dropna()
+    both = both[np.isfinite(both).all(axis=1)]
+    n = len(both)
+    names = tuple(str(x) for x in both.index)
+    if n < NAMES_PER_DATE_FLOOR:
+        return float("nan"), float("nan"), n, names
+    rho_g = spearmanr(both.iloc[:, 0], both.iloc[:, 2]).statistic
+    rho_p = spearmanr(both.iloc[:, 1], both.iloc[:, 2]).statistic
+    return float(rho_g), float(rho_p), n, names
 
 
 def main() -> None:
@@ -389,47 +436,64 @@ def main() -> None:
             _assert(n_complete >= over, f"fewer than {over} complete blocks at h={h}")
             n_complete = over  # frozen count: exactly the spec's blocks (G9)
 
-            kept, dropped = [], {"floor_genuine": 0, "floor_placebo": 0,
-                                 "degenerate": 0}
+            kept, dropped = [], {"floor_paired": 0, "degenerate": 0}
             series = []
             for k, d in enumerate(grid):
                 lab = labels[h][d]
                 gen_s = scores[name][d]
                 lag_date = cal[i0 + SAMPLE_STEP * k - PLACEBO_LAG_MULT * h]
                 pla_s = scores[name][lag_date]
-                ic_g, n_g = spearman_ic(gen_s, lab)
-                ic_p, n_p = spearman_ic(pla_s, lab)
+                # G7 (corrected, codex on orch#990): ONE shared cross-section
+                # for both legs. The per-leg counts below are kept as telemetry
+                # precisely because their DIFFERENCE is the confound that made
+                # the correction necessary -- it should be visible, not hidden.
+                ic_g, ic_p, n_pair, pair_names = paired_spearman_ic(
+                    gen_s, pla_s, lab)
+                _, n_g = spearman_ic(gen_s, lab)
+                _, n_p = spearman_ic(pla_s, lab)
                 block = k // blocks_per
                 complete = block < n_complete
                 keep, reason = True, ""
-                if n_g < NAMES_PER_DATE_FLOOR:
-                    keep, reason = False, "floor_genuine"
-                elif n_p < NAMES_PER_DATE_FLOOR:
-                    keep, reason = False, "floor_placebo"
+                if n_pair < NAMES_PER_DATE_FLOOR:
+                    keep, reason = False, "floor_paired"
                 elif not (np.isfinite(ic_g) and np.isfinite(ic_p)):
                     keep, reason = False, "degenerate"
                 if not keep:
                     dropped[reason] += 1
                 else:
                     kept.append(k)
-                    series.append((k, d, ic_g, ic_p, block, complete))
+                    series.append((k, d, ic_g, ic_p, block, complete,
+                                   pair_names))
                 rows.append({"candidate": name, "h": h, "date": str(d.date()),
                              "obs_index": k, "block": block,
                              "block_complete": complete, "kept": keep,
                              "drop_reason": reason,
                              "placebo_score_date": str(lag_date.date()),
-                             "n_pairs_genuine": n_g, "n_pairs_placebo": n_p,
+                             "n_pairs_shared": n_pair,
+                             "n_pairs_genuine_leg_only": n_g,
+                             "n_pairs_placebo_leg_only": n_p,
+                             "coverage_gap_genuine_minus_placebo": n_g - n_p,
                              "ic_genuine": ic_g if keep else float("nan"),
                              "ic_placebo": ic_p if keep else float("nan")})
 
             gen = np.array([s[2] for s in series])
             pla = np.array([s[3] for s in series])
-            # G7: identical date sets by construction — assert anyway.
+            # G7 (corrected): assert IDENTITY, not just cardinality. The old
+            # check compared lengths of two independently-filtered legs, which
+            # is satisfied even when the two cross-sections contain different
+            # NAMES -- the exact confound this guard is supposed to exclude.
+            # paired_spearman_ic returns the shared tickers; both legs are the
+            # same object by construction, so assert that rather than trust it.
             _assert(len(gen) == len(pla), "genuine/placebo date sets differ")
+            for _k, _d, _ig, _ip, _b, _c, _names in series:
+                _assert(len(_names) >= NAMES_PER_DATE_FLOOR,
+                        f"kept date {_d.date()} below the paired floor")
+                _assert(len(set(_names)) == len(_names),
+                        f"duplicate tickers in the paired set at {_d.date()}")
             delta = float(gen.mean() - pla.mean()) if len(gen) else float("nan")
 
             block_vals = {}
-            for k, d, ic_g, ic_p, block, complete in series:
+            for k, d, ic_g, ic_p, block, complete, _pair_names in series:
                 if complete:
                     block_vals.setdefault(block, []).append(ic_g - ic_p)
             bdel = np.array([float(np.mean(v)) for _, v in sorted(block_vals.items())])

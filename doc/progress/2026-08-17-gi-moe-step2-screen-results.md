@@ -1,61 +1,95 @@
-# G-I MoE step 2 — screen results (the one authorized run)
+# G-I MoE step 2 — corrected runner + the pilot run it supersedes
 
-STATUS:    results of the ONE authorized execution of the frozen triage spec
-           orch#987. Docs + committed derivation artifacts only — NO code /
-           config / live-surface change.
+STATUS:    the runner's paired-cross-section defect is FIXED here; the run it
+           produced is DEMOTED to an exploratory pilot and advances nothing.
+           **The authorized one-shot run has not happened** and its budget is
+           NOT spent. Docs + derivation artifacts only — no code, no config,
+           no live surface. Revised 2026-08-17 after codex's HIGH on orch#990.
 
-WHAT:      Executed doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md
-           exactly once, in an isolated worktree, runner committed BEFORE the
-           run (spec §7). Verdicts under the frozen h=20 rule (Δ>0 AND
-           block-t≥1.0 AND >50% positive blocks): **quality_gp NOT FLAGGED**
-           (Δ=+0.00417, t=1.443, 51.7% pos); **high52w FLAGGED** (t=0.528,
-           49.4% pos); **lowbeta FLAGGED** (t=0.911). 359/359 cross-sections
-           kept (zero floor drops), 89/89 and 29/29 blocks with data. ρ vs
-           momentum lanes: high52w 0.44/0.51, lowbeta ≈0, quality_gp ≈0.03–0.09;
-           multifactor_core column = NAMED GAP (no reachable historical series
-           without the panel pipeline). Deviation reported: the frozen
-           every-5th-day RULE yields 359 cross-sections, not the spec's derived
-           358 — rule governs, nothing dropped, |n−358|≤1 asserted.
+WHAT:      Two things, and the second is why the first exists.
 
-WHY/DIR:   G-I MoE #984 §5 step 2 — triage the three step-1 emitters
-           (model#227) before the §5b prereg batch. FLAGGED = deprioritised +
-           point-in-time rerun required before any kill; NOT FLAGGED = proceeds
-           to the §5b manifest freeze. The screen neither kills nor admits.
+           1. `doc/research/data/2026-08-17-gi-moe-screen-derivation.py` —
+              genuine and placebo ICs are now computed on ONE shared
+              cross-section (`paired_spearman_ic`): intersect finite genuine
+              score, finite placebo score AND finite label first, apply
+              `NAMES_PER_DATE_FLOOR=50` to that shared set, correlate both legs
+              against the label over exactly those names. G7's documentation is
+              rewritten to describe what the code does; the identity assertion
+              now checks shared TICKERS, not just equal dates or equal counts.
+              Per-leg counts survive as telemetry
+              (`n_pairs_genuine_leg_only`, `n_pairs_placebo_leg_only`,
+              `coverage_gap_genuine_minus_placebo`) so the size of the confound
+              is visible in the output instead of inferred.
+
+           2. `doc/research/2026-08-17-gi-moe-step2-screen-results.md` — demoted
+              from "final one-shot result" to "exploratory pilot, WITHDRAWN as a
+              verdict". `quality_gp` is NOT promoted; the table is a pilot
+              outcome, not a verdict.
+
+           **Deliberately NOT done: re-running.** Spec §7 step 2 requires the
+           runner committed AND REVIEWED before execution. Running the corrected
+           runner in this PR would repeat exactly the sequencing error that
+           produced the defect. The re-run belongs in a separate PR, after this
+           runner is reviewed.
+
+WHY/DIR:   codex, HIGH: *"the runner does not implement a paired
+           genuine-minus-placebo cross-section. G7 enforces common dates only;
+           the code computes spearman_ic(gen_s, label) and spearman_ic(pla_s,
+           label) on two independently filtered name sets, then subtracts
+           them."*
+
+           The mechanism is not incidental. The placebo IS the genuine score
+           lagged 2h trading days, so a name short of history at the lagged date
+           drops out of the placebo leg while surviving in the genuine leg. The
+           coverage difference is therefore lag-dependent BY CONSTRUCTION, and
+           it lands directly on Δ = mean(genuine IC) − mean(placebo IC) — the
+           single quantity the §5 rule decides on. A composition artifact wearing
+           the shape of the estimand.
+
+           The runner's own G7 header claimed both series were "computed on
+           exactly that common set". They were not; only the dates were common.
+           An assertion in a docstring is not a measurement.
 
 EVIDENCE:
-  artifact:      doc/research/2026-08-17-gi-moe-step2-screen-results.md +
-                 doc/research/data/2026-08-17-gi-moe-screen-{derivation.py,
-                 results.json,ic-series.csv}. The runner commit precedes the
-                 results commit on this branch (freeze-then-run, auditable in
-                 history); results.json carries sha256 pins of every input
-                 (SPY + 146 OHLCV parquets digest-of-digests, sec fundamentals
-                 store, watchlist config d93d28c5…, model pin 74c22647 verified
-                 = renquant-model main HEAD).
-  prod or exp:   exp — isolated worktree research/gi-moe-step2-screen-results;
-                 read-only inputs (OHLCV, sec_fundamentals_daily, strategy-104
-                 golden config, ticker_sectors); outputs land ONLY in
-                 doc/research/data/; no live tree, no data/ write path, no
-                 production artifact touched.
-  existing data: yes — zero new data (spec §2): SPY calendar 2019-01-14..
-                 2026-03-02 (1,792 trading days), current 145-name live
-                 watchlist, upstream gross_profitability with its PIT
-                 available_at column (available_at ≤ date asserted on every
-                 served row).
-  best-known?:   yes for this corpus — deterministic re-runnable script, no
-                 randomness, all frozen params imported from the emitters' own
-                 v0 modules (never re-declared); frozen-guard assertions all
-                 passed (grid ≈358 → 359 reported; ≥50 pairs on every kept
-                 date; exactly 89/29 complete blocks; identical genuine/placebo
-                 date sets). Known limits are the spec's own: survivorship-
-                 tilted universe (why FLAGGED ≠ killed) and no multiplicity
-                 correction (exploratory triage by design).
-  scope:         a triage record under orch#987 §1. Authorizes NO kill, NO
-                 admission, NO deploy, NO re-run. quality_gp advances only into
-                 the #984 §5b frozen-prereg path; high52w/lowbeta wait on a
-                 point-in-time rerun. The h=60 tables are informational only.
+  artifact:      the derivation script (paired computation + identity assertion
+                 + corrected G7 header) and the results doc's demotion
+  prod or exp:   exploratory. Nothing runs, nothing deploys, no candidate
+                 advances, no live surface touched.
+  existing data: the pilot's own outputs are retained unchanged under
+                 `doc/research/data/` — they remain genuine evidence about the
+                 PIPELINE (it ran end to end, guards fired, corpus and pins
+                 resolved) while being withdrawn as evidence about the
+                 CANDIDATES.
+  best-known?:   yes at the reduced claim. The correction is structural rather
+                 than a threshold tweak: it changes WHICH cross-section the two
+                 legs are measured over, so the pilot's Δ values cannot be
+                 patched into correctness and are not carried forward.
+  scope:         this PR fixes the runner and withdraws the verdicts. It does
+                 NOT re-run, does NOT advance `quality_gp`, does NOT consume the
+                 spec's one-shot budget, and does NOT change the frozen rule,
+                 corpus, estimand or thresholds.
 
-NEXT:      quality_gp (the one NOT-FLAGGED emitter) → the #984 §5b frozen-prereg
-           manifest; high52w + lowbeta → deprioritised pending a point-in-time
-           rerun before any kill decision; multifactor_core's missing historical
-           series remains a NAMED GAP until the panel pipeline can serve one.
-           No code/config/live change follows from this PR.
+VERIFICATION:
+  `python3 -c "import ast; ast.parse(open(<runner>).read())"` → parses.
+  No execution: re-running before this runner is reviewed is precisely the step
+  §7 forbids, and is the reason the defect reached published numbers.
+
+  The claim that could not be checked, stated plainly: the pilot asserted "the
+  runner was committed BEFORE the run" on the strength of commit order within a
+  single branch. That is author-controlled, and the results JSON carries no
+  `runner_sha256`, so nothing tied those numbers to a specific script version.
+  Adding that digest is the cheap fix that makes the next run's ordering claim
+  self-supporting.
+
+NEXT:      (1) this runner reviewed — on its own, before any execution;
+           (2) add `runner_sha256` to the results JSON so ordering becomes
+               checkable rather than asserted;
+           (3) THEN the authorized one-shot run, as a separate results PR;
+           (4) only after that does any candidate move in the #984 §5b queue.
+
+HANDOVER:  opened by a concurrent Claude session that has since ended (socket
+           gone, no longer listed). I picked it up rather than leave a
+           CHANGES_REQUESTED PR unowned. I am also the author of spec §7, the
+           clause codex cites — his review is the second, independent finding
+           that its sequencing requirement was load-bearing rather than
+           ceremonial.
