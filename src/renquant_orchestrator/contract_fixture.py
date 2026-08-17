@@ -62,6 +62,13 @@ def run_contract_fixture(
             "fingerprint": "sha256:smoke-model",
             "uri": "object://renquant-artifacts/subrepo-smoke-gbdt.json",
             "promotion_status": "candidate",
+            # renquant-artifacts made provenance mandatory on 2026-08-15
+            # (PROVENANCE_REQUIRED_AFTER): every candidate manifest must resolve
+            # an explicit lineage determination, and omission no longer counts as
+            # one. This smoke fixture trains nothing real -- kind="none" is the
+            # accurate determination for it, and it is admissible precisely
+            # because the manifest does not claim promotion_status="prod".
+            "provenance": {"kind": "none"},
             "feature_cols": ["alpha_1", "alpha_2"],
             "trained_date": as_of,
             "config_fingerprint": config["config_fingerprint"],

@@ -81,6 +81,13 @@ def _trainer(dataset: Any, config: dict[str, Any], output_dir: Path):
         "fingerprint": "sha256:model",
         "uri": "object://renquant-artifacts/gbdt-fixture.json",
         "promotion_status": "candidate",
+        # renquant-artifacts made provenance mandatory on 2026-08-15
+        # (PROVENANCE_REQUIRED_AFTER). renquant-model#226 makes manifest
+        # assembly CARRY a trainer's determination instead of stripping it --
+        # it does not invent one, so a trainer that declares nothing is still
+        # rejected. This stub trains nothing real, so "none" is accurate, and
+        # it is admissible because promotion_status is not "prod".
+        "provenance": {"kind": "none"},
         "feature_cols": ["alpha_1", "alpha_2"],
         "trained_date": "2026-05-25",
         "config_fingerprint": config["config_fingerprint"],
