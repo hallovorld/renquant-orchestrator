@@ -31,7 +31,7 @@
  },
  "sources": {
   "spy_1d_parquet": {
-   "path": "/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet",
+   "path": "RenQuant:data/ohlcv/SPY/1d.parquet",
    "sha256_at_run": "68665523c23edae565dee40b25fcc90051b209703c57f0887e70fd295964b0ee",
    "rows_at_run": 2670,
    "last_row_at_run": "2026-08-17",
@@ -39,16 +39,16 @@
    "rows_clamped": 2669
   },
   "strategy_config": {
-   "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/strategy_config.json",
+   "path": "RenQuant:backtesting/renquant_104/strategy_config.json",
    "sha256": "ff54318e63444832030575975163484cb8285931275068497759a106e2bb8cb7"
   },
   "gmm_artifact": {
-   "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
+   "path": "RenQuant:backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
    "sha256": "cb643e003cec11ea897137c206713e6753746b1792ed39083b6a5319c851a07d",
    "as_of_date": "2026-05-22"
   },
   "served_panel_artifact": {
-   "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+   "path": "RenQuant:backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
    "sha256": "6461b827ab2339a8d2351db6e45ac4f4c8d4c231937d8d6a4f8d127ecc546d15"
   },
   "posterior_snapshot_csv": {
@@ -57,19 +57,19 @@
    "committed": true
   },
   "phase_a_forward_returns": {
-   "path": "/Users/renhao/git/github/renquant-orchestrator/experiments/phase_a_data/forward_returns.csv",
+   "path": "renquant-orchestrator:experiments/phase_a_data/forward_returns.csv",
    "sha256": "96094d29481543c748d58aa9709654de0e6bd134bb1f01ddac33cc5d1bd9c972",
    "committed": false,
    "note": "local extraction corpus, not in git"
   },
   "phase_a_xgb_scores": {
-   "dir": "/Users/renhao/git/github/renquant-orchestrator/experiments/phase_a_data/xgb",
+   "dir": "renquant-orchestrator:experiments/phase_a_data/xgb",
    "n_files": 230,
    "sha256_aggregate": "d37f9633d74b186eaa700deb53394485a0fc427db90c96e8d5599777b0272bbf",
    "committed": false
   },
   "vixcls_parquet": {
-   "path": "/Users/renhao/git/github/RenQuant/data/fred/VIXCLS.parquet",
+   "path": "RenQuant:data/fred/VIXCLS.parquet",
    "sha256": "b53c73eda206e28c0c31d108cef32254dbeb0264787ef54251416d18291c5889",
    "last_row": "2026-04-24"
   }

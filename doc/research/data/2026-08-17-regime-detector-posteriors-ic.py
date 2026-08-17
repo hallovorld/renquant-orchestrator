@@ -124,8 +124,23 @@ post = {
 }
 P.to_csv(OUT / f"{PREFIX}-posterior-series.csv")
 
-# ── phase-A discriminative test ─────────────────────────────────────────────
+# ── phase-A discriminative test (EXPLORATORY — local corpus, NOT committed) ──
+# Codex review 2026-08-17: this section depends on a local, uncommitted extraction
+# corpus (experiments/phase_a_data). On a clean checkout it is SKIPPED — the
+# reproducible core above still writes its full output — and every conclusion
+# derived from this section is demoted to exploratory in the memo (it is NOT part
+# of the ranked decision case).
 PA = Path(os.environ.get("PHASE_A_DIR", str(REPO / "experiments" / "phase_a_data")))
+if not (PA / "forward_returns.csv").exists():
+    out = {"posterior_and_attribution": post,
+           "phase_a_ic": {"skipped": True,
+                          "reason": "local phase-A corpus absent (uncommitted; "
+                                    "exploratory-only section)"}}
+    (OUT / f"{PREFIX}-posteriors-ic.json").write_text(
+        json.dumps(out, indent=1, default=str))
+    print(f"wrote {PREFIX}-posteriors-ic.json + {PREFIX}-posterior-series.csv "
+          f"({len(P)} rows; phase-A SKIPPED — local corpus absent)")
+    raise SystemExit(0)
 fr = pd.read_csv(PA / "forward_returns.csv")
 fr["date"] = pd.to_datetime(fr["date"])
 ics = []

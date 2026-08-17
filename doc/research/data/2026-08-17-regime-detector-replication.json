@@ -50,7 +50,7 @@
   "max_abs_diff_pp": 1.42
  },
  "wf_replay_counts": {
-  "artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+  "artifact": "RenQuant:backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
   "sanity_window": [
    "2023-12-26",
    "2026-05-05"
@@ -136,7 +136,7 @@
   "mean_ic_false_alarm": 0.032
  },
  "gmm_artifact": {
-  "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
+  "path": "RenQuant:backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
   "as_of_date": "2026-05-22",
   "trained_date": "2026-05-22",
   "cluster_labels": [
@@ -147,7 +147,7 @@
   "has_choppy_cluster": false
  },
  "vixcls_staleness": {
-  "path": "/Users/renhao/git/github/RenQuant/data/fred/VIXCLS.parquet",
+  "path": "RenQuant:data/fred/VIXCLS.parquet",
   "last_row": "2026-04-24",
   "memo_date": "2026-08-17",
   "calendar_days_stale": 115

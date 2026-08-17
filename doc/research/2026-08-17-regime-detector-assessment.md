@@ -18,10 +18,13 @@ Abbreviations, all committed alongside this memo and regenerated in-session:
 
 **Room for improvement is large, but it is mostly METROLOGY (one label plane instead of
 four) and EXIT-SIDE TIMING — not a fancier model.** The BEAR pole is genuinely good and
-must not be touched. The bull-side 4-way split adds nothing measurable over a single
-vol threshold, and the layer that decides 63% of serving days
+must not be touched. The bull-side split carries no validated conditional signal (all
+three bull/choppy cells fail the served artifact's own sanity gate — committed evidence,
+P7), and the layer that decides 63% of serving days
 `[VERIFIED — P:posterior_and_attribution.decision_source_pct.hurst_momentum_bull = 63.2]`
-is statistically indistinguishable from noise.
+is statistically indistinguishable from noise. (An exploratory local-corpus comparison
+additionally suggests a single vol threshold matches the 4-way split's discrimination —
+see Exploratory observations; NOT part of the decision case.)
 
 ## Detector as-built (not what its name says)
 
@@ -65,8 +68,8 @@ final_by_source has no gmm_bear source]`.
 | P3 | **BEAR-exit prereg data plane ≠ runtime trigger plane** | prereg episodes from GMM-posterior argmax: **77 BEAR days / 9 episodes** (re-derived deterministically from the committed `doc/research/data/2026-08-08-regime-posteriors.csv`: exactly 77/9 `[VERIFIED ×2 — R:prereg_plane.bear_days_argmax = 77, .bear_episodes_argmax = 9]`); runtime key (production chain): **413 days / 57 episodes** `[VERIFIED — M:stats_S.occupancy.BEAR = 413; M:bear_episodes_serving (57 rows)]` — **5.4×** `[DERIVED — 413/77; R:prereg_plane.ratio_days]`. The frozen eval certifies windows that do not match when the rule fires. |
 | P4 | **Flicker** | 46.6% of serving episodes last ≤2 days `[VERIFIED — M:stats_S.flicker_share_of_episodes = 0.466]`; 25.8 switches/yr `[VERIFIED — M:stats_S.switches_per_year]`; **19.5% of days sit inside the 3-bar transition cooldown** `[VERIFIED — M:confidence_stats.share_days_in_transition = 0.1952]` → confidence pinned 0.5 + sizing haircut one day in five `[VERIFIED — code read: kernel/regime.py transition handling]`. |
 | P5 | **BEAR exit systematically late** | vs mechanical −15%/+15% dating over the 5 real bears (2018Q4, COVID, 2022H1, 2022Q4, 2025): last-BEAR lags the trough +3/+15/+20/+25/+48 td `[VERIFIED — M:bear_lag_S_vs_15pct.last_bear_minus_trough_td]` (**mean +22** `[DERIVED — mean of those five]`); **93 recovery days labeled BEAR** (trough day through +15% recovery exit; 88 strictly after the trough) `[VERIFIED — R:recovery_days.total_from_trough_incl = 93, .total_strictly_after = 88]` — a BEAR-keyed sell rule fires into the rebound. |
-| P6 | Vol-spike BEARs unvalidated | 30 of 57 serving BEAR episodes (80 days) lie entirely outside even a 10% drawdown `[VERIFIED — M:false_alarms_S_vs_10pct (30 rows, 80 days)]`; BEAR IC 0.575 in validated episodes (n=37 phase-A days) vs 0.032 in false-alarm episodes (n=1 day, indicative only) `[VERIFIED — R:bear_ic_split; DERIVED split definition documented there]`. |
-| P7 | **Bull-side split has no validated conditional signal** | served-artifact sanity: BEAR IC +0.277 (genuine +0.339) PASSES; BULL_CALM +0.017 / BULL_VOLATILE +0.104 (placebo-failed) / CHOPPY +0.003 all FAIL `[VERIFIED — artifacts/prod/panel-ltr.alpha158_fund.json metadata.wf_gate_metadata.sanity_regime_ic; mirrored R:wf_replay_counts.artifact_sanity_regime_ic]`. 4-way split η²=0.556 vs single vol20>0.18 2-way η²=0.569 (within-corpus comparison) `[VERIFIED — P:phase_a_ic.by_serving_regime._eta2 = 0.5559, .by_vol_2way_fixed018._eta2 = 0.5693]`. |
+| P6 | Vol-spike BEARs outside drawdowns | 30 of 57 serving BEAR episodes (80 days) lie entirely outside even a 10% drawdown `[VERIFIED — M:false_alarms_S_vs_10pct (30 rows, 80 days)]`. Whether those episodes carry signal is an EXPLORATORY question — the IC split depends on the uncommitted phase-A corpus; see Exploratory observations. |
+| P7 | **Bull-side split has no validated conditional signal** | served-artifact sanity: BEAR IC +0.277 (genuine +0.339) PASSES; BULL_CALM +0.017 / BULL_VOLATILE +0.104 (placebo-failed) / CHOPPY +0.003 all FAIL `[VERIFIED — artifacts/prod/panel-ltr.alpha158_fund.json metadata.wf_gate_metadata.sanity_regime_ic; mirrored R:wf_replay_counts.artifact_sanity_regime_ic]`. (The 4-way-vs-vol-threshold η² comparison is phase-A-dependent → Exploratory observations, not decision-bearing.) |
 | P8 | Fold-corpus regime covariate version-unstable | WF comparability window (2019-01-14..2026-03-02, 1,792 td): legacy 78.1% BULL_VOLATILE vs current-default 54.5% BULL_CALM `[VERIFIED — M:occ_wf_window_pct.L.BULL_VOLATILE = 78.1, .V.BULL_CALM = 54.5]` — any fold-regime-keyed conclusion flips with the 2026-06-01 library default flip `[VERIFIED days; fold attribution DERIVED — committed fold manifests not on disk, see Named gaps]`. |
 
 What is GOOD: **BEAR entry** — zero misses on the 5 real bears, mean +8 td after the
@@ -76,6 +79,23 @@ lag_vs_trigger_td = −49/−10/−75/−23/−26]`. The hard thresholds do exac
 2026-05-17 fix intended. Weak spot: slow grinds (2023 −10.3%: +37 td, 9.4% coverage
 `[VERIFIED — M:bear_lag_S_vs_10pct 2023-07-31 episode: depth −0.1029,
 lag_vs_peak_td 37, decline_coverage 0.094]`).
+
+## Exploratory observations (NOT reproducible from the committed tree — excluded from the decision case)
+
+These two observations depend on a **local, uncommitted** phase-A extraction corpus
+(`experiments/phase_a_data`; path + sha256 pinned in `MF:` for identity, not
+reproducibility). Per Codex review 2026-08-17 they are demoted to exploratory: no ranked
+item's decision basis rests on them, and the derivation script's phase-A section skips
+cleanly on a checkout without the corpus (`PHASE_A_DIR` absent → reproducible core still
+runs; `phase_a_ic.skipped = true`).
+
+- **E1 (was in P6):** within the phase-A window, BEAR-day IC 0.575 in drawdown-validated
+  episodes (n=37 days) vs 0.032 in outside-drawdown episodes (n=1 day — indicative only)
+  `[EXPLORATORY — R:bear_ic_split on the local corpus]`.
+- **E2 (was in P7):** 4-way regime split η²=0.556 vs single fixed vol20>0.18 2-way split
+  η²=0.569 on daily IC (within-corpus, relative comparison)
+  `[EXPLORATORY — P:phase_a_ic.by_serving_regime._eta2, .by_vol_2way_fixed018._eta2]`.
+  Corroborates — but does not carry — the P7 committed finding.
 
 ## Ranked improvements (all zero-new-data; each motivated by a measured pathology)
 
@@ -94,8 +114,10 @@ lag_vs_peak_td 37, decline_coverage 0.094]`).
    shape is asymmetric (fast-in BEAR, confirmed-out) — that variant's numbers would need
    their own measurement before implementation.
 5. **Retire the Hurst layer** (P1) — cheapest replacement is the already-shipped
-   vol20<0.18 + drift>0 rule (v2026-05-31), which simultaneously advances item 1. P7
-   says a threshold rule loses nothing.
+   vol20<0.18 + drift>0 rule (v2026-05-31), which simultaneously advances item 1.
+   Decision basis: P1 (the layer is noise — committed, seeded) + P7's committed half
+   (no bull cell passes the served sanity gate, so no validated signal is at risk).
+   The exploratory η² comparison corroborates but is NOT load-bearing.
 6. (Only if MoE soft routing goes live) **deploy the existing undeployed HMM** —
    persistence modeled at source, calibrated posteriors for blending (current GMM
    max-posterior median 0.98 `[VERIFIED — P:posterior_and_attribution.gmm_max_posterior.

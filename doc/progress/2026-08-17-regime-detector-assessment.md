@@ -57,7 +57,21 @@ EVIDENCE:
                  frozen BEAR-exit prereg data spec) explicitly requires operator
                  sign-off; every implementation item would be its own codex-gated PR."
 
-TESTS:     derivation scripts re-run end-to-end in-session (exit 0); regenerated
+REVIEW FIX (Codex round 2, 2026-08-17): P6's IC split and P7's η² comparison depend on
+           the LOCAL, uncommitted phase-A corpus → DEMOTED to a marked "Exploratory
+           observations" section, excluded from the ranked decision case (item 5
+           re-anchored on P1 + P7's committed artifact-sanity half; the verdict line
+           re-worded accordingly). The derivation script's phase-A section now GUARDS on
+           corpus existence (clean checkout → reproducible core runs, `phase_a_ic.
+           skipped=true`). NEW `tests/test_regime_research_reproducible_core.py`: the
+           P3 prereg-plane 77/9 regenerates from the committed snapshot (stdlib-only);
+           the phase-A guard's presence + fail-closed ordering; a seeded Hurst-null
+           re-derivation that env-skips without the umbrella kernel. Absolute local
+           paths in the manifest + result JSONs normalized to `<repo>:<relpath>`.
+
+TESTS:     NEW smoke tests: 2 passed, 1 env-skip (Hurst-null; runs where the umbrella
+           kernel is present). Derivation scripts re-run end-to-end in-session (exit 0);
+           regenerated
            measurements JSON semantically identical to the original session values on
            every key; replication checks: wf_replay_counts.exact_match=true,
            snapshot max_abs_diff_pp=1.42, prereg 77/9 exact, hysteresis 253→138 /
