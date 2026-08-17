@@ -1029,6 +1029,75 @@ def test_merge_audit_status_non_approving_or_third_party_review_does_not_attest(
     assert merge_audit_status(third_party)["audited"] is False
 
 
+def test_merge_audit_status_superseded_approval_does_not_attest():
+    """Approve then request-changes BEFORE the merge: the approval was
+    explicitly superseded, so the merge must not report review_attested."""
+    pr = _merged_pr_with_review(9, author_login="claude-user", merged_by="codex-user")
+    pr["reviews"].append({
+        "state": "CHANGES_REQUESTED",
+        "author": {"login": "codex-user"},
+        "submittedAt": "2026-06-09T00:09:30Z",  # after the approval, before mergedAt
+    })
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "missing_pre_merge_audit"
+    assert status["review_attested"] is False
+    assert status["audited"] is False
+
+
+def test_merge_audit_status_reapproval_after_changes_attests():
+    """CHANGES_REQUESTED then APPROVED before the merge: the latest pre-merge
+    state is APPROVED, so the attestation holds."""
+    pr = _merged_pr_with_review(
+        10, author_login="claude-user", merged_by="codex-user",
+        review_state="CHANGES_REQUESTED", review_at="2026-06-09T00:08:00Z",
+    )
+    pr["reviews"].append({
+        "state": "APPROVED",
+        "author": {"login": "codex-user"},
+        "submittedAt": "2026-06-09T00:09:00Z",
+    })
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "review_attested"
+    assert status["review_attested_at"] == "2026-06-09T00:09:00Z"
+    assert status["audited"] is True
+
+
+def test_merge_audit_status_post_merge_changes_do_not_revoke_attestation():
+    """A CHANGES_REQUESTED submitted AFTER mergedAt is outside the pre-merge
+    window: the pre-merge approval still attests."""
+    pr = _merged_pr_with_review(11, author_login="claude-user", merged_by="codex-user")
+    pr["reviews"].append({
+        "state": "CHANGES_REQUESTED",
+        "author": {"login": "codex-user"},
+        "submittedAt": "2026-06-09T00:10:30Z",  # after mergedAt
+    })
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "review_attested"
+    assert status["audited"] is True
+
+
+def test_merge_audit_status_same_second_supersession_is_deterministic():
+    """Equal timestamps: list position (submission order) breaks the tie, so
+    approve-then-request-changes in the same second still does not attest."""
+    pr = _merged_pr_with_review(12, author_login="claude-user", merged_by="codex-user")
+    pr["reviews"].append({
+        "state": "CHANGES_REQUESTED",
+        "author": {"login": "codex-user"},
+        "submittedAt": "2026-06-09T00:09:00Z",  # same second as the approval
+    })
+
+    status = merge_audit_status(pr)
+
+    assert status["review_attested"] is False
+    assert status["audited"] is False
+
+
 def test_merge_audit_status_pre_merge_marker_still_wins_over_attestation():
     """The marker path is unchanged: when present, status stays 'ok'."""
     pr = _merged_pr_with_review(8, author_login="claude-user", merged_by="codex-user")

@@ -6,8 +6,11 @@ STATUS:    fix — closes the structural merge-audit gap (84% of codex's merges 
 
 WHAT:      `agent_workflows.py`: a merge now counts as AUDITED by EITHER (a) the existing
            pre-merge `merged by` comment, OR (b) a **review attestation** — the merger's
-           own APPROVED review submitted at/before `mergedAt` on a PR they did NOT author
-           (`_review_attestation`; `_MERGE_AUDIT_FIELDS` gains `reviews`). `status`
+           LATEST state-changing review (APPROVED/CHANGES_REQUESTED/DISMISSED) submitted
+           at/before `mergedAt`, on a PR they did NOT author, has state APPROVED
+           (`_review_attestation`; `_MERGE_AUDIT_FIELDS` gains `reviews`). An approval
+           the merger later superseded with CHANGES_REQUESTED pre-merge does NOT attest
+           (see CORRECTIONS). `status`
            distinguishes `ok` / `review_attested` / `missing_pre_merge_audit` so the two
            records never blur; `audited` is the gate-facing bit; `audit_merged_prs` gates
            the window on `audited` and reports `n_review_attested_in_window`.
@@ -57,14 +60,41 @@ EVIDENCE:
                  the audit. agent_pr_loop heals structurally once deployed (-run sync,
                  operator-gated)."
 
-TESTS:     6 new: attestation accepted (codex's real shape), self-merge cannot
-           self-attest, post-merge approval rejected, CHANGES_REQUESTED / third-party
-           reviewer rejected, marker precedence unchanged, gate accepts attested +
-           fires on record-less. 86/86 in the audit suites; full suite 2126 passed /
-           1 environmental worktree-only failure (verified passing on main checkout).
+TESTS:     10 new (6 original + 4 from the review fix, see CORRECTIONS): attestation
+           accepted (codex's real shape), self-merge cannot self-attest, post-merge
+           approval rejected, CHANGES_REQUESTED / third-party reviewer rejected, marker
+           precedence unchanged, gate accepts attested + fires on record-less;
+           approve-then-request-changes pre-merge rejected, re-approval after changes
+           accepted, post-merge CHANGES_REQUESTED does not revoke, same-second
+           supersession deterministic. Original full-suite figures: 2126 passed /
+           1 environmental worktree-only failure (verified passing on main checkout);
+           re-measured focused results after the review fix are in CORRECTIONS.
 
 NEXT:      codex review (codex is the counterparty whose merges this affects — the right
            reviewer) → merge → -run sync (operator-gated) → agent_pr_loop stops paging on
            the structural misses while continuing to page on genuinely untraceable
            merges. Follow-up (separate, from the issue's 'Related'): the `fixed by`
            sibling marker's literal-string rigidity.
+
+CORRECTIONS (2026-08-17, review fix):
+  Codex's MED finding on the initial head (10e82957): `_review_attestation`
+  accepted ANY earlier pre-merge APPROVED review by the merger, even when that
+  same reviewer later submitted CHANGES_REQUESTED before the merge — an
+  explicitly superseded approval still attested. Fixed: the function now
+  reduces the merger's state-changing reviews (APPROVED / CHANGES_REQUESTED /
+  DISMISSED, mirroring `_effective_reviews_at_head`) to the LATEST one
+  submitted at/before `mergedAt` — deterministic ordering by parsed timestamp
+  with list position breaking ties — and attests only if that latest state is
+  APPROVED. Post-merge reviews stay excluded (they cannot revoke a pre-merge
+  attestation).
+  Figures reconciled: "6 new tests" → 10 new tests (4 added:
+  superseded-approval rejected [failed pre-fix, passes post-fix],
+  re-approval-after-changes accepted, post-merge changes do not revoke,
+  same-second supersession deterministic [failed pre-fix, passes post-fix]).
+  Re-measured [VERIFIED — pytest, this session]:
+  `tests/test_agent_workflows.py -k "merge_audit or review_attested"` 12
+  passed; `tests/test_agent_workflows.py` 73 passed / 1 pre-existing
+  token-environment failure (`test_resolve_token_env_precedence`, present
+  before this diff, also called out in Codex's approval note);
+  `tests/test_repos.py` 16 passed; `tests/test_cli.py -k merge_audit` 1
+  passed.

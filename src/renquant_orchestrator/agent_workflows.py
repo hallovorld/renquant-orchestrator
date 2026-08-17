@@ -862,8 +862,13 @@ def _review_attestation(pr: dict) -> Optional[dict]:
     Deliberately narrow — returns the attesting review only when ALL hold:
       * the PR has a recorded merger and a recorded author LOGIN, and they
         DIFFER (a self-merge can never self-attest, whatever it approved);
-      * a review BY THE MERGER with state APPROVED was submitted at or before
-        ``mergedAt`` (``<=``: approve-then-merge lands in the same second).
+      * the merger's LATEST state-changing review (APPROVED /
+        CHANGES_REQUESTED / DISMISSED — mirroring
+        :func:`_effective_reviews_at_head`) submitted at or before
+        ``mergedAt`` has state APPROVED (``<=``: approve-then-merge lands in
+        the same second). An approval the merger later superseded with
+        CHANGES_REQUESTED before the merge does NOT attest. Ordering is
+        deterministic: parsed timestamps, list position breaking ties.
     Anything else returns None and the merge stays unaudited.
     """
     merged_by = ((pr.get("mergedBy") or {}).get("login") or "").strip()
@@ -873,15 +878,22 @@ def _review_attestation(pr: dict) -> Optional[dict]:
     merged_at = _parse_github_datetime(pr.get("mergedAt"))
     if merged_at is None:
         return None
-    for review in pr.get("reviews") or []:
-        if str(review.get("state") or "").upper() != "APPROVED":
+    latest: Optional[tuple[datetime, int, dict]] = None
+    for idx, review in enumerate(pr.get("reviews") or []):
+        if str(review.get("state") or "").upper() not in (
+            "APPROVED", "CHANGES_REQUESTED", "DISMISSED",
+        ):
             continue
         reviewer = ((review.get("author") or {}).get("login") or "").strip()
         if reviewer != merged_by:
             continue
         submitted = _parse_github_datetime(review.get("submittedAt"))
-        if submitted is not None and submitted <= merged_at:
-            return {"author": reviewer, "submitted_at": review.get("submittedAt")}
+        if submitted is None or submitted > merged_at:
+            continue
+        if latest is None or (submitted, idx) > (latest[0], latest[1]):
+            latest = (submitted, idx, review)
+    if latest is not None and str(latest[2].get("state") or "").upper() == "APPROVED":
+        return {"author": merged_by, "submitted_at": latest[2].get("submittedAt")}
     return None
 
 
