@@ -37,7 +37,10 @@ WHAT:      `doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md`: the cheap I
               mutable AFTER the spec was visible — the precise freedom a frozen spec
               exists to remove. The spec now requires the runner committed and reviewed
               BEFORE any scoring run, and the emitter identity pinned to a MERGED
-              renquant-model commit (model#227 is still open, therefore mutable).
+              renquant-model commit, never a branch. model#227 was open — hence
+              mutable — while this spec was under review; it merged at
+              2026-08-17T22:31:52Z, so the spec now carries the commit
+              (74c22647a788...) instead of only the requirement.
 
 WHY/DIR:   Design #984 §5 step 2 (approved 08-17, MERGED): candidates walk a cheap screen
            BEFORE any prereg cathedral. The screen's job is to order the queue, not to

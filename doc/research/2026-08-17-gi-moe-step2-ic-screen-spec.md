@@ -118,8 +118,12 @@ Required order, and no scoring run may start before step 3 completes:
    `NAMES_PER_DATE_FLOOR` and a minimum-blocks floor; tie behaviour in the Spearman
    ranking; the exact aggregation used for §6's ρ matrix.
 3. **The emitter identity is pinned**: the exact `renquant-model` commit and artifact
-   parameters the runner executes. **model#227 is still OPEN and therefore mutable** —
-   the pin must name a merged commit, not a branch.
+   parameters the runner executes. The pin must name a **merged commit, never a branch**
+   — the reason this clause exists is that model#227 was open, and therefore mutable,
+   while this spec was being reviewed. It has since merged, so the pin is available:
+   `74c22647a7880c6a3234e53fb5d037d82fde3faf` `[VERIFIED — merge commit of model#227,
+   read back from the PR after merge at 2026-08-17T22:31:52Z]`. The runner PR must
+   restate it and confirm the artifact parameters it executes match that commit.
 4. The script then runs ONCE (read-only inputs; outputs to `doc/research/data/`), in an
    isolated worktree — never against a live tree.
 5. Results PR carries: per-candidate genuine/placebo series, block table, verdicts, and
