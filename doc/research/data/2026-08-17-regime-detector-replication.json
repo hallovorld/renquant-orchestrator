@@ -1,0 +1,155 @@
+{
+ "hurst_null": [
+  {
+   "seed": 42,
+   "n_draws": 500,
+   "window": 63,
+   "share_H_gt_0.65": 0.846,
+   "share_H_lt_0.52": 0.002,
+   "mean_H": 0.72
+  },
+  {
+   "seed": 20260817,
+   "n_draws": 300,
+   "window": 63,
+   "share_H_gt_0.65": 0.89,
+   "share_H_lt_0.52": 0.0,
+   "mean_H": 0.726
+  }
+ ],
+ "hysteresis": {
+  "rule": "symmetric confirm-2: every switch (BEAR included) commits on the 2nd consecutive day of the new raw label (+1 td entry cost)",
+  "episodes_raw": 253,
+  "episodes_confirm2": 138,
+  "flicker_le2d_raw": 118,
+  "flicker_le2d_confirm2": 15,
+  "flicker_reduction_pct": 87.3,
+  "bear_days_raw": 413,
+  "bear_days_confirm2": 414
+ },
+ "prereg_plane": {
+  "source": "doc/research/data/2026-08-08-regime-posteriors.csv",
+  "bear_days_argmax": 77,
+  "bear_episodes_argmax": 9,
+  "runtime_plane_bear_days": 413,
+  "runtime_plane_bear_episodes": 57,
+  "ratio_days": 5.4
+ },
+ "snapshot_agreement": {
+  "n_common_days": 2388,
+  "replica_gmm_dominant_occ_pct": {
+   "BULL_CALM": 53.35,
+   "BULL_VOLATILE": 43.51,
+   "BEAR": 3.14
+  },
+  "snapshot_argmax_occ_pct": {
+   "BULL_CALM": 51.93,
+   "BULL_VOLATILE": 44.85,
+   "BEAR": 3.22
+  },
+  "max_abs_diff_pp": 1.42
+ },
+ "wf_replay_counts": {
+  "artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+  "sanity_window": [
+   "2023-12-26",
+   "2026-05-05"
+  ],
+  "artifact_n_dates": {
+   "BEAR": 55,
+   "BULL_CALM": 454,
+   "BULL_VOLATILE": 41,
+   "CHOPPY": 41
+  },
+  "replica_counts": {
+   "BULL_CALM": 454,
+   "BEAR": 55,
+   "CHOPPY": 41,
+   "BULL_VOLATILE": 41
+  },
+  "exact_match": true,
+  "artifact_sanity_regime_ic": {
+   "BEAR": {
+    "mean_ic": 0.2767,
+    "genuine_ic": 0.3388,
+    "passed": true
+   },
+   "BULL_CALM": {
+    "mean_ic": 0.0174,
+    "genuine_ic": -0.0294,
+    "passed": false
+   },
+   "BULL_VOLATILE": {
+    "mean_ic": 0.1044,
+    "genuine_ic": null,
+    "passed": false
+   },
+   "CHOPPY": {
+    "mean_ic": 0.0026,
+    "genuine_ic": -0.0656,
+    "passed": false
+   }
+  }
+ },
+ "recovery_days": {
+  "definition": "serving BEAR-labeled days from the mechanical -15% trough (inclusive) through the +15% recovery exit",
+  "per_episode": [
+   {
+    "trough": "2018-12-24",
+    "exit": "2019-01-31",
+    "bear_days_from_trough_incl": 16,
+    "bear_days_strictly_after_trough": 15
+   },
+   {
+    "trough": "2020-03-23",
+    "exit": "2020-03-26",
+    "bear_days_from_trough_incl": 4,
+    "bear_days_strictly_after_trough": 3
+   },
+   {
+    "trough": "2022-06-17",
+    "exit": "2022-08-12",
+    "bear_days_from_trough_incl": 22,
+    "bear_days_strictly_after_trough": 21
+   },
+   {
+    "trough": "2022-10-12",
+    "exit": "2023-02-01",
+    "bear_days_from_trough_incl": 30,
+    "bear_days_strictly_after_trough": 29
+   },
+   {
+    "trough": "2025-04-08",
+    "exit": "2025-05-12",
+    "bear_days_from_trough_incl": 21,
+    "bear_days_strictly_after_trough": 20
+   }
+  ],
+  "total_from_trough_incl": 93,
+  "total_strictly_after": 88
+ },
+ "bear_ic_split": {
+  "definition": "phase-A BEAR days split by serving-episode validation: a day is 'false-alarm' when its BEAR episode lies entirely outside every mechanical -10% drawdown window (M:false_alarms_S_vs_10pct)",
+  "n_days_validated_episodes": 37,
+  "n_days_false_alarm_episodes": 1,
+  "mean_ic_validated": 0.575,
+  "mean_ic_false_alarm": 0.032
+ },
+ "gmm_artifact": {
+  "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
+  "as_of_date": "2026-05-22",
+  "trained_date": "2026-05-22",
+  "cluster_labels": [
+   "BULL_CALM",
+   "BULL_VOLATILE",
+   "BEAR"
+  ],
+  "has_choppy_cluster": false
+ },
+ "vixcls_staleness": {
+  "path": "/Users/renhao/git/github/RenQuant/data/fred/VIXCLS.parquet",
+  "last_row": "2026-04-24",
+  "memo_date": "2026-08-17",
+  "calendar_days_stale": 115
+ }
+}
