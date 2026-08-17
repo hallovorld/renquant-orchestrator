@@ -22,7 +22,10 @@ WHY/DIR:   Operator-directed 2026-08-17 ("自己set goal和loop来drive这个moe
            keep the blend; MoE = model-list filling a (sector×regime) table; no new
            data pipelines or training architectures ("成本太大"); fast/slow momentum
            separate; strategy names not algorithm names; candidate bar = the momentum
-           bar (simple sort + survived our kill machine, transfer t≈3.17).
+           bar (simple sort + walked our kill path). The bar is NOT a t-threshold:
+           an earlier draft cited transfer t≈3.17, which is the iid figure; the
+           dependence-adjusted one is +0.71
+           `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`.
 
 EVIDENCE:
   artifact:      `doc/design/2026-08-17-gi-moe-sector-regime-routing.md` + this doc.
@@ -38,9 +41,16 @@ EVIDENCE:
                  candidate emitters clone — its home is the model factory
                  (`renquant-model` `src/renquant_model_momentum/{train,ledger}.py`
                  [VERIFIED — read 2026-08-17]), which fixes emitter ownership per
-                 RENQUANT_REPOS.md; GOAL-8 momentum transfer t≈3.17; DGTW tail
-                 skill t=2.92 (the tail_q90_20d rationale); fundmom previously tested
-                 and REJECTED (kill list).
+                 RENQUANT_REPOS.md; GOAL-8 momentum transfer t(iid)=+3.17 /
+                 t(n_eff-adjusted)=+0.71
+                 `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`
+                 — the adjusted figure is the honest one and no admission rests on
+                 the iid value; the tail_q90_20d rationale's "DGTW t=2.92"
+                 `[ASSUMED — appears only in doc/memory/mid-term/model-edge.md with no
+                 research artifact behind it; demoted from evidence to hypothesis]`;
+                 fundmom previously tested and REJECTED (kill list)
+                 `[VERIFIED — prior work, doc/design/2026-06-28-renquant105-alpha-discovery.md:69
+                 for the five canonical price-trend factors]`.
   best-known?:   yes — the design's degrees of freedom are bounded by the measured
                  power map (effective-sample-BEFORE-decision-rule, the #975/#976
                  lesson) and by the frozen §5b assignment rule; hard-wired cells are

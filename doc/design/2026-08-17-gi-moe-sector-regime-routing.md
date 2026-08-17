@@ -29,10 +29,25 @@ dispersion-gated routing ("living MoE") is a later stage.
    — an alias registry; serving keys unchanged (renaming live artifacts/config keys is a
    run-surface change with no upside).
 6. New-expert quality bar = the momentum bar: momentum is trusted because it is a simple
-   sort (not a learner), academically robust for 50+ years, and **survived our own kill
-   machine** (GOAL-8 validated transfer t≈3.17). Candidates must walk the same path.
+   sort (not a learner), long-documented in the academic literature
+   `[ASSUMED — literature consensus; no in-repo measurement backs the duration claim]`,
+   and **survived our own kill machine**. Candidates must walk the same path.
 
-## 3. The grid and its power map `[VERIFIED/DERIVED — 08-13 sample-geometry groundwork]`
+   **The transfer statistic, corrected.** An earlier revision cited GOAL-8 transfer
+   `t≈3.17` here as the strength of that survival. Sourcing it showed that is the **iid**
+   figure and the dependence-adjusted one is far weaker:
+   `t(iid) = +3.17`, `t(n_eff-adjusted) = +0.71`
+   `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]`.
+   Quoting 3.17 as the bar would have overstated the evidence by citing the number that
+   ignores the very dependence this repo has been bitten by. **The bar is therefore
+   "walked the same kill path", not "cleared t≈3.17"** — the adjusted statistic does not
+   support a t-threshold, and no MoE admission decision here rests on one.
+
+## 3. The grid and its power map
+
+*Per-quantity tags below; the section carries no blanket tag — a hybrid
+`[VERIFIED/DERIVED]` header cannot say which of its numbers were measured and which
+were computed, which is the ambiguity row 10 exists to remove.*
 
 44 cells = 11 GICS sectors (`data/ticker_sectors.json`, 304 tickers) × 4 HMM regimes
 (`kernel/hmm_regime_labels.py` on SPY over the 125-fold WF set, 2019-01-14..2026-03-02).
@@ -63,7 +78,7 @@ Existing (6) — already trained, in prod or shadow:
 | strategy name | serving identity | tilt | status |
 |---|---|---|---|
 | `multifactor_core` | panel-ltr.alpha158_fund (rank:pairwise) | price/volume+fundamental composite | prod blend leg 1 |
-| `mom_slow_12m` | momentum ledger (12-1 residual, weekly) | slow momentum | prod blend leg 2; transfer t≈3.17 |
+| `mom_slow_12m` | momentum ledger (12-1 residual, weekly) | slow momentum | prod blend leg 2; transfer t(iid)=+3.17 / t(n_eff-adj)=+0.71 `[VERIFIED — prior work, doc/research/2026-08-08-moe-stage-minus1-results.md:173]` |
 | `mom_fast` | momentum_fast ledger | fast momentum | shadow |
 | `mom_panel_60d` | xgb_mom_60d | momentum-factor panel learner | shadow (passed WF) |
 | `topdecile_60d` | panel-clf.top-decile.fwd60 | top-decile classifier | shadow |
@@ -74,11 +89,12 @@ Candidates (4) — momentum-grade, **zero new data / zero new architecture**:
 |---|---|---|---|
 | `high52w` | 52-week-high proximity (George–Hwang) | **clone the momentum ledger emitter**, swap the formula; existing OHLCV | momentum's closest sibling; simple sort, anchoring mechanism; cross-sectional (the killed thing was single-name time-series trend) |
 | `lowbeta` | betting-against-beta (Frazzini–Pedersen) | same emitter clone; rolling beta on existing prices | most robust non-momentum price factor; **negatively correlated with momentum in crashes** — best MoE diversity |
-| `quality_gp` | gross profitability (Novy-Marx) | same emitter clone; fundamental columns already in panel | most robust single fundamental factor; near-zero turnover (cost ≈ 0 at our size) |
-| `tail_q90_20d` | quantile-regression (q90) on the existing panel | one retrain recipe on the existing panel pipeline | targets the account's PROVEN skill shape — tail-driven top-decile (DGTW t=2.92); the current rank objective dilutes it |
+| `quality_gp` | gross profitability (Novy-Marx) | same emitter clone; fundamental columns already in panel | most robust single fundamental factor `[ASSUMED — literature consensus (Novy-Marx); no in-repo measurement ranks it against alternatives]`; near-zero turnover, so cost is expected to be immaterial at our size `[ASSUMED — not measured here; the cheap IC screen in §5 is where cost must actually be charged]` |
+| `tail_q90_20d` | quantile-regression (q90) on the existing panel | one retrain recipe on the existing panel pipeline | targets a tail-driven top-decile skill shape `[ASSUMED — the DGTW t=2.92 figure appears only in doc/memory/mid-term/model-edge.md, with no research artifact behind it; it is NOT a re-measured or reproducible result and must not be read as one]`; the current rank objective is hypothesised to dilute it |
 
-**Kill list stays killed** (no re-entry without new evidence): time-series trend (5
-canonical signals failed), intraday open→close alpha (negative net), crypto, fundamental
+**Kill list stays killed** (no re-entry without new evidence): time-series trend
+(five canonical price-trend factors showed no robust unconditional edge
+`[VERIFIED — prior work, doc/design/2026-06-28-renquant105-alpha-discovery.md:69]`), intraday open→close alpha (negative net), crypto, fundamental
 momentum (tested, REJECTED), PatchTST (retired 08-02), short-term reversal (turnover >
 our cost capacity — declared, not tested).
 
@@ -89,12 +105,14 @@ Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harn
    emitter pattern; new formula, same mechanics, same scorer-identity monitoring).
 2. **Cheap IC screen first** (over-engineering-validation): score on the existing WF
    corpora; a candidate that can't show a placebo-clean IC *difference* dies before any
-   prereg cathedral. Trust differences, not absolute IC (embargo-leakage floor ~+0.04).
+   prereg cathedral. Trust differences, not absolute IC (embargo-leakage floor ~+0.04 `[VERIFIED — prior work, doc/research/2026-06-28-renquant105-pead-signal.md:62 — shuffled-label floor on overlapping ~60d labels with a ~30d embargo gap]`).
 3. **Prereg + WF gate** for survivors — frozen before the run; episode-block inference
    (block ≥ horizon; block-t critical values, never hardcoded 1.96 on single-digit
    blocks); effective sample counted BEFORE the decision rule (the #975/#976 lesson).
 4. **Incremental-information gate**: admitted to the roster only if score correlation
-   with `multifactor_core` AND with each already-admitted expert is |ρ| < 0.7, or it
+   with `multifactor_core` AND with each already-admitted expert is |ρ| < 0.7
+   `[ASSUMED — a design choice, not a measured threshold: it bounds re-skinned duplicates;
+   no in-repo measurement selects 0.7 over a neighbouring value]`, or it
    shows incremental IC — no re-skinned duplicates.
 5. **Shadow ledger** rides in the daily-full (a shadow lane) before any cell assignment.
 
