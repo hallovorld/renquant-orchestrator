@@ -953,6 +953,130 @@ def test_merge_audit_status_rejects_post_merge_marker_as_pre_merge():
     assert status["post_merge_audit_count"] == 1
 
 
+# ── orch#988: the approve-and-merge path is audited by its own review record ──
+#
+# 84% of codex's merges in the measured 7d window carried no pre-merge marker —
+# structurally, not carelessly: its path approves and merges in one action, and
+# the marker convention is satisfiable only on the two-token agent-workflow
+# path. The merger's own pre-merge APPROVED review on a peer's PR carries the
+# same facts the marker encodes, so it now counts as the attestation. The gate
+# keeps firing on merges with NEITHER record.
+
+
+def _merged_pr_with_review(num, *, author_login, merged_by, review_state="APPROVED",
+                           reviewer=None, review_at="2026-06-09T00:09:00Z",
+                           merged_at="2026-06-09T00:10:00Z"):
+    pr = _pr(num, author="claude", state="MERGED")
+    pr["author"] = {"login": author_login}
+    pr["mergedAt"] = merged_at
+    pr["mergedBy"] = {"login": merged_by}
+    pr["comments"] = []
+    pr["reviews"] = [{
+        "state": review_state,
+        "author": {"login": reviewer or merged_by},
+        "submittedAt": review_at,
+    }]
+    return pr
+
+
+def test_merge_audit_status_accepts_the_mergers_pre_merge_approval():
+    """codex's real shape (model#226): APPROVED 21:26, merged 21:26:34, no comment."""
+    pr = _merged_pr_with_review(3, author_login="claude-user", merged_by="codex-user")
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "review_attested"
+    assert status["audited"] is True
+    assert status["review_attested"] is True
+    assert status["review_attested_at"] == "2026-06-09T00:09:00Z"
+    # the two records never blur: this is NOT a pre-merge marker
+    assert status["has_pre_merge_audit"] is False
+
+
+def test_merge_audit_status_self_merge_cannot_self_attest():
+    """author == merger: whatever was approved, a self-merge stays unaudited."""
+    pr = _merged_pr_with_review(4, author_login="codex-user", merged_by="codex-user")
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "missing_pre_merge_audit"
+    assert status["audited"] is False
+
+
+def test_merge_audit_status_post_merge_approval_does_not_attest():
+    pr = _merged_pr_with_review(
+        5, author_login="claude-user", merged_by="codex-user",
+        review_at="2026-06-09T00:10:01Z",  # AFTER mergedAt
+    )
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "missing_pre_merge_audit"
+    assert status["audited"] is False
+
+
+def test_merge_audit_status_non_approving_or_third_party_review_does_not_attest():
+    changes = _merged_pr_with_review(
+        6, author_login="claude-user", merged_by="codex-user",
+        review_state="CHANGES_REQUESTED",
+    )
+    third_party = _merged_pr_with_review(
+        7, author_login="claude-user", merged_by="codex-user",
+        reviewer="someone-else",
+    )
+
+    assert merge_audit_status(changes)["audited"] is False
+    assert merge_audit_status(third_party)["audited"] is False
+
+
+def test_merge_audit_status_pre_merge_marker_still_wins_over_attestation():
+    """The marker path is unchanged: when present, status stays 'ok'."""
+    pr = _merged_pr_with_review(8, author_login="claude-user", merged_by="codex-user")
+    pr["comments"] = [{
+        "body": "merged by `codex`",
+        "createdAt": "2026-06-09T00:08:00Z",
+        "author": {"login": "codex-user"},
+    }]
+
+    status = merge_audit_status(pr)
+
+    assert status["status"] == "ok"
+    assert status["has_pre_merge_audit"] is True
+    assert status["review_attested"] is False  # attestation not even consulted
+    assert status["audited"] is True
+
+
+def test_audit_merged_prs_gate_accepts_attested_and_fires_on_neither(monkeypatch):
+    from datetime import datetime, timezone
+
+    attested = _merged_pr_with_review(9, author_login="claude-user",
+                                      merged_by="codex-user")
+    naked = _pr(10, author="claude", state="MERGED")
+    naked["author"] = {"login": "claude-user"}
+    naked["mergedAt"] = "2026-06-09T00:11:00Z"
+    naked["mergedBy"] = {"login": "codex-user"}
+    naked["comments"] = []
+    naked["reviews"] = []
+    in_window = datetime(2026, 6, 10, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_merged_prs",
+        lambda _repo, _token, limit=50: [attested, naked],
+    )
+    audit = audit_merged_prs("o/r", None, limit=25, now=in_window)
+    assert audit["n_review_attested_in_window"] == 1
+    assert audit["n_missing_in_window"] == 1  # only the record-less merge
+    assert audit["ok"] is False
+
+    monkeypatch.setattr(
+        "renquant_orchestrator.agent_workflows.fetch_merged_prs",
+        lambda _repo, _token, limit=50: [attested],
+    )
+    audit = audit_merged_prs("o/r", None, limit=25, now=in_window)
+    assert audit["n_missing_in_window"] == 0
+    assert audit["ok"] is True  # attestation alone satisfies the gate
+
+
 def test_audit_merged_prs_summarizes_missing_pre_merge_markers(monkeypatch):
     ok_pr = _pr(1, author="codex", state="MERGED")
     ok_pr["mergedAt"] = "2026-06-09T00:10:00Z"
