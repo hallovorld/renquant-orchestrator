@@ -1,19 +1,32 @@
-# G-I MoE step 2 — the cheap IC screen: FROZEN spec (before any scoring run)
+# G-I MoE step 2 — the cheap IC screen: EXPLORATORY triage spec (before any scoring run)
 
-STATUS: **frozen experiment spec (docs only — the run happens AFTER this merges).**
+STATUS: **exploratory triage spec (docs only — the run happens AFTER this merges AND
+after the runner is committed and reviewed).** This screen **cannot kill a candidate.**
 DATE: 2026-08-17. Implements design #984 §5 step 2 for the three step-1 emitters
-(model#227: `high52w`, `lowbeta`, `quality_gp`). Frozen BEFORE any candidate score is
-computed on the corpus (effective-sample-before-decision-rule; runner guards are prereg
-content). Re-running the screen on this corpus after seeing results is FORBIDDEN.
+(model#227: `high52w`, `lowbeta`, `quality_gp`). The estimand, corpus and thresholds are
+fixed before any candidate score is computed (effective-sample-before-decision-rule;
+runner guards are prereg content). Re-running with different parameters after seeing
+results is FORBIDDEN — but see §1 for what a result here does and does not authorise.
 
-## 1. Semantics — the screen KILLS, it never admits
+## 1. Semantics — the screen TRIAGES; it neither kills nor admits
 
-A candidate that cannot show a placebo-clean IC **difference** on seven years of data
-dies here, before any prereg cathedral. Passing means only "not obviously dead":
-admission to the roster still requires the full §5 path (frozen prereg + episode-block
-WF + the |ρ|<0.7 incremental-information gate under #984 §5b's Holm family). Because the
-screen is kill-only and non-confirmatory, it uses NO multiplicity correction and a
-deliberately lenient threshold; all confirmatory burden stays downstream.
+**Revised 2026-08-17 (codex review, MED).** An earlier draft of this spec claimed the
+screen was kill-only and that its kills were final. That claim rested on a survivorship
+argument that does not hold (§2), so it has been withdrawn rather than patched.
+
+What this screen produces is a **triage signal**: a candidate that cannot show a
+placebo-clean IC difference on seven years of data is **FLAGGED** — deprioritised in the
+#984 §5b queue, and required to clear a point-in-time rerun before it may be killed.
+A candidate that is not flagged has shown only "not obviously dead": admission to the
+roster still requires the full §5 path (frozen prereg + episode-block WF + the |ρ|<0.7
+incremental-information gate under #984 §5b's Holm family).
+
+Because the screen is exploratory and non-confirmatory in **both** directions, it uses NO
+multiplicity correction and a deliberately lenient threshold; all confirmatory burden
+stays downstream.
+
+**Nothing in this document authorises a kill.** A kill requires, at minimum, a
+point-in-time universe (§2) and the committed runner of §7.
 
 ## 2. Frozen corpus
 
@@ -23,11 +36,22 @@ deliberately lenient threshold; all confirmatory burden stays downstream.
 - **Universe**: the current watchlist (the 145-name live universe) with per-date data
   availability; names lacking an emitter's min_obs on a date are absent that date
   (the emitters' own frozen floors apply, incl. NAMES_PER_DATE_FLOOR=50).
-- **Survivorship caveat (stated, accepted)**: the current watchlist is
-  survivorship-tilted for 2019-era cross-sections. This INFLATES measured ICs, which
-  makes the screen EASIER to pass — so **kills remain valid** (dead even on an inflated
-  corpus = safely dead) while **passes are non-confirmatory** (consistent with §1; the
-  prereg stage owns point-in-time discipline).
+- **Survivorship — direction UNKNOWN, and that is why this screen cannot kill**
+  `[REVISED — codex review 2026-08-17]`. The current watchlist is survivorship-tilted for
+  2019-era cross-sections. An earlier draft asserted this INFLATES measured ICs and
+  therefore made kills "safely valid". **That is wrong**: a current-survivor universe does
+  not monotonically inflate every factor's IC, nor every genuine-minus-placebo Δ. It can
+  move either sign, and the plausible mechanisms run the wrong way for exactly two of the
+  three candidates here:
+  - `lowbeta` — survivors of a 2019–2026 window over-represent names that carried and
+    survived high beta. Conditioning on that can **compress or invert** low-beta's
+    measured cross-sectional edge.
+  - `quality_gp` — if survival is itself partly quality-selected, the surviving
+    cross-section has **less** dispersion in quality than the true one, which depresses a
+    rank-IC computed on it.
+  So a low Δ measured here may be an artifact of the universe rather than a property of
+  the candidate, and a kill decided on it would be unsound. Hence §1: FLAG, do not kill.
+  A point-in-time universe is the fix, and it is deferred, not assumed away.
 - **Inputs**: existing OHLCV parquet + the upstream `gross_profitability` column,
   read-only. SPY from the same store. Zero new data.
 
@@ -54,17 +78,21 @@ non-overlapping h-blocks** (block mean differences; df = blocks−1), never a 1.
 critical value on the raw weekly series. h=60's n_eff≈16 is annotation-grade —
 which is why h=20 is primary and h=60 is reported but never decisive.
 
-## 5. Frozen kill rule (one shot per corpus)
+## 5. Frozen triage rule (one shot per corpus)
 
-A candidate **SURVIVES** iff, at h=20 on the frozen corpus:
+A candidate is **NOT FLAGGED** iff, at h=20 on the frozen corpus:
 1. Δ > 0, AND
 2. block-t(Δ over the 89 non-overlapping 20d blocks) ≥ **1.0**, AND
 3. the per-block Δ is positive in > **50%** of blocks with data.
-Anything else = **KILLED** (recorded verdict; no re-run, no parameter search, no
-alternative horizon rescue — h=60 is informational only). The lenient t≥1.0 is the
-kill-only asymmetry: the screen must not manufacture admits, and a true-but-weak
-candidate that dies here could only have been rescued by exactly the data-mining this
-program forbids.
+
+Anything else = **FLAGGED** (recorded verdict; no re-run, no parameter search, no
+alternative horizon rescue — h=60 is informational only). A FLAGGED candidate is
+deprioritised and must clear a point-in-time rerun before any kill decision; it is not
+killed by this document.
+
+The lenient t≥1.0 is the exploratory asymmetry: the screen must not manufacture admits,
+and a true-but-weak candidate that flags here could only have been rescued by exactly the
+data-mining this program forbids.
 
 ## 6. Measured alongside (informational at this stage)
 
@@ -72,10 +100,30 @@ Pairwise Spearman ρ of each candidate's scores vs `multifactor_core`, `mom_slow
 `mom_fast` on common dates — early visibility for the |ρ|<0.7 roster gate, which is
 APPLIED at prereg admission, not here.
 
-## 7. Execution contract
+## 7. Execution contract — the runner is frozen BEFORE the run, not with the results
 
-A committed, deterministic derivation script (read-only inputs; outputs to
-doc/research/data/) runs ONCE after this spec merges, in an isolated worktree — never
-against a live tree. Results PR carries: per-candidate genuine/placebo series, block
-table, verdicts, and the ρ matrix; every number provenance-tagged. Kill verdicts are
-final for this corpus; survivors proceed to the #984 §5b manifest freeze.
+`[REVISED — codex review 2026-08-17, HIGH]` An earlier draft deferred the derivation
+script to the results PR. That left block assignment, missing-data handling, the common
+genuine/placebo date set, minimum names per cross-section and per block, tie behaviour,
+and the exact correlation aggregation mutable *after* this spec was visible — which is
+precisely the freedom a frozen spec exists to remove. Runner guards are prereg content,
+not implementation detail.
+
+Required order, and no scoring run may start before step 3 completes:
+
+1. **This spec merges.**
+2. **The deterministic derivation script is committed and reviewed** — in this repo or a
+   separate runner-only PR — with every guard above written down and testable:
+   block assignment; missing-data handling; the common genuine/placebo date set;
+   `NAMES_PER_DATE_FLOOR` and a minimum-blocks floor; tie behaviour in the Spearman
+   ranking; the exact aggregation used for §6's ρ matrix.
+3. **The emitter identity is pinned**: the exact `renquant-model` commit and artifact
+   parameters the runner executes. **model#227 is still OPEN and therefore mutable** —
+   the pin must name a merged commit, not a branch.
+4. The script then runs ONCE (read-only inputs; outputs to `doc/research/data/`), in an
+   isolated worktree — never against a live tree.
+5. Results PR carries: per-candidate genuine/placebo series, block table, verdicts, and
+   the ρ matrix; every number provenance-tagged.
+
+Verdicts are **triage outcomes**, not kills (§1). Not-flagged candidates proceed to the
+#984 §5b manifest freeze; flagged candidates proceed only after a point-in-time rerun.
