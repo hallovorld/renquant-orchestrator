@@ -53,3 +53,9 @@ EVIDENCE:
                  admission, NO deploy, NO re-run. quality_gp advances only into
                  the #984 §5b frozen-prereg path; high52w/lowbeta wait on a
                  point-in-time rerun. The h=60 tables are informational only.
+
+NEXT:      quality_gp (the one NOT-FLAGGED emitter) → the #984 §5b frozen-prereg
+           manifest; high52w + lowbeta → deprioritised pending a point-in-time
+           rerun before any kill decision; multifactor_core's missing historical
+           series remains a NAMED GAP until the panel pipeline can serve one.
+           No code/config/live change follows from this PR.
