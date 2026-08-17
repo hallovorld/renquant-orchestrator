@@ -9,8 +9,11 @@ DATE: 2026-08-17. Operator-directed ("自己set goal和loop来drive这个moe模�
 The MoE is **a list of models filling a (sector × regime) table** — the operator's
 definition, verbatim. Each cell of the 11-sector × 4-regime grid is served by the expert
 best suited to it; **cells without the statistical power to choose an expert are
-hard-wired to the champion** (today's prod blend), so the worst case equals today's
-system *by construction*. v1 is a **static, config-declared router** over models that
+hard-wired to the champion** (today's prod blend). For hard-wired cells the worst case
+equals today's system *by construction*; for the few tested cells the downside is
+probabilistic and bounded by the frozen assignment rule in §5b — FWER ≤ 5% per batch,
+prospective confirmation, and a demotion ratchet — not zero (§5b step 9 states the
+honest guarantee). v1 is a **static, config-declared router** over models that
 already exist or are derivable at ~zero marginal cost — **zero new data sources, zero new
 training architecture** (operator constraint). Weighting is deferred (AC5); learned/
 dispersion-gated routing ("living MoE") is a later stage.
@@ -38,7 +41,7 @@ breadth adds cross-section, never time-independence:
 
 | regime column | episodes | v1 treatment |
 |---|---:|---|
-| BULL_VOLATILE | 17 | **the ONLY candidate-testable column** (11 cells), episode-block inference + multiplicity across 11 cells |
+| BULL_VOLATILE | 17 | **the ONLY candidate-testable column** (11 cells); specialists assigned ONLY through the frozen §5b decision rule |
 | BEAR | 8 | champion default; challenger only on a huge frozen-gate effect (this wall killed preregs #975/#976); `bear_exit` enters as the BEAR **policy overlay** (exit/defense), pending G-B — NOT as a per-cell scorer swap |
 | CHOPPY | 5 | **hard-wired champion** |
 | BULL_CALM | 3 | **hard-wired champion** |
@@ -46,8 +49,9 @@ breadth adds cross-section, never time-independence:
 **≈33 of 44 cells are pre-emptively hard-wired.** The frozen hard-wire list is prereg
 content (runner-guards-are-prereg-content): no later rule may touch it. Realistic v1
 outcome: **1–3 BULL_VOLATILE cells** get a specialist; everything else serves the
-champion. That is the honest scope, not a defeat — and it caps downside at today's
-system. Episode-granularity caveat: episodes counted at ~3-week fold granularity
+champion. That is the honest scope, not a defeat; downside on tested cells is bounded
+per §5b step 9, and everywhere else equals today's system by construction.
+Episode-granularity caveat: episodes counted at ~3-week fold granularity
 (order-of-magnitude, not exact); the hopeless-column conclusion is robust to this.
 
 ## 4. Expert roster + alias registry
@@ -94,6 +98,75 @@ Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harn
    shows incremental IC — no re-skinned duplicates.
 5. **Shadow ledger** rides in the daily-full (a shadow lane) before any cell assignment.
 
+## 5b. Preregistered cell-assignment decision rule (FROZEN — prereg content)
+
+Codex review (2026-08-17) correctly found that §5 qualifies *experts* but never froze
+the rule mapping an admitted expert into a BULL_VOLATILE cell, leaving implementation
+enough freedom to pick specialists after seeing results. This section closes that gap.
+It is prereg content: implementation parameterizes nothing here, and the hypothesis
+family below is tested **once per frozen corpus** — re-running the batch on the same
+corpus is forbidden.
+
+1. **Unit of inference.** One block = one BULL_VOLATILE episode from the frozen corpus
+   (125-fold WF set, 2019-01-14..2026-03-02; 17 episodes). Consecutive episodes whose
+   gap is < 60 calendar days (the label horizon) merge into ONE block — labels that
+   straddle the gap otherwise correlate adjacent blocks (the #975/#976 defect class).
+   Effective block count `m` is counted BEFORE any test statistic is computed.
+2. **Estimand + champion comparator.** For sector cell `s` and admitted candidate `c`:
+   the block-level mean of daily cross-sectional Spearman rank IC of `c`'s score
+   against the fwd-60d label on the cell's names, MINUS the same quantity for the
+   champion — paired by (day, name), same panel, same label. The comparator is
+   pinned: the prod champion blend at corpus freeze (config hash + pipeline commit
+   recorded in the batch manifest).
+3. **Coverage minima.** A `(c, s)` hypothesis is admissible iff ≥ 12 of the 17
+   episodes qualify AND post-merge `m ≥ 10`, where an episode qualifies iff the cell
+   has ≥ 8 names scored by BOTH `c` and the champion on ≥ 60% of its days.
+   Inadmissible ⇒ the cell hard-wires to the champion (no-decision). Thresholds
+   [ASSUMED — design choices frozen here: 8 names is the minimum cross-section for a
+   stable rank IC on this universe (304 tickers / 11 sectors ≈ 28 median names per
+   sector); `m ≥ 10` keeps block-t d.f. ≥ 9, off the single-digit-block regime that
+   killed preregs #975/#976].
+4. **Test + multiplicity family.** One-sided paired block-t over the `m` blocks;
+   critical values from t(m−1), never a hardcoded 1.96. The family = ALL admissible
+   `(c, s)` pairs in the batch (up to 4 candidates × 11 cells = 44 hypotheses);
+   Holm–Bonferroni at family-wise α = 0.05 [ASSUMED — FWER rather than FDR because a
+   false specialist serves real money; 0.05 is the repo's standing gate α]. Only
+   survivors reach step 5.
+5. **Minimum economically meaningful improvement.** A surviving `(c, s)` must also
+   show pooled episode-weighted ΔIC ≥ +0.02 [ASSUMED — half the ~+0.04
+   embargo-leakage floor §5 step 2 already uses: an improvement smaller than half a
+   known measurement artifact is not economically credible]. Net-of-costs is enforced
+   at Stage B (step 7), where the replay cost model exists; Stage-A candidates are
+   low-turnover by roster construction (§4).
+6. **Tie / no-decision.** In a cell with ≥ 2 survivors, the largest pooled ΔIC wins
+   ONLY if it exceeds the runner-up by ≥ 1 paired SE of their difference; otherwise
+   no-decision. EVERY failure mode — inadmissible, non-significant, sub-threshold,
+   tie, missing data, ambiguity of any kind — resolves to the champion. There is no
+   discretionary branch.
+7. **Selection-bias separation (two stages).** Stage A (steps 1–6) yields a
+   PROVISIONAL assignment from the frozen corpus. Stage B is prospective
+   confirmation with its criterion frozen here, before any Stage-A result exists:
+   the provisional router runs in the MoE shadow lane (AC4) until ≥ 40 trading days
+   classify BULL_VOLATILE [ASSUMED — spans ≥ 1 fresh episode at observed episode
+   lengths without stalling rollout]; the specialist confirms iff its cumulative net
+   per-cell replay attribution (existing cost model) ≥ the champion's on the same
+   cell-days. Fail or ambiguous ⇒ demote to champion. Stage B cannot resurrect a
+   Stage-A loser and cannot re-litigate Stage-A numbers — evidence collected after
+   assignment cannot have been selected on.
+8. **Fallback ratchet.** Post-confirmation, at every BULL_VOLATILE episode close: a
+   specialist whose cumulative net cell attribution trails the champion's demotes to
+   champion, one-way. Re-admission requires a NEW Stage-A batch on an extended
+   corpus.
+9. **Honest downside guarantee (corrects the claim made by an earlier revision of §1).**
+   "Worst case = today by construction" holds ONLY for the ≈33 hard-wired cells
+   (byte-identical serving). For tested cells the guarantee is probabilistic and
+   bounded: under the null of no true specialist, P(any false specialist
+   provisionally assigned) ≤ 5% per batch (step 4); a false positive must still pass
+   Stage B (step 7) and remains subject to the episode-close ratchet (step 8),
+   bounding its exposure to the shadow window plus at most one episode of live
+   underperformance in its single cell. Selected-cell downside is bounded and
+   temporary — NOT zero.
+
 ## 6. Serving mechanics — composition machinery that already exists
 
 - The prod blend is already an inference-only composition (`blend` kind); a
@@ -105,22 +178,29 @@ Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harn
   labels). Sector: `ticker_sectors.json` (+ `sector_etf_map` already in config).
 - Hard-wired cells: their component list IS the champion blend — byte-identical
   behavior to today for ≈33/44 cells, by construction.
-- Implementation homes (impl phase, after approval): emitters in the umbrella ops
-  pattern (where momentum's lives), router composition in renquant-pipeline (the
-  registry owner), orchestration/lane wiring here — boundaries per RENQUANT_REPOS.md;
-  exact repo split is finalized in the impl PRs with codex.
+- Implementation homes (impl phase, after approval) — **finalized against
+  RENQUANT_REPOS.md, not assumed**: candidate emitters live in the MODEL FACTORY
+  (`renquant-model`), beside the existing momentum emitter package
+  `renquant_model_momentum` (`src/renquant_model_momentum/{train,ledger}.py`
+  [VERIFIED — read 2026-08-17]) whose pattern they clone; an earlier revision said
+  "the umbrella ops pattern", which was wrong — the repo map forbids new code in the
+  umbrella. Ledger artifacts publish through the existing artifact path the serving
+  side already reads; router composition in renquant-pipeline (the registry owner);
+  orchestration/lane wiring here (renquant-orchestrator).
 
 ## 7. Rollout + acceptance criteria (measurable; merged ≠ delivered)
 
-- **AC1** Frozen routing-table schema + the 33-cell hard-wire list committed as config;
-  champion fallback proven byte-identical on hard-wired cells (test).
+- **AC1** Frozen routing-table schema + the 33-cell hard-wire list + the §5b decision
+  rule committed as prereg content; champion fallback proven byte-identical on
+  hard-wired cells (test).
 - **AC2** Alias registry committed; every operator-facing surface (reports, ntfy) uses
   strategy names; zero serving-key renames.
 - **AC3** ≥1 candidate expert qualified END-TO-END through §5 (emitter live in shadow
   ledger + prereg verdict recorded) — regardless of pass/kill outcome; the pipeline
   itself is the deliverable.
 - **AC4** MoE shadow lane live in the daily-full producing per-cell-routed scores, with
-  replay attribution (which expert served which cell on which day).
+  replay attribution (which expert served which cell on which day) — this lane is also
+  the §5b Stage-B confirmation surface.
 - **AC5** (deferred, explicit non-goal of v1) per-component weights.
 - **AC6** Promotion to prod: operator-gated, only after shadow evidence; the blend-level
   WF-gating gap (#982 deferred item) applies to the MoE composition identically and is
@@ -142,6 +222,7 @@ Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harn
 This design PR → codex approve → **impl phase** (each step its own codex-gated PR):
 (1) emitter clones (`high52w`, `lowbeta`, `quality_gp`) + `tail_q90_20d` recipe →
 (2) cheap IC screen, kill/advance verdicts recorded → (3) router config schema +
-hard-wire list + alias registry → (4) MoE shadow lane → (5) AC4 replay attribution →
-operator-gated deploys throughout. Design-review fixes on THIS doc are personal (not
-delegated).
+hard-wire list + alias registry → (4) §5b Stage-A assignment batch (frozen manifest,
+one run per corpus) → (5) MoE shadow lane (§5b Stage-B confirmation) → (6) AC4 replay
+attribution → operator-gated deploys throughout. Design-review fixes on THIS doc are
+personal (not delegated).

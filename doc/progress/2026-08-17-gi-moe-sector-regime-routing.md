@@ -9,8 +9,13 @@ WHAT:      Commit `doc/design/2026-08-17-gi-moe-sector-regime-routing.md`: the f
            to the champion), the expert roster (existing 6 + 4 momentum-grade
            candidates at zero new data/architecture cost), the strategy-facing alias
            registry, the momentum-path qualification pipeline with an
-           incremental-information gate, serving via the existing blend/regime_router
-           composition machinery, measurable AC1–AC6, and an explicit honesty ledger.
+           incremental-information gate, the frozen §5b cell-assignment decision rule
+           (estimand + pinned champion comparator, coverage minima, Holm FWER ≤ 5%
+           across the candidate×cell family, ΔIC ≥ +0.02 minimum effect, no-decision
+           ⇒ champion, two-stage assignment/confirmation separation, demotion
+           ratchet, honest downside guarantee — added on codex review 2026-08-17),
+           serving via the existing blend/regime_router composition machinery,
+           measurable AC1–AC6, and an explicit honesty ledger.
 
 WHY/DIR:   Operator-directed 2026-08-17 ("自己set goal和loop来drive这个moe模型！设计
            要发pr被approve之后再开始impl"), consolidating the 08-13..08-17 decisions:
@@ -30,13 +35,20 @@ EVIDENCE:
                  (304 tickers). [VERIFIED] blend + regime_router are registered
                  inference-only composition kinds in the pipeline model registry; the
                  momentum ledger emitter (weekly, hash-chained) is the live pattern the
-                 candidate emitters clone; GOAL-8 momentum transfer t≈3.17; DGTW tail
+                 candidate emitters clone — its home is the model factory
+                 (`renquant-model` `src/renquant_model_momentum/{train,ledger}.py`
+                 [VERIFIED — read 2026-08-17]), which fixes emitter ownership per
+                 RENQUANT_REPOS.md; GOAL-8 momentum transfer t≈3.17; DGTW tail
                  skill t=2.92 (the tail_q90_20d rationale); fundmom previously tested
                  and REJECTED (kill list).
   best-known?:   yes — the design's degrees of freedom are bounded by the measured
                  power map (effective-sample-BEFORE-decision-rule, the #975/#976
-                 lesson); worst case = today's system by construction (hard-wired
-                 champion fallback); candidates are restricted to zero-marginal-cost
+                 lesson) and by the frozen §5b assignment rule; hard-wired cells are
+                 byte-identical to today by construction, tested cells carry a
+                 bounded probabilistic downside (FWER ≤ 5%/batch + prospective
+                 confirmation + demotion ratchet — the earlier blanket "worst case =
+                 today by construction" claim was over-broad and is corrected in
+                 §5b step 9); candidates are restricted to zero-marginal-cost
                  builds and must clear a cheap IC screen BEFORE any prereg cathedral;
                  an incremental-information gate (|ρ|<0.7) blocks re-skinned
                  duplicates; the kill list is carried forward explicitly.
