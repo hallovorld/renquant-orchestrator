@@ -20,8 +20,13 @@ carries only m = 2 independent blocks at the fwd-60d label horizon under §5b's 
 gap-merge rule, so the honest v1 Stage-A expectation is **zero specialist assignments
 — the entire grid serves the champion** until an extended corpus or a reviewed
 estimand amendment clears the admissibility floor (§3, §10). v1 is still worth
-building: it delivers the router machinery, the alias registry, the qualification
-pipeline, and the fail-safe rule. v1 is a **static, config-declared router** over models that
+building — but only up to the §7 **AC-GATE**: it delivers the routing schema + offline
+contract test, the alias registry, the qualification pipeline, and the frozen
+fail-safe rule as prereg text. The live MoE shadow lane and replay attribution (AC4)
+are built ONLY on a GO verdict (≥ 1 admissible cell AND ≥ 1 qualified candidate,
+reachable from today only via a reviewed new frozen batch spec); on current geometry
+the impl phase STOPS at the auditable all-champion Stage-A verdict rather than
+deploying a known no-op lane (§7, §9). v1 is a **static, config-declared router** over models that
 already exist or are derivable at ~zero marginal cost — **zero new data sources, zero new
 training architecture** (operator constraint). Weighting is deferred (AC5); learned/
 dispersion-gated routing ("living MoE") is a later stage.
@@ -106,10 +111,12 @@ from an earlier revision's "1–3 BULL_VOLATILE cells get a specialist" — is
 **0 specialist assignments; the entire grid serves the champion**, until either (i)
 an extended corpus yields enough post-merge blocks or (ii) a reviewed amendment
 freezes a shorter-horizon estimand (see Sensitivity above). Either route is a NEW
-frozen §5b batch spec, committed before any corpus scores are viewed. Not a defeat:
-the v1 deliverables are the router machinery, the alias registry, the qualification
-pipeline, and the fail-safe rule itself (§7 AC1–AC4), plus an honestly-measured
-power map. (An earlier revision claimed 17/8/5/3 episodes at ~3-week fold
+frozen §5b batch spec, committed before any corpus scores are viewed. Not a defeat,
+but scoped honestly: the v1 deliverables on this geometry are the routing schema +
+offline contract test, the alias registry, the qualification pipeline, the frozen
+fail-safe rule as prereg text, and the honestly-measured power map ending in the
+auditable all-champion verdict (§7 AC1–AC3 + AC-GATE); the live router lane and
+replay attribution (AC4) are NOT built on the NO-GO branch (§7). (An earlier revision claimed 17/8/5/3 episodes at ~3-week fold
 granularity from an uncommitted 2026-08-13 session estimate; it does not reproduce
 under the declared labeler at any granularity tried — see §10.)
 
@@ -285,7 +292,10 @@ batch — the corpus is burned for it; it waits for the next frozen corpus.
    its cumulative net per-cell replay attribution (existing cost model) ≥ the
    champion's on the same cell-days. Fail or ambiguous ⇒ demote to champion. Stage B
    cannot resurrect a Stage-A loser and cannot re-litigate Stage-A numbers —
-   evidence collected after assignment cannot have been selected on.
+   evidence collected after assignment cannot have been selected on. (Scope: Stage B
+   and the AC4 lane it runs on exist only on the §7 AC-GATE GO branch — a
+   provisional assignment IS the GO condition; on the NO-GO branch nothing reaches
+   Stage B, and no lane is built for it to run on.)
 8. **Fallback ratchet.** Post-confirmation, at every BULL_VOLATILE episode close: a
    specialist whose cumulative net cell attribution trails the champion's demotes to
    champion, one-way. Re-admission requires a NEW Stage-A batch on an extended
@@ -326,17 +336,36 @@ batch — the corpus is burned for it; it waits for the next frozen corpus.
 
 ## 7. Rollout + acceptance criteria (measurable; merged ≠ delivered)
 
+Unconditional v1 deliverables — offline artifacts + candidate qualification; none
+requires a live router lane:
+
 - **AC1** Frozen routing-table schema + the 33-cell hard-wire list + the §5b decision
   rule committed as prereg content; champion fallback proven byte-identical on
-  hard-wired cells (test).
+  hard-wired cells by an **offline schema/composition contract test** (composes the
+  router config against the registry and asserts every hard-wired cell's component
+  list equals the champion blend's — no live lane required or implied).
 - **AC2** Alias registry committed; every operator-facing surface (reports, ntfy) uses
   strategy names; zero serving-key renames.
 - **AC3** ≥1 candidate expert qualified END-TO-END through §5 (emitter live in shadow
   ledger + prereg verdict recorded) — regardless of pass/kill outcome; the pipeline
-  itself is the deliverable.
-- **AC4** MoE shadow lane live in the daily-full producing per-cell-routed scores, with
-  replay attribution (which expert served which cell on which day) — this lane is also
-  the §5b Stage-B fail-safe surface.
+  itself is the deliverable. (A candidate's own emitter shadow ledger is
+  evidence-bearing with or without routing; it is NOT the MoE router lane.)
+- **AC-GATE — explicit go/no-go** (codex review 2026-08-17 rounds 7–8), evaluated
+  after the §5b manifest freeze, the §5 screen, and the Stage-A batch whose power
+  audit applies the §5b step-3 floor to the frozen corpus. Exactly one branch:
+  - **NO-GO** (zero admissible cells OR zero qualified candidates): the impl phase
+    STOPS at the committed, auditable all-champion Stage-A verdict. AC4 is NOT
+    built — no MoE shadow lane, no live replay attribution, no Stage-B surface. A
+    lane that provably serves the champion in every cell is a known no-op; running
+    it would count plumbing, not evidence, as delivered MoE. **This is the expected
+    branch on current geometry** (m = 2 < 10, §3).
+  - **GO** (≥ 1 admissible cell AND ≥ 1 qualified candidate — reachable from today
+    only through a reviewed NEW frozen batch spec: extended corpus or amended
+    estimand, §3 Sensitivity): AC4 proceeds.
+- **AC4** (conditional — GO branch only) MoE shadow lane live in the daily-full
+  producing per-cell-routed scores, with replay attribution (which expert served
+  which cell on which day) — this lane is also the §5b Stage-B fail-safe surface.
+  On the NO-GO branch this AC is expressly not delivered and not claimed.
 - **AC5** (deferred, explicit non-goal of v1) per-component weights.
 - **AC6** Promotion to prod: operator-gated, only after shadow evidence; the blend-level
   WF-gating gap (#982 deferred item) applies to the MoE composition identically and is
@@ -352,6 +381,9 @@ batch — the corpus is burned for it; it waits for the next frozen corpus.
 - Does NOT resolve G-B (BEAR policy) — `bear_exit` remains policy-gated there.
 - Does NOT weight components (AC5 deferred) and does NOT gate the served z-sum at the
   WF level (deferred per #982's honesty ledger).
+- Does NOT build or deploy the live MoE shadow lane / replay attribution on the
+  NO-GO branch: on current geometry v1's terminal deliverable is the auditable
+  all-champion Stage-A verdict (§7 AC-GATE), not a lane that provably no-ops.
 
 ## 9. Plan
 
@@ -360,10 +392,13 @@ This design PR → codex approve → **impl phase** (each step its own codex-gat
 (2) §5b candidate-manifest freeze (names + exact formulas, committed BEFORE any
 corpus scoring) → (3) cheap IC screen, kill/advance verdicts recorded (kills leave
 the roster, never the step-4 family) → (4) router config schema + hard-wire list +
-alias registry → (5) §5b Stage-A assignment batch (one run per corpus; expected
-all-champion on current geometry, §3) → (6) MoE shadow lane (§5b Stage-B fail-safe)
-→ (7) AC4 replay attribution → operator-gated deploys throughout. Design-review
-fixes on THIS doc are personal (not delegated).
+alias registry + the AC1 offline schema/composition contract test → (5) §5b Stage-A
+assignment batch (one run per corpus; expected all-champion on current geometry, §3)
+→ **(6) AC-GATE go/no-go (§7)** — on the expected NO-GO the impl phase ENDS here,
+with the committed all-champion verdict as its final deliverable; steps (7)–(8) are
+not built → (7, GO only) MoE shadow lane (§5b Stage-B fail-safe) → (8, GO only) AC4
+replay attribution → operator-gated deploys throughout. Design-review fixes on THIS
+doc are personal (not delegated).
 
 ## 10. Corrections (2026-08-17, this revision — visible per LONG ledger row 10)
 
@@ -390,3 +425,15 @@ fixes on THIS doc are personal (not delegated).
 4. **Stage B demoted** from "prospective confirmation" to "operational fail-safe
    promotion gate with no statistical weight"; the ≤5% claim now rests on Stage A
    alone (§5b steps 7/9).
+5. **Go/no-go stage added; AC4 made conditional** (codex review 2026-08-17 rounds
+   7–8). An earlier revision, despite proving the all-champion outcome (item 2),
+   still planned to build and deploy the MoE shadow lane + replay attribution —
+   live plumbing whose behavior on current geometry is a known no-op, which AC4
+   would then have counted as delivered MoE and which no Stage-B fail-safe could
+   ever activate. §7 now inserts an explicit AC-GATE after manifest freeze +
+   screen + Stage-A power audit: on NO-GO (the expected branch, m = 2 < 10) the
+   impl phase stops at the auditable all-champion verdict; AC4 is built only on
+   GO (≥ 1 admissible cell + ≥ 1 qualified candidate via a reviewed new frozen
+   batch spec). AC1's byte-identical fallback proof is correspondingly re-scoped
+   to an offline schema/composition contract test (§1, §3, §5b step 7, §8, §9
+   reconciled).

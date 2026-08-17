@@ -17,7 +17,12 @@ WHAT:      Commit `doc/design/2026-08-17-gi-moe-sector-regime-routing.md`: the f
            Stage-A assignment + Stage-B operational fail-safe (NOT statistical
            confirmation); demotion ratchet; honest downside guarantee), serving via
            the existing blend/regime_router composition machinery, measurable
-           AC1–AC6, an explicit honesty ledger, and a visible §10 Corrections
+           AC1–AC6 with an explicit AC-GATE go/no-go (codex rounds 7–8: on the
+           expected NO-GO — all-champion on current geometry — the impl phase
+           stops at the auditable Stage-A verdict; the live MoE shadow lane +
+           AC4 replay attribution are GO-branch-only, and AC1's fallback proof
+           is an offline schema/composition contract test, not a live lane),
+           an explicit honesty ledger, and a visible §10 Corrections
            section (LONG row 10): the sample-geometry episode counts were
            re-measured in-session and the earlier 17/8/5/3 estimate did not
            reproduce — realistic v1 Stage-A outcome corrected to all-champion
@@ -112,5 +117,10 @@ NEXT:      codex review (design-review fixes personal) → on APPROVAL, impl pha
            (1) emitter clones high52w/lowbeta/quality_gp + tail_q90_20d recipe;
            (2) §5b candidate-manifest freeze (before any corpus scoring);
            (3) cheap IC screen with recorded kill/advance verdicts; (4) router config
-           schema + frozen hard-wire list + alias registry; (5) MoE shadow lane;
-           (6) AC4 replay attribution. Each its own codex-gated PR.
+           schema + frozen hard-wire list + alias registry + AC1 offline contract
+           test; (5) §5b Stage-A assignment batch; (6) §7 AC-GATE go/no-go —
+           expected NO-GO on current geometry (m = 2 < 10): impl STOPS at the
+           committed all-champion verdict, and the MoE shadow lane + AC4 replay
+           attribution are built ONLY on a GO (≥1 admissible cell + ≥1 qualified
+           candidate from a reviewed new corpus/estimand batch spec). Each its own
+           codex-gated PR.
