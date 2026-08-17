@@ -24,7 +24,12 @@ WHAT:      Two things, and the second is why the first exists.
            2. `doc/research/2026-08-17-gi-moe-step2-screen-results.md` — demoted
               from "final one-shot result" to "exploratory pilot, WITHDRAWN as a
               verdict". `quality_gp` is NOT promoted; the table is a pilot
-              outcome, not a verdict.
+              outcome, not a verdict. Retained pilot numbers are attributed to
+              the PILOT-ERA runner (commit `52d198c0`, unchanged through
+              `da9b05bb`), and the reproduction recipe points at that commit's
+              script via `git show` — the corrected paired runner here would NOT
+              reproduce them and is never presented as their producer (codex
+              MED, orch#990).
 
            **Deliberately NOT done: re-running.** Spec §7 step 2 requires the
            runner committed AND REVIEWED before execution. Running the corrected

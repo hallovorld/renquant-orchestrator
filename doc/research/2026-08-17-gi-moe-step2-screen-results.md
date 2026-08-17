@@ -29,8 +29,12 @@ pilot does not consume it.
 
 PROVENANCE: every number below is `[VERIFIED — read from the committed
 doc/research/data/2026-08-17-gi-moe-screen-results.json, produced by the
-committed runner doc/research/data/2026-08-17-gi-moe-screen-derivation.py]`
-unless tagged otherwise. The runner was committed BEFORE the run (spec §7
+PILOT-ERA runner as committed at 52d198c0 (unchanged through the results
+commit da9b05bb) — NOT by the corrected runner now at
+doc/research/data/2026-08-17-gi-moe-screen-derivation.py, which computes a
+paired cross-section and would not reproduce these outputs]`
+unless tagged otherwise. (Attribution corrected per codex MED on orch#990;
+the numbers themselves are unchanged.) The runner was committed BEFORE the run (spec §7
 step 2 requires committed AND REVIEWED; only the first held — commit order
 within one branch is author-controlled and the results carry no runner digest,
 so the ordering claim was never externally checkable, which is part of why the
@@ -133,11 +137,19 @@ the momentum lanes.
    screen ran exactly once, and no parameter was touched after any output was
    seen.
 
-## 7. Reproduction
+## 7. Reproduction (of the retained PILOT outputs — pilot-era runner only)
+
+The retained JSON/CSV were produced by the pilot-era script, before the
+paired-cross-section correction landed. The CURRENT script at
+`doc/research/data/2026-08-17-gi-moe-screen-derivation.py` will NOT
+reproduce them — its first execution is the authorized run, which happens
+in a separate PR after this runner is reviewed. To reproduce the retained
+pilot outputs, use the script exactly as the pilot ran it:
 
 ```
 cd <this repo>
-/path/to/python doc/research/data/2026-08-17-gi-moe-screen-derivation.py
+git show 52d198c0:doc/research/data/2026-08-17-gi-moe-screen-derivation.py > /tmp/pilot-runner.py
+/path/to/python /tmp/pilot-runner.py
 ```
 
 Inputs (all read-only; sha256 digests in the results JSON `pins` block):
