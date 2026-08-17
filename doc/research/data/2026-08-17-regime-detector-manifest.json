@@ -1,0 +1,108 @@
+{
+ "memo": "doc/research/2026-08-17-regime-detector-assessment.md",
+ "generated_by": [
+  "2026-08-17-regime-detector-measurements.py",
+  "2026-08-17-regime-detector-posteriors-ic.py",
+  "2026-08-17-regime-detector-replication.py"
+ ],
+ "commands": [
+  "~/git/github/RenQuant/.venv/bin/python doc/research/data/2026-08-17-regime-detector-measurements.py",
+  "~/git/github/RenQuant/.venv/bin/python doc/research/data/2026-08-17-regime-detector-posteriors-ic.py",
+  "~/git/github/RenQuant/.venv/bin/python doc/research/data/2026-08-17-regime-detector-replication.py"
+ ],
+ "date_bounds": {
+  "input_clamp_end": "2026-08-14",
+  "spy_input_span_used": [
+   "2016-01-04",
+   "2026-08-14"
+  ],
+  "serving_series_span": [
+   "2016-11-01",
+   "2026-08-14"
+  ],
+  "wf_comparability_window": [
+   "2019-01-14",
+   "2026-03-02"
+  ],
+  "wf_sanity_window": [
+   "2023-12-26",
+   "2026-05-05"
+  ]
+ },
+ "sources": {
+  "spy_1d_parquet": {
+   "path": "RenQuant:data/ohlcv/SPY/1d.parquet",
+   "sha256_at_run": "68665523c23edae565dee40b25fcc90051b209703c57f0887e70fd295964b0ee",
+   "rows_at_run": 2670,
+   "last_row_at_run": "2026-08-17",
+   "sha256_clamped_slice_csv": "ddefec18906e76080383d828d87d1688338cc2db28240efedcd9468f201f4cc5",
+   "rows_clamped": 2669
+  },
+  "strategy_config": {
+   "path": "RenQuant:backtesting/renquant_104/strategy_config.json",
+   "sha256": "ff54318e63444832030575975163484cb8285931275068497759a106e2bb8cb7"
+  },
+  "gmm_artifact": {
+   "path": "RenQuant:backtesting/renquant_104/artifacts/prod/spy-gmm-regime.json",
+   "sha256": "cb643e003cec11ea897137c206713e6753746b1792ed39083b6a5319c851a07d",
+   "as_of_date": "2026-05-22"
+  },
+  "served_panel_artifact": {
+   "path": "RenQuant:backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+   "sha256": "6461b827ab2339a8d2351db6e45ac4f4c8d4c231937d8d6a4f8d127ecc546d15"
+  },
+  "posterior_snapshot_csv": {
+   "path": "doc/research/data/2026-08-08-regime-posteriors.csv",
+   "sha256": "bfb74fa2bb6257fb5be0556dcfea8ec34a3cac002dd90b4c2556856a997bea62",
+   "committed": true
+  },
+  "phase_a_forward_returns": {
+   "path": "renquant-orchestrator:experiments/phase_a_data/forward_returns.csv",
+   "committed": false,
+   "present_at_run": false,
+   "sha256_pin": "96094d29481543c748d58aa9709654de0e6bd134bb1f01ddac33cc5d1bd9c972",
+   "pin_recorded": "2026-08-17 full run (corpus present)",
+   "note": "local extraction corpus, not in git; absent at this run \u2014 identity pin recorded at the corpus-present full run"
+  },
+  "phase_a_xgb_scores": {
+   "dir": "renquant-orchestrator:experiments/phase_a_data/xgb",
+   "committed": false,
+   "present_at_run": false,
+   "n_files_pin": 230,
+   "sha256_aggregate_pin": "d37f9633d74b186eaa700deb53394485a0fc427db90c96e8d5599777b0272bbf",
+   "pin_recorded": "2026-08-17 full run (corpus present)"
+  },
+  "vixcls_parquet": {
+   "path": "RenQuant:data/fred/VIXCLS.parquet",
+   "sha256": "b53c73eda206e28c0c31d108cef32254dbeb0264787ef54251416d18291c5889",
+   "last_row": "2026-04-24"
+  }
+ },
+ "code_versions": {
+  "renquant_umbrella_git_head": "3296d3692b60b45eb6b7300f9f0e208844ff620e",
+  "renquant_common_git_head": "20d4570ac6dddf5b13b04c7020e3caf56d2f544d",
+  "serving_detector": "kernel/regime.py::detect_regime (umbrella renquant_104)",
+  "research_detector_versions": [
+   "legacy",
+   "v2026-05-31"
+  ],
+  "detector_params_from_config": {
+   "hurst_window": 63,
+   "hurst_trending_threshold": 0.65,
+   "hurst_reversion_threshold": 0.52,
+   "vol_realized_window": 20
+  }
+ },
+ "seeds": {
+  "hurst_null": [
+   42,
+   20260817
+  ]
+ },
+ "algorithms": {
+  "bear_dating": "Lunde-Timmermann-style causal drawdown dating: enter on close <= (1-thr)*running_peak, exit on close >= (1+thr)*running_trough or new high; thr in {10%,15%,20%}",
+  "hysteresis": "symmetric confirm-2: every switch (BEAR included) commits on the 2nd consecutive day of the new raw label (+1 td entry cost)",
+  "episode": "maximal run of consecutive identical daily labels",
+  "prereg_plane": "argmax over the four regime_p_* columns of the committed 08-08 posterior snapshot"
+ }
+}

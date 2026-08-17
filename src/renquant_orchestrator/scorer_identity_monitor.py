@@ -758,6 +758,139 @@ def _lane_events(change: LaneChange, window_events: list[PromoteEvent]) -> list[
     ]
 
 
+_LEDGER_SUFFIX = "_ledger.jsonl"
+
+
+def _ledger_extends_prev(raw: bytes, prev_sha: str | None) -> bool:
+    """Prove the current ledger is an APPEND of the previously stamped revision.
+
+    The ledger writer only ever opens the file in append mode and never rewrites
+    existing bytes (``renquant_model_momentum.ledger.append_chained_row``), so the
+    revision the prev run stamped is an exact byte-PREFIX of the current file,
+    ending at a row's terminating newline. Ancestry therefore holds iff some
+    newline-terminated STRICT prefix of the current bytes hashes to ``prev_sha``
+    (the file sha the prev run stamped for this lane).
+
+    Without this, a full-file REPLACEMENT at the same path — different rows, same
+    lane — would pass the curr-identity + link-intact + in-window checks and be
+    laundered as a scheduled append (codex #983 round 3). Requiring prev to be a
+    prefix distinguishes a genuine append from a replacement. Fail closed when
+    prev carries no usable digest (the ancestry cannot be proven).
+    """
+    if not prev_sha or prev_sha == _ABSENT:
+        return False
+    end = len(raw)
+    offset = 0
+    while True:
+        nl = raw.find(b"\n", offset)
+        if nl == -1:
+            break
+        prefix_end = nl + 1
+        if prefix_end < end:  # a STRICT prefix — a prior revision, never curr
+            prefix_sha = "sha256:" + hashlib.sha256(raw[:prefix_end]).hexdigest()
+            if _digest_matches(prev_sha, prefix_sha):
+                return True
+        offset = prefix_end
+    return False
+
+
+def _ledger_append_explains(
+    change: LaneChange, boundary: Boundary
+) -> tuple[bool, str | None]:
+    """Self-legitimize a shadow-lane change backed by an append-only ledger.
+
+    The momentum / momentum_fast shadow lanes are served from an append-only
+    hash-chained ledger (``*_ledger.jsonl``); their stamped "identity" is the
+    ledger FILE sha, which changes on EVERY scheduled weekly refit append even
+    though nothing was silently swapped. Such lanes carry no promotion receipt
+    (the weekly refit is scheduled, not promoted), so the receipt path reports
+    them unexplained forever — a standing false CRITICAL every Saturday.
+
+    The ledger IS the promote record for these never-submit lanes: legitimize the
+    change iff the on-disk ledger is LINK-INTACT (each row's ``prev_row_sha``
+    chains from the previous row's ``row_sha``) AND a row was appended within the
+    boundary window (``appended_at_utc`` between the two runs' ``created_at``).
+    Guard preserved: a file SWAP breaks linkage, and a change with no
+    contemporaneous append is NOT legitimized — both still report CRITICAL.
+
+    Bound at BOTH ends of the transition (codex #983): the on-disk ledger's
+    current file sha must equal ``change.curr.artifact_sha`` (the sha the curr
+    run stamped), AND the sha the prev run stamped must be a byte-prefix of that
+    same append-only file — proving the current ledger EXTENDS the previous
+    stamped revision rather than replacing it in place at the same path. If the
+    ledger ADVANCED since the run (a later append) the curr bind fails; if the
+    boundary cannot prove prev is a prefix the ancestry bind fails; either way we
+    fail closed rather than launder a same-path replacement as a scheduled refit.
+    Only lanes whose ``artifact_path`` ends with ``_ledger.jsonl`` are eligible —
+    the prod and calibrator lanes (and non-ledger shadow lanes) are untouched.
+
+    Only an in-place same-lane file-sha swap (``change.lifecycle is None``) is
+    eligible. A lane JOINING or LEAVING the lineup (``lifecycle`` "added" /
+    "retired") is a membership change, not a scheduled refit of an existing
+    lane — self-legitimizing it would silence exactly the CRITICAL event this
+    monitor exists to raise, so those stay unexplained here.
+    """
+    if change.lifecycle is not None:
+        return False, None
+    path_str = (change.curr.artifact_path or "").strip()
+    if not path_str.endswith(_LEDGER_SUFFIX):
+        return False, None
+    path = Path(path_str)
+    if not path.is_absolute() or not path.exists():
+        return False, None
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return False, None
+    # Bind to the stamped identity: the ledger on disk must be the EXACT bytes
+    # the curr run stamped. If it advanced after the run, this boundary's real
+    # transition is unproven — fail closed (codex #983) so a genuine unexplained
+    # change is never downgraded because a LATER append happens to be in-window.
+    on_disk_sha = "sha256:" + hashlib.sha256(raw).hexdigest()
+    if not _digest_matches(change.curr.artifact_sha, on_disk_sha):
+        return False, None
+    try:
+        rows = [
+            json.loads(line)
+            for line in raw.decode("utf-8").splitlines()
+            if line.strip()
+        ]
+    except (ValueError, UnicodeDecodeError):
+        return False, None
+    if not rows:
+        return False, None
+    # Append-only linkage: each row chains from the previous row's row_sha. A
+    # tamper/replacement that is not a clean append breaks this and is refused.
+    for prev, cur in zip(rows, rows[1:]):
+        prev_sha = prev.get("row_sha")
+        if not prev_sha or cur.get("prev_row_sha") != prev_sha:
+            return False, None
+    # Ancestry: prove the current ledger EXTENDS the revision the prev run
+    # stamped — not a full-file replacement at the same path. The prev run's
+    # stamped file sha must be a byte-prefix of this append-only ledger, else
+    # fail closed so a same-path replacement is never laundered as a scheduled
+    # refit (codex #983 round 3).
+    if not _ledger_extends_prev(raw, change.prev.artifact_sha):
+        return False, None
+    lo = boundary.prev_run.created_at
+    hi = boundary.curr_run.created_at
+    for row in rows:
+        stamp = row.get("appended_at_utc")
+        if not stamp:
+            continue
+        try:
+            ts = _parse_created_at(stamp)
+        except (TypeError, ValueError):
+            continue
+        if lo <= ts <= hi:
+            return True, (
+                "ledger-backed shadow lane: link-intact append at "
+                f"{stamp} within the boundary window (scheduled refit, "
+                "self-documented — no silent swap)"
+            )
+    return False, None
+
+
 def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
     """Mark each lane change explained/unexplained in place."""
     window = events_in_window(events, boundary.prev_run, boundary.curr_run)
@@ -766,6 +899,15 @@ def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
         if matched:
             change.explained = True
             change.events = matched
+    # Ledger-backed shadow lanes (append-only ``*_ledger.jsonl``) self-legitimize
+    # a scheduled refit append — they carry no promotion receipt by design.
+    for change in boundary.changes:
+        if change.explained:
+            continue
+        ledger_ok, ledger_note = _ledger_append_explains(change, boundary)
+        if ledger_ok:
+            change.explained = True
+            change.note = ledger_note
     # A recorded promotion swaps prod and shadow lanes atomically: an explained
     # prod change legitimizes same-boundary shadow (and calibrator) changes.
     prod_change = next((c for c in boundary.changes if c.lane == LANE_PROD), None)
