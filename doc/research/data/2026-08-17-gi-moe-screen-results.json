@@ -1,0 +1,250 @@
+{
+  "candidates": {
+    "high52w": {
+      "horizons": {
+        "20": {
+          "block_t": 0.5281159773672361,
+          "delta": 0.008626045169097301,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": -0.008906999723369433,
+          "mean_ic_placebo": -0.017533044892466734,
+          "n_blocks_expected": 89,
+          "n_blocks_with_data": 89,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.4943820224719101,
+          "verdict": "FLAGGED",
+          "verdict_reason": "block_t=0.528 < 1.0; pos_block_frac=0.494 <= 0.5"
+        },
+        "60": {
+          "block_t": -0.1812282730508944,
+          "delta": -0.0037811295246067793,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": -0.024452433881352098,
+          "mean_ic_placebo": -0.02067130435674532,
+          "n_blocks_expected": 29,
+          "n_blocks_with_data": 29,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.5517241379310345
+        }
+      }
+    },
+    "lowbeta": {
+      "horizons": {
+        "20": {
+          "block_t": 0.9106159571300013,
+          "delta": 0.00495177795273842,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": -0.050092040984813485,
+          "mean_ic_placebo": -0.055043818937551905,
+          "n_blocks_expected": 89,
+          "n_blocks_with_data": 89,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.5056179775280899,
+          "verdict": "FLAGGED",
+          "verdict_reason": "block_t=0.911 < 1.0"
+        },
+        "60": {
+          "block_t": 1.3979593566579944,
+          "delta": 0.02293138419572538,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": -0.09935002767457847,
+          "mean_ic_placebo": -0.12228141187030385,
+          "n_blocks_expected": 29,
+          "n_blocks_with_data": 29,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.6551724137931034
+        }
+      }
+    },
+    "quality_gp": {
+      "horizons": {
+        "20": {
+          "block_t": 1.443473879796147,
+          "delta": 0.004167425350255081,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": 0.012886944657238806,
+          "mean_ic_placebo": 0.008719519306983725,
+          "n_blocks_expected": 89,
+          "n_blocks_with_data": 89,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.5168539325842697,
+          "verdict": "NOT FLAGGED",
+          "verdict_reason": "all three criteria met"
+        },
+        "60": {
+          "block_t": 1.2108917406353776,
+          "delta": 0.011411007806378017,
+          "dropped": {
+            "degenerate": 0,
+            "floor_genuine": 0,
+            "floor_placebo": 0
+          },
+          "mean_ic_genuine": 0.005881016270830016,
+          "mean_ic_placebo": -0.0055299915355480015,
+          "n_blocks_expected": 29,
+          "n_blocks_with_data": 29,
+          "n_grid_dates": 359,
+          "n_kept": 359,
+          "pos_block_frac": 0.41379310344827586
+        }
+      }
+    }
+  },
+  "corpus": {
+    "end": "2026-03-02",
+    "first_grid_date": "2019-01-14",
+    "last_grid_date": "2026-02-27",
+    "n_cross_sections": 359,
+    "n_cross_sections_note": "the frozen every-5th-trading-day RULE yields 359 on the 1,792-day window; the spec's derived count said 358 \u2014 the rule governs (G1), discrepancy reported, nothing dropped",
+    "sample_step": 5,
+    "start": "2019-01-14",
+    "trading_days": 1792
+  },
+  "frozen_rule": {
+    "block_t_min": 1.0,
+    "expected_blocks": {
+      "20": 89,
+      "60": 29
+    },
+    "horizon_primary": 20,
+    "min_blocks_with_data": 45,
+    "names_per_date_floor": 50,
+    "placebo_lag_trading_days": {
+      "20": 40,
+      "60": 120
+    },
+    "pos_block_frac_min_exclusive": 0.5
+  },
+  "momentum_params": {
+    "mom_fast": {
+      "min_features": 3,
+      "min_obs": 50,
+      "min_side_obs": 30,
+      "names_per_date_floor": 50,
+      "params_source": "renquant-model#199 (frozen 2026-08-03 before any run; the issue is the authority \u2014 no sealed runner exists for this clock); held to the #199 literals by test_params_v1_fast_matches_the_frozen_issue",
+      "params_version": "v1_fast",
+      "skip": 5,
+      "window": 63
+    },
+    "mom_slow_12m": {
+      "min_features": 3,
+      "min_obs": 200,
+      "min_side_obs": 30,
+      "names_per_date_floor": 50,
+      "params_source": "tools/goal7_momentum_run.py::FROZEN + MIN_SIDE_OBS (frozen in model#164 \u00a72, F5 floor in model#177); mirrored into renquant_model_momentum._frozen_params_v0 so the wheel is self-sufficient, with equality held by test_params_v0_mirrors_the_sealed_v1_runner",
+      "params_version": "v0",
+      "skip": 21,
+      "window": 252
+    }
+  },
+  "params": {
+    "high52w": {
+      "min_obs": 200,
+      "names_per_date_floor": 50,
+      "params_source": "design orch#984 \u00a74 (candidate high52w) + the impl-step-1 build spec; WINDOW/MIN_OBS/NAMES_PER_DATE_FLOOR adopted from momentum v0's frozen clock (model#164 \u00a72) by design; frozen in renquant_model_factors._frozen_params_high52w_v0 BEFORE any scoring run",
+      "params_version": "v0",
+      "window": 252
+    },
+    "lowbeta": {
+      "beta_window": 252,
+      "min_obs": 200,
+      "names_per_date_floor": 50,
+      "params_source": "design orch#984 \u00a74 (candidate lowbeta) + the impl-step-1 build spec; BETA_WINDOW/MIN_OBS/NAMES_PER_DATE_FLOOR adopted from momentum v0's frozen clock (model#164 \u00a72) by design; frozen in renquant_model_factors._frozen_params_lowbeta_v0 BEFORE any scoring run",
+      "params_version": "v0"
+    },
+    "quality_gp": {
+      "max_age_days": 400,
+      "min_obs": 1,
+      "names_per_date_floor": 50,
+      "params_source": "design orch#984 \u00a74 (candidate quality_gp) + the impl-step-1 build spec; SOURCE_COLUMN is the upstream Novy-Marx ratio from renquant_base_data.sec_fundamentals.compute_derived_features (GrossProfit or the Revenue\u2212CostOfRevenue identity fallback, over Assets); frozen in renquant_model_factors._frozen_params_quality_gp_v0 BEFORE any scoring run",
+      "params_version": "v0",
+      "source_column": "gross_profitability"
+    }
+  },
+  "pins": {
+    "ohlcv_digest_of_digests": "96a1050d5febfbc6093100fb5b009cb720ba6b71ef6577b3192f4e1349d1e746",
+    "renquant_model_frozen_pin": "74c22647a7880c6a3234e53fb5d037d82fde3faf",
+    "renquant_model_head": "74c22647a7880c6a3234e53fb5d037d82fde3faf",
+    "sec_fundamentals_daily_sha256": "aa5b06e3d89158bc64f5274419cb5e7aea933a1ed02d5b540932af86bf71f66b",
+    "spy_1d_sha256": "68665523c23edae565dee40b25fcc90051b209703c57f0887e70fd295964b0ee",
+    "watchlist_config": "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.golden.json",
+    "watchlist_n": 145,
+    "watchlist_sha256": "d93d28c5dfba390dca4d12659dc5249ce689c202f558bb50a1dbd9554fe4b555"
+  },
+  "rho_matrix": {
+    "high52w": {
+      "mom_fast": {
+        "mean_rho": 0.513120060028199,
+        "n_dates": 359,
+        "sd_rho": 0.1557434205000364
+      },
+      "mom_slow_12m": {
+        "mean_rho": 0.43880397486359685,
+        "n_dates": 359,
+        "sd_rho": 0.1921885453683388
+      },
+      "multifactor_core": {
+        "named_gap": "no committed/reachable historical score series for multifactor_core on the corpus dates without running the panel pipeline (score_db.sqlite empty; run bundles 2026-only) \u2014 deferred to the #984 \u00a75b batch"
+      }
+    },
+    "lowbeta": {
+      "mom_fast": {
+        "mean_rho": 0.009739532772310206,
+        "n_dates": 359,
+        "sd_rho": 0.31114441393612274
+      },
+      "mom_slow_12m": {
+        "mean_rho": 0.04606100717765223,
+        "n_dates": 359,
+        "sd_rho": 0.2511993469269096
+      },
+      "multifactor_core": {
+        "named_gap": "no committed/reachable historical score series for multifactor_core on the corpus dates without running the panel pipeline (score_db.sqlite empty; run bundles 2026-only) \u2014 deferred to the #984 \u00a75b batch"
+      }
+    },
+    "quality_gp": {
+      "mom_fast": {
+        "mean_rho": 0.030770677811673704,
+        "n_dates": 359,
+        "sd_rho": 0.16785820818996183
+      },
+      "mom_slow_12m": {
+        "mean_rho": 0.08733700619116389,
+        "n_dates": 359,
+        "sd_rho": 0.15192868216879915
+      },
+      "multifactor_core": {
+        "named_gap": "no committed/reachable historical score series for multifactor_core on the corpus dates without running the panel pipeline (score_db.sqlite empty; run bundles 2026-only) \u2014 deferred to the #984 \u00a75b batch"
+      }
+    }
+  },
+  "run_utc": "2026-08-17T23:04:42Z",
+  "runtime_sec": 105.5,
+  "semantics": "TRIAGE \u2014 FLAGGED / NOT FLAGGED; neither kill nor admit (spec \u00a71)",
+  "spec": "doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md (orch#987)"
+}
