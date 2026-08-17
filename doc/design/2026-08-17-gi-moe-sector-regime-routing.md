@@ -214,11 +214,50 @@ batch — the corpus is burned for it; it waits for the next frozen corpus.
    critical values from t(m−1), never a hardcoded 1.96. The family = the FULL frozen
    manifest × the 11 cells — EVERY manifest candidate counts, including §5 screen
    failures and pairs with inadmissible coverage (their hypotheses enter at p = 1,
-   which only makes Holm stricter); for the §4 roster that is 4 × 11 = 44 hypotheses
-   `[DERIVED — |manifest| × 11 cells]`. Defining the family by the manifest rather
+   which only makes Holm stricter).
+
+   **The manifest is enumerated, not described** (codex review 2026-08-17 round 5).
+   An earlier revision wrote "for the §4 roster that is 4 × 11 = 44 hypotheses".
+   The 4 was the four NOT-YET-BUILT candidates (`high52w`, `lowbeta`, `quality_gp`,
+   `tail_q90_20d`) while §4 lists **ten** rows, and the text named "the §4 roster" —
+   so the number and the object it claimed to count disagreed, in the direction that
+   UNDER-states multiplicity and thereby inflates the FWER claim.
+
+   **The rule, since no single number is defensible from this document alone:** the
+   family is `|manifest| × 11 cells`, where the manifest enumerates every
+   **assignment-eligible** candidate — i.e. anything that could be routed into a
+   BULL_VOLATILE cell — not merely the ones newly built for this batch. Applying that
+   to §4's ten rows: `multifactor_core` is excluded because it is the pinned CHAMPION
+   COMPARATOR, not a candidate (a hypothesis of the champion against itself is not
+   defined); `bear_exit` is excluded while it remains a policy-grade overlay that is
+   "not yet a trade" per §4 and so cannot be assigned to a cell. The remaining eight
+   — including the already-shadowed `mom_fast`, `mom_panel_60d` and `topdecile_60d`,
+   which are assignment-eligible and corpus-exposed — are in. **The batch manifest
+   restates that list verbatim with each exclusion and its reason, and `|manifest|` is
+   read from that file; this document deliberately does not freeze a count**, because
+   roster membership changes between batches and a number frozen in prose here would
+   go stale exactly the way the "4" did.
+
+   **Prior corpus exposure counts too — or the corpus is burned for that candidate.**
+   The freeze above only bars variants tried AFTER it. That is insufficient on its
+   own: several roster members were already scored on this same WF lineage in earlier
+   work (`mom_panel_60d` is annotated "shadow (passed WF)" in §4; `topdecile_60d`,
+   `bear_exit` and `high52w` likewise arrive from prior lines). Those earlier looks
+   consumed the same corpus, so a family covering only this batch's fresh scores
+   still understates multiplicity. **Rule: a candidate that has previously been
+   scored on this corpus either (a) enters this family carrying its prior looks —
+   one hypothesis per prior (candidate, variant) exposure, enumerated in the
+   manifest — or (b) is declared corpus-burned and CANNOT be admitted to a cell on
+   this corpus at all; it waits for the next frozen one.** Which of (a)/(b) applies
+   to each roster member is recorded in the manifest at freeze, before any score.
+
+   This enlargement cannot rescue a result: on the current corpus §5b step 3 already
+   resolves every cell to the champion at m = 2, so a larger family changes no
+   decision here. It is stated because the FWER claim must be true when the corpus
+   is eventually large enough for a decision to turn on it. Defining the family by the manifest rather
    than by post-screen survivors is what makes the FWER claim valid: screening and
    qualification run on this same corpus, so a family reduced by them would
-   understate multiplicity (codex review 2026-08-17). Holm–Bonferroni at
+   understate multiplicity (codex review 2026-08-17). Holm–Bonferroni over that enumerated family at
    family-wise α = 0.05 `[ASSUMED — FWER rather than FDR because a false specialist
    serves real money; 0.05 is the repo's standing gate α]`. Only survivors reach
    step 5.
