@@ -1,0 +1,147 @@
+# Design: G-I MoE — the (sector × regime) power-gated routing table
+
+STATUS: **design for review (docs only — NO code / config / behavior change).**
+DATE: 2026-08-17. Operator-directed ("自己set goal和loop来drive这个moe模型！设计要发pr
+被approve之后再开始impl") — implementation starts ONLY after this design is approved.
+
+## 1. Bottom line
+
+The MoE is **a list of models filling a (sector × regime) table** — the operator's
+definition, verbatim. Each cell of the 11-sector × 4-regime grid is served by the expert
+best suited to it; **cells without the statistical power to choose an expert are
+hard-wired to the champion** (today's prod blend), so the worst case equals today's
+system *by construction*. v1 is a **static, config-declared router** over models that
+already exist or are derivable at ~zero marginal cost — **zero new data sources, zero new
+training architecture** (operator constraint). Weighting is deferred (AC5); learned/
+dispersion-gated routing ("living MoE") is a later stage.
+
+## 2. Locked decisions (operator, 2026-08-13 .. 08-17)
+
+1. Keep the blend prod (08-13); MoE evolves it, never reverts it.
+2. MoE = model-list → (sector × regime) table, power-gated (08-07, restated 08-13).
+3. **No new data pipelines / no new training architectures** — candidate experts must
+   reuse the existing panel + the existing ledger-emitter pattern (08-17: "成本太大").
+4. Fast and slow momentum are **separate experts** (08-17).
+5. **Strategy-facing names, not algorithm names** (08-17: "xgb 不能告诉我偏向哪种策略")
+   — an alias registry; serving keys unchanged (renaming live artifacts/config keys is a
+   run-surface change with no upside).
+6. New-expert quality bar = the momentum bar: momentum is trusted because it is a simple
+   sort (not a learner), academically robust for 50+ years, and **survived our own kill
+   machine** (GOAL-8 validated transfer t≈3.17). Candidates must walk the same path.
+
+## 3. The grid and its power map `[VERIFIED/DERIVED — 08-13 sample-geometry groundwork]`
+
+44 cells = 11 GICS sectors (`data/ticker_sectors.json`, 304 tickers) × 4 HMM regimes
+(`kernel/hmm_regime_labels.py` on SPY over the 125-fold WF set, 2019-01-14..2026-03-02).
+The binding per-cell effective n is the **regime's independent episode count** — sector
+breadth adds cross-section, never time-independence:
+
+| regime column | episodes | v1 treatment |
+|---|---:|---|
+| BULL_VOLATILE | 17 | **the ONLY candidate-testable column** (11 cells), episode-block inference + multiplicity across 11 cells |
+| BEAR | 8 | champion default; challenger only on a huge frozen-gate effect (this wall killed preregs #975/#976); `bear_exit` enters as the BEAR **policy overlay** (exit/defense), pending G-B — NOT as a per-cell scorer swap |
+| CHOPPY | 5 | **hard-wired champion** |
+| BULL_CALM | 3 | **hard-wired champion** |
+
+**≈33 of 44 cells are pre-emptively hard-wired.** The frozen hard-wire list is prereg
+content (runner-guards-are-prereg-content): no later rule may touch it. Realistic v1
+outcome: **1–3 BULL_VOLATILE cells** get a specialist; everything else serves the
+champion. That is the honest scope, not a defeat — and it caps downside at today's
+system. Episode-granularity caveat: episodes counted at ~3-week fold granularity
+(order-of-magnitude, not exact); the hopeless-column conclusion is robust to this.
+
+## 4. Expert roster + alias registry
+
+**Alias registry** = display/strategy name ↔ unchanged serving key; lives in the routing
+config; every report/ntfy uses the strategy name.
+
+Existing (6) — already trained, in prod or shadow:
+| strategy name | serving identity | tilt | status |
+|---|---|---|---|
+| `multifactor_core` | panel-ltr.alpha158_fund (rank:pairwise) | price/volume+fundamental composite | prod blend leg 1 |
+| `mom_slow_12m` | momentum ledger (12-1 residual, weekly) | slow momentum | prod blend leg 2; transfer t≈3.17 |
+| `mom_fast` | momentum_fast ledger | fast momentum | shadow |
+| `mom_panel_60d` | xgb_mom_60d | momentum-factor panel learner | shadow (passed WF) |
+| `topdecile_60d` | panel-clf.top-decile.fwd60 | top-decile classifier | shadow |
+| `bear_exit` | G-B exit line (prereg orch#917) | BEAR exit/defense overlay | policy-grade, not yet a trade |
+
+Candidates (4) — momentum-grade, **zero new data / zero new architecture**:
+| strategy name | mechanism | build path | why momentum-grade |
+|---|---|---|---|
+| `high52w` | 52-week-high proximity (George–Hwang) | **clone the momentum ledger emitter**, swap the formula; existing OHLCV | momentum's closest sibling; simple sort, anchoring mechanism; cross-sectional (the killed thing was single-name time-series trend) |
+| `lowbeta` | betting-against-beta (Frazzini–Pedersen) | same emitter clone; rolling beta on existing prices | most robust non-momentum price factor; **negatively correlated with momentum in crashes** — best MoE diversity |
+| `quality_gp` | gross profitability (Novy-Marx) | same emitter clone; fundamental columns already in panel | most robust single fundamental factor; near-zero turnover (cost ≈ 0 at our size) |
+| `tail_q90_20d` | quantile-regression (q90) on the existing panel | one retrain recipe on the existing panel pipeline | targets the account's PROVEN skill shape — tail-driven top-decile (DGTW t=2.92); the current rank objective dilutes it |
+
+**Kill list stays killed** (no re-entry without new evidence): time-series trend (5
+canonical signals failed), intraday open→close alpha (negative net), crypto, fundamental
+momentum (tested, REJECTED), PatchTST (retired 08-02), short-term reversal (turnover >
+our cost capacity — declared, not tested).
+
+## 5. Candidate qualification — momentum's exact path, plus an information gate
+
+Every candidate walks GOAL-7's validated pipeline; no shortcuts, no bespoke harness:
+1. **Standalone emitter** (weekly, append-only hash-chained ledger — the momentum
+   emitter pattern; new formula, same mechanics, same scorer-identity monitoring).
+2. **Cheap IC screen first** (over-engineering-validation): score on the existing WF
+   corpora; a candidate that can't show a placebo-clean IC *difference* dies before any
+   prereg cathedral. Trust differences, not absolute IC (embargo-leakage floor ~+0.04).
+3. **Prereg + WF gate** for survivors — frozen before the run; episode-block inference
+   (block ≥ horizon; block-t critical values, never hardcoded 1.96 on single-digit
+   blocks); effective sample counted BEFORE the decision rule (the #975/#976 lesson).
+4. **Incremental-information gate**: admitted to the roster only if score correlation
+   with `multifactor_core` AND with each already-admitted expert is |ρ| < 0.7, or it
+   shows incremental IC — no re-skinned duplicates.
+5. **Shadow ledger** rides in the daily-full (a shadow lane) before any cell assignment.
+
+## 6. Serving mechanics — composition machinery that already exists
+
+- The prod blend is already an inference-only composition (`blend` kind); a
+  **`regime_router` kind is already registered** in the pipeline model registry
+  (inference-only; components trained separately). v1 MoE serving = a config-declared
+  router whose cells map to component lists, composed per cell as the **same unweighted
+  z-sum** the blend uses today (weighting = AC5, deferred).
+- Regime at serve time: the existing regime machinery (`regime.gmm_artifact` / HMM
+  labels). Sector: `ticker_sectors.json` (+ `sector_etf_map` already in config).
+- Hard-wired cells: their component list IS the champion blend — byte-identical
+  behavior to today for ≈33/44 cells, by construction.
+- Implementation homes (impl phase, after approval): emitters in the umbrella ops
+  pattern (where momentum's lives), router composition in renquant-pipeline (the
+  registry owner), orchestration/lane wiring here — boundaries per RENQUANT_REPOS.md;
+  exact repo split is finalized in the impl PRs with codex.
+
+## 7. Rollout + acceptance criteria (measurable; merged ≠ delivered)
+
+- **AC1** Frozen routing-table schema + the 33-cell hard-wire list committed as config;
+  champion fallback proven byte-identical on hard-wired cells (test).
+- **AC2** Alias registry committed; every operator-facing surface (reports, ntfy) uses
+  strategy names; zero serving-key renames.
+- **AC3** ≥1 candidate expert qualified END-TO-END through §5 (emitter live in shadow
+  ledger + prereg verdict recorded) — regardless of pass/kill outcome; the pipeline
+  itself is the deliverable.
+- **AC4** MoE shadow lane live in the daily-full producing per-cell-routed scores, with
+  replay attribution (which expert served which cell on which day).
+- **AC5** (deferred, explicit non-goal of v1) per-component weights.
+- **AC6** Promotion to prod: operator-gated, only after shadow evidence; the blend-level
+  WF-gating gap (#982 deferred item) applies to the MoE composition identically and is
+  NOT silently waived.
+
+## 8. What this does NOT do (honesty ledger)
+
+- Does NOT restore bull buying by itself — the no-bull-edge finding (P-WF-GATE refusal)
+  is independent of routing; MoE's paths to helping are `tail_q90_20d`/`lowbeta`-class
+  experts earning admission, not the router.
+- Does NOT introduce any new data source, vendor, or training architecture.
+- Does NOT learn the routing (v1 static; dispersion-gated "living MoE" ≈ Nov C-clock).
+- Does NOT resolve G-B (BEAR policy) — `bear_exit` remains policy-gated there.
+- Does NOT weight components (AC5 deferred) and does NOT gate the served z-sum at the
+  WF level (deferred per #982's honesty ledger).
+
+## 9. Plan
+
+This design PR → codex approve → **impl phase** (each step its own codex-gated PR):
+(1) emitter clones (`high52w`, `lowbeta`, `quality_gp`) + `tail_q90_20d` recipe →
+(2) cheap IC screen, kill/advance verdicts recorded → (3) router config schema +
+hard-wire list + alias registry → (4) MoE shadow lane → (5) AC4 replay attribution →
+operator-gated deploys throughout. Design-review fixes on THIS doc are personal (not
+delegated).
