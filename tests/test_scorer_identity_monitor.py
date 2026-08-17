@@ -895,3 +895,266 @@ def test_genesis_receipt_explains_a_lane_addition():
     # The converse never matches: the receipt names an artifact the lane lacked.
     assert sim._side_matches(sim._ABSENT, "sha256:" + "a" * 64) is False
     assert sim._side_matches("sha256:" + "a" * 64, None) is False
+
+
+# --- ledger-backed shadow lane self-legitimizes a scheduled refit append ------
+
+
+def _write_linked_ledger(path: Path, rows: list[dict]) -> None:
+    """Write an append-only ledger with valid prev_row_sha/row_sha linkage.
+
+    Each row is terminated by a newline, exactly as the real append writer
+    (``append_chained_row``: ``open(path, "a")`` + ``... + "\\n"``) produces, so a
+    prior revision is an exact byte-PREFIX of a later one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    linked = []
+    prev_sha = None
+    for i, row in enumerate(rows):
+        r = dict(row)
+        r["prev_row_sha"] = prev_sha
+        r["row_sha"] = f"row{i}"
+        linked.append(r)
+        prev_sha = r["row_sha"]
+    path.write_text("".join(json.dumps(r) + "\n" for r in linked), encoding="utf-8")
+
+
+def _file_sha(path: Path) -> str:
+    """The sha256 of a file's bytes, as the run bundle stamps it."""
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _prev_revision_sha(path: Path, n_rows: int = 1) -> str:
+    """The file sha a PRIOR run would have stamped for this append-only ledger:
+    the sha of the byte-prefix ending at the ``n_rows``-th row's terminating
+    newline. Since the ledger is byte-append-only, that prefix IS the earlier
+    revision the prev run stamped (used to prove append-ancestry, codex #983)."""
+    raw = path.read_bytes()
+    count = 0
+    for i, byte in enumerate(raw):
+        if byte == 0x0A:  # newline
+            count += 1
+            if count == n_rows:
+                return "sha256:" + hashlib.sha256(raw[: i + 1]).hexdigest()
+    raise AssertionError(f"ledger has fewer than {n_rows} newline-terminated rows")
+
+
+def _mom_run(run_id: str, day: str, sha: str, ledger_path: Path) -> sim.RunIdentity:
+    """A run stamping ONE ledger-backed momentum shadow lane (artifact_path set
+    to the absolute on-disk ledger, as the real run bundle stamps it)."""
+    name = f"shadow:{ledger_path}"
+    return sim.RunIdentity(
+        run_id=run_id,
+        run_date=day,
+        created_at=datetime.fromisoformat(f"{day}T12:00:00+00:00"),
+        lanes={
+            name: sim.LaneIdentity(
+                lane=name, artifact_sha=sha, artifact_path=str(ledger_path)
+            )
+        },
+        usable=True,
+    )
+
+
+def test_ledger_backed_shadow_refit_is_not_a_silent_swap(tmp_path):
+    """A scheduled weekly momentum refit appends a link-intact row within the
+    boundary window → the file-sha change is legitimized, NOT a silent swap."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    # prev stamped the 1-row revision (a genuine byte-prefix of the current
+    # ledger); the Saturday refit APPENDED row 2 → ancestry proven.
+    prev = _mom_run("r1", "2026-08-07", _prev_revision_sha(ledger), ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+
+    assert not any("silent scorer swap" in ln for ln in report["lines"])
+    assert report["status"] != sim.STATUS_CRITICAL
+
+
+def test_broken_ledger_linkage_still_fires(tmp_path):
+    """GUARD: a file swap that breaks the append-only linkage is NOT legitimized."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "row_sha": "r0", "prev_row_sha": None},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "row_sha": "r1", "prev_row_sha": "TAMPERED"},
+    ]
+    ledger.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+    assert any("silent scorer swap" in ln for ln in report["lines"])
+
+
+def test_ledger_append_outside_window_still_fires(tmp_path):
+    """GUARD: a link-intact ledger with NO append inside the boundary window is
+    not legitimized (the change is not tied to a contemporaneous refit)."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-07-01T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-07-02T12:00:00Z", "artifact_content_sha256": "sha256:bbb"},  # before window
+    ])
+    # prev is a genuine prefix (ancestry holds) so the ONLY reason this stays
+    # CRITICAL is the append landing OUTSIDE the boundary window.
+    prev = _mom_run("r1", "2026-08-07", _prev_revision_sha(ledger), ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_ledger_advanced_after_run_fails_closed(tmp_path):
+    """GUARD (codex #983): if the on-disk ledger has ADVANCED since the run (its
+    current file sha != the stamped change.curr.artifact_sha), the boundary's
+    real transition is unproven — a LATER in-window append must NOT downgrade a
+    genuine unexplained change. Bind to the stamped sha → fail closed → CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    prev = _mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger)
+    # curr recorded a sha that does NOT match the current on-disk ledger — i.e.
+    # the ledger advanced (a later append) after the run was stamped.
+    curr = _mom_run("r2", "2026-08-10", "sha256:deadbeef00000000", ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_non_ledger_shadow_lane_unaffected_by_ledger_path(tmp_path):
+    """A non-ledger shadow lane (e.g. clf .json) is NOT eligible for ledger
+    legitimization — it still needs a receipt, unchanged."""
+    change = sim.LaneChange(
+        lane=_CLF,
+        prev=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:1e644354",
+                              artifact_path="/abs/artifacts/shadow/panel-clf.top-decile.fwd60.json"),
+        curr=sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:deadbeef",
+                              artifact_path="/abs/artifacts/shadow/panel-clf.top-decile.fwd60.json"),
+    )
+    boundary = sim.Boundary(
+        prev_run=_mom_run("r1", "2026-08-07", "x", tmp_path / "unused_ledger.jsonl"),
+        curr_run=_mom_run("r2", "2026-08-10", "y", tmp_path / "unused_ledger.jsonl"),
+        changes=[change],
+    )
+    ok, note = sim._ledger_append_explains(change, boundary)
+    assert ok is False and note is None
+
+
+def test_ledger_backed_ADDED_lane_stays_critical(tmp_path):
+    """REGRESSION (codex #983 review): a lane JOINING the lineup is a membership
+    change, NOT an in-place scheduled refit of an existing lane. Even a valid,
+    in-window, link-intact ledger must not self-legitimize the addition — the
+    monitor exists to shout exactly this lineup change, so it stays CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    name = f"shadow:{ledger}"
+    prev = _shadow_run("r1", "2026-08-07", {_CLF: "sha256:1e644354"})  # no momentum lane yet
+    curr = sim.RunIdentity(
+        run_id="r2",
+        run_date="2026-08-10",
+        created_at=datetime.fromisoformat("2026-08-10T12:00:00+00:00"),
+        lanes={
+            _CLF: sim.LaneIdentity(lane=_CLF, artifact_sha="sha256:1e644354"),
+            name: sim.LaneIdentity(
+                lane=name, artifact_sha="sha256:65d09112", artifact_path=str(ledger)
+            ),
+        },
+        usable=True,
+    )
+
+    report = sim.evaluate([prev, curr], [])
+
+    added = [ln for ln in report["lines"] if str(ledger) in ln]
+    assert len(added) == 1
+    assert "shadow lane added" in added[0]
+    assert "explained by" not in added[0]
+    assert added[0].startswith("CRITICAL:")
+    assert report["status"] == sim.STATUS_CRITICAL
+
+
+def test_ledger_append_refuses_lineup_membership_changes(tmp_path):
+    """GUARD: `_ledger_append_explains` only legitimizes an in-place same-lane
+    swap (``lifecycle is None``). An added/retired lane is refused even with a
+    valid in-window ledger, so the lifecycle gate — not a missing/invalid file —
+    is what keeps the change CRITICAL."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    name = f"shadow:{ledger}"
+    boundary = sim.Boundary(
+        prev_run=_mom_run("r1", "2026-08-07", "sha256:9aa2d8c9", ledger),
+        curr_run=_mom_run("r2", "2026-08-10", "sha256:65d09112", ledger),
+        changes=[],
+    )
+
+    added = sim.LaneChange(
+        lane=name,
+        prev=sim.LaneIdentity(lane=name, artifact_sha=sim._ABSENT),
+        curr=sim.LaneIdentity(
+            lane=name, artifact_sha="sha256:65d09112", artifact_path=str(ledger)
+        ),
+    )
+    assert added.lifecycle == "added"
+    assert sim._ledger_append_explains(added, boundary) == (False, None)
+
+    retired = sim.LaneChange(
+        lane=name,
+        prev=sim.LaneIdentity(
+            lane=name, artifact_sha="sha256:9aa2d8c9", artifact_path=str(ledger)
+        ),
+        curr=sim.LaneIdentity(lane=name, artifact_sha=sim._ABSENT, artifact_path=str(ledger)),
+    )
+    assert retired.lifecycle == "retired"
+    assert sim._ledger_append_explains(retired, boundary) == (False, None)
+
+
+def test_ledger_full_file_replacement_at_same_path_still_fires(tmp_path):
+    """REGRESSION (codex #983 round 3): a link-intact, in-window ledger whose
+    on-disk bytes match the stamped `curr` sha is STILL a silent swap when the
+    prev run's stamped sha is NOT a byte-prefix of it — i.e. the same path was
+    REPLACED wholesale, not appended to. Ancestry cannot be proven, so it must
+    stay CRITICAL rather than be laundered as a scheduled refit."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},  # in-window
+    ])
+    # curr correctly binds to the current on-disk bytes, but prev stamped an
+    # UNRELATED digest that is no prefix of this file — a same-path replacement.
+    prev = _mom_run("r1", "2026-08-07", "sha256:" + "1" * 64, ledger)
+    curr = _mom_run("r2", "2026-08-10", _file_sha(ledger), ledger)
+
+    report = sim.evaluate([prev, curr], [])
+    assert report["status"] == sim.STATUS_CRITICAL
+    assert any("silent scorer swap" in ln for ln in report["lines"])
+
+
+def test_ledger_extends_prev_distinguishes_append_from_replacement(tmp_path):
+    """The ancestry helper accepts only a byte-prefix predecessor (a genuine
+    append) and refuses an unrelated / absent digest (a replacement)."""
+    ledger = tmp_path / "artifacts" / "momentum" / "momentum_artifact_ledger.jsonl"
+    _write_linked_ledger(ledger, [
+        {"appended_at_utc": "2026-08-07T12:00:00Z", "artifact_content_sha256": "sha256:aaa"},
+        {"appended_at_utc": "2026-08-08T12:00:06Z", "artifact_content_sha256": "sha256:bbb"},
+    ])
+    raw = ledger.read_bytes()
+    # the 1-row prefix the prev run would have stamped → append-ancestry holds
+    assert sim._ledger_extends_prev(raw, _prev_revision_sha(ledger)) is True
+    # an unrelated digest / no digest / the absent marker → no ancestry, fail closed
+    assert sim._ledger_extends_prev(raw, "sha256:" + "1" * 64) is False
+    assert sim._ledger_extends_prev(raw, None) is False
+    assert sim._ledger_extends_prev(raw, sim._ABSENT) is False
+    # the FULL-file sha is curr, not a strict prefix → not accepted as prev
+    assert sim._ledger_extends_prev(raw, _file_sha(ledger)) is False
