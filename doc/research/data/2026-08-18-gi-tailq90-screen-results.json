@@ -1,0 +1,200 @@
+{
+  "candidate": "tail_q90_60d",
+  "corpus": {
+    "end": "2026-03-02",
+    "first_grid_date": "2019-01-14",
+    "last_grid_date": "2026-02-27",
+    "n_cross_sections": 359,
+    "sample_step": 5,
+    "start": "2019-01-14"
+  },
+  "frozen_rule": {
+    "block_t_min": 1.0,
+    "embargo_trading_days": 60,
+    "expected_blocks": {
+      "20": 89,
+      "60": 29
+    },
+    "horizon_informational": 20,
+    "horizon_primary": 60,
+    "min_blocks_with_data": {
+      "20": 45,
+      "60": 15
+    },
+    "n_refits": 31,
+    "names_per_date_floor": 50,
+    "placebo_lag_trading_days": {
+      "20": 40,
+      "60": 120
+    },
+    "pos_block_frac_min_exclusive": 0.5,
+    "quantile_alpha": 0.9
+  },
+  "horizons": {
+    "20": {
+      "block_t": 1.5864919253656025,
+      "delta": 0.011537672582394534,
+      "dropped": {
+        "degenerate": 0,
+        "floor_paired": 0,
+        "no_refit_placebo": 0
+      },
+      "mean_ic_genuine": 0.03786366968104562,
+      "mean_ic_placebo": 0.026325997098651084,
+      "n_blocks_expected": 89,
+      "n_blocks_with_data": 89,
+      "n_grid_dates": 359,
+      "n_kept": 359,
+      "pos_block_frac": 0.550561797752809,
+      "role": "informational (never decisive, spec \u00a74)"
+    },
+    "60": {
+      "block_t": -0.7167866431593864,
+      "delta": -0.008010985114575,
+      "dropped": {
+        "degenerate": 0,
+        "floor_paired": 0,
+        "no_refit_placebo": 9
+      },
+      "mean_ic_genuine": 0.06349293929522619,
+      "mean_ic_placebo": 0.07150392440980119,
+      "n_blocks_expected": 29,
+      "n_blocks_with_data": 29,
+      "n_grid_dates": 359,
+      "n_kept": 350,
+      "pos_block_frac": 0.5517241379310345,
+      "role": "PRIMARY (decisive)",
+      "verdict": "FLAGGED",
+      "verdict_reason": "delta=-0.00801 <= 0; block_t=-0.717 < 1.0"
+    }
+  },
+  "momentum_params": {
+    "mom_fast": {
+      "min_features": 3,
+      "min_obs": 50,
+      "min_side_obs": 30,
+      "names_per_date_floor": 50,
+      "params_source": "renquant-model#199 (frozen 2026-08-03 before any run; the issue is the authority \u2014 no sealed runner exists for this clock); held to the #199 literals by test_params_v1_fast_matches_the_frozen_issue",
+      "params_version": "v1_fast",
+      "skip": 5,
+      "window": 63
+    },
+    "mom_slow_12m": {
+      "min_features": 3,
+      "min_obs": 200,
+      "min_side_obs": 30,
+      "names_per_date_floor": 50,
+      "params_source": "tools/goal7_momentum_run.py::FROZEN + MIN_SIDE_OBS (frozen in model#164 \u00a72, F5 floor in model#177); mirrored into renquant_model_momentum._frozen_params_v0 so the wheel is self-sufficient, with equality held by test_params_v0_mirrors_the_sealed_v1_runner",
+      "params_version": "v0",
+      "skip": 21,
+      "window": 252
+    }
+  },
+  "params": {
+    "core_rank_ref": {
+      "colsample_bytree": 0.7,
+      "eta": 0.05,
+      "max_depth": 5,
+      "min_child_weight": 50,
+      "objective": "rank:pairwise",
+      "seed": 42,
+      "subsample": 0.7,
+      "verbosity": 0
+    },
+    "tail_q90_60d": {
+      "colsample_bytree": 0.7,
+      "eta": 0.05,
+      "max_depth": 5,
+      "min_child_weight": 50,
+      "objective": "reg:quantileerror",
+      "quantile_alpha": 0.9,
+      "seed": 42,
+      "subsample": 0.7,
+      "verbosity": 0
+    }
+  },
+  "pins": {
+    "ohlcv_digest_of_digests": "96a1050d5febfbc6093100fb5b009cb720ba6b71ef6577b3192f4e1349d1e746",
+    "panel_parquet": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset.parquet",
+    "panel_parquet_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+    "renquant_model_head": "9432413a682d923d9a5b1b68f58039b7a5536dfe",
+    "runner_identity": {
+      "origin_main_sha": "9d73d5463b23218bf8bded9ff75f9bbf479a3543",
+      "runner_sha256": "df5c1d66bb14c9660aebd48664210eef6837bdc46ca08f7affd008a13dae9edc"
+    },
+    "served_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+    "served_artifact_sha256": "6461b827ab2339a8d2351db6e45ac4f4c8d4c231937d8d6a4f8d127ecc546d15",
+    "served_config_fingerprint": "sha256:f8fb2259b2bf1537",
+    "spy_1d_sha256": "68665523c23edae565dee40b25fcc90051b209703c57f0887e70fd295964b0ee",
+    "trainer_script_sha256": "f35e8778aaec26b7a8f18bc86c86ea1aceb538e5a8a19486f004d520faed3aec",
+    "watchlist_absent_from_panel": [
+      "CRWV",
+      "RKLB",
+      "SPCX"
+    ],
+    "watchlist_config": "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.golden.json",
+    "watchlist_n": 145,
+    "watchlist_sha256": "d93d28c5dfba390dca4d12659dc5249ce689c202f558bb50a1dbd9554fe4b555",
+    "xgboost_version": "2.1.4"
+  },
+  "rho_matrix": {
+    "tail_q90_60d": {
+      "core_rank_ref": {
+        "mean_rho": 0.6959214628255139,
+        "n_dates": 359,
+        "note": "same-recipe rank:pairwise refit at the SAME frozen cutoffs, trained purely as the spec \u00a75 rho reference (core-score history unreachable \u2014 the #992 named gap); scores used for rho ONLY, never screened",
+        "sd_rho": 0.07239945291065823
+      },
+      "mom_fast": {
+        "mean_rho": 0.0453131416985463,
+        "n_dates": 359,
+        "sd_rho": 0.22334880283186934
+      },
+      "mom_slow_12m": {
+        "mean_rho": -0.028668826528762986,
+        "n_dates": 359,
+        "sd_rho": 0.18220220328805634
+      }
+    }
+  },
+  "run_utc": "2026-08-18T08:24:05Z",
+  "runtime_sec": 221.4,
+  "semantics": "TRIAGE \u2014 FLAGGED / NOT FLAGGED; neither kill nor admit (spec \u00a74: kill needs a PIT-universe rerun; admission needs the #984 \u00a75b confirmatory path)",
+  "sentiment_gate_replay": {
+    "sentiment_runtime_gate_contract": "trained_zeroing",
+    "sentiment_runtime_gate_disabled_regimes": [
+      "BULL_CALM",
+      "BULL_STRONG",
+      "LOW_NORMAL",
+      "LOW_SPIKED",
+      "MED_NORMAL"
+    ],
+    "sentiment_runtime_gate_feature_cols": [
+      "mean_sentiment",
+      "n_articles_log",
+      "sentiment_pos_share"
+    ],
+    "sentiment_runtime_gate_missing_regime_policy": "warmup_zero_only",
+    "sentiment_runtime_gate_policy": {
+      "BEAR": true,
+      "BULL_CALM": false,
+      "BULL_STRONG": false,
+      "BULL_VOLATILE": true,
+      "CHOPPY": true,
+      "HIGH_CALM": true,
+      "HIGH_NORMAL": true,
+      "HIGH_SPIKED": true,
+      "LOW_CALM": true,
+      "LOW_NORMAL": false,
+      "LOW_SPIKED": false,
+      "MED_CALM": true,
+      "MED_NORMAL": false,
+      "MED_SPIKED": true
+    },
+    "sentiment_runtime_gate_warmup_zeroed_rows": 3654,
+    "sentiment_runtime_gate_zeroed_rows": 256359
+  },
+  "spec": "doc/research/2026-08-18-gi-tailq90-screen-spec.md (orch#994)",
+  "verdict_primary_h60": "FLAGGED",
+  "verdict_reason": "delta=-0.00801 <= 0; block_t=-0.717 < 1.0"
+}
