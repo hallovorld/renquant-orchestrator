@@ -1,0 +1,13 @@
+corpus n=600; top-10 mean STD60 percentile = 0.93
+UNCOND vol-matched: mean=+0.0754 n=600 nb=10 t=+3.24 (crit 2.26)
+(raw for reference: mean=+0.1021)
+
+by regime:
+  BEAR           mean=+0.1573 n=23 nb=1 t=NA
+  BULL_CALM      mean=+0.0578 n=380 nb=9 t=+2.03 (crit 2.31)
+  BULL_VOLATILE  mean=+0.0998 n=197 nb=6 t=+3.58 (crit 2.57)
+
+by spyvol20 tercile:
+  T1 mean=+0.0475 n=200 nb=8 t=+1.76 (crit 2.36)
+  T2 mean=+0.0719 n=200 nb=8 t=+2.63 (crit 2.36)
+  T3 mean=+0.1069 n=200 nb=5 t=+3.12 (crit 2.78)

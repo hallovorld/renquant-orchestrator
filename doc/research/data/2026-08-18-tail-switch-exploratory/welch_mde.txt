@@ -1,0 +1,6 @@
+y_z10: BV block means n=6 mean=+0.7615 sd=0.5410; BC n=9 mean=+0.3063 sd=0.5739; Welch t=+1.56 p=0.147
+y_adj10: BV block means n=6 mean=+0.1104 sd=0.0755; BC n=9 mean=+0.0565 sd=0.0834; Welch t=+1.30 p=0.219
+uncond y_z10: block sd=0.5343 over 10 blocks, mean=+0.4933
+uncond y_r10: block sd=0.0991 over 10 blocks, mean=+0.1021
+spyvol20 tercile edges (annualized): [0.1049, 0.1375]
+bull-only spyvol20 T3 edge: 0.1348
