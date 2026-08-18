@@ -13,9 +13,10 @@ FIRST (highest prior), not last (cheapest first) — prior declared here, before
   the #987 emitter family (whose budget was spent by #992).
 - **Corpus exposure ledger** (per the #984 exposure-counting convention): this is the
   **2nd family** screened on the 2019-01-14..2026-03-02 weekly corpus (1st: the three
-  #987 emitters, verdict 0/3 FLAGGED). The screen stays kill-only (admits nothing), so
-  corpus reuse cannot manufacture an admission; the confirmatory Holm family in #984 §5b
-  spans the full candidate manifest including every screen failure.
+  #987 emitters, verdict 0/3 FLAGGED). The screen stays triage-only and admits nothing
+  (per #987 §1 it cannot kill either — see §4), so corpus reuse cannot manufacture an
+  admission; the confirmatory Holm family in #984 §5b spans the full candidate manifest
+  including every screen failure.
 
 ## 2. Frozen candidate definition (delta from production, everything else verbatim)
 
@@ -47,24 +48,53 @@ Base = the production core recipe as pinned by the served artifact
 - **Determinism**: fixed seed (the artifact's), fixed calendar, no early stopping on
   future data, no hyperparameter search of any kind. ~31 local trainings, $0, no cloud.
 
-## 4. Corpus, estimand, and kill rule — IDENTICAL to #987 (no re-derivation)
+## 4. Corpus, estimand, and triage rule — inherited from #987, ONE declared delta (primary horizon aligned to the trained estimand)
 
-Corpus (verbatim #987 §2): weekly cross-sections 2019-01-14..2026-03-02 (359 kept dates
-as measured by #992), current 145-name watchlist, survivorship caveat carried (kills
-valid, passes non-confirmatory), NAMES_PER_DATE_FLOOR=50.
-Estimand (verbatim #987 §3, with the #990 pairing correction): PAIRED-cross-section
-weekly Spearman IC of the RAW score vs h-day forward excess over SPY, h=20 primary /
-h=60 informational; placebo = the same scores lagged 2h trading days; decision quantity
-Δ = mean(genuine) − mean(placebo).
-Inference + kill rule (verbatim #987 §4-5): block-t over the 89 non-overlapping 20d
-blocks; **SURVIVES iff Δ>0 AND block-t ≥ 1.0 AND >50% of blocks-with-data positive, at
-h=20** — else FLAGGED (triage semantics: deprioritized; PIT-universe rerun before any
-formal kill). ONE execution; whatever comes out is final for this corpus. No horizon
-rescue, no calendar tweak, no rerun.
+`[REVISED — codex review 2026-08-18, 2×HIGH]` An earlier draft of this section carried
+the "kills valid" survivorship claim and #987's `h=20 primary` verbatim. Both were
+wrong for this document: the kills-valid monotonicity claim was already withdrawn in
+#987 §2 (it does not become safe again for a new family), and h=20 is
+horizon-mismatched to a learner trained on a 60-trading-day label.
 
-Honest power context (counted before the rule, from #987 §4): n_eff ≈ 51 at h=20 — a
-true-but-small edge can fail t≥1.0 here; that risk is accepted as the kill-only
-asymmetry, unchanged from the emitter family.
+Corpus (verbatim #987 §2, including its REVISED survivorship clause): weekly
+cross-sections 2019-01-14..2026-03-02 (359 kept dates as measured by #992), current
+145-name watchlist, NAMES_PER_DATE_FLOOR=50. **Survivorship direction UNKNOWN — so this
+screen cannot kill.** A current-survivor universe can compress or invert this
+candidate's measured edge exactly as it can an emitter's (the mechanisms in #987 §2 are
+universe properties, not emitter properties). Every outcome below is therefore strictly
+**triage**: a FLAGGED candidate is deprioritized, and a formal kill additionally
+requires a point-in-time-universe rerun. Nothing in this document authorises a kill.
+
+Estimand (#987 §3 with the #990 pairing correction, EXCEPT the primary horizon):
+PAIRED-cross-section weekly Spearman IC of the RAW score vs h-day forward excess over
+SPY; placebo = the same scores lagged 2h trading days; decision quantity
+Δ = mean(genuine) − mean(placebo). **Declared delta from #987: h=60 is PRIMARY, h=20
+is informational.** The candidate is trained to forecast the q90 of `fwd_60d_excess`
+(§2), so the decisive endpoint must match the trained horizon — testing a 60d tail
+model on a 20d endpoint is a horizon-mismatched estimand that could flag a valid model
+for lacking behaviour it was never trained to have. #987's h=20-primary choice belonged
+to emitters with no trained horizon and is NOT inherited where the candidate
+construction differs. No mapping from the 60d forecast to a 20d decision target is
+claimed or used.
+
+Inference + triage rule (#987 §4-5 mechanics, applied at h=60): block-t over the **29
+non-overlapping 60d blocks** `[VERIFIED — prior work, #987 §4 block count]`;
+**NOT FLAGGED iff Δ>0 AND block-t ≥ 1.0 AND >50% of blocks-with-data positive, at
+h=60** — else **FLAGGED** (deprioritized; point-in-time-universe rerun required before
+any formal kill; not killed by this document). ONE execution of the screen on this
+corpus — no horizon rescue, no calendar tweak, no rerun, no parameter search — but the
+recorded verdict is a **non-final triage outcome**, not a kill and not an admission:
+kill-side finality needs the PIT rerun above, and admission always needs the full
+#984 §5b confirmatory path.
+
+Honest power context (counted before the rule, from #987 §4): **n_eff ≈ 16 at h=60**
+`[VERIFIED — prior work, #987 §4]` — annotation-grade power, declared as such: a
+true-but-small edge can easily fail t ≥ 1.0 here. That is acceptable ONLY because the
+outcome is non-final triage (deprioritization), never a kill — low power at the aligned
+horizon is strictly safer than adequate power at a mismatched one. h=20 (89 blocks,
+n_eff ≈ 51 `[VERIFIED — prior work, #987 §4]`) is reported alongside as informational
+context, never decisive in either direction — a horizon the model was not trained for
+can neither flag nor rescue it.
 
 ## 5. Also measured (informational)
 

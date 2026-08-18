@@ -12,11 +12,17 @@ WHAT:      Commit `doc/research/2026-08-18-gi-tailq90-screen-spec.md`: the 4th s
            served artifact's fingerprint f8fb2259) with exactly ONE delta
            (objective → reg:quantileerror, quantile_alpha 0.90); PIT scoring calendar
            (31 quarterly refits 2018-Q2..2025-Q4, expanding window, 60-trading-day
-           embargo C+60≤d); corpus/estimand/kill-rule VERBATIM #987 (paired
-           cross-sections per the #990 fix; h=20 primary; block-t≥1.0 rule); new-family
-           one-shot budget + corpus-exposure ledger (2nd family on this corpus); the
-           declared high-ρ risk (shares features+label with multifactor_core) and the
-           ρ-reference refit provision.
+           embargo C+60≤d); corpus/estimand/triage-rule inherited from #987 (paired
+           cross-sections per the #990 fix; block-t≥1.0 rule) with ONE declared delta —
+           **h=60 primary / h=20 informational**, aligned to the trained 60d label
+           (REVISED per codex review 2026-08-18: an earlier draft inherited h=20
+           primary verbatim, a horizon mismatch) — and #987 §2's REVISED survivorship
+           semantics carried intact (direction UNKNOWN; strictly triage-only, no kill
+           without a point-in-time-universe rerun; the withdrawn "kills valid" claim is
+           NOT reinstated); new-family one-shot budget + corpus-exposure ledger
+           (2nd family on this corpus; the screen admits nothing and kills nothing);
+           the declared high-ρ risk (shares features+label with multifactor_core) and
+           the ρ-reference refit provision.
 
 WHY/DIR:   Operator-directed 2026-08-18 ("深度分析具体原因,提出改进方案和解决方案,开工")
            after the emitter family screened 0/3. Root-cause item 3 of that analysis:
@@ -38,7 +44,10 @@ EVIDENCE:
                  data prep — the 20d-label variant was explicitly rejected for that
                  reason and the rename tail_q90_20d→tail_q90_60d is recorded); the
                  known failure mode (high ρ vs multifactor_core) is declared
-                 prospectively; power context (n_eff≈51) restated, not re-derived.
+                 prospectively; power context at the PRIMARY h=60 endpoint
+                 (n_eff≈16, 29 non-overlapping blocks [VERIFIED — prior work,
+                 #987 §4]) declared as annotation-grade — acceptable only because
+                 outcomes are non-final triage, never kills.
   scope:         "freezes the tail_q90_60d screen. Authorizes, AFTER merge + a reviewed
                  runner PR: ~31 local deterministic refits + the ONE scoring run,
                  read-only inputs, isolated worktree, results as a separate PR. Nothing
