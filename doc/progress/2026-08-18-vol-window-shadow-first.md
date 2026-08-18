@@ -12,6 +12,13 @@ WHAT:      Commit `doc/design/2026-08-18-vol-window-shadow-first.md`: the vol-wi
            sessions with positive realized spread) before any operator ask. AC1-AC4;
            honesty ledger (corpus-bound certification, calm-bull unchanged, ON∧BEAR
            excluded by policy precedence, activation = separate operator decision).
+           Review round 1 (2026-08-18): AC3's counter readout re-pinned to the
+           CERTIFIED h=60 horizon (h=20 demoted to a non-decisive velocity diagnostic
+           recorded in the same rows; universe-mean baseline declared as a deviation
+           from the certified DGTW construction); LONG-row-10 provenance tags added to
+           every restated number; §6 gained the tail-driven-variance bullet
+           (winsorized ON mean +0.0361 vs +0.1840) — see the design doc's visible
+           Corrections section.
 
 WHY/DIR:   The frozen consequence of the CONFIRMED vol-switch verdict (#1003, prereg
            #1001): "authorizes ONLY a design PR for a vol-gated bull deployment window
