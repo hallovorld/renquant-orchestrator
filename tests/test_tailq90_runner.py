@@ -246,9 +246,41 @@ def test_one_shot_refuses_when_any_output_exists(tmp_path):
         rn.assert_one_shot(outputs=(marker, tmp_path / "absent.csv"))
 
 
-def test_this_pr_ships_unrun_no_outputs_committed():
-    """The runner PR must not carry any run outputs (spec §6)."""
-    rn.assert_one_shot()
+def test_one_shot_guard_fires_when_an_output_already_exists(tmp_path):
+    """T1 is a RUNTIME guard: it must RAISE once outputs exist, and pass when
+    they do not. Exercised on temp paths so the assertion is about the
+    MECHANISM, not about the repository's current contents.
+
+    Replaces ``test_this_pr_ships_unrun_no_outputs_committed``, which called
+    ``rn.assert_one_shot()`` against the real ``OUTPUTS``. That was a true
+    statement about the RUNNER PR (orch#996 shipped un-run, spec §6) but not an
+    invariant: the ONE authorized run legitimately commits those outputs
+    (orch#999), from which moment the old test could only ever fail. A one-shot
+    property asserted as a permanent test necessarily breaks at the one shot.
+
+    The guard itself is unchanged and still correct — it is what stops a second
+    execution. Only the test's subject moves, from repo state to behaviour.
+    """
+    absent = tmp_path / "results.json"
+    rn.assert_one_shot(outputs=[absent])          # nothing written yet -> passes
+
+    absent.write_text("{}")
+    with pytest.raises(AssertionError, match="one-shot marker"):
+        rn.assert_one_shot(outputs=[absent])      # output present -> refuses
+
+    # ...and it must refuse if ANY of several outputs exists, not only the first
+    other = tmp_path / "series.csv"
+    with pytest.raises(AssertionError, match="one-shot marker"):
+        rn.assert_one_shot(outputs=[other, absent])
+
+
+def test_the_authorized_run_outputs_are_present_on_this_branch():
+    """The complement of the guard test: this branch IS the authorized run, so
+    the outputs the runner declares MUST be committed here. Together with the
+    test above this pins both directions — the guard refuses a re-run, and the
+    one run it permitted actually landed its artefacts."""
+    missing = [str(p) for p in rn.OUTPUTS if not Path(p).exists()]
+    assert not missing, f"authorized-run outputs missing from the branch: {missing}"
 
 
 # ------------------------------------------------------- frozen-table pins
