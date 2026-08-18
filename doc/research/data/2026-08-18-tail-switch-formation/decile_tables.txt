@@ -1,0 +1,4 @@
+spyvol20 terciles, y_zdec: T1: +0.2268 n=200 nb=8 t=+1.96(c2.36) | T2: +0.2224 n=200 nb=8 t=+1.64(c2.36) | T3: +0.4877 n=200 nb=5 t=+2.87(c2.78)
+regime, y_zdec: BEAR: +1.0437 n=23 nb=1 t=NA | BULL_CALM: +0.2137 n=380 nb=9 t=+1.51(c2.31) | BULL_VOLATILE: +0.4170 n=197 nb=6 t=+2.61(c2.57)
+spyvol20 terciles, y_rdec: T1: +0.0435 n=200 nb=8 t=+1.96(c2.36) | T2: +0.0461 n=200 nb=8 t=+1.94(c2.36) | T3: +0.1012 n=200 nb=5 t=+3.08(c2.78)
+regime, y_rdec: BEAR: +0.2312 n=23 nb=1 t=NA | BULL_CALM: +0.0441 n=380 nb=9 t=+1.86(c2.31) | BULL_VOLATILE: +0.0816 n=197 nb=6 t=+2.68(c2.57)

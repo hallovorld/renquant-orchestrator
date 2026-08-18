@@ -1,0 +1,66 @@
+1. spyvol20 T3 blocks (>=15 days) and LOBO on y_z10 / y_r10
+        n        yz        yr          d0          d1
+block                                                
+0      17  1.437135  0.265997  2023-10-30  2023-11-21
+1       5  0.166204  0.024218  2024-02-22  2024-02-28
+2       6 -0.430571 -0.055979  2024-04-30  2024-05-09
+3      36  1.027597  0.224635  2024-07-26  2024-09-16
+4      20  0.934745  0.180398  2024-09-19  2024-11-27
+5      31 -0.281191 -0.044134  2024-12-27  2025-03-11
+6      60  1.063100  0.206182  2025-03-12  2025-06-05
+7       2  0.449738  0.068856  2025-06-06  2025-06-09
+8      13  0.819087  0.163802  2025-10-27  2025-11-25
+9      10  0.614328  0.153650  2025-11-26  2026-02-17
+  LOBO drop block 0: mean=+0.6861 t=+2.12 (crit 3.18)
+  LOBO drop block 3: mean=+0.7884 t=+2.12 (crit 3.18)
+  LOBO drop block 4: mean=+0.8117 t=+2.16 (crit 3.18)
+  LOBO drop block 5: mean=+1.1156 t=+10.09 (crit 3.18)
+  LOBO drop block 6: mean=+0.7796 t=+2.11 (crit 3.18)
+  LOBO(y_r10) drop 0: mean=+0.1418 t=+2.26
+  LOBO(y_r10) drop 3: mean=+0.1521 t=+2.24
+  LOBO(y_r10) drop 4: mean=+0.1632 t=+2.32
+  LOBO(y_r10) drop 5: mean=+0.2193 t=+12.17
+  LOBO(y_r10) drop 6: mean=+0.1567 t=+2.26
+
+2. calendar composition of vol terciles (days per quarter)
+volterc  T1  T2  T3
+date               
+2023Q4   20  25  17
+2024Q1   21  35   5
+2024Q2   32  25   6
+2024Q3   16   4  44
+2024Q4   26  23  15
+2025Q1    3  15  42
+2025Q2    4  10  48
+2025Q3   50  14   0
+2025Q4   14  30  20
+2026Q1   14  19   3
+
+3. state correlations (daily)
+           disp20  breadth  spyvol20  scoredisp  skill60
+disp20       1.00    -0.20      0.34       0.39    -0.02
+breadth     -0.20     1.00     -0.42      -0.24    -0.14
+spyvol20     0.34    -0.42      1.00       0.16    -0.28
+scoredisp    0.39    -0.24      0.16       1.00     0.46
+skill60     -0.02    -0.14     -0.28       0.46     1.00
+
+4. outcome by prod_gmm regime label (DECLARED ADDED VARIANT)
+  BEAR           y_z10=+1.3856 y_r10=+0.3052 n=23 nb=1 t=NA
+  BULL_CALM      y_z10=+0.3369 y_r10=+0.0723 n=380 nb=9 block_t=+1.60 (crit 2.31)
+  BULL_VOLATILE  y_z10=+0.6908 y_r10=+0.1357 n=197 nb=6 block_t=+3.45 (crit 2.57)
+
+5. breadth T2 anomaly: block means
+       size      mean
+block                
+0         1  1.245712
+1         9 -0.373044
+2        14 -0.411057
+3        21  0.616309
+4        25  0.654957
+5        14 -0.341598
+6         7  1.352805
+7        19  0.721288
+8        36  0.581410
+9        49  0.806562
+
+6. T3 vs T1 spread of block means (descriptive, unpaired): +0.5477
