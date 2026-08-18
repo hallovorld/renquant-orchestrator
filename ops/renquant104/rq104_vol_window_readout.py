@@ -7,9 +7,10 @@ sweep the vol-window lane's per-session license ledger
 pipeline#294 when the lane's flag is enabled), join each session with the
 lane's OWN runs DB (``data/runs.alpaca_shadow_vol_window.db`` —
 ``RENQUANT_READONLY_TAG`` isolation, daily_104.sh Step 5f) to freeze the
-lane's scored universe, append one row per session to an append-only
-HASH-CHAINED ledger, and back-fill realized top-decile spreads from the
-maintained ``ticker_forward_returns`` surface once rows mature.
+lane's scored universe, append one session event per date to an append-only
+HASH-CHAINED ledger, and append realization events carrying the realized
+top-decile spreads from the maintained ``ticker_forward_returns`` surface
+once sessions mature.
 
 THE ESTIMAND (design AC3, frozen):
 
@@ -21,9 +22,9 @@ THE ESTIMAND (design AC3, frozen):
   baseline is the design's DECLARED operational deviation from the certified
   DGTW-adjusted construction (orch#1004 AC3) — the activation ask must
   restate it.
-* VELOCITY diagnostic: the realized **h=20** spread, recorded in the same
-  row, earlier visibility, NEVER decisive — the two horizons are measured to
-  disagree in this system (orch#999; restated in orch#1004 AC3).
+* VELOCITY diagnostic: the realized **h=20** spread, its own realization
+  event, earlier visibility, NEVER decisive — the two horizons are measured
+  to disagree in this system (orch#999; restated in orch#1004 AC3).
 * ACTIVATION-EVIDENCE counter: ON-state sessions (certified vol verdict,
   SPY vol20 > 0.135 strict) whose DECISIVE realized spread is positive;
   frozen burden >= 20 ``[DERIVED — orch#1001 prereg §5 states the doubled
@@ -31,21 +32,39 @@ THE ESTIMAND (design AC3, frozen):
   orch#1004 §5 AC3]``. The counter is an operational burden toward an
   operator decision, never a statistical certification (orch#1004 §6).
 
-LEDGER CONTRACT:
+LEDGER CONTRACT (review-hardened, orch#1005 round 1 — realized facts are
+chained events, not mutable fields):
 
-* One row per session date, idempotent (re-runs and backfills never
-  duplicate). Append-time payload is IMMUTABLE and hash-chained:
-  ``entry_sha = sha256(canonical(immutable payload incl. prev_sha))``,
-  genesis ``prev_sha = "0"*64``. Maturation later fills ONLY the mutable
-  realization/telemetry fields; the chain is verified over the immutable
-  payload on every run and a broken chain alarms (exit 2) before any write.
+* ONE hash chain, TWO event types, and EVERY field of EVERY event is
+  covered by its hash — there are no mutable fields anywhere in the file:
+  - ``session`` — one per session date, idempotent (re-runs and backfills
+    never duplicate): the append-time funnel facts (verdict, license, top
+    decile, frozen universe).
+  - ``realization`` — appended when a session's horizon matures: the
+    realized spread + resolvability/coverage telemetry for one
+    (session, horizon). Maturation NEVER rewrites an appended event; a
+    (session, horizon) pair realizes at most once (idempotent).
+  ``entry_sha = sha256(canonical(all fields incl. prev_sha))``, genesis
+  ``prev_sha = "0"*64``. ``verify_chain`` also rejects unknown event types
+  and any field outside the event's declared schema, so no unauthenticated
+  byte can ride in the ledger.
+* The chain is verified before any write; a break alarms (exit 2) with the
+  ledger untouched and the counter NOT printed. ``write_ledger`` refuses
+  any write whose bytes do not extend the current file — append-only is
+  enforced mechanically, not asserted.
+* The ACTIVATION-EVIDENCE counter derives ONLY from chain-authenticated
+  events: ON-state from session events, realized spreads from realization
+  events, joined on the session date.
 * Realization per horizon is gated on the fwd table's OWN session calendar
   (the blend readout's ``_aged_dates`` technique — ``fwd IS NOT NULL`` alone
   does not prove the horizon elapsed), requires EVERY top-decile name
   resolvable (the certified selection must be complete), and requires
   universe coverage >= UNIVERSE_COVERAGE_FLOOR (declared operational rule;
   the universe mean is then taken over the resolvable names, with the
-  shortfall recorded in the row — the blend readout's telemetry lesson).
+  shortfall recorded in the realization event — the blend readout's
+  telemetry lesson). An AGED session that stays blocked prints per-pass
+  stdout telemetry so a permanently-stuck session is diagnosable without
+  mutating the evidence.
 * SILENT-FEED PARITY (the GOAL-1 AC3 guard, both directions): a license
   ledger session with no full lane run in the lane DB, or a full lane run
   with no license ledger row, alarms (exit 2) — the lane's flag and its
@@ -71,8 +90,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
-SCHEMA_VERSION = "rq104_vol_window_readout.v1"
+SCHEMA_VERSION = "rq104_vol_window_readout.v2"
 LANE_TAG = "alpaca_shadow_vol_window"
+
+EVENT_SESSION = "session"
+EVENT_REALIZATION = "realization"
 
 #: Frozen activation burden [DERIVED — orch#1001 prereg §5 (base of the
 #: doubled PARTIAL burden); orch#1004 §5 AC3]. Echoed, never re-derived.
@@ -89,7 +111,7 @@ MATURITY_TDAYS_20 = 21
 #: resolves in ticker_forward_returns. Strict 100% would let ONE lane-vs-
 #: backfill watchlist drift name silently zero the evidence stream forever
 #: (the blend readout records exactly that failure shape in its telemetry
-#: comment); the floor + per-row shortfall telemetry keeps the estimand
+#: comment); the floor + per-event shortfall telemetry keeps the estimand
 #: honest without that cliff. The activation ask restates coverage.
 UNIVERSE_COVERAGE_FLOOR = 0.90
 
@@ -99,10 +121,14 @@ MIN_FULL_RUN_CANDIDATES = 80
 
 GENESIS_SHA = "0" * 64
 
-#: The append-time payload — IMMUTABLE, covered by the hash chain, in this
-#: exact order. Maturation may touch NOTHING in this tuple.
-IMMUTABLE_KEYS = (
+#: Per-event hashed schemas, in this exact order. EVERY key of EVERY event
+#: is covered by the hash (plus the strict field-set check in verify_chain)
+#: — the orch#1005 review fix: the previously-mutable realization fields
+#: (spread/coverage/counters) are now immutable fields of their own chained
+#: events, so tampering with any decision-bearing value breaks verification.
+SESSION_KEYS = (
     "schema",
+    "event",
     "run_date",
     "lane_tag",
     "lane_run_id",
@@ -123,30 +149,72 @@ IMMUTABLE_KEYS = (
     "prev_sha",
 )
 
+REALIZATION_KEYS = (
+    "schema",
+    "event",
+    "run_date",
+    "lane_tag",
+    "horizon",
+    "n_top",
+    "n_universe",
+    "n_top_resolvable",
+    "n_universe_resolvable",
+    "universe_coverage",
+    "spread",
+    "prev_sha",
+)
+
+
+class LedgerAppendOnlyViolation(RuntimeError):
+    """write_ledger would have rewritten existing ledger bytes."""
+
 
 # ── hash chain ───────────────────────────────────────────────────────────────
 
-def _canonical_immutable(row: dict) -> str:
-    return json.dumps({k: row.get(k) for k in IMMUTABLE_KEYS},
+def _hashed_keys(row: dict) -> tuple | None:
+    return {EVENT_SESSION: SESSION_KEYS,
+            EVENT_REALIZATION: REALIZATION_KEYS}.get(row.get("event"))
+
+
+def _canonical(row: dict, keys: tuple) -> str:
+    return json.dumps({k: row.get(k) for k in keys},
                       sort_keys=True, separators=(",", ":"), default=str)
 
 
 def entry_sha(row: dict) -> str:
-    """sha256 over the canonical immutable payload (prev_sha included)."""
-    return hashlib.sha256(_canonical_immutable(row).encode("utf-8")).hexdigest()
+    """sha256 over the canonical full payload (prev_sha included)."""
+    keys = _hashed_keys(row)
+    if keys is None:
+        raise ValueError(f"unknown ledger event type: {row.get('event')!r}")
+    return hashlib.sha256(_canonical(row, keys).encode("utf-8")).hexdigest()
 
 
 def verify_chain(rows: list[dict]) -> str | None:
-    """None when the chain holds; else a human-readable break description."""
+    """None when the chain holds; else a human-readable break description.
+
+    Strict: unknown event types and any field outside the event's declared
+    schema (beyond entry_sha) are breaks — every byte in the ledger must be
+    authenticated by some event's hash.
+    """
     prev = GENESIS_SHA
     for i, row in enumerate(rows):
+        keys = _hashed_keys(row)
+        if keys is None:
+            return (f"row {i} ({row.get('run_date')}): unknown event type "
+                    f"{row.get('event')!r}")
+        extra = set(row) - set(keys) - {"entry_sha"}
+        missing = set(keys) - set(row)
+        if extra or missing:
+            return (f"row {i} ({row.get('run_date')}): field set drifted from "
+                    f"the {row['event']} schema (extra={sorted(extra)}, "
+                    f"missing={sorted(missing)}) — unauthenticated fields are "
+                    f"not allowed")
         if row.get("prev_sha") != prev:
             return (f"row {i} ({row.get('run_date')}): prev_sha "
                     f"{row.get('prev_sha')!r} != expected {prev!r}")
-        expect = entry_sha(row)
-        if row.get("entry_sha") != expect:
+        if row.get("entry_sha") != entry_sha(row):
             return (f"row {i} ({row.get('run_date')}): entry_sha mismatch "
-                    f"(immutable payload was altered after append)")
+                    f"(payload was altered after append)")
         prev = row["entry_sha"]
     return None
 
@@ -221,6 +289,7 @@ def build_row(date: str, session: dict, run_id: str | None,
     universe_n_ledger = session.get("universe_n")
     row = {
         "schema": SCHEMA_VERSION,
+        "event": EVENT_SESSION,
         "run_date": date,
         "lane_tag": LANE_TAG,
         "lane_run_id": run_id,
@@ -243,9 +312,28 @@ def build_row(date: str, session: dict, run_id: str | None,
                             if isinstance(universe_n_ledger, int) and universe
                             else None),
         "prev_sha": prev_sha,
-        # Mutable from here on (outside the chain).
-        "realized_20": False,
-        "realized_60": False,
+    }
+    row["entry_sha"] = entry_sha(row)
+    return row
+
+
+def build_realization(date: str, horizon: str, *, spread: float, n_top: int,
+                      n_universe: int, n_top_resolvable: int,
+                      n_universe_resolvable: int, universe_coverage: float,
+                      prev_sha: str) -> dict:
+    row = {
+        "schema": SCHEMA_VERSION,
+        "event": EVENT_REALIZATION,
+        "run_date": date,
+        "lane_tag": LANE_TAG,
+        "horizon": horizon,
+        "n_top": n_top,
+        "n_universe": n_universe,
+        "n_top_resolvable": n_top_resolvable,
+        "n_universe_resolvable": n_universe_resolvable,
+        "universe_coverage": universe_coverage,
+        "spread": spread,
+        "prev_sha": prev_sha,
     }
     row["entry_sha"] = entry_sha(row)
     return row
@@ -271,67 +359,98 @@ def _fwd_map(db: sqlite3.Connection, col: str) -> dict[tuple[str, str], float]:
     return {(str(t), str(d)[:10]): float(v) for t, d, v in rows}
 
 
-def mature_fill(rows: list[dict], fwd_db: sqlite3.Connection) -> int:
-    """Fill realized spreads per horizon for aged rows, in place.
+def realized_spreads(events: list[dict]) -> dict[tuple[str, str], float]:
+    """(run_date, horizon) -> realized spread, from chain-authenticated
+    realization events only."""
+    return {(e["run_date"], e["horizon"]): e.get("spread")
+            for e in events if e.get("event") == EVENT_REALIZATION}
 
-    Telemetry (resolvable counts, coverage) is recorded on EVERY pass for
-    every unrealized row, so a permanently-stuck session is diagnosable
-    instead of looking untouched (the blend readout's counters lesson).
-    Only mutable fields are touched — the hash chain is over IMMUTABLE_KEYS.
+
+def mature_events(events: list[dict], fwd_db: sqlite3.Connection) -> list[dict]:
+    """Append NEW hash-chained realization events for aged sessions.
+
+    NEVER rewrites an existing event (the orch#1005 review fix — realized
+    facts are chained appends, not mutable fields). Idempotent: a
+    (session, horizon) pair that already has a realization event is skipped,
+    so re-runs append nothing. Aged-but-blocked sessions (unresolvable top
+    decile, coverage below floor, missing lane run) print per-pass stdout
+    telemetry so a permanently-stuck session is diagnosable instead of
+    looking untouched, without mutating the evidence.
+
+    Returns the newly appended realization events (also appended to
+    ``events`` in place, extending the chain).
     """
+    done = set(realized_spreads(events))
+    sessions = [e for e in events if e.get("event") == EVENT_SESSION]
+    new: list[dict] = []
     horizons = (("20", "fwd_20d", MATURITY_TDAYS_20),
                 ("60", "fwd_60d", MATURITY_TDAYS_60))
-    filled = 0
     for suffix, col, min_tdays in horizons:
         fmap = _fwd_map(fwd_db, col)
         aged = _aged_dates(fwd_db, min_tdays)
-        for row in rows:
-            if row.get(f"realized_{suffix}"):
+        for srow in sessions:
+            date = srow["run_date"]
+            if (date, suffix) in done:
                 continue
-            date = row["run_date"]
-            top = row.get("top_decile") or []
-            uni = row.get("universe") or []
+            if date not in aged:
+                continue        # young, not stuck — realizes on a later pass
+            top = srow.get("top_decile") or []
+            uni = srow.get("universe") or []
             top_vals = [fmap.get((t, date)) for t in top]
             uni_vals = [fmap.get((t, date)) for t in uni]
             n_top_ok = sum(v is not None for v in top_vals)
             n_uni_ok = sum(v is not None for v in uni_vals)
             coverage = (n_uni_ok / len(uni)) if uni else 0.0
-            row[f"aged_{suffix}"] = date in aged
-            row["n_top"] = len(top)
-            row["n_universe"] = len(uni)
-            row[f"n_top_resolvable_{suffix}"] = n_top_ok
-            row[f"n_universe_resolvable_{suffix}"] = n_uni_ok
-            row[f"universe_coverage_{suffix}"] = round(coverage, 4)
-            if (row.get("lane_run_found")
-                    and top and uni
-                    and row[f"aged_{suffix}"]
+            if not (srow.get("lane_run_found") and top and uni
                     and n_top_ok == len(top)
                     and coverage >= UNIVERSE_COVERAGE_FLOOR):
-                top_mean = sum(v for v in top_vals if v is not None) / n_top_ok
-                uni_mean = sum(v for v in uni_vals if v is not None) / n_uni_ok
-                row[f"spread_{suffix}"] = top_mean - uni_mean
-                row[f"realized_{suffix}"] = True
-                filled += 1
-    return filled
+                print(f"  unrealized h={suffix} {date} (aged but blocked): "
+                      f"lane_run_found={bool(srow.get('lane_run_found'))} "
+                      f"top_resolvable={n_top_ok}/{len(top)} "
+                      f"coverage={coverage:.2f}")
+                continue
+            top_mean = sum(v for v in top_vals if v is not None) / n_top_ok
+            uni_mean = sum(v for v in uni_vals if v is not None) / n_uni_ok
+            ev = build_realization(
+                date, suffix,
+                spread=top_mean - uni_mean,
+                n_top=len(top), n_universe=len(uni),
+                n_top_resolvable=n_top_ok, n_universe_resolvable=n_uni_ok,
+                universe_coverage=round(coverage, 4),
+                prev_sha=events[-1]["entry_sha"] if events else GENESIS_SHA)
+            events.append(ev)
+            new.append(ev)
+            done.add((date, suffix))
+    return new
 
 
 # ── the counter ──────────────────────────────────────────────────────────────
 
-def activation_counter(rows: list[dict]) -> dict:
-    """The AC3 counter. ON-state = the certified vol verdict recorded in the
-    session row; DECISIVE = realized h=60 spread > 0; h=20 is velocity only
-    and never enters the decisive count."""
+def activation_counter(events: list[dict]) -> dict:
+    """The AC3 counter, derived ONLY from chain-authenticated events:
+    ON-state = the certified vol verdict recorded in the session event;
+    DECISIVE = a realization event with positive h=60 spread joined on the
+    session date; h=20 is velocity only and never enters the decisive count.
+    main() verifies the chain (exit 2 on a break) before this is computed —
+    the counter is never derived over unverified rows."""
+    sessions = {e["run_date"]: e for e in events
+                if e.get("event") == EVENT_SESSION}
+    spreads = realized_spreads(events)
+
     def _count(horizon: str, require_window: bool = False) -> int:
         n = 0
-        for r in rows:
-            if r.get("vol_verdict_on") is not True:
+        for date, s in sessions.items():
+            if s.get("vol_verdict_on") is not True:
                 continue
-            if require_window and r.get("window_on") is not True:
+            if require_window and s.get("window_on") is not True:
                 continue
-            if r.get(f"realized_{horizon}") and (r.get(f"spread_{horizon}") or 0) > 0:
+            sp = spreads.get((date, horizon))
+            if sp is not None and sp > 0:
                 n += 1
         return n
-    on_total = sum(1 for r in rows if r.get("vol_verdict_on") is True)
+
+    on_total = sum(1 for s in sessions.values()
+                   if s.get("vol_verdict_on") is True)
     return {
         "target": ACTIVATION_TARGET_ON_SESSIONS,
         "on_sessions_recorded": on_total,
@@ -367,8 +486,10 @@ def load_ledger(ledger: Path) -> list[dict]:
 
 
 def write_ledger(ledger: Path, rows: list[dict]) -> bool:
-    """Atomic, and ONLY when the rendered bytes differ — reading the evidence
-    must not mutate it (the blend readout's measured fix, verbatim intent)."""
+    """Atomic, ONLY when the rendered bytes differ (reading the evidence must
+    not mutate it — the blend readout's measured fix), and MECHANICALLY
+    append-only: any write whose bytes do not extend the current file raises
+    LedgerAppendOnlyViolation instead of rewriting history."""
     rendered = "".join(json.dumps(r, sort_keys=True, default=str) + "\n"
                        for r in rows)
     try:
@@ -377,6 +498,10 @@ def write_ledger(ledger: Path, rows: list[dict]) -> bool:
         current = None      # unreadable/absent -> write; NOT "assume it matches"
     if current == rendered:
         return False
+    if current is not None and not rendered.startswith(current):
+        raise LedgerAppendOnlyViolation(
+            f"refusing to rewrite existing bytes of {ledger} — the readout "
+            f"ledger is append-only; investigate before touching it")
     ledger.parent.mkdir(parents=True, exist_ok=True)
     tmp = ledger.with_name(ledger.name + ".tmp")
     tmp.write_text(rendered, encoding="utf-8")
@@ -416,8 +541,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{lane_db_path.name} both absent) — nothing to do")
         return 0
 
-    rows = load_ledger(ledger)
-    broken = verify_chain(rows)
+    events = load_ledger(ledger)
+    broken = verify_chain(events)
     if broken is not None:
         print(f"ALARM: readout ledger hash chain BROKEN — {broken}. "
               f"Refusing to write; investigate {ledger}.")
@@ -435,8 +560,9 @@ def main(argv: list[str] | None = None) -> int:
         runs_by_date = lane_full_runs(lane_db)
 
     alarms: list[str] = []
-    known_dates = {r["run_date"] for r in rows}
-    prev = rows[-1]["entry_sha"] if rows else GENESIS_SHA
+    known_dates = {e["run_date"] for e in events
+                   if e.get("event") == EVENT_SESSION}
+    prev = events[-1]["entry_sha"] if events else GENESIS_SHA
     appended = 0
     for date in sorted(sessions):
         if date in known_dates:
@@ -452,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"candidates) — the lane's funnel record is missing; the row "
                 f"is appended lane_run_found=false and can never realize")
         row = build_row(date, sessions[date], run_id, universe, prev)
-        rows.append(row)
+        events.append(row)
         prev = row["entry_sha"]
         known_dates.add(date)
         appended += 1
@@ -468,22 +594,25 @@ def main(argv: list[str] | None = None) -> int:
                 f"flag did not evaluate on a session the lane ran")
 
     if appended:
-        print(f"appended {appended} session row(s)")
+        print(f"appended {appended} session event(s)")
 
-    filled = 0
     if fwd_db_path.exists():
         fwd_db = _connect_ro(fwd_db_path)
-        filled = mature_fill(rows, fwd_db)
-        if filled:
-            print(f"matured: realized {filled} horizon fill(s)")
+        matured = mature_events(events, fwd_db)
+        if matured:
+            print(f"matured: appended {len(matured)} realization event(s)")
     else:
         print(f"WARN: forward-returns surface absent ({fwd_db_path}) — "
               f"no maturation this pass")
 
-    if write_ledger(ledger, rows):
-        print(f"ledger written: {ledger} ({len(rows)} row(s))")
+    try:
+        if write_ledger(ledger, events):
+            print(f"ledger written: {ledger} ({len(events)} event(s))")
+    except LedgerAppendOnlyViolation as exc:
+        print(f"ALARM: {exc}")
+        return 2
 
-    print_counter(activation_counter(rows))
+    print_counter(activation_counter(events))
 
     for a in alarms:
         print(f"ALARM: {a}")

@@ -11,11 +11,13 @@ WHAT:      `ops/renquant104/rq104_vol_window_readout.py` — the design-AC3
            (`backtesting/renquant_104/logs/vol_window_license.jsonl`,
            pipeline#294), freezes each session's lane universe from the
            lane's own runs DB (`data/runs.alpaca_shadow_vol_window.db`),
-           appends one idempotent row per session to a HASH-CHAINED
+           appends one idempotent session event per date to a HASH-CHAINED
            append-only ledger (`data/rq104_vol_window_readout/ledger.jsonl`),
-           back-fills realized top-decile spreads from
-           `ticker_forward_returns` once sessions mature on the table's own
-           session calendar, and maintains the ACTIVATION-EVIDENCE counter.
+           appends realized top-decile spreads as their own chained
+           realization events from `ticker_forward_returns` once sessions
+           mature on the table's own session calendar, and maintains the
+           ACTIVATION-EVIDENCE counter over the authenticated events (§6:
+           the events model is the round-1 review fix).
 WHY/DIR:   orch#1004 approved design §5 AC3 / §7 impl PR 2 (readout half):
            the shadow lane's ledger must itself accrue the pre-committed
            activation burden — >=20 ON-state sessions with positive realized
@@ -43,7 +45,10 @@ NEXT:      operator-gated deploy batch (§3); pipeline-side
   vol20 > 0.135 verdict recorded by pipeline#294 at decision time) with
   positive realized DECISIVE spread, against the frozen >=20 burden; a
   window-restricted sub-count (ON ∧ ¬BEAR ∧ no kill) is printed alongside
-  so the activation ask can show both cuts.
+  so the activation ask can show both cuts. The counter derives ONLY from
+  chain-authenticated events (ON-state from session events, spreads from
+  realization events, joined on the session date), and is computed only
+  after the chain verifies.
 - Declared deviations, restated per AC3: universe-mean baseline (not the
   certified DGTW-adjusted construction), and the coverage rule below.
 
@@ -54,20 +59,29 @@ NEXT:      operator-gated deploy batch (§3); pipeline-side
   today-only — the license ledger is authoritative for session identity
   here, unlike the blend readout's MLflow-artifact locator, and the lane may
   legitimately idle for weeks (design §4).
-- HASH CHAIN: append-time payload (session identity, window state, top
-  decile, frozen universe, `prev_sha`) is immutable;
-  `entry_sha = sha256(canonical(payload))`, genesis `"0"*64`. Maturation
-  touches ONLY mutable realization/telemetry fields; the chain is verified
-  on every run BEFORE any write and a break alarms (exit 2) with the ledger
-  left untouched. (The blend readout's ledger is not chained; the chain is
-  this readout's addition, motivated by the ledger being the activation
-  ask's evidence of record.)
+- HASH CHAIN (review-hardened, §6): ONE chain, TWO event types — `session`
+  (funnel facts at append time) and `realization` (the realized spread +
+  resolvability/coverage telemetry for one (session, horizon)) — and EVERY
+  field of EVERY event is inside its hash; there are no mutable fields in
+  the file. `entry_sha = sha256(canonical(all fields incl. prev_sha))`,
+  genesis `"0"*64`. Maturation NEVER rewrites an appended event — it
+  appends new realization events, at most one per (session, horizon)
+  (idempotent). `verify_chain` also rejects unknown event types and any
+  field outside an event's declared schema, and runs BEFORE any write; a
+  break alarms (exit 2) with the ledger left untouched and the counter not
+  printed. `write_ledger` mechanically refuses any write whose bytes do not
+  extend the current file. (The blend readout's ledger is not chained; the
+  chain is this readout's addition, motivated by the ledger being the
+  activation ask's evidence of record.)
 - Maturity aging: the fwd table's OWN distinct-session calendar
   (`_aged_dates`, the Codex-BLOCKER-hardened blend technique — `fwd IS NOT
   NULL` is not aging evidence); 61 sessions for h=60, 21 for h=20.
 - Realization per horizon: lane run found ∧ aged ∧ EVERY top-decile name
   resolvable ∧ universe coverage >= 0.90 (the declared floor; the universe
-  mean is then over resolvable names, shortfall recorded per row). Strict
+  mean is then over resolvable names, shortfall recorded in the realization
+  event; an AGED session that stays blocked prints per-pass stdout
+  telemetry so a stuck session is diagnosable without mutating the
+  evidence). Strict
   100% universe coverage would let one lane-vs-backfill watchlist drift
   name zero the evidence stream forever — the failure shape the blend
   readout documents in its telemetry comment.
@@ -139,11 +153,11 @@ production surface.
   the lane's first deployed session (by design). (ii) The universe-mean
   baseline and the 0.90 coverage floor are declared operational deviations,
   restated in §1/§2 and printed nowhere as certification. (iii) The hash
-  chain protects the append-time payload only; realization fields are
-  recomputable from the chained inputs + the fwd surface, which is the
-  designed trade (maturation must mutate them). (iv) ON-state sessions
-  arrive only when the market provides them; a long 0/20 is correct
-  behavior, not a defect (design §4).
+  chain covers every field of every event, session AND realization — the
+  round-1 review fix (§6); the original "realization fields are mutable"
+  trade was rejected as defeating the integrity control. (iv) ON-state
+  sessions arrive only when the market provides them; a long 0/20 is
+  correct behavior, not a defect (design §4).
 - `scope:` one new ops script + one new test file + this doc; no deploy, no
   launchd change, no manifest change, no production writes, no change to
   any existing job.
@@ -159,11 +173,40 @@ run 2026-08-18]`.
 ## 5. Files
 
 - `ops/renquant104/rq104_vol_window_readout.py` — new.
-- `tests/test_rq104_vol_window_readout.py` — new (24 tests: hash chain
-  append/verify/tamper/splice + chain-survives-maturation; session-calendar
-  aging; h=20-before-h=60 velocity; spread arithmetic; top-decile and
-  coverage-floor refusals; counter ON-classification / window cut / frozen
-  burden; lane-tag filter; last-row-per-date; partial-run guard; main()
-  end-to-end idempotency, read-does-not-mutate, both parity alarms,
-  broken-chain refusal, not-deployed INFO, OFF-session recording).
+- `tests/test_rq104_vol_window_readout.py` — new (29 tests: hash chain
+  append/verify/tamper/splice, realized-spread + coverage tamper detection,
+  unauthenticated-field and unknown-event-type rejection;
+  maturation-appends-chained-events + idempotency; session-calendar aging;
+  h=20-before-h=60 velocity; spread arithmetic; top-decile and
+  coverage-floor refusals with stdout telemetry; counter ON-classification
+  / window cut / frozen burden over chain-valid events; mechanical
+  append-only write refusal; lane-tag filter; last-row-per-date;
+  partial-run guard; main() end-to-end idempotency, read-does-not-mutate,
+  both parity alarms, broken-chain refusal for session AND realization
+  tampering, not-deployed INFO, OFF-session recording).
 - `doc/progress/2026-08-18-vol-window-readout.md` — this doc.
+
+## 6. Corrections — round-1 review fix (orch#1005, Codex HIGH)
+
+As first delivered, realization facts (`realized_*`, `spread_*`, coverage,
+resolvability) were MUTABLE fields outside the hash — `verify_chain` could
+not detect tampering with the decisive h=60 spread, and maturation rewrote
+the file in place. Codex's round-1 HIGH correctly called this a defeat of
+the stated evidence-integrity control. Fixed in this PR (schema bumped to
+`rq104_vol_window_readout.v2`; no v1 ledger ever existed on disk — the lane
+is not deployed):
+
+- Realized facts are now their own `realization` events in the same chain
+  (one per (session, horizon), idempotent); session events are never
+  rewritten. Every field of every event is hashed; `verify_chain` rejects
+  unknown event types and out-of-schema fields.
+- `write_ledger` refuses any write whose bytes do not extend the current
+  file (`LedgerAppendOnlyViolation` → ALARM exit 2) — append-only is
+  mechanical, not asserted.
+- The ACTIVATION-EVIDENCE counter derives only from chain-authenticated
+  events and is never computed over a broken chain (verify runs first,
+  exit 2 on a break).
+- New tests pin all of the above, including end-to-end: forging the
+  realized h=60 spread on disk → `hash chain BROKEN`, exit 2, ledger
+  untouched. Aged-but-blocked telemetry moved from in-row mutation to
+  per-pass stdout (diagnosability without mutating evidence).

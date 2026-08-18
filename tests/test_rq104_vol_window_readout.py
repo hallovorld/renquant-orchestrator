@@ -10,6 +10,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 _P = Path(__file__).resolve().parents[1] / "ops" / "renquant104" / "rq104_vol_window_readout.py"
 spec = importlib.util.spec_from_file_location("vwr", _P)
 mod = importlib.util.module_from_spec(spec)
@@ -94,6 +96,32 @@ def _universe(n=90):
     return [f"T{i:03d}" for i in range(n)]
 
 
+def _ro(path: Path) -> sqlite3.Connection:
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
+def _events_for(specs):
+    """One chained event list from per-session specs: dicts with keys
+    on / window_on / spread60 / spread20. Dates are distinct per spec (the
+    counter joins realization events to session events on run_date)."""
+    events = []
+    for i, s in enumerate(specs):
+        d = f"2026-06-{i + 1:02d}"
+        prev = events[-1]["entry_sha"] if events else mod.GENESIS_SHA
+        events.append(mod.build_row(
+            d, _license_row(d, on=s.get("on", True),
+                            window_on=s.get("window_on")),
+            "r1", ["A"], prev))
+        for hz, key in (("60", "spread60"), ("20", "spread20")):
+            if s.get(key) is not None:
+                events.append(mod.build_realization(
+                    d, hz, spread=s[key], n_top=1, n_universe=1,
+                    n_top_resolvable=1, n_universe_resolvable=1,
+                    universe_coverage=1.0,
+                    prev_sha=events[-1]["entry_sha"]))
+    return events
+
+
 # ── hash chain ───────────────────────────────────────────────────────────────
 
 def test_chain_appends_and_verifies():
@@ -106,13 +134,44 @@ def test_chain_appends_and_verifies():
     assert mod.verify_chain(rows) is None
 
 
-def test_chain_detects_tampering_of_immutable_field():
+def test_chain_detects_tampering_of_session_field():
     row = mod.build_row("2026-08-18", _license_row("2026-08-18"), "r1",
                         ["A"], mod.GENESIS_SHA)
     rows = [row]
     assert mod.verify_chain(rows) is None
-    row["top_decile"] = ["EVIL"]          # immutable field altered post-append
+    row["top_decile"] = ["EVIL"]          # session field altered post-append
     assert mod.verify_chain(rows) is not None
+
+
+def test_chain_detects_tampering_of_realized_spread_and_coverage():
+    """The orch#1005 review fix: the decision-bearing realization fields are
+    inside the hash — altering the realized spread or the coverage breaks
+    verification."""
+    events = _events_for([{"on": True, "spread60": 0.05}])
+    assert mod.verify_chain(events) is None
+    tampered = json.loads(json.dumps(events[1]))
+    tampered["spread"] = 9.9
+    assert mod.verify_chain([events[0], tampered]) is not None
+    tampered = json.loads(json.dumps(events[1]))
+    tampered["universe_coverage"] = 0.5
+    assert mod.verify_chain([events[0], tampered]) is not None
+
+
+def test_chain_rejects_unauthenticated_extra_field():
+    row = mod.build_row("2026-08-18", _license_row("2026-08-18"), "r1",
+                        ["A"], mod.GENESIS_SHA)
+    row["smuggled"] = "unhashed"
+    err = mod.verify_chain([row])
+    assert err is not None and "unauthenticated" in err
+
+
+def test_chain_rejects_unknown_event_type():
+    row = mod.build_row("2026-08-18", _license_row("2026-08-18"), "r1",
+                        ["A"], mod.GENESIS_SHA)
+    forged = dict(row)
+    forged["event"] = "amendment"
+    err = mod.verify_chain([forged])
+    assert err is not None and "unknown event type" in err
 
 
 def test_chain_detects_prev_sha_splice():
@@ -124,54 +183,57 @@ def test_chain_detects_prev_sha_splice():
     assert mod.verify_chain([r2]) is not None      # r1 excised -> genesis break
 
 
-def test_mature_fill_mutation_does_not_break_chain(tmp_path):
+# ── maturation: append-only chained realization events ───────────────────────
+
+def test_maturation_appends_chained_events_and_is_idempotent(tmp_path):
     d = "2026-06-01"
     uni = _universe(20)
-    row = mod.build_row(d, _license_row(d, top=uni[:2]), "r1", uni,
-                        mod.GENESIS_SHA)
-    rows = [row]
+    events = [mod.build_row(d, _license_row(d, top=uni[:2]), "r1", uni,
+                            mod.GENESIS_SHA)]
+    session_bytes = json.dumps(events[0], sort_keys=True)
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.01, 0.02) for t in uni],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    filled = mod.mature_fill(rows, sqlite3.connect(f"file:{fwd}?mode=ro", uri=True))
-    assert filled == 2                     # both horizons realized
-    assert rows[0]["realized_60"] and rows[0]["realized_20"]
-    assert mod.verify_chain(rows) is None  # mutation touched only mutable fields
+    db = _ro(fwd)
+    new = mod.mature_events(events, db)
+    assert [e["horizon"] for e in new] == ["20", "60"]   # both horizons
+    assert len(events) == 3
+    assert json.dumps(events[0], sort_keys=True) == session_bytes  # untouched
+    assert mod.verify_chain(events) is None
+    # idempotent: a second pass appends nothing
+    assert mod.mature_events(events, db) == []
+    assert len(events) == 3
 
-
-# ── maturity aging ───────────────────────────────────────────────────────────
 
 def test_aging_uses_session_calendar_not_fwd_presence(tmp_path):
     """fwd_60d present on the row does NOT realize the session while fewer
     than MATURITY_TDAYS_60 later sessions exist in the table's calendar."""
     d = "2026-06-01"
     uni = _universe(10)
-    row = mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
+                            mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.01, 0.02) for t in uni],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60 - 1)
-    filled = mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True))
-    assert row["realized_60"] is False
-    assert row["aged_60"] is False
-    # h=20 already aged at 60 later sessions... (21 <= 59) -> realized
-    assert row["realized_20"] is True
-    assert filled == 1
+    new = mod.mature_events(events, _ro(fwd))
+    # h=20 aged (21 <= 60 later sessions) -> realized; h=60 not aged.
+    assert [e["horizon"] for e in new] == ["20"]
+    assert (d, "60") not in mod.realized_spreads(events)
 
 
 def test_velocity_h20_matures_before_decisive_h60(tmp_path):
     d = "2026-06-01"
     uni = _universe(10)
-    row = mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
+                            mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.20 if t == uni[0] else 0.00, 0.10) for t in uni],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_20)
-    mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True))
-    assert row["realized_20"] is True and row["realized_60"] is False
+    new = mod.mature_events(events, _ro(fwd))
+    assert [e["horizon"] for e in new] == ["20"]
     # ...the velocity leg registers, but NEVER enters the decisive count —
     # h=20 is a diagnostic, the burden is pinned to the certified h=60.
-    c = mod.activation_counter([row])
+    c = mod.activation_counter(events)
     assert c["velocity_h20_positive"] == 1
     assert c["decisive_h60_positive"] == 0
 
@@ -179,93 +241,82 @@ def test_velocity_h20_matures_before_decisive_h60(tmp_path):
 def test_spread_is_topdecile_minus_universe_mean(tmp_path):
     d = "2026-06-01"
     uni = ["A", "B", "C", "D"]
-    row = mod.build_row(d, _license_row(d, top=["A"]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=["A"]), "r1", uni,
+                            mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [("A", d, 0.08, 0.12), ("B", d, 0.00, 0.00),
                   ("C", d, 0.02, 0.04), ("D", d, 0.02, 0.00)],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True))
-    assert row["realized_60"] is True
-    assert abs(row["spread_60"] - (0.12 - (0.12 + 0.00 + 0.04 + 0.00) / 4)) < 1e-12
-    assert abs(row["spread_20"] - (0.08 - (0.08 + 0.00 + 0.02 + 0.02) / 4)) < 1e-12
+    mod.mature_events(events, _ro(fwd))
+    spreads = mod.realized_spreads(events)
+    assert abs(spreads[(d, "60")] - (0.12 - (0.12 + 0.00 + 0.04 + 0.00) / 4)) < 1e-12
+    assert abs(spreads[(d, "20")] - (0.08 - (0.08 + 0.00 + 0.02 + 0.02) / 4)) < 1e-12
 
 
-def test_topdecile_missing_ticker_blocks_realization_with_telemetry(tmp_path):
+def test_topdecile_missing_ticker_blocks_realization_with_telemetry(tmp_path, capsys):
     d = "2026-06-01"
     uni = _universe(10)
-    row = mod.build_row(d, _license_row(d, top=[uni[0], "MISSING"]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=[uni[0], "MISSING"]), "r1",
+                            uni, mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.01, 0.02) for t in uni],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    assert mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True)) == 0
-    assert row["realized_60"] is False
-    assert row["n_top_resolvable_60"] == 1 and row["n_top"] == 2  # shortfall visible
+    assert mod.mature_events(events, _ro(fwd)) == []
+    assert len(events) == 1
+    out = capsys.readouterr().out                  # shortfall visible per pass
+    assert "aged but blocked" in out and "top_resolvable=1/2" in out
 
 
-def test_universe_coverage_floor_blocks_realization(tmp_path):
+def test_universe_coverage_floor_blocks_realization(tmp_path, capsys):
     d = "2026-06-01"
     uni = _universe(10)                       # only 8/10 resolvable -> 0.80 < 0.90
-    row = mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
+                            mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.01, 0.02) for t in uni[:8]],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    assert mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True)) == 0
-    assert row["realized_60"] is False
-    assert row["universe_coverage_60"] == 0.8
+    assert mod.mature_events(events, _ro(fwd)) == []
+    assert "coverage=0.80" in capsys.readouterr().out
 
 
 def test_universe_coverage_above_floor_realizes_over_resolvable(tmp_path):
     d = "2026-06-01"
     uni = _universe(10)                       # 9/10 resolvable -> 0.90 passes
-    row = mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
-                        mod.GENESIS_SHA)
+    events = [mod.build_row(d, _license_row(d, top=uni[:1]), "r1", uni,
+                            mod.GENESIS_SHA)]
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [(t, d, 0.01, 0.02) for t in uni[:9]],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    assert mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True)) == 2
-    assert row["realized_60"] is True
-    assert row["n_universe_resolvable_60"] == 9
+    new = mod.mature_events(events, _ro(fwd))
+    assert [e["horizon"] for e in new] == ["20", "60"]
+    h60 = new[1]
+    assert h60["n_universe_resolvable"] == 9
+    assert h60["universe_coverage"] == 0.9
 
 
 def test_lane_run_missing_row_never_realizes(tmp_path):
     d = "2026-06-01"
-    row = mod.build_row(d, _license_row(d, top=["A"]), None, [],
-                        mod.GENESIS_SHA)
-    assert row["lane_run_found"] is False
+    events = [mod.build_row(d, _license_row(d, top=["A"]), None, [],
+                            mod.GENESIS_SHA)]
+    assert events[0]["lane_run_found"] is False
     fwd = tmp_path / "fwd.db"
     _fwd_db(fwd, [("A", d, 0.01, 0.02)],
             later_sessions_from=d, n_later=mod.MATURITY_TDAYS_60)
-    assert mod.mature_fill([row], sqlite3.connect(f"file:{fwd}?mode=ro", uri=True)) == 0
-    assert row["realized_60"] is False
+    assert mod.mature_events(events, _ro(fwd)) == []
 
 
 # ── the counter ──────────────────────────────────────────────────────────────
 
-def _counted_row(*, on, spread60=None, spread20=None, window_on=None):
-    row = mod.build_row("2026-06-01",
-                        _license_row("2026-06-01", on=on, window_on=window_on),
-                        "r1", ["A"], mod.GENESIS_SHA)
-    if spread60 is not None:
-        row["realized_60"] = True
-        row["spread_60"] = spread60
-    if spread20 is not None:
-        row["realized_20"] = True
-        row["spread_20"] = spread20
-    return row
-
-
 def test_counter_counts_only_ON_sessions_with_positive_decisive_spread():
-    rows = [
-        _counted_row(on=True, spread60=0.05),    # counts
-        _counted_row(on=True, spread60=-0.02),   # negative -> no
-        _counted_row(on=False, spread60=0.30),   # OFF session -> no
-        _counted_row(on=True),                   # unrealized -> no
-        _counted_row(on=True, spread20=0.10),    # velocity only -> not decisive
-    ]
-    c = mod.activation_counter(rows)
+    events = _events_for([
+        {"on": True, "spread60": 0.05},     # counts
+        {"on": True, "spread60": -0.02},    # negative -> no
+        {"on": False, "spread60": 0.30},    # OFF session -> no
+        {"on": True},                       # unrealized -> no
+        {"on": True, "spread20": 0.10},     # velocity only -> not decisive
+    ])
+    assert mod.verify_chain(events) is None    # counter input is chain-valid
+    c = mod.activation_counter(events)
     assert c["decisive_h60_positive"] == 1
     assert c["velocity_h20_positive"] == 1
     assert c["on_sessions_recorded"] == 4
@@ -273,11 +324,11 @@ def test_counter_counts_only_ON_sessions_with_positive_decisive_spread():
 
 
 def test_counter_window_restricted_subset():
-    rows = [
-        _counted_row(on=True, spread60=0.05, window_on=True),
-        _counted_row(on=True, spread60=0.05, window_on=False),  # ON but BEAR-blocked
-    ]
-    c = mod.activation_counter(rows)
+    events = _events_for([
+        {"on": True, "spread60": 0.05, "window_on": True},
+        {"on": True, "spread60": 0.05, "window_on": False},  # ON, BEAR-blocked
+    ])
+    c = mod.activation_counter(events)
     assert c["decisive_h60_positive"] == 2
     assert c["decisive_h60_positive_window_only"] == 1
 
@@ -286,6 +337,20 @@ def test_frozen_burden_is_twenty():
     """[DERIVED — orch#1001 prereg §5 base of the doubled PARTIAL burden;
     orch#1004 §5 AC3]. A drifted constant here is a drifted burden."""
     assert mod.ACTIVATION_TARGET_ON_SESSIONS == 20
+
+
+# ── ledger io ────────────────────────────────────────────────────────────────
+
+def test_write_ledger_is_mechanically_append_only(tmp_path):
+    led = tmp_path / "ledger.jsonl"
+    r1 = mod.build_row("2026-08-18", _license_row("2026-08-18"), "r1",
+                       ["A"], mod.GENESIS_SHA)
+    assert mod.write_ledger(led, [r1]) is True
+    r2 = mod.build_row("2026-08-19", _license_row("2026-08-19"), "r2",
+                       ["A"], r1["entry_sha"])
+    assert mod.write_ledger(led, [r1, r2]) is True     # extends -> allowed
+    with pytest.raises(mod.LedgerAppendOnlyViolation):
+        mod.write_ledger(led, [r2])                    # drops r1 -> refused
 
 
 # ── license ledger parsing ───────────────────────────────────────────────────
@@ -318,7 +383,7 @@ def test_lane_full_runs_partial_run_never_supersedes_full(tmp_path):
         ("full", "2026-08-18", "2026-08-18 14:06:00", _universe(90)),
         ("partial", "2026-08-18", "2026-08-18 18:00:00", ["X", "Y"]),
     ])
-    runs = mod.lane_full_runs(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True))
+    runs = mod.lane_full_runs(_ro(db_path))
     assert runs == {"2026-08-18": "full"}
 
 
@@ -368,18 +433,20 @@ def test_main_appends_idempotently_and_echoes_burden(tmp_path, capsys):
         later_from="2026-08-18", n_later=mod.MATURITY_TDAYS_60)
     assert _run_main(lic, lane, fwd, led) == 0
     rows = [json.loads(x) for x in led.read_text().splitlines()]
-    assert len(rows) == 1
+    # 1 session event + 2 realization events (aged fixture matured same pass)
+    assert [r["event"] for r in rows] == ["session", "realization",
+                                          "realization"]
     assert rows[0]["universe_parity"] is True
-    assert rows[0]["realized_60"] is True     # aged fixture matured same pass
+    assert ("2026-08-18", "60") in mod.realized_spreads(rows)
     assert mod.verify_chain(rows) is None
     out1 = capsys.readouterr().out
     assert "ACTIVATION-EVIDENCE (decisive, certified h=60)" in out1
     assert "/20 ON-state" in out1
-    # second pass: no duplicate, no rewrite
+    # second pass: no duplicate events, no rewrite
     before = led.read_text()
     assert _run_main(lic, lane, fwd, led) == 0
     assert led.read_text() == before
-    assert len(led.read_text().splitlines()) == 1
+    assert len(led.read_text().splitlines()) == 3
 
 
 def test_main_read_does_not_mutate_when_nothing_changes(tmp_path):
@@ -426,10 +493,34 @@ def test_main_refuses_to_write_over_a_broken_chain(tmp_path, capsys):
         tmp_path, universe=uni,
         license_rows=[_license_row("2026-08-18", top=uni[:9], universe_n=90)])
     assert _run_main(lic, lane, fwd, led) == 0
-    # tamper with an immutable field on disk
+    # tamper with a session field on disk
     row = json.loads(led.read_text().splitlines()[0])
     row["top_decile"] = ["EVIL"]
     led.write_text(json.dumps(row, sort_keys=True) + "\n")
+    tampered = led.read_text()
+    rc = _run_main(lic, lane, fwd, led)
+    assert rc == 2
+    assert "hash chain BROKEN" in capsys.readouterr().out
+    assert led.read_text() == tampered         # refused to write anything
+
+
+def test_main_refuses_tampered_realized_spread(tmp_path, capsys):
+    """End-to-end proof of the orch#1005 review fix: the decisive realized
+    spread is tamper-evident — editing it on disk breaks the chain, the run
+    alarms (exit 2), and the ledger is left untouched."""
+    uni = _universe(90)
+    lic, lane, fwd, led = _paths(
+        tmp_path, universe=uni,
+        license_rows=[_license_row("2026-08-18", top=uni[:9], universe_n=90)],
+        fwd_rows=[(t, "2026-08-18", 0.01, 0.02) for t in uni],
+        later_from="2026-08-18", n_later=mod.MATURITY_TDAYS_60)
+    assert _run_main(lic, lane, fwd, led) == 0
+    lines = led.read_text().splitlines()
+    rows = [json.loads(x) for x in lines]
+    idx = next(i for i, r in enumerate(rows)
+               if r["event"] == "realization" and r["horizon"] == "60")
+    rows[idx]["spread"] = 9.9                  # forge the decisive evidence
+    led.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in rows))
     tampered = led.read_text()
     rc = _run_main(lic, lane, fwd, led)
     assert rc == 2
