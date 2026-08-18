@@ -1,0 +1,304 @@
+{
+  "verdict": "CONFIRMED",
+  "consequence": "authorizes ONLY a design PR for a vol-gated bull deployment window (shadow/sizing-first, operator-gated; no direct production change; survivor-clean confirmation happens at the PIT-universe / live-shadow stage, not in this corpus)",
+  "positive_control": {
+    "unconditional_primary_mean_spread": 0.13919290563454811,
+    "passes": true,
+    "rule": "unconditional primary spread > 0 BEFORE any conditional read"
+  },
+  "prereg": "doc/research/2026-08-18-vol-switch-confirmatory-prereg.md (orch#1001)",
+  "semantics": "CONFIRMATORY \u2014 one shot; CONFIRMED authorizes ONLY a design PR (\u00a75); nothing here changes production",
+  "run_utc": "2026-08-18T11:16:05Z",
+  "runtime_sec": 168.7,
+  "conditional": {
+    "decisive_series": {
+      "corpus": "primary",
+      "state_definition": "fixed > 0.135",
+      "n_on_eligible_blocks": 19,
+      "on_block_means": [
+        0.2856633387136789,
+        0.29218062766061703,
+        0.5479560062526808,
+        0.6600936580624793,
+        -0.10550303612617577,
+        -0.030739655816905125,
+        0.6953568241854207,
+        0.30409381411907593,
+        0.47158388828262565,
+        0.4653592964017503,
+        -0.06920680223034939,
+        0.38584809839235273,
+        -0.7130553940730858,
+        -0.3305725266585824,
+        0.18642069912400794,
+        -0.29449613075387576,
+        -0.192162699547226,
+        0.40345774338962825,
+        0.5336782931691179
+      ],
+      "rho1": 0.20456828397808577,
+      "ess": 12.546571917454967,
+      "measurable": true
+    },
+    "p1": {
+      "nw": {
+        "mean": 0.18399768644985448,
+        "se": 0.09428417582062928,
+        "t": 1.9515224569592724,
+        "df": 18,
+        "t_crit_one_sided_95": 1.7340636066175354,
+        "ci_lower_one_sided_95": 0.02050292847937224,
+        "passes": true
+      },
+      "bootstrap": {
+        "q05": 0.02095615354302977,
+        "n_resamples": 10000,
+        "expected_block_length": 2.0,
+        "seed": 0,
+        "passes": true
+      },
+      "disagreement": false,
+      "winsorized_on_mean": 0.03609449024950494,
+      "winsorized_guard_passes": true,
+      "p1_pass": true
+    },
+    "p2": {
+      "n_blocks": 11,
+      "mean_diff": 0.12769178680855214,
+      "block_t": 2.378013212202835,
+      "passes": true,
+      "contributing_blocks": [
+        4,
+        5,
+        7,
+        8,
+        10,
+        11,
+        15,
+        16,
+        18,
+        20,
+        26
+      ]
+    },
+    "sensitivity_variant": {
+      "state_definition": "expanding upper-tercile (prereg \u00a72 variant)",
+      "decisive": false,
+      "n_eligible_blocks": 19,
+      "rho1": 0.4035733082707488,
+      "ess": 8.07375509072435,
+      "p1_style": {
+        "nw": {
+          "mean": 0.15390152566358734,
+          "se": 0.10041677300119162,
+          "t": 1.5326276782640786,
+          "df": 18,
+          "t_crit_one_sided_95": 1.7340636066175354,
+          "ci_lower_one_sided_95": -0.02022754589175335,
+          "passes": false
+        },
+        "bootstrap": {
+          "q05": -0.010983969370898544,
+          "n_resamples": 10000,
+          "expected_block_length": 2.0,
+          "seed": 0,
+          "passes": false
+        },
+        "disagreement": false,
+        "winsorized_on_mean": 0.02530940684465291,
+        "winsorized_guard_passes": true,
+        "p1_pass": false
+      },
+      "p2_style": {
+        "n_blocks": 11,
+        "mean_diff": 0.049599753316340284,
+        "block_t": 0.7898164045320255,
+        "passes": false,
+        "contributing_blocks": [
+          4,
+          7,
+          9,
+          10,
+          11,
+          15,
+          16,
+          17,
+          20,
+          25,
+          26
+        ]
+      }
+    },
+    "secondary_corpus": {
+      "corpus": "2017-01-03..2026-03-31 (contains the formation window \u2014 cannot decide)",
+      "decisive": false,
+      "n_blocks": 38,
+      "n_eligible_blocks_fixed": 26,
+      "rho1": 0.2272516204257959,
+      "ess": 16.37109907580204,
+      "p1_style_fixed": {
+        "nw": {
+          "mean": 0.19695504351463683,
+          "se": 0.07286891266669063,
+          "t": 2.702867880237599,
+          "df": 25,
+          "t_crit_one_sided_95": 1.7081407612518986,
+          "ci_lower_one_sided_95": 0.07248468356055779,
+          "passes": true
+        },
+        "bootstrap": {
+          "q05": 0.0713500351763747,
+          "n_resamples": 10000,
+          "expected_block_length": 2.0,
+          "seed": 0,
+          "passes": true
+        },
+        "disagreement": false,
+        "winsorized_on_mean": 0.0415311399960225,
+        "winsorized_guard_passes": true,
+        "p1_pass": true
+      },
+      "p2_style_fixed": {
+        "n_blocks": 17,
+        "mean_diff": 0.13813209644023747,
+        "block_t": 3.353359129245763,
+        "passes": true,
+        "contributing_blocks": [
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          15,
+          16,
+          18,
+          20,
+          26,
+          28,
+          31,
+          32,
+          33,
+          35,
+          37
+        ]
+      }
+    },
+    "tilt_control_volmatched": {
+      "note": "STD60-cohort-matched top-decile outcome (reported)",
+      "primary_on_mean_fixed": 0.15056090182169005,
+      "primary_off_mean_fixed": 0.11058376012499803,
+      "primary_uncond_mean": 0.12998443183074562
+    }
+  },
+  "frozen_geometry_measured": {
+    "corpus_td": 1697,
+    "on_days_fixed": 821,
+    "on_days_expanding": 808,
+    "expanding_threshold_first": "2018-01-31",
+    "complete_blocks": 28,
+    "eligible_fixed": 19,
+    "eligible_expanding": 19,
+    "eligible_both": 18,
+    "dominant_fixed": 8,
+    "dominant_expanding": 8,
+    "weekly_grid_n": 340
+  },
+  "corpus": {
+    "primary": {
+      "start": "2017-01-03",
+      "end": "2023-09-29",
+      "n_td": 1697,
+      "n_weekly": 340,
+      "n_blocks": 28
+    },
+    "secondary": {
+      "start": "2017-01-03",
+      "end": "2026-03-31",
+      "n_td": 2323,
+      "n_weekly": 465,
+      "n_blocks": 38
+    }
+  },
+  "frozen_rule": {
+    "fixed_on_threshold": 0.135,
+    "vol_window_td": 20,
+    "expanding_warmup_obs": 504,
+    "block_td": 60,
+    "eligible_min_on_days": 15,
+    "sample_step": 5,
+    "dgtw_min_cell": 15,
+    "winsor_clip": 0.5,
+    "nw_lag": 1,
+    "one_sided_alpha": 0.05,
+    "bootstrap": {
+      "resamples": 10000,
+      "expected_block_length": 2.0,
+      "seed": 0
+    },
+    "p2_block_t_min": 1.0,
+    "min_on_eligible_blocks": 15,
+    "min_ess": 6.0,
+    "embargo_trading_days": 60,
+    "n_refits": 39,
+    "objective": "rank:pairwise"
+  },
+  "params": {
+    "objective": "rank:pairwise",
+    "eta": 0.05,
+    "max_depth": 5,
+    "min_child_weight": 50,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "verbosity": 0,
+    "seed": 42
+  },
+  "sentiment_gate_replay": {
+    "sentiment_runtime_gate_contract": "trained_zeroing",
+    "sentiment_runtime_gate_feature_cols": [
+      "mean_sentiment",
+      "n_articles_log",
+      "sentiment_pos_share"
+    ],
+    "sentiment_runtime_gate_disabled_regimes": [
+      "BULL_CALM",
+      "BULL_STRONG",
+      "LOW_NORMAL",
+      "LOW_SPIKED",
+      "MED_NORMAL"
+    ],
+    "sentiment_runtime_gate_zeroed_rows": 526863,
+    "sentiment_runtime_gate_warmup_zeroed_rows": 7627,
+    "sentiment_runtime_gate_missing_regime_policy": "warmup_zero_only",
+    "sentiment_runtime_gate_policy": {
+      "HIGH_SPIKED": true,
+      "HIGH_NORMAL": true,
+      "MED_CALM": true,
+      "MED_SPIKED": true,
+      "LOW_CALM": true,
+      "LOW_SPIKED": false,
+      "LOW_NORMAL": false,
+      "MED_NORMAL": false,
+      "HIGH_CALM": true,
+      "BULL_CALM": false,
+      "BULL_VOLATILE": true,
+      "BULL_STRONG": false,
+      "BEAR": true,
+      "CHOPPY": true
+    }
+  },
+  "pins": {
+    "runner_identity": {
+      "origin_main_sha": "88c589c01b706ce058324865548d567776aca21a",
+      "runner_sha256": "e6002a85225e01f743aabcfd2fbc6c89cb6b6124a80bba3b3bc7b90347fe5296"
+    },
+    "xgboost_version": "2.1.4",
+    "served_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+    "served_artifact_sha256": "6461b827ab2339a8d2351db6e45ac4f4c8d4c231937d8d6a4f8d127ecc546d15",
+    "served_config_fingerprint": "sha256:f8fb2259b2bf1537",
+    "panel_parquet": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset.parquet",
+    "panel_parquet_sha256": "870f68ebad5d2d87e2601f62310f34615d2d8d25df9d9cbf563629b13129bf7e",
+    "trainer_script_sha256": "f35e8778aaec26b7a8f18bc86c86ea1aceb538e5a8a19486f004d520faed3aec",
+    "spy_1d_sha256": "68665523c23edae565dee40b25fcc90051b209703c57f0887e70fd295964b0ee"
+  }
+}
