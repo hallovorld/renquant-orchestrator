@@ -3,32 +3,30 @@
     "high52w": {
       "horizons": {
         "20": {
-          "block_t": 0.5281159773672361,
-          "delta": 0.008626045169097301,
+          "block_t": 0.4829104336256746,
+          "delta": 0.007991845681704675,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": -0.008906999723369433,
+          "mean_ic_genuine": -0.009541199210762059,
           "mean_ic_placebo": -0.017533044892466734,
           "n_blocks_expected": 89,
           "n_blocks_with_data": 89,
           "n_grid_dates": 359,
           "n_kept": 359,
-          "pos_block_frac": 0.4943820224719101,
+          "pos_block_frac": 0.48314606741573035,
           "verdict": "FLAGGED",
-          "verdict_reason": "block_t=0.528 < 1.0; pos_block_frac=0.494 <= 0.5"
+          "verdict_reason": "block_t=0.483 < 1.0; pos_block_frac=0.483 <= 0.5"
         },
         "60": {
-          "block_t": -0.1812282730508944,
-          "delta": -0.0037811295246067793,
+          "block_t": -0.3635245378449372,
+          "delta": -0.009245123461928722,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": -0.024452433881352098,
+          "mean_ic_genuine": -0.02991642781867404,
           "mean_ic_placebo": -0.02067130435674532,
           "n_blocks_expected": 29,
           "n_blocks_with_data": 29,
@@ -41,76 +39,72 @@
     "lowbeta": {
       "horizons": {
         "20": {
-          "block_t": 0.9106159571300013,
-          "delta": 0.00495177795273842,
+          "block_t": 0.8192101679379934,
+          "delta": 0.004316582223248225,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": -0.050092040984813485,
+          "mean_ic_genuine": -0.05072723671430368,
           "mean_ic_placebo": -0.055043818937551905,
           "n_blocks_expected": 89,
           "n_blocks_with_data": 89,
           "n_grid_dates": 359,
           "n_kept": 359,
-          "pos_block_frac": 0.5056179775280899,
+          "pos_block_frac": 0.4943820224719101,
           "verdict": "FLAGGED",
-          "verdict_reason": "block_t=0.911 < 1.0"
+          "verdict_reason": "block_t=0.819 < 1.0; pos_block_frac=0.494 <= 0.5"
         },
         "60": {
-          "block_t": 1.3979593566579944,
-          "delta": 0.02293138419572538,
+          "block_t": 1.291289396520156,
+          "delta": 0.019134743881295616,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": -0.09935002767457847,
+          "mean_ic_genuine": -0.10314666798900823,
           "mean_ic_placebo": -0.12228141187030385,
           "n_blocks_expected": 29,
           "n_blocks_with_data": 29,
           "n_grid_dates": 359,
           "n_kept": 359,
-          "pos_block_frac": 0.6551724137931034
+          "pos_block_frac": 0.6896551724137931
         }
       }
     },
     "quality_gp": {
       "horizons": {
         "20": {
-          "block_t": 1.443473879796147,
-          "delta": 0.004167425350255081,
+          "block_t": 1.0453344736627612,
+          "delta": 0.0026998679594509942,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": 0.012886944657238806,
-          "mean_ic_placebo": 0.008719519306983725,
+          "mean_ic_genuine": 0.011933673194604333,
+          "mean_ic_placebo": 0.009233805235153339,
           "n_blocks_expected": 89,
           "n_blocks_with_data": 89,
           "n_grid_dates": 359,
           "n_kept": 359,
-          "pos_block_frac": 0.5168539325842697,
-          "verdict": "NOT FLAGGED",
-          "verdict_reason": "all three criteria met"
+          "pos_block_frac": 0.4943820224719101,
+          "verdict": "FLAGGED",
+          "verdict_reason": "pos_block_frac=0.494 <= 0.5"
         },
         "60": {
-          "block_t": 1.2108917406353776,
-          "delta": 0.011411007806378017,
+          "block_t": 1.322747526269372,
+          "delta": 0.011763070638956406,
           "dropped": {
             "degenerate": 0,
-            "floor_genuine": 0,
-            "floor_placebo": 0
+            "floor_paired": 0
           },
-          "mean_ic_genuine": 0.005881016270830016,
-          "mean_ic_placebo": -0.0055299915355480015,
+          "mean_ic_genuine": 0.006292630292283874,
+          "mean_ic_placebo": -0.005470440346672532,
           "n_blocks_expected": 29,
           "n_blocks_with_data": 29,
           "n_grid_dates": 359,
           "n_kept": 359,
-          "pos_block_frac": 0.41379310344827586
+          "pos_block_frac": 0.5517241379310345
         }
       }
     }
@@ -243,8 +237,8 @@
       }
     }
   },
-  "run_utc": "2026-08-17T23:04:42Z",
-  "runtime_sec": 105.5,
+  "run_utc": "2026-08-18T00:25:22Z",
+  "runtime_sec": 104.5,
   "semantics": "TRIAGE \u2014 FLAGGED / NOT FLAGGED; neither kill nor admit (spec \u00a71)",
   "spec": "doc/research/2026-08-17-gi-moe-step2-ic-screen-spec.md (orch#987)"
 }
