@@ -1,0 +1,33 @@
+=== weekly_wf_promote started at Tue Aug  4 20:19:12 PDT 2026 ===
+Hardware threads: 14
+--- Step 1: Pre-flight smoke test ---
+2026-08-04 20:19:13,239 [INFO] smoke-test: Strategy config: /Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json
+[...]
+2026-08-04 20:37:14,019 [INFO] VERDICT: FAIL
+2026-08-04 20:37:14,019 [INFO] ============================================================
+WF gate REJECTED staged model — consulting the RFC#210 freshness fallback (backtesting#101/#102).
+RFC#210 fallback verdict: REFUSE — production unchanged. See /Users/renhao/git/github/RenQuant/logs/weekly_wf_promote/20260805T031912Z.fallback_verdict.json
+{
+  "as_of": "2026-08-04",
+  "checks": [
+    {
+      "check": "gate_rejected",
+      "ok": true,
+      "stamped_verdict": false
+    },
+    {
+      "check": "prod_stale",
+      "ok": false,
+      "prod_trained": "2026-08-02",
+      "staleness_days": 2,
+      "why": "served model is 2d old (<= 28d SLA) \u2014 the fallback does not apply to a fresh book"
+    }
+  ],
+  "decision": "REFUSE",
+  "policy": "freshness_fallback_rfc210",
+  "prod_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+  "refused_on": "prod_stale",
+  "staging_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.weekly_20260805T031912Z.staging.json"
+}
+WF gate REJECTED staged model — production unchanged.
+Reject disposition: prod FRESH (trained 2026-08-02, 2d <= 28d SLA) — governance nominal, calm notify, exit 0.

@@ -1,0 +1,20 @@
+=== weekly_wf_promote started at Mon Jun 22 13:10:08 PDT 2026 ===
+Hardware threads: 14
+--- Step 1: Pre-flight smoke test ---
+[...]
+Traceback (most recent call last):
+  File "/Users/renhao/miniconda3/envs/renquant/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/Users/renhao/miniconda3/envs/renquant/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/wf_gate/sim_driver.py", line 313, in <module>
+    main()
+  File "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-backtesting/src/renquant_backtesting/wf_gate/sim_driver.py", line 163, in main
+    result = run_backtest(
+  File "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/sim/runner.py", line 328, in run_backtest
+    ctx = adapter.make_context(today)
+[...]
+2026-06-22 13:27:45,677 [INFO] ============================================================
+2026-06-22 13:27:45,677 [INFO] VERDICT: FAIL
+2026-06-22 13:27:45,677 [INFO] ============================================================
+WF gate REJECTED staged model — production unchanged.

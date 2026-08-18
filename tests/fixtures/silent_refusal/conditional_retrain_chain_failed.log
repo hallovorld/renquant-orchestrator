@@ -1,0 +1,16 @@
+=== conditional_retrain_104 started at Mon Aug 17 13:10:00 PDT 2026 ===
+2026-08-17 13:10:03,633 [INFO] renquant-orchestrator.anomaly-triggers: SPY daily change: -0.47% (threshold +/-2.00%)
+2026-08-17 13:10:03,633 [INFO] renquant-orchestrator.anomaly-triggers: VIX daily change: +6.81% (threshold +/-5.00%)
+2026-08-17 13:10:03,633 [INFO] renquant-orchestrator.anomaly-triggers: Firing retrain triggers: ['anomaly_vix_5pct']
+anomaly_vix_5pct
+=== Firing gated weekly promote chain: trigger=anomaly_vix_5pct ===
+ERROR: no PINNED strategy config declares kind=xgb — cannot resolve a
+       kind-matched GBDT production reference (orch#799).
+       This is the EXPECTED state while the pinned primary is a blend:
+       an xgb candidate has no same-kind production reference, and the
+       umbrella working copy is NOT an acceptable substitute (A8: known
+       diverged). The gate refuses rather than simulate a phantom config.
+       Decision needed (orch#799 item 'blend-prod reference rule'):
+       either derive the xgb reference from the blend's component[0]
+       semantics, or gate blend prods on a blend-kind candidate.
+=== Gated WF promote chain FAILED (anomaly_vix_5pct) at Mon Aug 17 13:10:04 PDT 2026 ===

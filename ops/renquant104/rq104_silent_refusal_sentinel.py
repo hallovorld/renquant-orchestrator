@@ -36,6 +36,59 @@ Design notes:
     successes. A job that failed before reaching its decision has not
     "succeeded" — counting it as one would silently reset a real streak.
     That asymmetry is deliberate: this sentinel fails toward alarming.
+
+2026-08-18 — four MEASURED classification defects, fixed here
+------------------------------------------------------------
+Re-measured against the real dated logs of `weekly_wf_promote`,
+`conditional_retrain_104` and `retrain_panel` (as-of 2026-08-18):
+
+D1  A DELEGATOR'S "acted" WAS THE CHILD'S EXIT CODE, NOT A PROMOTION.
+    `conditional-retrain104` and `retrain-panel104` print
+    "Gated WF promote chain complete" / "delegated weekly_wf_promote PASS"
+    from `if bash scripts/weekly_wf_promote.sh; then` — i.e. from the child
+    exiting 0. Since the 2026-08-04 operator directive, weekly_wf_promote's
+    CALM_FRESH branch (scripts/weekly_wf_promote.sh:513-520) **exits 0 on a
+    REFUSAL**: the gate rejected the candidate, the served model is fresh
+    under RFC#210, "governance nominal, calm notify, exit 0". A pure refusal
+    therefore reads as ACTION, and one such run CLEARS the whole streak —
+    the exact blindness this module exists to prevent, re-created one layer
+    up. Fixed by CORROBORATION (see ``Corroborator``): a delegator's success
+    claim is only "acted" when the CHILD's own dated log for that date
+    carries the child's own action evidence. Two new non-acting outcomes
+    keep the failure modes distinguishable in the alarm:
+      * ``uncorroborated`` — child log exists, carries no promotion.
+      * ``unwitnessed``    — child wrote NO dated log at all. That is the
+        live 2026-08-16 shape: weekly_wf_promote's orch#799 fail-closed
+        `exit 2` (scripts/weekly_wf_promote.sh:211) fires BEFORE the
+        `exec >> "$LOG"` redirect at :235, so no dated child log is ever
+        created. Today that path exits non-zero and the delegator says
+        FAIL; a wrapper that ever swallowed it would otherwise clear the
+        streak on a run that provably never even opened its log.
+
+D2  A CAUGHT TRACEBACK IS EVIDENCE, NOT A CRASH.
+    `classify_run` tested `crash_re` BEFORE the failure/refusal verdicts,
+    and the WF gate DELIBERATELY logs caught tracebacks as sanity evidence
+    before deciding. Measured: 14/14 weekly runs that reached a terminal
+    verdict were labelled CRASHED (13 of them had printed "WF gate REJECTED
+    staged model — production unchanged."). Fixed: a crash claim now
+    requires the ABSENCE of a decision verdict (``_reached_a_decision``).
+
+D3  crash_re MISSED THE ONE REAL CRASH.
+    logs/weekly_wf_promote/2026-06-06.log:7 —
+      "weekly_wf_promote.sh: line 141: 93085 Segmentation fault: 11
+       \"$PYTHON\" scripts/smoke_test_model.py"
+    A process killed by a signal produces neither a traceback nor
+    `^\\w*Error:`, so the run was labelled `failed`. Fixed: `crash_re` now
+    recognises signal-death/abort signatures. The wrapper's follow-on
+    "Smoke test FAILED — aborting weekly promote (no train)." is an ABORT,
+    not a decision (``abort_re``), so it does not suppress the crash verdict.
+
+D4  failure_re OMITTED "Training FAILED".
+    8 real Step-3 training failures (2026-07-31, 07-23, 07-17, 07-16, 07-11,
+    07-10, 07-09, 07-04) matched nothing, classified `undecided`, and were
+    DROPPED from the tally — silently shrinking the very streak the module
+    counts. Fixed, together with the other unmatched terminal verdicts read
+    off the current wrapper and off the log corpus.
 """
 from __future__ import annotations
 
@@ -64,6 +117,54 @@ STREAK_N = int(os.environ.get("RQ104_REFUSAL_STREAK_N", "3"))
 MAX_LOG_AGE_DAYS = int(os.environ.get("RQ104_REFUSAL_MAX_LOG_AGE_DAYS", "90"))
 
 
+#: Signal-death / abort signatures (D3, measured 2026-06-06 and 2026-06-07:
+#: `Segmentation fault: 11` from the shell's job-status report). A process
+#: killed by a signal prints no traceback and no `Error:` line, so the
+#: original crash_re could not see the ONE genuine hard crash in the corpus.
+#:
+#: The `: <signo>` / `(core dumped)` suffix is REQUIRED on every alternative,
+#: deliberately: bare "Killed" and "Terminated" are ordinary English that
+#: appear in log prose, and a crash marker that fires on prose is worse than
+#: one that misses. macOS (this fleet) always prints the signal number; the
+#: `(core dumped)` form is there so a Linux runner is not silently unwatched.
+HARD_KILL_RE = (
+    r"(?:Segmentation fault|Bus error|Abort trap|Illegal instruction|"
+    r"Trace/BPT trap|Floating point exception|Killed|Terminated|Quit)"
+    r"(?::\s*\d+|\s*\(core dumped\))"
+)
+
+
+@dataclass(frozen=True)
+class Corroborator:
+    """The CHILD job whose own log must confirm a DELEGATOR's success claim.
+
+    D1. `conditional_retrain_104.sh:104` and `retrain_panel.sh:71` both wrap
+    the child in `if bash scripts/weekly_wf_promote.sh; then` and print their
+    success line off the child's EXIT CODE. That exit code stopped meaning
+    "something was promoted" on 2026-08-04, when the operator directive made
+    the CALM_FRESH reject path exit 0 (a reject while the served model is
+    fresh is the healthy steady state of RFC#210 governance — correct for the
+    operator's pager, fatal for a success signal derived from it).
+
+    So the delegator's claim is corroborated against the SAME evidence the
+    child lane itself is watched on: the child's own action line, in the
+    child's own dated log, for the SAME date. No evidence, no "acted".
+
+    Known and accepted: if the child ran TWICE on one date (weekly at 04:00,
+    then an anomaly-triggered rerun at 13:10) the child's dated log is
+    append-mode and holds both runs, so an earlier genuine promotion
+    corroborates the later delegation. That is not a false clear — the served
+    artifact really did change that day, which is exactly the estimand.
+    """
+    #: the WATCHED lane this corroborates against, for the alarm text
+    name: str
+    log_dir: str
+    #: the CHILD's own action pattern — deliberately the identical constant
+    #: the child lane is registered with, so the two cannot drift apart
+    action_re: str
+    log_stem_prefix: str = ""
+
+
 @dataclass(frozen=True)
 class WatchedJob:
     """A job that can exit 0 while declining to do its work."""
@@ -88,7 +189,27 @@ class WatchedJob:
     #: original SECOND silent class: measured 2026-07-28, the weekly retrain's
     #: 07-11 and 07-18 runs died on `CorpusRefreshError` and the 07-03 run
     #: hit the same error yet still printed `finished rc=0`.
-    crash_re: str = r"Traceback \(most recent call last\)|CorpusRefreshError|^\w*Error:"
+    #:
+    #: D3 (2026-08-18): signal death is a crash too, and it was invisible
+    #: here — the one genuine hard crash in the whole corpus
+    #: (logs/weekly_wf_promote/2026-06-06.log:7, SIGSEGV in the pre-flight
+    #: smoke test) printed neither a traceback nor an `Error:` line.
+    #:
+    #: A crash marker is NOT on its own a crash verdict. `classify_run` only
+    #: calls a run crashed when it never reached a decision — the WF gate
+    #: logs caught tracebacks as sanity EVIDENCE and then decides (D2).
+    crash_re: str = (r"Traceback \(most recent call last\)|CorpusRefreshError|"
+                     r"^\w*Error:|" + HARD_KILL_RE)
+    #: FAILURE lines that mean "aborted BEFORE deciding", not "decided
+    #: against". Used only by `_reached_a_decision`: an abort must not
+    #: suppress a crash verdict, or the 2026-06-06 SIGSEGV goes on reading as
+    #: an ordinary `failed` because the wrapper politely echoed
+    #: "Smoke test FAILED — aborting weekly promote (no train)." after it.
+    #: These lines still count as `failed` — they are real non-actions.
+    abort_re: str = ""
+    #: The CHILD lane whose log must corroborate this job's action claim
+    #: (D1). ``None`` = this job's action line is its own evidence.
+    corroborator: Corroborator | None = None
     #: Dated logs are normally `<log_dir>/YYYY-MM-DD.log`. Some jobs write
     #: `<prefix>YYYY-MM-DD.log` into a directory SHARED with other jobs --- rq105/
     #: holds six jobs' logs. Without this the finder skips them entirely (the whole
@@ -96,6 +217,45 @@ class WatchedJob:
     #: a SIBLING job's logs. Required for both discovery and attribution.
     log_stem_prefix: str = ""
 
+
+# ── weekly_wf_promote's vocabulary, hoisted ──────────────────────────────────
+# Both delegating lanes are corroborated against the CHILD's action pattern.
+# Hoisting it to a module constant is what makes "the SAME evidence" a fact
+# rather than a comment: there is one string, used by the child's own lane and
+# by both corroborators, so the three cannot drift apart.
+WEEKLY_WF_PROMOTE_LOG_DIR = os.path.join(RQ, "logs/weekly_wf_promote")
+WEEKLY_WF_PROMOTE_ACTION_RE = (r"weekly_wf_promote PASSED|"
+                               r"weekly_wf_promote FALLBACK-PROMOTED")
+
+#: Every non-action terminal verdict this wrapper can print. Read off BOTH the
+#: current emitter (scripts/weekly_wf_promote.sh) and the real log corpus:
+#:
+#:   Training FAILED                    :419/:424 — 12 logs, incl. the 8 runs
+#:                                       D4 was dropping (2026-07-31 … 07-04).
+#:                                       Both wordings ("— production artifact
+#:                                       unchanged." and the pre-2026-06
+#:                                       "— prior production artifact still in
+#:                                       place", 2026-05-17) share this stem.
+#:   WF manifest stamping/... FAILED    :449 — emitter only, never observed.
+#:   Fallback promote FAILED            :544 — emitter only, never observed.
+#:   Promote FAILED                     :640 — emitter only, never observed.
+#:   Snapshot freshness backstop FAILED :670 — emitter only, never observed.
+#:   Smoke test FAILED                  :277 — 3 logs. ABORT, see abort_re.
+#:   WF gate FAILED — production unchanged.  HISTORICAL: 2026-05-24, from a
+#:       wrapper revision that predates the RFC#210 rewrite; the line no
+#:       longer exists in the script, so it is deliberately NOT contracted in
+#:       emitter_contract.json (the re-capture tool would refuse on zero emit
+#:       sites). It is kept because that log is still inside the 90-day
+#:       window and dropping it would re-open D4 for one more run.
+WEEKLY_WF_PROMOTE_FAILURE_RE = (
+    r"Training FAILED|"
+    r"WF gate FAILED — production unchanged\.|"
+    r"WF manifest stamping/recipe validation FAILED|"
+    r"Fallback promote FAILED|"
+    r"Promote FAILED|"
+    r"Smoke test FAILED|"
+    r"Snapshot freshness backstop FAILED"
+)
 
 #: Registry. A job belongs here when "it ran successfully" and "it did its
 #: job" are different statements.
@@ -139,20 +299,29 @@ WATCHED: tuple[WatchedJob, ...] = (
     # reworded emitter breaks the test instead of silently blinding the watch.
     WatchedJob(
         name="weekly-wf-promote",
-        log_dir=os.path.join(RQ, "logs/weekly_wf_promote"),
+        log_dir=WEEKLY_WF_PROMOTE_LOG_DIR,
         # refusal read off the REAL 2026-08-01 dated log; REJECTED on 6 of the last 8
-        # dated logs at review time.
-        refusal_re=r"WF gate REJECTED staged model",
-        # action read off the emitter, scripts/weekly_wf_promote.sh:412 — no PASS has
-        # ever appeared in the 54-log window.
+        # dated logs at review time. The RFC#210 fallback's own REFUSE line
+        # (scripts/weekly_wf_promote.sh:494) is a second refusal verdict; today it is
+        # always followed by the REJECTED line at :501, but the watch must not depend
+        # on that coupling holding.
+        refusal_re=(r"WF gate REJECTED staged model|"
+                    r"RFC#210 fallback verdict: REFUSE"),
+        # action read off the emitter, scripts/weekly_wf_promote.sh — no PASS has
+        # ever appeared in the log window.
         # FALLBACK-PROMOTED added 2026-08-04 (RenQuant#559 Step 4b): an
         # RFC#210 freshness-fallback promotion IS an action — the served
         # artifact changed; counting it as a refusal would keep alarming
         # over a lane that just acted (the #101 design says the streak
         # clears honestly on fallback).
-        action_re=r"weekly_wf_promote PASSED|weekly_wf_promote FALLBACK-PROMOTED",
-        failure_re=(r"Promote FAILED|Smoke test FAILED|Snapshot freshness backstop "
-                    r"FAILED"),
+        action_re=WEEKLY_WF_PROMOTE_ACTION_RE,
+        failure_re=WEEKLY_WF_PROMOTE_FAILURE_RE,
+        # D3. The pre-flight smoke test aborts BEFORE Step 3 ever runs
+        # (scripts/weekly_wf_promote.sh:276-280), so this line is the wrapper
+        # reporting that it never got to decide — including when the reason it
+        # never got to decide was a SIGSEGV (2026-06-06). It must not count as
+        # a decision, or the crash it is reporting reads as an ordinary FAIL.
+        abort_re=r"Smoke test FAILED",
     ),
     WatchedJob(
         name="conditional-retrain104",
@@ -165,6 +334,14 @@ WATCHED: tuple[WatchedJob, ...] = (
         # emitter: scripts/conditional_retrain_104.sh:105
         action_re=r"Gated WF promote chain complete",
         failure_re=r"Gated WF promote chain FAILED|Trigger check FAILED",
+        # D1: this line is printed off `if bash scripts/weekly_wf_promote.sh`
+        # — the CHILD'S EXIT CODE — and the child now exits 0 on a CALM_FRESH
+        # refusal. Corroborate against what the child itself printed.
+        corroborator=Corroborator(
+            name="weekly-wf-promote",
+            log_dir=WEEKLY_WF_PROMOTE_LOG_DIR,
+            action_re=WEEKLY_WF_PROMOTE_ACTION_RE,
+        ),
     ),
     WatchedJob(
         name="retrain-panel104",
@@ -176,6 +353,13 @@ WATCHED: tuple[WatchedJob, ...] = (
         # emitter: scripts/retrain_panel.sh:72
         action_re=r"delegated weekly_wf_promote PASS",
         failure_re=r"delegated weekly_wf_promote FAIL",
+        # D1: same shape as conditional-retrain104 — the PASS echo is the
+        # child's exit code wearing the delegator's vocabulary.
+        corroborator=Corroborator(
+            name="weekly-wf-promote",
+            log_dir=WEEKLY_WF_PROMOTE_LOG_DIR,
+            action_re=WEEKLY_WF_PROMOTE_ACTION_RE,
+        ),
     ),
 )
 
@@ -198,10 +382,18 @@ UNWATCHABLE_LANES = {
 }
 
 
+#: Every outcome that is NOT an action. `undecided` is absent on purpose: it
+#: is neither, and `inaction_streak` records it separately rather than
+#: counting it (see there).
+NON_ACTING = ("refused", "failed", "crashed", "uncorroborated", "unwitnessed")
+
+
 @dataclass(frozen=True)
 class RunOutcome:
     day: dt.date
-    outcome: str  # "refused" | "acted" | "failed" | "crashed" | "undecided"
+    #: "acted" | "refused" | "failed" | "crashed" | "uncorroborated"
+    #: | "unwitnessed" | "undecided"
+    outcome: str
 
 
 def _dated_logs(log_dir: str, *, as_of: dt.date,
@@ -231,22 +423,79 @@ def _dated_logs(log_dir: str, *, as_of: dt.date,
     return sorted(out, key=lambda t: t[0], reverse=True)
 
 
-def classify_run(text: str, job: WatchedJob) -> str:
-    """Classify one run: acted / crashed / failed / refused / undecided.
+def _terminal_verdicts(text: str, job: WatchedJob) -> list[str]:
+    """Every terminal-verdict line the run printed (the matched substrings)."""
+    alts = [p for p in (job.action_re, job.failure_re, job.refusal_re) if p]
+    if not alts:
+        return []
+    union = "|".join(f"(?:{p})" for p in alts)
+    return [m.group(0) for m in re.finditer(union, text, flags=re.MULTILINE)]
+
+
+def _reached_a_decision(text: str, job: WatchedJob) -> bool:
+    """Did the run print a verdict meaning it DECIDED about the candidate?
+
+    D2. This is the guard on the crash verdict. The WF gate deliberately logs
+    caught tracebacks as sanity EVIDENCE and then decides — measured
+    2026-08-18, 14 of 14 weekly runs that printed a terminal verdict were
+    being labelled CRASHED on the strength of that evidence, 13 of them right
+    after printing "WF gate REJECTED staged model — production unchanged."
+    A crash claim is a claim about what the run did NOT get to do, so it must
+    rest on the ABSENCE of a decision, never on the presence of a traceback.
+
+    `abort_re` carves out the failure lines that report the opposite — the
+    run bailed out before deciding. Those are still `failed` (real
+    non-actions), they just do not veto a crash verdict.
+    """
+    for hit in _terminal_verdicts(text, job):
+        if job.abort_re and re.search(job.abort_re, hit):
+            continue
+        return True
+    return False
+
+
+def _corroborate(c: Corroborator, day: dt.date | None) -> str:
+    """Resolve a DELEGATOR's success claim against the child's own log (D1).
+
+    Returns "acted" only on the child's own action evidence for that date.
+    Every other path is NON-acting, with the reason kept distinct so the
+    alarm names what it actually saw.
+    """
+    if day is None:
+        # No date, no way to find the child's log. Fail toward alarming.
+        return "uncorroborated"
+    path = (Path(c.log_dir) /
+            f"{c.log_stem_prefix}{day.isoformat()}.log")
+    try:
+        child = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        # The child never opened a dated log at all. weekly_wf_promote's
+        # orch#799 fail-closed `exit 2` (:211) fires BEFORE the
+        # `exec >> "$LOG"` redirect at :235, so this is a real, reachable
+        # state — and the one where believing the delegator would be worst.
+        return "unwitnessed"
+    return "acted" if re.search(c.action_re, child) else "uncorroborated"
+
+
+def classify_run(text: str, job: WatchedJob, *,
+                 day: dt.date | None = None) -> str:
+    """Classify one run. See `RunOutcome.outcome` for the vocabulary.
 
     Order matters. An ACTION anywhere wins over everything else: a run that
     refuses one candidate and then promotes another has acted, and treating
-    it as a refusal would manufacture a streak out of a healthy job. A crash
-    marker outranks a failure line and a refusal because a run that died did
-    not choose either — it never got to decide (measured 2026-07-28: the
-    07-03 run hit `CorpusRefreshError` AND printed `promote: refused` AND
-    exited rc=0). Crash and failure are SEPARATE outcomes so the alarm can
-    say which it saw (2026-08-03: the first scheduled finding glossed 9
-    delegated WF-gate FAILs as "CRASHED").
+    it as a refusal would manufacture a streak out of a healthy job — except
+    that for a DELEGATING job the action line is only the child's exit code,
+    so it must be corroborated (D1). A crash is claimed only when the run
+    reached no decision at all (D2). Crash, failure and refusal stay SEPARATE
+    outcomes so the alarm can say which it saw (2026-08-03: the first
+    scheduled finding glossed 9 delegated WF-gate FAILs as "CRASHED").
     """
     if re.search(job.action_re, text):
-        return "acted"
-    if re.search(job.crash_re, text, flags=re.MULTILINE):
+        if job.corroborator is None:
+            return "acted"
+        return _corroborate(job.corroborator, day)
+    if (not _reached_a_decision(text, job)
+            and re.search(job.crash_re, text, flags=re.MULTILINE)):
         return "crashed"
     if job.failure_re and re.search(job.failure_re, text, flags=re.MULTILINE):
         return "failed"
@@ -263,7 +512,7 @@ def read_outcomes(job: WatchedJob, *, as_of: dt.date) -> list[RunOutcome]:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        outcomes.append(RunOutcome(day, classify_run(text, job)))
+        outcomes.append(RunOutcome(day, classify_run(text, job, day=day)))
     return outcomes
 
 
@@ -297,11 +546,16 @@ def inaction_streak(outcomes: list[RunOutcome]) -> InactionStreak:
     (07-03 refused, 07-11 failed, 07-18 failed, 07-25 refused). A
     refusals-only rule scores that as a streak of 2 and stays silent through
     four consecutive months of a model going stale.
+
+    The same logic extends to the two D1 outcomes: `uncorroborated` and
+    `unwitnessed` are runs where a DELEGATOR claimed success and the child's
+    log did not back it. Nothing was promoted, so the streak must survive
+    them — that is the whole point of not trusting the exit code.
     """
     streak: list[RunOutcome] = []
     skipped: list[RunOutcome] = []
     for o in outcomes:
-        if o.outcome in ("refused", "failed", "crashed"):
+        if o.outcome in NON_ACTING:
             streak.append(o)
         elif o.outcome == "acted":
             break
@@ -317,6 +571,9 @@ def check(job: WatchedJob, *, as_of: dt.date) -> str | None:
     detail = ", ".join(f"{o.day.isoformat()}:{o.outcome}" for o in ia.runs[:6])
     n_failed = sum(1 for o in ia.runs if o.outcome == "failed")
     n_crashed = sum(1 for o in ia.runs if o.outcome == "crashed")
+    n_uncorr = sum(1 for o in ia.runs if o.outcome == "uncorroborated")
+    n_unwit = sum(1 for o in ia.runs if o.outcome == "unwitnessed")
+    child = job.corroborator.name if job.corroborator else "the delegate"
     if ia.skipped:
         span = (f"{len(ia.runs)} non-acting runs spanning "
                 f"{len(ia.skipped)} unclassifiable run(s) not counted as "
@@ -329,6 +586,13 @@ def check(job: WatchedJob, *, as_of: dt.date) -> str | None:
         + (f"; {n_crashed} of them CRASHED" if n_crashed else "")
         + (f"; {n_failed} of them reported FAIL (the job's own verdict, "
            f"not a crash)" if n_failed else "")
+        + (f"; {n_uncorr} of them CLAIMED SUCCESS while {child}'s own log for "
+           f"that date shows no promotion (the wrapper reports its child's "
+           f"exit code, and a CALM_FRESH refusal exits 0)"
+           if n_uncorr else "")
+        + (f"; {n_unwit} of them CLAIMED SUCCESS while {child} wrote no dated "
+           f"log at all for that date (it exited before opening one)"
+           if n_unwit else "")
         + f"). A gate refusing once is the gate working; nothing being "
         f"promoted cycle after cycle means the gate cannot be satisfied, its "
         f"input stopped advancing, or the job is failing before it decides. "

@@ -1,0 +1,6 @@
+=== weekly_wf_promote started at Sat Aug 15 04:00:02 PDT 2026 ===
+Hardware threads: 14
+--- Step 1: Pre-flight smoke test ---
+--- Step 4: Walk-forward gate (3-cut + sanity) ---
+--- Step 5: Inspect gate metadata + promote staged pair ---
+=== weekly_wf_promote PASSED at Sat Aug 15 05:31:44 PDT 2026 — passed=True cuts=3 ===
