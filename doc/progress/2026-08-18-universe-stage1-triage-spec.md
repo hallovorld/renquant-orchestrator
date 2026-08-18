@@ -30,8 +30,13 @@ EVIDENCE:
                  (2,790 tickers w/ 1d.parquet; filter cascade → 2,058/1,758; 627
                  fund-covered → 609 with ≥5y OHLCV; ADV/price quantiles), coverage by
                  feature family (100%/30%/11%/0.6%), snapshot survivor-only (zero
-                 delisted), RS-5 cost buckets + E34/RS-5 priors, DGTW t=2.92 caveats
-                 (single-run, winsorized t=1.70).
+                 delisted), RS-5 cost buckets + E34/RS-5 priors. The t=+2.92 figure is
+                 cited from its COMMITTED source (renquant-model
+                 doc/research/2026-07-24-capacity-and-power-reconciliation.md §7 +
+                 its evidence dir) and is DOWNGRADED throughout to a single-run,
+                 winsorized-fragile (t=1.70), not-independently-reproduced instrument
+                 choice — a hypothesis about where power lives, not a proven fact
+                 (codex round 1).
   best-known?:   yes — transfer-not-retrain isolates the thesis from E34's
                  retrain-dilution mode; the positive control makes instrument failure
                  distinguishable from a real transfer fail; costs are charged with the

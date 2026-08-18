@@ -3,8 +3,14 @@
 STATUS: **frozen experiment spec (docs only — the run happens AFTER this merges AND the
 committed runner is reviewed).** DATE: 2026-08-18. Operator-directed ("我要真正的alpha,
 bull列"). Tests the structural thesis: the $11k account's one structural advantage —
-no capacity constraint — is unused in 145 mega-caps; does the PROVEN tail statistic
-transfer to a mid/small-cap extension where institutions cannot operate?
+no capacity constraint — is unused in 145 mega-caps; does the panel's strongest
+MEASURED candidate statistic transfer to a mid/small-cap extension where institutions
+cannot operate? ("Strongest measured", not proven: the DGTW-adjusted top-decile spread
+read t=+2.92 in a SINGLE run — committed at renquant-model
+`doc/research/2026-07-24-capacity-and-power-reconciliation.md` §7, script under its
+`doc/research/evidence/2026-07-24-capacity-memo/` — tail-dependent (winsorized t=1.70)
+and not independently reproduced; it is this spec's INSTRUMENT CHOICE, treated as a
+hypothesis about where power lives, never as an established fact.)
 
 ## 1. Semantics — TRIAGE, per the house's own withdrawn-convention ruling
 
@@ -20,10 +26,11 @@ never a retrain, never a capital decision. One shot per corpus; no re-runs.
 (a) E34 (2026-05-07): blind expansion 103→816 was NO-GO — whole-cross-section IC fell
 +0.031→+0.0164; resume condition = clustered ~100-name waves. (b) RS-5: canonical
 MOM/REV cleared nothing net of bucket costs down-cap; liquid slice read best.
-**Neither tested the panel's tail statistic** (top-decile DGTW spread, t=+2.92, vs IC
-t=1.15 on identical data) — the untested gap this Stage 1 fills. The t=2.92 benchmark's
-own caveats carry: single-run, tail-dependent (winsorized t=1.70), not independently
-reproduced.
+**Neither tested the tail statistic** (top-decile DGTW spread, which read t=+2.92 vs
+IC t=1.15 on identical data in the single-run capacity memo cited in §STATUS) — the
+untested gap this Stage 1 fills. That benchmark's caveats carry into every use below:
+single-run, tail-dependent (winsorized t=1.70), not independently reproduced — which is
+one more reason the semantics are TRIAGE, not confirmation.
 
 ## 3. Frozen corpus and arms — ZERO new data, ZERO writes to any live store
 
@@ -51,7 +58,7 @@ writes are still writes).
 ## 4. Frozen estimand
 
 Primary statistic = **per-date top-decile (by score) DGTW-adjusted spread** at h=60
-(the proven instrument's own construction: vol×mom×beta tercile cells within-arm,
+(the capacity-memo instrument's own construction: vol×mom×beta tercile cells within-arm,
 self-excluded, ≥15 names/cell else cell-unadjusted-and-flagged), with the paired
 2h-lag placebo and decision quantity Δ = mean(genuine) − mean(placebo). h=20 secondary
 (power support, never decisive alone). Whole-cross-section IC reported, informational.
