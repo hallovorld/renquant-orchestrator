@@ -1,0 +1,15 @@
+=== weekly_wf_promote started at Fri Jul 31 13:10:06 PDT 2026 ===
+Hardware threads: 14
+--- Step 1: Pre-flight smoke test ---
+2026-07-31 13:10:06,780 [INFO] smoke-test: Strategy config: /Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json
+2026-07-31 13:10:06,781 [INFO] smoke-test: Artifact loaded: panel-ltr.alpha158_fund.json  trained=2026-06-21  n_feat=172
+2026-07-31 13:10:06,936 [INFO] renquant_pipeline.kernel.panel_pipeline.fingerprint_dispatch: fingerprint-dispatch load: context=PanelScorer.load artifact=/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json stamped_schema=unstamped stamped=sha256:6fc9985e6e53e3883a13d572b1e11b7dea484e14df23819dab5474f2cd592372 legacy_recompute=sha256:6fc9985e6e53e3883a13d572b1e11b7dea484e14df23819dab5474f2cd592372 v1_recompute=sha256:656b70be7dac0e61e4f6fae4f538cc33d6044b7e33f12cf6e3992d55996fbb46 stamp_eq_legacy=True stamp_eq_v1=False
+2026-07-31 13:10:06,940 [INFO] smoke-test: Smoke test PASS: scored 2 synthetic rows → A=-0.365728 B=-0.217417 Δ=0.148312
+2026-07-31 13:10:06,958 [INFO] smoke-test: Calibrator PASS: score -0.3657 → P(out)=0.4656  E[R]=-0.0075
+--- Step 2: Backup prior production artifacts (rollback rehearsal) ---
+Backup model: /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.weekly_rollback_2026-07-31.json
+Backup calibrator: /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-rank-calibration.weekly_rollback_2026-07-31.json
+--- Step 3: Retrain panel-LTR + calibrator to staging ---
+Staging model: /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.weekly_20260731T201006Z.staging.json
+Staging calibrator: /Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-rank-calibration.weekly_20260731T201006Z.staging.json
+Training FAILED — production artifact unchanged.

@@ -1,0 +1,4 @@
+=== retrain_panel started at Sun Aug 16 10:00:02 PDT 2026 ===
+weekly_wf_promote has not run today; delegating to the strict trust boundary.
+No retrain_panel wrapper ntfy will be emitted; weekly_wf_promote owns alerts.
+=== retrain_panel delegated weekly_wf_promote PASS at Sun Aug 16 11:32:07 PDT 2026 ===
