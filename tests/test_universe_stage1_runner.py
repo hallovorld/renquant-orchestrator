@@ -303,9 +303,14 @@ def test_one_shot_refuses_when_any_output_exists(tmp_path):
         us.assert_one_shot(outputs=(marker, tmp_path / "absent.csv"))
 
 
-def test_this_pr_ships_unrun_no_outputs_committed():
-    """The runner PR must not carry any run outputs (spec §6 / U10)."""
-    us.assert_one_shot()
+def test_one_shot_spent_outputs_committed_marker_armed():
+    """The ONE authorized run happened (2026-08-18, results PR): its outputs
+    are committed next to the runner, so U10 must now mechanically REFUSE any
+    further execution — the one-shot marker is armed forever on this corpus.
+    (This test asserted the inverse — no outputs — while the runner PR shipped
+    un-run; the run itself flipped the invariant.)"""
+    with pytest.raises(AssertionError, match="one-shot"):
+        us.assert_one_shot()
 
 
 def _stub_git(monkeypatch, *, fetch_rc=0, show_rc=0, show_bytes=None,
