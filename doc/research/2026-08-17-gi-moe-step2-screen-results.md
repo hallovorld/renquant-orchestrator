@@ -1,5 +1,13 @@
 # G-I MoE step 2 — IC screen: EXPLORATORY PILOT (superseded, not the authorized run)
 
+> **POINTER (2026-08-17, added with the authorized-run PR):** the authorized
+> one-shot run has since HAPPENED — see
+> `doc/research/2026-08-17-gi-moe-step2-authorized-results.md` (verdict: 0/3
+> not flagged; `quality_gp`'s pilot pass did not survive the pairing
+> correction). The in-tree JSON/CSV under `doc/research/data/` now hold the
+> AUTHORIZED run's outputs; this memo's pilot numbers refer to the versions
+> committed at `da9b05bb`, recoverable via `git show`.
+
 STATUS: **exploratory pilot — WITHDRAWN as a verdict.** These numbers were
 produced by a runner whose genuine and placebo legs were filtered
 INDEPENDENTLY and then subtracted, so a lag-dependent difference in which
