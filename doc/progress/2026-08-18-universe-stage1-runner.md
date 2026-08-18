@@ -7,11 +7,25 @@ STATUS:    runner + tests ONLY, per the merged spec's §6 freeze-then-review-the
 
 WHAT:      Commit `doc/research/data/2026-08-18-universe-stage1-derivation.py` (the
            deterministic, read-only-inputs runner implementing spec §3-§6 verbatim)
-           + `tests/test_universe_stage1_runner.py` (25 synthetic-data tests of the
-           pure functions; zero market-data reads). Machinery ADAPTED from the
-           reviewed #992 runner (G1 grid / G5 labels / G6-G7 paired placebo incl.
-           the codex orch#990 shared-cross-section correction / G9 blocks),
-           extended from the IC estimand to the DGTW top-decile spread estimand.
+           + `tests/test_universe_stage1_runner.py` (32 synthetic-data tests of the
+           pure functions + run guards; zero market-data reads). Machinery ADAPTED
+           from the reviewed #992 runner (G1 grid / G5 labels / G6-G7 paired
+           placebo incl. the codex orch#990 shared-cross-section correction / G9
+           blocks), extended from the IC estimand to the DGTW top-decile spread
+           estimand. The sequencing promises are guards, not conventions: U10
+           (one-shot marker — refuses when any output exists) and U11
+           (byte-identity vs a freshly FETCHED origin/main before any work, the
+           #996 T1/T2 shape WITH the orch#997 fetch-first correction; fetch
+           failure fails closed) run first in main(), and the post-fetch
+           origin/main sha + runner sha256 land in the output pins.
+
+WHY/DIR:   Universe-extension workstream (spec orch#995, merged): decide with ONE
+           frozen, reviewed triage run whether the served scorer's edge transfers
+           beyond the 145-name watchlist — PASS (triage) authorizes only drafting
+           the Stage-2 point-in-time program; DEPRIORITIZED parks the direction
+           with evidence. This PR is the freeze-then-review-then-run middle step
+           (the #990/#996 house pattern): ship the runner reviewed and un-run so
+           the later single execution is mechanically bound to the reviewed bytes.
 
 SCORING-PATH FEASIBILITY (checked FIRST, as directed):
            [VERIFIED — measured in-session 2026-08-18] the served panel pin scores
@@ -65,7 +79,7 @@ over; both in the runner header U4/U6 and re-reported by the run's output):
      19/58 are untouched); h=20 loses nothing. [VERIFIED in-session: exactly
      {60: ['2026-02-13'], 20: []}].
 
-EVIDENCE (§4(b)):
+EVIDENCE:
   artifact:      the runner (un-run) + its tests + this doc. No output artifact
                  exists yet BY DESIGN — the spec forbids running before review.
   prod or exp:   neither — the runner ships un-run; the run is a later,
@@ -93,14 +107,17 @@ EVIDENCE (§4(b)):
                  (triage) would authorize ONLY the Stage-2 PIT program proposal.
                  Nothing here kills, admits, retrains, or reallocates capital.
 
-TESTS:     tests/test_universe_stage1_runner.py — 25 passed (DGTW 3-cell fixture,
+TESTS:     tests/test_universe_stage1_runner.py — 32 passed (DGTW 3-cell fixture,
            bucket boundaries + cost-drag formula, 4-condition verdict each-flips +
            U8 floor + control floor, paired-placebo shared-set identity, block
-           segmentation 19/58 + block-t arithmetic, pin-compare semantics). Full
-           suite: 6,340 passed / 5 skipped / 3 failed — the 3 are pre-existing
-           LIVE-state probes (test_goal7_arm_b_accrual_probe,
-           test_position_cap_conformance) that read this machine's live ledger/
-           book and fail identically without this change.
+           segmentation 19/58 + block-t arithmetic, pin-compare semantics, U10
+           one-shot pass/refuse + this-PR-ships-unrun, U11 fetch-failure/-not-
+           merged/-byte-drift each fail closed + fetch-precedes-compare with
+           lineage pinned). Full suite at the original head: 6,340 passed / 5
+           skipped / 3 failed — the 3 are pre-existing LIVE-state probes
+           (test_goal7_arm_b_accrual_probe, test_position_cap_conformance) that
+           read this machine's live ledger/book and fail identically without
+           this change.
 
 NEXT:      codex review of THIS runner -> merge -> the ONE run (caffeinate, in an
            isolated worktree; ~1h corpus build + minutes of scoring) -> results PR

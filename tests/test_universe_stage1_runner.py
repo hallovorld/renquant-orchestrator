@@ -15,6 +15,7 @@ surface. Covered here, with values hand-computable on paper:
 
 NO market-data reads anywhere: everything below is constructed in-memory.
 """
+import hashlib
 import importlib.util
 import math
 from pathlib import Path
@@ -287,3 +288,82 @@ def test_config_fp_pin_matches_no_abbreviation():
     assert us.config_fp_pin_matches("abc123", "sha256:abc123")
     assert not us.config_fp_pin_matches("sha256:abc1", "sha256:abc123")
     assert not us.config_fp_pin_matches("", "sha256:abc123")
+
+
+# ───────────────────────── run guards (U10 / U11) ─────────────────────────
+
+def test_one_shot_passes_when_no_outputs_exist(tmp_path):
+    us.assert_one_shot(outputs=(tmp_path / "results.json",))
+
+
+def test_one_shot_refuses_when_any_output_exists(tmp_path):
+    marker = tmp_path / "results.json"
+    marker.write_text("{}")
+    with pytest.raises(AssertionError, match="one-shot"):
+        us.assert_one_shot(outputs=(marker, tmp_path / "absent.csv"))
+
+
+def test_this_pr_ships_unrun_no_outputs_committed():
+    """The runner PR must not carry any run outputs (spec §6 / U10)."""
+    us.assert_one_shot()
+
+
+def _stub_git(monkeypatch, *, fetch_rc=0, show_rc=0, show_bytes=None,
+              main_sha="a" * 40):
+    """Fake us.subprocess.run for the U11 git triad; returns the call log."""
+    calls = []
+    top = str(MOD.parents[3])
+
+    class R:
+        def __init__(self, rc, out, err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def run(cmd, **kw):
+        calls.append(list(cmd))
+        if "rev-parse" in cmd and "--show-toplevel" in cmd:
+            return R(0, top + "\n")
+        if "fetch" in cmd:
+            return R(fetch_rc, "", "fetch blocked (test)")
+        if "show" in cmd:
+            body = MOD.read_bytes() if show_bytes is None else show_bytes
+            return R(show_rc, body, b"")
+        if "rev-parse" in cmd:
+            return R(0, main_sha + "\n")
+        raise AssertionError(f"unexpected git call: {cmd}")
+
+    monkeypatch.setattr(us.subprocess, "run", run)
+    return calls
+
+
+def test_runner_matches_main_fetch_failure_fails_closed(monkeypatch):
+    _stub_git(monkeypatch, fetch_rc=1)
+    with pytest.raises(AssertionError, match="cannot fetch origin/main"):
+        us.assert_runner_matches_main()
+
+
+def test_runner_matches_main_refuses_when_not_merged(monkeypatch):
+    _stub_git(monkeypatch, show_rc=128)
+    with pytest.raises(AssertionError, match="not on origin/main"):
+        us.assert_runner_matches_main()
+
+
+def test_runner_matches_main_refuses_on_byte_drift(monkeypatch):
+    _stub_git(monkeypatch, show_bytes=b"# a superseded copy\n")
+    with pytest.raises(AssertionError, match="differ from origin/main"):
+        us.assert_runner_matches_main()
+
+
+def test_runner_matches_main_fetches_before_compare_and_pins_lineage(monkeypatch):
+    """orch#997: the fetch must precede show/rev-parse, and the returned
+    provenance must be the post-fetch sha + the executing file's sha256."""
+    sha = "b" * 40
+    calls = _stub_git(monkeypatch, main_sha=sha)
+    out = us.assert_runner_matches_main()
+    kinds = [("fetch" if "fetch" in c else
+              "show" if "show" in c else
+              "rev-parse-main" if "origin/main" in c else "toplevel")
+             for c in calls]
+    assert kinds.index("fetch") < kinds.index("show")
+    assert kinds.index("fetch") < kinds.index("rev-parse-main")
+    assert out == {"origin_main_sha": sha,
+                   "runner_sha256": hashlib.sha256(MOD.read_bytes()).hexdigest()}

@@ -4,10 +4,12 @@
 Governing contract: doc/research/2026-08-18-universe-stage1-triage-spec.md
 (orch#995, MERGED). This script is the execution-contract runner required by
 that spec's §6 (the #990 freeze-then-review-then-run sequencing): every guard
-below is prereg content, committed and REVIEWED before the run. Stage 1
-TRIAGES (PASS (triage) / DEPRIORITIZED); it neither kills nor admits (spec
-§1). One shot per corpus — re-running with different parameters after seeing
-results is FORBIDDEN.
+below is prereg content, committed and REVIEWED before the run — MECHANICALLY
+ENFORCED by U11, which refuses to execute unless this file's bytes equal the
+freshly FETCHED origin/main copy. Stage 1 TRIAGES (PASS (triage) /
+DEPRIORITIZED); it neither kills nor admits (spec §1). One shot per corpus —
+re-running with different parameters after seeing results is FORBIDDEN —
+MECHANICALLY ENFORCED by U10, which refuses when any output already exists.
 
 Deterministic by construction: no randomness anywhere (no seeds needed), no
 clock enters any computed number (wall-clock stamps land in metadata only),
@@ -144,6 +146,22 @@ U9  PIT FUNDAMENTALS. For every served fundamental value, the filing's
     daily rows restricted to the arm's tickers, for each of the 5 recipe
     columns that carries an available_at column) — the #992 G4 check,
     widened to all five columns.
+
+U10 ONE-SHOT MARKER. The runner REFUSES to run when any of its outputs
+    (results JSON / obs CSV) already exists next to this script — one shot
+    per corpus, as a precondition rather than a convention (the #996 T1
+    shape). A VOIDED run also spends the shot: its VOID payload is an
+    output, so the U3 "voids the run" semantics are mechanical too.
+
+U11 BYTE-IDENTITY VS FETCHED origin/main. Before any other work, the
+    executing file's bytes must equal origin/main's copy of itself, with a
+    mandatory `git fetch origin main` FIRST so the comparison authority is
+    the remote, never a stale local ref (the orch#997 correction to the
+    #996 T2 guard; a fetch failure fails CLOSED — an offline box refuses
+    rather than validating against yesterday's cache). Not merged yet ->
+    refuses: freeze-then-review-then-run is enforced, not promised. The
+    post-fetch origin/main sha + this file's sha256 are recorded in the
+    output pins as the run's lineage.
 
 ════════════════ FROZEN OPERATIONALIZATIONS (spec §4/§5 → code) ═══════════
 
@@ -550,6 +568,40 @@ def _write_guard(path: Path) -> Path:
     _assert(not str(p).startswith(str(UMBRELLA.resolve()) + os.sep),
             f"write target {p} inside the umbrella tree (U7)")
     return p
+
+
+def assert_one_shot(outputs=(OUT_JSON, OUT_CSV)) -> None:
+    """U10: refuse to run when any output already exists — one shot, ever."""
+    existing = [str(p) for p in outputs if Path(p).exists()]
+    _assert(not existing,
+            "one-shot marker: output(s) already exist, this triage has been "
+            f"run — re-running is FORBIDDEN (U10): {existing}")
+
+
+def assert_runner_matches_main() -> dict:
+    """U11: the executing runner's bytes must equal origin/main's copy,
+    compared AFTER a mandatory fetch (orch#997: without the fetch the
+    guard's authority is a local cache). Fetch failure fails CLOSED."""
+    me = Path(__file__).resolve()
+    top = subprocess.run(["git", "-C", str(me.parent), "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    rel = me.relative_to(Path(top))
+    fetch = subprocess.run(["git", "-C", top, "fetch", "--quiet", "origin", "main"],
+                           capture_output=True, text=True)
+    _assert(fetch.returncode == 0,
+            "cannot fetch origin/main — refusing to validate against a stale "
+            f"local ref (orch#997, fail closed): {fetch.stderr.strip()}")
+    blob = subprocess.run(["git", "-C", top, "show", f"origin/main:{rel.as_posix()}"],
+                          capture_output=True)
+    _assert(blob.returncode == 0,
+            "runner is not on origin/main — freeze-then-review-then-run: "
+            "merge the runner PR first, then execute the merged copy")
+    _assert(blob.stdout == me.read_bytes(),
+            "runner bytes differ from origin/main — execute the merged copy only")
+    main_sha = subprocess.run(["git", "-C", top, "rev-parse", "origin/main"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    return {"origin_main_sha": main_sha,
+            "runner_sha256": hashlib.sha256(me.read_bytes()).hexdigest()}
 
 
 def _git_head(repo: Path) -> str:
@@ -966,6 +1018,8 @@ def analyze_arm(arm: str, scored: dict, labels: dict, grid_info: dict, h: int,
 
 def main() -> None:
     t_start = time.time()
+    assert_one_shot()                          # U10 — one shot per corpus
+    runner_id = assert_runner_matches_main()   # U11 — reviewed-before-run, fetch-first
     SCRATCH.mkdir(parents=True, exist_ok=True)
     _write_guard(OUT_JSON)
     _write_guard(OUT_CSV)
@@ -1007,7 +1061,8 @@ def main() -> None:
         payload = {
             "verdict": "VOID (instrument failure — U3 positive control)",
             "reason": reason, "arm_w_control": control["summary"],
-            "pins": {"artifact_file_sha256": pin["artifact_file_sha256"]},
+            "pins": {"artifact_file_sha256": pin["artifact_file_sha256"],
+                     "runner_identity": runner_id},
         }
         OUT_JSON.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         raise RunVoidError(reason)
@@ -1066,6 +1121,7 @@ def main() -> None:
         "verdict": {"arm_a_h60": verdict, "reason": why,
                     "transfer_condition_met": bool(transfer_ok)},
         "pins": {
+            "runner_identity": runner_id,
             "served_artifact_path": pin["artifact_path"],
             "served_artifact_file_sha256": pin["artifact_file_sha256"],
             "served_artifact_config_fingerprint": art.get("config_fingerprint"),
