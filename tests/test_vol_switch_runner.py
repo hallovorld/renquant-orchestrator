@@ -17,6 +17,7 @@ lesson: a "no outputs committed" repo-state test necessarily breaks at the
 one authorized run).
 """
 import ast
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -27,6 +28,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "doc" / "research" / "data" / "2026-08-18-vol-switch-derivation.py"
 TAILQ90 = ROOT / "doc" / "research" / "data" / "2026-08-18-gi-tailq90-derivation.py"
+UNIVERSE = ROOT / "doc" / "research" / "data" / "2026-08-18-universe-stage1-derivation.py"
 
 _spec = importlib.util.spec_from_file_location("vol_switch_runner", RUNNER)
 rn = importlib.util.module_from_spec(_spec)
@@ -420,25 +422,101 @@ def test_one_shot_guard_fires_when_an_output_already_exists(tmp_path):
 
 
 # --------------------------------------------- reused machinery byte-identity
+def source_of(path: Path, target: str) -> str:
+    src = path.read_text()
+    for node in ast.parse(src).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) \
+                and node.name == target:
+            return ast.get_source_segment(src, node)
+    raise AssertionError(f"{target} not found in {path.name}")
+
+
 @pytest.mark.parametrize("name", [
     "_sha256", "_assert", "build_refit_calendar", "refit_index_for_date",
     "latest_realized_label_pos", "ReadersLite", "assert_one_shot",
-    "assert_runner_matches_main", "load_trainer_module",
+    "load_trainer_module",
     "load_served_artifact", "fit_booster", "score_frame",
 ])
 def test_reused_machinery_byte_identical(name):
     """The refit/embargo/scoring machinery is REUSED from the reviewed
     tail_q90 runner (#996/#999 lineage) — byte-identity enforced so the reuse
-    cannot silently drift into a rewrite (prereg §4: cite-and-reuse)."""
-    def source_of(path: Path, target: str) -> str:
-        src = path.read_text()
-        for node in ast.parse(src).body:
-            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) \
-                    and node.name == target:
-                return ast.get_source_segment(src, node)
-        raise AssertionError(f"{target} not found in {path.name}")
-
+    cannot silently drift into a rewrite (prereg §4: cite-and-reuse).
+    `assert_runner_matches_main` is deliberately NOT in this list: the
+    tail_q90 copy validates against a possibly-stale local origin/main ref;
+    the fetched fail-closed U11 variant is enforced below instead."""
     assert source_of(RUNNER, name) == source_of(TAILQ90, name)
+
+
+def test_matches_main_guard_byte_identical_to_fetched_u11_copy():
+    """V2 is REUSED from the universe-stage1 runner's U11 guard (orch#997
+    lineage): byte-identity vs origin/main compared only AFTER a mandatory
+    `git fetch origin main`, fetch failure fails CLOSED — not the tail_q90
+    copy, whose comparison authority is whatever local ref happens to be
+    cached as origin/main."""
+    assert source_of(RUNNER, "assert_runner_matches_main") \
+        == source_of(UNIVERSE, "assert_runner_matches_main")
+
+
+# ------------------------------------------- V2 fetch-first guard (behavior)
+def _stub_git(monkeypatch, *, fetch_rc=0, show_rc=0, show_bytes=None,
+              main_sha="a" * 40):
+    """Fake rn.subprocess.run for the V2 git triad; returns the call log."""
+    calls = []
+    top = str(RUNNER.parents[3])
+
+    class R:
+        def __init__(self, rc, out, err=""):
+            self.returncode, self.stdout, self.stderr = rc, out, err
+
+    def run(cmd, **kw):
+        calls.append(list(cmd))
+        if "rev-parse" in cmd and "--show-toplevel" in cmd:
+            return R(0, top + "\n")
+        if "fetch" in cmd:
+            return R(fetch_rc, "", "fetch blocked (test)")
+        if "show" in cmd:
+            body = RUNNER.read_bytes() if show_bytes is None else show_bytes
+            return R(show_rc, body, b"")
+        if "rev-parse" in cmd:
+            return R(0, main_sha + "\n")
+        raise AssertionError(f"unexpected git call: {cmd}")
+
+    monkeypatch.setattr(rn.subprocess, "run", run)
+    return calls
+
+
+def test_runner_matches_main_fetch_failure_fails_closed(monkeypatch):
+    _stub_git(monkeypatch, fetch_rc=1)
+    with pytest.raises(AssertionError, match="cannot fetch origin/main"):
+        rn.assert_runner_matches_main()
+
+
+def test_runner_matches_main_refuses_when_not_merged(monkeypatch):
+    _stub_git(monkeypatch, show_rc=128)
+    with pytest.raises(AssertionError, match="not on origin/main"):
+        rn.assert_runner_matches_main()
+
+
+def test_runner_matches_main_refuses_on_byte_drift(monkeypatch):
+    _stub_git(monkeypatch, show_bytes=b"# a superseded copy\n")
+    with pytest.raises(AssertionError, match="differ from origin/main"):
+        rn.assert_runner_matches_main()
+
+
+def test_runner_matches_main_fetches_before_compare_and_pins_lineage(monkeypatch):
+    """orch#997: the fetch must precede show/rev-parse, and the returned
+    provenance must be the post-fetch sha + the executing file's sha256."""
+    sha = "b" * 40
+    calls = _stub_git(monkeypatch, main_sha=sha)
+    out = rn.assert_runner_matches_main()
+    kinds = [("fetch" if "fetch" in c else
+              "show" if "show" in c else
+              "rev-parse-main" if "origin/main" in c else "toplevel")
+             for c in calls]
+    assert kinds.index("fetch") < kinds.index("show")
+    assert kinds.index("fetch") < kinds.index("rev-parse-main")
+    assert out == {"origin_main_sha": sha,
+                   "runner_sha256": hashlib.sha256(RUNNER.read_bytes()).hexdigest()}
 
 
 # ------------------------------------------------------- frozen-table pins

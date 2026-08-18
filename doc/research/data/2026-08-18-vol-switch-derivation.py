@@ -6,8 +6,8 @@ Governing contract: doc/research/2026-08-18-vol-switch-confirmatory-prereg.md
 execution-contract runner: committed AND REVIEWED before the run. THIS PR
 ships the runner un-run; the single run happens only after the runner PR
 merges (V2 enforces exactly that: the runner refuses to execute unless its
-bytes match origin/main). ONE execution — re-running after seeing results is
-FORBIDDEN (V1).
+bytes match a freshly FETCHED origin/main). ONE execution — re-running after
+seeing results is FORBIDDEN (V1).
 
 Hypothesis (prereg §1, one-sided): the panel's top-decile tail skill is
 positive when trailing market volatility is elevated ("ON"). The confirmatory
@@ -85,7 +85,9 @@ FROZEN RUNNER GUARDS (prereg §6 — written down here, before the run):
 V1   One-shot marker: the runner REFUSES to run if any output file already
      exists. Outputs land ONLY next to this script (doc/research/data/).
 V2   Byte-identity vs origin/main at execution: freeze-then-review-then-run,
-     mechanically enforced (not merged -> fail closed).
+     mechanically enforced (not merged -> fail closed), compared only AFTER
+     a mandatory `git fetch origin main` (fetch failure fails CLOSED) — the
+     universe-stage1 runner's U11 guard reused byte-identically (orch#997).
 V3   Served-artifact identity: config_fingerprint sha256:f8fb2259b2bf1537,
      kind panel_ltr_xgboost, label fwd_60d_excess, lookahead 60, 172
      feature_cols + 172 norm kinds, best_iter 100.
@@ -402,11 +404,18 @@ def assert_one_shot(outputs=OUTPUTS) -> None:
 
 
 def assert_runner_matches_main() -> dict:
-    """T2: the executing runner's bytes must equal origin/main's copy."""
+    """U11: the executing runner's bytes must equal origin/main's copy,
+    compared AFTER a mandatory fetch (orch#997: without the fetch the
+    guard's authority is a local cache). Fetch failure fails CLOSED."""
     me = Path(__file__).resolve()
     top = subprocess.run(["git", "-C", str(me.parent), "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True, check=True).stdout.strip()
     rel = me.relative_to(Path(top))
+    fetch = subprocess.run(["git", "-C", top, "fetch", "--quiet", "origin", "main"],
+                           capture_output=True, text=True)
+    _assert(fetch.returncode == 0,
+            "cannot fetch origin/main — refusing to validate against a stale "
+            f"local ref (orch#997, fail closed): {fetch.stderr.strip()}")
     blob = subprocess.run(["git", "-C", top, "show", f"origin/main:{rel.as_posix()}"],
                           capture_output=True)
     _assert(blob.returncode == 0,

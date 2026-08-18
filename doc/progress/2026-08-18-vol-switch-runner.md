@@ -5,7 +5,8 @@ STATUS:    runner + tests ONLY, per the merged frozen prereg
            refits, no scoring, no outputs in this PR. The ONE run happens after this
            PR is reviewed and merged (prereg §6 freeze-then-review-then-run) — and the
            runner mechanically enforces that order: it refuses to execute unless its
-           bytes match origin/main (guard V2), and refuses ever to re-run (guard V1).
+           bytes match a freshly FETCHED origin/main (guard V2), and refuses ever to
+           re-run (guard V1).
 
 WHAT:      Commit `doc/research/data/2026-08-18-vol-switch-derivation.py` implementing
            prereg §2–§6 verbatim, plus `tests/test_vol_switch_runner.py` (50 synthetic
@@ -21,12 +22,15 @@ WHAT:      Commit `doc/research/data/2026-08-18-vol-switch-derivation.py` implem
              2016-01-04, realized-labels-only per refit (max train date + 60td ≤ C,
              V7); at scoring date d the NEWEST refit with C + 60td ≤ d, asserted per
              date (V6). Machinery REUSED from the reviewed tail_q90 runner
-             (#996/#999): 12 defs (`build_refit_calendar`, `refit_index_for_date`,
+             (#996/#999): 11 defs (`build_refit_calendar`, `refit_index_for_date`,
              `latest_realized_label_pos`, `ReadersLite`, `assert_one_shot`,
-             `assert_runner_matches_main`, `load_trainer_module`,
-             `load_served_artifact`, `fit_booster`, `score_frame`, `_sha256`,
-             `_assert`) copied VERBATIM, byte-identity ENFORCED by a committed
-             parametrized test.
+             `load_trainer_module`, `load_served_artifact`, `fit_booster`,
+             `score_frame`, `_sha256`, `_assert`) copied VERBATIM, byte-identity
+             ENFORCED by a committed parametrized test.
+             `assert_runner_matches_main` is instead the universe-stage1 runner's
+             fetch-first U11 guard (orch#997 lineage) copied VERBATIM, byte-identity
+             enforced by its own committed test — the tail_q90 copy validates
+             against a possibly-stale local origin/main ref (review round 1).
            - State (§2): ON ⇔ SPY 20-td realized vol (close-to-close, ddof=1,
              √252) > 0.135 STRICT (exactly 0.135 is OFF — tested); sensitivity
              variant = expanding upper-tercile, 504-obs warmup from 2016-01-04,
@@ -58,8 +62,10 @@ WHAT:      Commit `doc/research/data/2026-08-18-vol-switch-derivation.py` implem
              strings echoed verbatim into the output JSON.
            - Guards as hard assertions: one-shot (V1, tested on temp paths — the
              tail_q90 lesson: no repo-state "un-run" test that the ONE authorized run
-             would break); byte-identity-vs-origin/main (V2, fail-closed verified on
-             this unmerged copy); frozen geometry EXACT (V9, tested); per-date embargo
+             would break); byte-identity vs a freshly FETCHED origin/main (V2 = the
+             U11 fetch-first guard; fetch failure fails CLOSED; fail-closed
+             re-verified on this unmerged copy AFTER the port, and fetch-precedes-
+             compare pinned by test); frozen geometry EXACT (V9, tested); per-date embargo
              (V6, boundary tested C+60=d usable / C+59 not); paired weekly-grid
              identity — state classification positional AND label lookup must agree
              at every scoring date (V10); snapshot edge — last grid date + 60td
@@ -113,8 +119,10 @@ EVIDENCE:
                  artifact's feature_norm_kind at BOTH ladder extremes (2016-06-30,
                  17,095 rows — the smallest window; 2025-12-31, 691,203 rows);
                  synthetic fit/score round trip deterministic (identical booster
-                 digests across repeat fits); V2 byte-identity gate fails closed on
-                 this unmerged copy; xgboost 2.1.4.
+                 digests across repeat fits); [VERIFIED — re-run 2026-08-18 after the
+                 U11 port] V2 gate fails closed on this unmerged copy (real fetch
+                 succeeded, then refused: "runner is not on origin/main");
+                 xgboost 2.1.4.
   best-known?:   yes — scoring machinery is the reviewed #996/#999 engine reused
                  byte-identically (enforced by test, the repo's reuse convention);
                  every §5 quantity routes through a pure function with synthetic
@@ -126,7 +134,8 @@ EVIDENCE:
                  §6). CONFIRMED would authorize only a shadow-first design PR;
                  activation stays operator-gated."
 
-TESTS:     `tests/test_vol_switch_runner.py` — 50 passed (vol-state classification
+TESTS:     `tests/test_vol_switch_runner.py` — 54 passed [VERIFIED — pytest -q,
+           2026-08-18, review-round-1 head] (vol-state classification
            incl. the 0.135 boundary and expanding warmup; block eligibility ≥15;
            DGTW self-excluded cell mean hand-computed + cell-floor flagging;
            top-decile spread + rounding pin; NW lag-1 hand-computed; stationary
@@ -134,8 +143,11 @@ TESTS:     `tests/test_vol_switch_runner.py` — 50 passed (vol-state classifica
            clip-at-0; P1 conjunction each-condition flips incl. DISAGREEMENT and the
            anti-lottery guard; P2 pass/fail/floor/exclusion/fail-closed; verdict
            mapping + precedence + consequence strings; embargo boundary C+60=d
-           usable / C+59 not; 39-cutoff ladder; one-shot mechanism; 12-way
-           byte-identity vs the tail_q90 runner; frozen-constant and frozen-geometry
+           usable / C+59 not; 39-cutoff ladder; one-shot mechanism; 11-way
+           byte-identity vs the tail_q90 runner + V2-guard byte-identity vs the
+           universe-stage1 U11 copy + 4 V2 behavior tests (fetch failure fails
+           closed, unmerged refusal, byte-drift refusal, fetch-precedes-compare +
+           lineage pin); frozen-constant and frozen-geometry
            pins). Full suite run on this branch alongside.
 
 NEXT:      codex review of THIS PR (the interpretation ledger is the review surface)
@@ -143,3 +155,15 @@ NEXT:      codex review of THIS PR (the interpretation ledger is the review surf
            ON/OFF block tables both corpora × both state definitions, realized
            ρ̂₁/ESS, tilt control, provenance) → on CONFIRMED/PARTIAL, the
            deployment-window design PR (operator-gated).
+
+CORRECTIONS (review round 1, 2026-08-18):
+  - codex MED: the shipped `assert_runner_matches_main` was the tail_q90 copy,
+    which compares against whatever local ref is cached as origin/main (no
+    fetch) — a stale local main could bless stale bytes at the one run. FIXED:
+    ported the universe-stage1 runner's U11 fetch-first fail-closed guard
+    VERBATIM (mandatory `git fetch origin main` before show/rev-parse; fetch
+    failure fails CLOSED, orch#997). The reuse-identity test now enforces the
+    guard's byte-identity vs the U11 copy (the other 11 defs stay pinned to
+    tail_q90), plus 4 ported behavior tests. Figures updated above: 12→11
+    tail_q90-pinned defs; tests 50→54; the "fail-closed verified" evidence
+    line re-measured on the ported guard.
