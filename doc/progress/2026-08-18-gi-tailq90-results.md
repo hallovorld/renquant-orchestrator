@@ -3,8 +3,9 @@
 STATUS:    delivered. The ONE authorized execution of the frozen, reviewed
            runner (spec orch#994, runner orch#996) has happened; the
            `tail_q90` family's one-shot budget is SPENT. Verdict at the
-           trained horizon (h=60 PRIMARY): **FLAGGED**. Results + memo only —
-           no code change, no config, no live surface.
+           trained horizon (h=60 PRIMARY): **FLAGGED**. Results, memo, and a
+           TEST AMENDMENT forced by this PR's own arrival (see TESTS) — no
+           src change, no config, no live surface.
 
 WHAT:      Executed `doc/research/data/2026-08-18-gi-tailq90-derivation.py`
            VERBATIM from orchestrator main `9d73d546` (byte-identity asserted
@@ -63,10 +64,33 @@ EVIDENCE:
                  required before any kill, no admission, no roster change,
                  no serving change, no deploy."
 
-TESTS:     none added/changed (results + docs PR). The runner's committed
-           test suite (tests/test_tailq90_runner.py, 33 tests) merged with
-           #996 and is untouched; the run itself passed all 15 runtime
-           guards (T1–T15) and exited 0.
+TESTS:     `tests/test_tailq90_runner.py` AMENDED on this head (34 tests).
+           An earlier revision of this doc said "none added/changed"; that was
+           accurate when the PR carried results only and went stale the moment
+           the amendment landed — codex MED, 2026-08-18.
+
+           Why the amendment was unavoidable: the suite merged with #996
+           contained `test_this_pr_ships_unrun_no_outputs_committed`, which
+           called the RUNTIME guard `rn.assert_one_shot()` against the real
+           `OUTPUTS`. That was true of the RUNNER PR (#996 shipped un-run,
+           spec §6) but is not an invariant — THIS PR is the authorized run
+           and legitimately commits those outputs, so the test could only ever
+           fail from here on. A one-shot property asserted as a permanent test
+           necessarily breaks at the one shot; CI failed on exactly that.
+
+           The runtime guard is UNCHANGED and still refuses a second
+           execution. Only the test's subject moved, from repository state to
+           behaviour:
+           * `test_one_shot_guard_fires_when_an_output_already_exists` drives
+             `assert_one_shot()` on tmp_path outputs — passes when absent,
+             raises when present, raises when ANY of several outputs exists.
+           * `test_the_authorized_run_outputs_are_present_on_this_branch` —
+             the complement: this branch IS the run, so the declared `OUTPUTS`
+             must be committed here.
+           Load-bearing, verified by neutering the guard's existence check:
+           2 failed neutered, 34 passed restored.
+
+           The run itself passed all 15 runtime guards (T1–T15) and exited 0.
 
 NEXT:      per the merged spec, `tail_q90_60d` sits deprioritised in the
            #984 §5b queue; its only path forward is the point-in-time
