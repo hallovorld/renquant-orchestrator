@@ -786,11 +786,35 @@ def load_admitted(
 
 
 # Batch entry submissions on the CURRENT live path: the post-close batch stamps a
-# ``trades`` row with one of these order types at submit time (action
-# ``buy_pending``, flipped to ``buy`` only if a fill confirmation is ever written).
-# ``QP_BUY`` / sim rows (order_type NULL) are deliberately excluded — those belong
-# to the legacy ``selected = 1`` path.
-SUBMITTED_ENTRY_ORDER_TYPES = ("NEW_BUY", "TOP_UP")
+# ``trades`` row at submit time (action ``buy_pending``, flipped to ``buy`` only if
+# a fill confirmation is ever written).
+#
+# THIS IS AN EXCLUDE-LIST, AND THAT INVERSION IS THE POINT (2026-08-19).
+# It used to be an ALLOW-list, ``("NEW_BUY", "TOP_UP")``, written when those were
+# the only entry order types the live path stamped. The pipeline then started
+# entering names by rotation, stamping ``order_type = 'ROTATION'`` — a real capital
+# entry that the allow-list silently dropped. Measured on the live runs DB,
+# `action IN ('buy_pending','buy')`, run_type='live', since 2026-06-01:
+#
+#     NEW_BUY   n=61   2026-06-09 .. 2026-08-14
+#     TOP_UP    n=7    2026-06-24 .. 2026-07-22
+#     ROTATION  n=5    2026-08-10 .. 2026-08-19   <- never collected
+#
+# NEW_BUY's last firing is 2026-08-14 and ROTATION is now the live book's only
+# entry path, so the collector went blind on 2026-08-14 while reporting a healthy
+# `sessions: 0` every day. That is the SECOND time this collector has structurally
+# collected nothing (cf. doc/progress/2026-07-02-intraday-pairing-zero-sessions-fix.md),
+# and both times an enumeration of what the pipeline stamps went stale without a
+# single test failing.
+#
+# So the predicate no longer enumerates what to KEEP. ``action`` already restricts
+# to buys; a new entry order type is therefore admitted BY DEFAULT, and only the
+# rows known not to be batch entry submissions are named here. The failure mode
+# becomes over-collection — which the downstream censoring records and a reader can
+# see — instead of silent under-collection, which is invisible by construction.
+#: Buy-side ``order_type`` values that are NOT batch entry submissions. ``QP_BUY``
+#: and sim rows (``order_type`` NULL) belong to the legacy ``selected = 1`` path.
+NON_ENTRY_BUY_ORDER_TYPES = ("QP_BUY",)
 SUBMITTED_ENTRY_ACTIONS = ("buy_pending", "buy")
 
 
@@ -823,7 +847,10 @@ def load_submitted_entries(
 ) -> list[AdmittedName]:
     """CURRENT live admit path: the batch entry orders actually SUBMITTED by the
     ``admit_date`` (previous session) runs — ``trades`` rows with
-    ``action IN ('buy_pending', 'buy')`` and ``order_type IN ('NEW_BUY', 'TOP_UP')``.
+    ``action IN ('buy_pending', 'buy')`` whose ``order_type`` is stamped and is not
+    one of :data:`NON_ENTRY_BUY_ORDER_TYPES`. Any entry order type the pipeline
+    stamps is therefore admitted by default, including ones added after this was
+    written (``ROTATION`` was the one that exposed the old allow-list).
 
     The submission row is the pre-treatment admit signal the live pipeline still
     stamps (``candidate_scores.selected`` stays 0 with
@@ -836,21 +863,26 @@ def load_submitted_entries(
     cols = _table_columns(conn, "trades")
     if "order_type" in cols:
         action_ph = ",".join("?" for _ in SUBMITTED_ENTRY_ACTIONS)
-        type_ph = ",".join("?" for _ in SUBMITTED_ENTRY_ORDER_TYPES)
+        type_ph = ",".join("?" for _ in NON_ENTRY_BUY_ORDER_TYPES)
+        # `order_type IS NOT NULL` keeps the sim/legacy rows out: SQL `NOT IN`
+        # is UNKNOWN (not TRUE) for a NULL left-hand side, so a NULL order_type
+        # would be dropped by the NOT IN alone — stated explicitly rather than
+        # relying on three-valued logic to mean what we want.
         query = f"""
             SELECT DISTINCT t.run_id AS run_id, t.ticker AS ticker
             FROM trades t
             JOIN pipeline_runs pr ON pr.run_id = t.run_id
             WHERE pr.run_date = ? AND pr.run_type = ?
               AND t.action IN ({action_ph})
-              AND t.order_type IN ({type_ph})
+              AND t.order_type IS NOT NULL
+              AND t.order_type NOT IN ({type_ph})
             ORDER BY t.run_id, t.ticker
         """
         params: tuple[Any, ...] = (
             admit_date,
             run_type,
             *SUBMITTED_ENTRY_ACTIONS,
-            *SUBMITTED_ENTRY_ORDER_TYPES,
+            *NON_ENTRY_BUY_ORDER_TYPES,
         )
     else:
         query = """

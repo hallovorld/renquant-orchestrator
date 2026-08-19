@@ -922,15 +922,64 @@ def test_load_submitted_entries_filters_and_session_date(tmp_path):
         [
             ("r1", "OXY", "buy_pending", 47.94, ADMIT_DATE, "NEW_BUY"),
             ("r1", "MU", "buy_pending", 1062.0, ADMIT_DATE, "TOP_UP"),  # top-up entry
+            ("r1", "CRWD", "buy_pending", 412.0, ADMIT_DATE, "ROTATION"),  # rotation entry
             ("r1", "NEE", "sell_pending", 87.5, ADMIT_DATE, "EXIT"),  # not an entry
             ("r1", "WFC", "buy", 76.4, ADMIT_DATE, "QP_BUY"),  # legacy path only
+            ("r1", "AMD", "buy", 150.0, ADMIT_DATE, None),  # sim/legacy: unstamped
         ],
     )
     names = load_submitted_entries(db, ADMIT_DATE, session_date=SESSION)
-    assert sorted(n.ticker for n in names) == ["MU", "OXY"]
+    assert sorted(n.ticker for n in names) == ["CRWD", "MU", "OXY"]
     assert all(n.date == SESSION for n in names)  # ticks key on the FILL session
     assert all(n.signal_version == "r1" for n in names)
     assert all(n.side == "buy" for n in names)
+
+
+def test_a_NEW_entry_order_type_is_admitted_without_editing_this_module(tmp_path):
+    """The 2026-08-19 regression, stated as the invariant rather than as `ROTATION`.
+
+    The predicate used to ENUMERATE the entry order types it would keep
+    (`NEW_BUY`, `TOP_UP`). When the pipeline began entering names by rotation it
+    stamped `order_type='ROTATION'`, which matched nothing — so real capital
+    entries were dropped and the collector reported a healthy `sessions: 0` every
+    day from 2026-08-14 (NEW_BUY's last live firing) onward. No test failed,
+    because every fixture used the two types the allow-list already named.
+
+    Measured on the live runs DB, `action IN ('buy_pending','buy')`:
+      NEW_BUY n=61 (..2026-08-14) | TOP_UP n=7 (..2026-07-22) |
+      ROTATION n=5 (2026-08-10..2026-08-19, never collected) | QP_BUY n=3 | NULL sim/legacy
+
+    So the test asserts the property that survives the next order type, not the
+    name of this one: an order type nobody has heard of is an ENTRY by default,
+    and only the explicitly-named non-entry rows are excluded.
+    """
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(
+        """
+        CREATE TABLE pipeline_runs (run_id TEXT, run_date DATE, run_type TEXT);
+        CREATE TABLE trades (
+            run_id TEXT, ticker TEXT, action TEXT, price REAL, trade_date DATE,
+            order_type TEXT
+        );
+        """
+    )
+    db.execute("INSERT INTO pipeline_runs VALUES ('r1', ?, 'live')", (ADMIT_DATE,))
+    db.executemany(
+        "INSERT INTO trades VALUES (?,?,?,?,?,?)",
+        [
+            ("r1", "ROT", "buy_pending", 10.0, ADMIT_DATE, "ROTATION"),
+            ("r1", "FUT", "buy_pending", 11.0, ADMIT_DATE, "SOME_FUTURE_ENTRY_KIND"),
+            ("r1", "QPB", "buy", 12.0, ADMIT_DATE, "QP_BUY"),  # named non-entry
+            ("r1", "NUL", "buy", 13.0, ADMIT_DATE, None),  # unstamped sim/legacy
+            ("r1", "SLD", "sell_pending", 14.0, ADMIT_DATE, "SELL_ATTEMPT_rotation"),
+        ],
+    )
+    names = load_submitted_entries(db, ADMIT_DATE, session_date=SESSION)
+    assert sorted(n.ticker for n in names) == ["FUT", "ROT"], (
+        "a buy-side order type that is not a NAMED non-entry must be admitted; "
+        "enumerating what to keep is what went blind on 2026-08-14"
+    )
 
 
 def test_load_submitted_entries_schema_without_order_type_column():
