@@ -21,6 +21,15 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "ops" / "renquant104"))
 import goal7_arm_b_accrual_probe as P  # noqa: E402
 
+#: The floor under the GOAL-7 registration's "~2027" Arm-B estimate. The live
+#: assertion below does not pin WHICH 2027 date the observed cadence projects
+#: — that moves every Saturday and pinning it is how this test went red twice.
+#: It pins the direction that would falsify the record: a projection landing
+#: EARLIER than 2027 means the registration, not the probe, is out of date.
+#: Measured 2026-08-18 for reference (not asserted): 2027-05-24, from three
+#: BULL_CALM cutoffs at 0.154 cutoffs/day, primary share 1.0.
+REGISTRATION_ESTIMATE_NOT_BEFORE = "2027-01-01"
+
 
 def _ledger(tmp_path, *cutoffs, name="l.jsonl"):
     p = tmp_path / name
@@ -237,8 +246,20 @@ def test_the_LIVE_ledger_is_what_the_GOAL7_record_describes():
     2026-08-02) and therefore broke the first time the Saturday job did its
     job (2026-08-08 append) — an alarm on designed behaviour. What the
     GOAL-7 record actually stakes is: nothing has MATURED yet, so the
-    registration's ~2027 estimate stands and no projection exists. Those are
-    the tripwires; accrual is expected, so only its floor is asserted.
+    registration's ~2027 estimate stands. Those are the tripwires; accrual is
+    expected, so only its floor is asserted.
+
+    THE SAME MISTAKE, ONE LAYER UP (2026-08-18): the replacement then pinned
+    ``projection.projected is False`` — true only while the ledger held a
+    single cutoff. `TestItRefusesToProjectFromNothing` is explicit that two or
+    more cutoffs are exactly when the probe SHOULD project, so the third
+    Saturday append (2026-08-15, three BULL_CALM cutoffs, primary share 1.0)
+    turned the probe's designed behaviour into a red suite again.
+
+    So the live assertion is on CONSISTENCY, not on which branch the probe
+    takes: whichever way it goes, it must agree with the registration's ~2027
+    estimate — a projection landing sooner is the signal that the record needs
+    replacing, and a refusal must still say why.
     """
     if not P.LEDGER.is_file():
         pytest.skip("umbrella ledger absent — the unit tests above still ran")
@@ -248,4 +269,16 @@ def test_the_LIVE_ledger_is_what_the_GOAL7_record_describes():
     assert r["n_primary_matured"] == 0, (
         "Arm B has started maturing — the registration's ~2027 estimate should "
         "be replaced by the probe's projection", r)
-    assert r["projection"]["projected"] is False
+    proj = r["projection"]
+    if proj["projected"]:
+        eta = proj["projected_eligible_on_or_after"]
+        assert eta > dt.date.today().isoformat(), (
+            "a projected eligibility date in the past is arithmetic, not a "
+            "forecast", proj)
+        assert eta >= REGISTRATION_ESTIMATE_NOT_BEFORE, (
+            "the observed cadence now projects Arm B eligible BEFORE the "
+            f"registration's ~2027 estimate ({REGISTRATION_ESTIMATE_NOT_BEFORE}) "
+            "— the record is the thing that is stale, not this test", proj)
+    else:
+        assert proj["refused_because"], (
+            "a probe that neither projects nor says why is unreadable", proj)

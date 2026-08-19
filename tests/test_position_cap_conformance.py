@@ -156,6 +156,15 @@ def test_a_breach_names_the_RUN_that_produced_it(tmp_path):
 #: registering. They did not stop having happened.
 CAP_IN_FORCE_2026_07_28 = 0.12
 
+#: The day the deployed cap moved 0.12 -> 0.30 (strategy-104 e00d935, merged
+#: 2026-08-06). A retired cap is evidence about the buys made WHILE IT WAS IN
+#: FORCE and about nothing else — applying it forward is the mirror image of
+#: the rot this file exists to prevent. Without this bound the historical
+#: assertion started failing on 2026-08-12/14 (SPG 0.1604, APH 0.1214): both
+#: sized WITHIN the 0.30 cap that governed them, both "breaching" a number
+#: that no longer applied. That is an alarm on compliant behaviour.
+CAP_RAISED_ON = "2026-08-06"
+
 
 def test_the_LIVE_book_is_what_the_record_describes(tmp_path):
     """Bound to reality: 2 of 33 live buys since 2026-07-01 breached the cap
@@ -165,12 +174,16 @@ def test_the_LIVE_book_is_what_the_record_describes(tmp_path):
     deployed config this assertion silently passed as "0 breaches" the moment
     the cap was raised — a policy change is not a reason for a past breach to
     disappear from the record, and a test that lets it is how the record rots.
+
+    The pinned cap is applied only to its OWN era (< ``CAP_RAISED_ON``); buys
+    governed by the 0.30 cap are judged by `test_the_DEPLOYED_cap_...` below.
     """
     if not P.DB.is_file() or not P.CONFIG.is_file():
         pytest.skip("umbrella evidence absent — the unit tests above still ran")
     hist_cfg = _cfg(tmp_path, {"BULL_CALM": {"max_position_pct": CAP_IN_FORCE_2026_07_28}})
     r = P.scan("2026-07-01", config_path=hist_cfg)
-    over = [b for b in r["buys"] if b["state"] == P.STATE_OVER]
+    over = [b for b in r["buys"]
+            if b["state"] == P.STATE_OVER and b["trade_date"] < CAP_RAISED_ON]
     assert {b["ticker"] for b in over} == {"TSLA", "EME"}, over
     assert {b["trade_date"] for b in over} == {"2026-07-28"}, over
     for b in over:
