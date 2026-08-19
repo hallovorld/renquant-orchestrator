@@ -65,6 +65,26 @@ WHAT:      orch#1007 merged before its double-audit finished. The audit
            by orch#1007.** Neither "drop the momentum leg" nor "add the
            clf leg" has evidence behind it after this correction.
 
+WHY/DIR:   Guards the bull-alpha program's decision surface, and it is a
+           CORRECTION of my own work, not a new line. The operator's
+           2026-08-18 policy ("用backtest代替所有数据积累") makes backtests
+           the evidence that collapses accumulation clocks — which raises,
+           not lowers, the bar on what a backtest is allowed to conclude.
+           orch#1007 is the first run under that policy and it merged
+           before its double-audit landed; two of its readings then failed
+           the audit. Left standing, they point at a live configuration
+           change (drop the momentum leg / add the clf leg) that nothing
+           supports, on the SERVED blend, in the direction the operator is
+           actively pushing to ship. Withdrawing them keeps the program's
+           speed without letting speed decide capital. It also converts a
+           one-off mistake into a reusable bound: on an UNWEIGHTED z-sum,
+           arms with different leg-counts are not comparable as leg
+           attributions — which constrains every future MoE/blend
+           experiment (G-I AC5 weighting is exactly the change that would
+           lift the bound). Direction unchanged: B−A stands, the vol-window
+           shadow lane keeps accruing, and the next momentum verdict needs
+           its own prereg rather than a diagnostic borrowed from this run.
+
 EVIDENCE:
   artifact:      doc/research/2026-08-18-erratum-clf-backtest-attribution.md
                  (new); five withdrawal banners in
