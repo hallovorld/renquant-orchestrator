@@ -1,5 +1,18 @@
 # Does the clf leg beat the served blend? — paired backtest
 
+> ⚠️ **PARTLY SUPERSEDED — read
+> [`2026-08-18-erratum-clf-backtest-attribution.md`](2026-08-18-erratum-clf-backtest-attribution.md)
+> first.** Every number below reproduced exactly under double-audit, and the
+> §1 verdict (`B − A = +0.05863`, CI90 lower > 0) stands. **Two readings do
+> not:** (a) §1a/§3's attribution of `A − D = −0.031` to the momentum leg is
+> **WITHDRAWN** — it is a dilution artefact of the unweighted z-sum, *less*
+> negative than the zero-information prediction, and it collapses 86% under
+> this run's own winsorized column; (b) §4b's "the certification does not
+> reproduce" is **inverted** — on this backtest's window model#76's own
+> instrument gives +0.0155 (CI90 lower −0.045), so +0.02843 is *larger*, not
+> 41%. §4a's harness grade is also overstated: the baseline level is 12.56%
+> below the sibling vol-switch run and that gap is unexplained.
+
 STATUS: **BACKTEST**, executed under the operator's 2026-08-18 policy
 (verbatim: "用backtest代替所有数据积累" — backtests replace
 evidence-accumulation waits). It is **not** a preregistered confirmatory and
@@ -67,6 +80,13 @@ one the question implies.** Per-arm levels on the identical common universe:
 corpus the momentum leg subtracts from the panel model rather than adding
 to it, and most of `B − A` is that drag being diluted, not the clf leg
 being strong. §3 decomposes it.
+
+> ⚠️ **WITHDRAWN (erratum, same day).** The ORDERING above is real; the
+> ATTRIBUTION in the second sentence is not. Adding a second leg to an
+> unweighted z-sum halves the informative leg's weight even when the added
+> leg carries nothing, so `A − D` measures dilution, not the momentum leg.
+> Under the zero-information null the predicted `A − D` is **−0.03565**,
+> i.e. *more* negative than the −0.03073 measured. See the erratum §2.
 
 ---
 
@@ -146,11 +166,30 @@ The honest one-line summary: **on this corpus the candidate beats what is
 served, but the cleanest reading of why is that the momentum leg is not
 earning its half of the served blend — not that the clf leg is strong.**
 
+> ⚠️ **WITHDRAWN (erratum, same day).** Items 2 and 4 above and this summary
+> line read `A − D` and `C − B` as leg attributions. They are not: the
+> unweighted z-sum confounds a leg's information with its dilution of the
+> others in *every* contrast this design produced, and ρ(xgb, mom) was not
+> persisted, so the momentum leg's own sign is **unidentifiable** from this
+> run in either direction. `A − D` also collapses 86% under this run's own
+> winsorized column (−0.03073 → −0.00430) and was never statistically
+> established (NW t −0.810; 0/28 LOBO subsets establish `D > A`). The
+> surviving statement is the frozen primary `B − A` and the descriptive
+> ordering `{B, C} > D > A`. See the erratum §2 and §5.
+
 ---
 
 ## 4. Controls
 
 ### 4a. Harness control — PASSES (this is the strong one)
+
+> ⚠️ **DOWNGRADED (erratum, same day).** The STRUCTURAL checks below pass
+> exactly and that is not in question. The **level** does not: `+0.12171`
+> here vs the sibling committed vol-switch run's `+0.13919` on the identical
+> corpus = **−12.56%**, while a random 1.3% universe restriction moves the
+> level **−0.29%** — 43× short of the gap. Treat arm LEVELS from this
+> harness as carrying an unquantified offset; the paired contrasts (where a
+> common offset cancels) are the trustworthy reads. Erratum §4.
 
 The runner's construction is checked against the committed, reviewed
 vol-switch run over the **identical** corpus, grid, estimand and prod
@@ -173,6 +212,17 @@ shape, but value-level identity was **not** verified). I do not claim a
 cleaner attribution than that.
 
 ### 4b. Certification cross-check — DOES NOT REPRODUCE, and I say so
+
+> ⚠️ **INVERTED (erratum, same day).** There is no shrinkage to explain. The
+> gap is the **corpus window**: 84% of model#76's certified +0.06873 comes
+> from the 645 dates AFTER this backtest's corpus ends. Restricted to this
+> window, model#76's OWN instrument gives **+0.01554, CI90
+> [−0.04481, +0.07117]** — INCONCLUSIVE. So +0.02843 is *larger* than the
+> certification's same-window number, not "~41% of the magnitude", and the
+> instrument-difference explanation below is not the leading mechanism. The
+> clf leg is not impeached by this backtest. What IS true: +0.0687 is a
+> recent-regime number whose published CI used block length = label horizon
+> (60 = 60), the geometry this program has retracted as a defect. Erratum §3.
 
 model#76 certified `z(xgb)+z(clf)` vs solo-xgb at **+0.0687/60d, CI90
 [+0.0156, +0.1269]**, on two disjoint seed draws.
