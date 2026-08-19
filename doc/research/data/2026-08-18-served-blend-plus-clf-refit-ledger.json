@@ -1,0 +1,4169 @@
+{
+  "momentum_artifact_by_score_date": {
+    "2017-01-03": {
+      "effective_train_cutoff_date": "2016-12-05",
+      "formation_window": {
+        "hi_inclusive": "2016-12-05",
+        "lo_exclusive": "2015-12-17"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-01-10": {
+      "effective_train_cutoff_date": "2016-12-12",
+      "formation_window": {
+        "hi_inclusive": "2016-12-12",
+        "lo_exclusive": "2015-12-24"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-01-18": {
+      "effective_train_cutoff_date": "2016-12-20",
+      "formation_window": {
+        "hi_inclusive": "2016-12-20",
+        "lo_exclusive": "2016-01-01"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-01-25": {
+      "effective_train_cutoff_date": "2016-12-27",
+      "formation_window": {
+        "hi_inclusive": "2016-12-27",
+        "lo_exclusive": "2016-01-08"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-02-01": {
+      "effective_train_cutoff_date": "2017-01-03",
+      "formation_window": {
+        "hi_inclusive": "2017-01-03",
+        "lo_exclusive": "2016-01-15"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-02-08": {
+      "effective_train_cutoff_date": "2017-01-10",
+      "formation_window": {
+        "hi_inclusive": "2017-01-10",
+        "lo_exclusive": "2016-01-22"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-02-15": {
+      "effective_train_cutoff_date": "2017-01-17",
+      "formation_window": {
+        "hi_inclusive": "2017-01-17",
+        "lo_exclusive": "2016-01-29"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-02-23": {
+      "effective_train_cutoff_date": "2017-01-25",
+      "formation_window": {
+        "hi_inclusive": "2017-01-25",
+        "lo_exclusive": "2016-02-08"
+      },
+      "n_names": 264,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-03-02": {
+      "effective_train_cutoff_date": "2017-02-01",
+      "formation_window": {
+        "hi_inclusive": "2017-02-01",
+        "lo_exclusive": "2016-02-15"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-03-09": {
+      "effective_train_cutoff_date": "2017-02-08",
+      "formation_window": {
+        "hi_inclusive": "2017-02-08",
+        "lo_exclusive": "2016-02-22"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-03-16": {
+      "effective_train_cutoff_date": "2017-02-15",
+      "formation_window": {
+        "hi_inclusive": "2017-02-15",
+        "lo_exclusive": "2016-02-29"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-03-23": {
+      "effective_train_cutoff_date": "2017-02-22",
+      "formation_window": {
+        "hi_inclusive": "2017-02-22",
+        "lo_exclusive": "2016-03-07"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-03-30": {
+      "effective_train_cutoff_date": "2017-03-01",
+      "formation_window": {
+        "hi_inclusive": "2017-03-01",
+        "lo_exclusive": "2016-03-14"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-04-06": {
+      "effective_train_cutoff_date": "2017-03-08",
+      "formation_window": {
+        "hi_inclusive": "2017-03-08",
+        "lo_exclusive": "2016-03-21"
+      },
+      "n_names": 265,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-04-13": {
+      "effective_train_cutoff_date": "2017-03-15",
+      "formation_window": {
+        "hi_inclusive": "2017-03-15",
+        "lo_exclusive": "2016-03-28"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-04-21": {
+      "effective_train_cutoff_date": "2017-03-23",
+      "formation_window": {
+        "hi_inclusive": "2017-03-23",
+        "lo_exclusive": "2016-04-05"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-04-28": {
+      "effective_train_cutoff_date": "2017-03-30",
+      "formation_window": {
+        "hi_inclusive": "2017-03-30",
+        "lo_exclusive": "2016-04-12"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-05-05": {
+      "effective_train_cutoff_date": "2017-04-06",
+      "formation_window": {
+        "hi_inclusive": "2017-04-06",
+        "lo_exclusive": "2016-04-19"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-05-12": {
+      "effective_train_cutoff_date": "2017-04-13",
+      "formation_window": {
+        "hi_inclusive": "2017-04-13",
+        "lo_exclusive": "2016-04-26"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-05-19": {
+      "effective_train_cutoff_date": "2017-04-20",
+      "formation_window": {
+        "hi_inclusive": "2017-04-20",
+        "lo_exclusive": "2016-05-03"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-05-26": {
+      "effective_train_cutoff_date": "2017-04-27",
+      "formation_window": {
+        "hi_inclusive": "2017-04-27",
+        "lo_exclusive": "2016-05-10"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-06-05": {
+      "effective_train_cutoff_date": "2017-05-05",
+      "formation_window": {
+        "hi_inclusive": "2017-05-05",
+        "lo_exclusive": "2016-05-18"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-06-12": {
+      "effective_train_cutoff_date": "2017-05-12",
+      "formation_window": {
+        "hi_inclusive": "2017-05-12",
+        "lo_exclusive": "2016-05-25"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-06-19": {
+      "effective_train_cutoff_date": "2017-05-19",
+      "formation_window": {
+        "hi_inclusive": "2017-05-19",
+        "lo_exclusive": "2016-06-01"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-06-26": {
+      "effective_train_cutoff_date": "2017-05-26",
+      "formation_window": {
+        "hi_inclusive": "2017-05-26",
+        "lo_exclusive": "2016-06-08"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-07-03": {
+      "effective_train_cutoff_date": "2017-06-02",
+      "formation_window": {
+        "hi_inclusive": "2017-06-02",
+        "lo_exclusive": "2016-06-15"
+      },
+      "n_names": 266,
+      "n_scored": 263,
+      "names_floor_ok": true
+    },
+    "2017-07-11": {
+      "effective_train_cutoff_date": "2017-06-12",
+      "formation_window": {
+        "hi_inclusive": "2017-06-12",
+        "lo_exclusive": "2016-06-23"
+      },
+      "n_names": 266,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-07-18": {
+      "effective_train_cutoff_date": "2017-06-19",
+      "formation_window": {
+        "hi_inclusive": "2017-06-19",
+        "lo_exclusive": "2016-06-30"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-07-25": {
+      "effective_train_cutoff_date": "2017-06-26",
+      "formation_window": {
+        "hi_inclusive": "2017-06-26",
+        "lo_exclusive": "2016-07-07"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-08-01": {
+      "effective_train_cutoff_date": "2017-07-03",
+      "formation_window": {
+        "hi_inclusive": "2017-07-03",
+        "lo_exclusive": "2016-07-14"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-08-08": {
+      "effective_train_cutoff_date": "2017-07-10",
+      "formation_window": {
+        "hi_inclusive": "2017-07-10",
+        "lo_exclusive": "2016-07-21"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-08-15": {
+      "effective_train_cutoff_date": "2017-07-17",
+      "formation_window": {
+        "hi_inclusive": "2017-07-17",
+        "lo_exclusive": "2016-07-28"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-08-22": {
+      "effective_train_cutoff_date": "2017-07-24",
+      "formation_window": {
+        "hi_inclusive": "2017-07-24",
+        "lo_exclusive": "2016-08-04"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-08-29": {
+      "effective_train_cutoff_date": "2017-07-31",
+      "formation_window": {
+        "hi_inclusive": "2017-07-31",
+        "lo_exclusive": "2016-08-11"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-09-06": {
+      "effective_train_cutoff_date": "2017-08-08",
+      "formation_window": {
+        "hi_inclusive": "2017-08-08",
+        "lo_exclusive": "2016-08-19"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-09-13": {
+      "effective_train_cutoff_date": "2017-08-15",
+      "formation_window": {
+        "hi_inclusive": "2017-08-15",
+        "lo_exclusive": "2016-08-26"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-09-20": {
+      "effective_train_cutoff_date": "2017-08-22",
+      "formation_window": {
+        "hi_inclusive": "2017-08-22",
+        "lo_exclusive": "2016-09-02"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-09-27": {
+      "effective_train_cutoff_date": "2017-08-29",
+      "formation_window": {
+        "hi_inclusive": "2017-08-29",
+        "lo_exclusive": "2016-09-09"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-10-04": {
+      "effective_train_cutoff_date": "2017-09-05",
+      "formation_window": {
+        "hi_inclusive": "2017-09-05",
+        "lo_exclusive": "2016-09-16"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-10-11": {
+      "effective_train_cutoff_date": "2017-09-12",
+      "formation_window": {
+        "hi_inclusive": "2017-09-12",
+        "lo_exclusive": "2016-09-23"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-10-18": {
+      "effective_train_cutoff_date": "2017-09-19",
+      "formation_window": {
+        "hi_inclusive": "2017-09-19",
+        "lo_exclusive": "2016-09-30"
+      },
+      "n_names": 267,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-10-25": {
+      "effective_train_cutoff_date": "2017-09-26",
+      "formation_window": {
+        "hi_inclusive": "2017-09-26",
+        "lo_exclusive": "2016-10-07"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-11-01": {
+      "effective_train_cutoff_date": "2017-10-03",
+      "formation_window": {
+        "hi_inclusive": "2017-10-03",
+        "lo_exclusive": "2016-10-14"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-11-08": {
+      "effective_train_cutoff_date": "2017-10-10",
+      "formation_window": {
+        "hi_inclusive": "2017-10-10",
+        "lo_exclusive": "2016-10-21"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-11-15": {
+      "effective_train_cutoff_date": "2017-10-17",
+      "formation_window": {
+        "hi_inclusive": "2017-10-17",
+        "lo_exclusive": "2016-10-28"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-11-22": {
+      "effective_train_cutoff_date": "2017-10-24",
+      "formation_window": {
+        "hi_inclusive": "2017-10-24",
+        "lo_exclusive": "2016-11-04"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-11-30": {
+      "effective_train_cutoff_date": "2017-11-01",
+      "formation_window": {
+        "hi_inclusive": "2017-11-01",
+        "lo_exclusive": "2016-11-14"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-12-07": {
+      "effective_train_cutoff_date": "2017-11-08",
+      "formation_window": {
+        "hi_inclusive": "2017-11-08",
+        "lo_exclusive": "2016-11-21"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-12-14": {
+      "effective_train_cutoff_date": "2017-11-15",
+      "formation_window": {
+        "hi_inclusive": "2017-11-15",
+        "lo_exclusive": "2016-11-28"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-12-21": {
+      "effective_train_cutoff_date": "2017-11-22",
+      "formation_window": {
+        "hi_inclusive": "2017-11-22",
+        "lo_exclusive": "2016-12-05"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2017-12-29": {
+      "effective_train_cutoff_date": "2017-11-30",
+      "formation_window": {
+        "hi_inclusive": "2017-11-30",
+        "lo_exclusive": "2016-12-13"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2018-01-08": {
+      "effective_train_cutoff_date": "2017-12-08",
+      "formation_window": {
+        "hi_inclusive": "2017-12-08",
+        "lo_exclusive": "2016-12-21"
+      },
+      "n_names": 268,
+      "n_scored": 264,
+      "names_floor_ok": true
+    },
+    "2018-01-16": {
+      "effective_train_cutoff_date": "2017-12-18",
+      "formation_window": {
+        "hi_inclusive": "2017-12-18",
+        "lo_exclusive": "2016-12-29"
+      },
+      "n_names": 268,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-01-23": {
+      "effective_train_cutoff_date": "2017-12-22",
+      "formation_window": {
+        "hi_inclusive": "2017-12-25",
+        "lo_exclusive": "2017-01-05"
+      },
+      "n_names": 268,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-01-30": {
+      "effective_train_cutoff_date": "2017-12-29",
+      "formation_window": {
+        "hi_inclusive": "2018-01-01",
+        "lo_exclusive": "2017-01-12"
+      },
+      "n_names": 269,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-02-06": {
+      "effective_train_cutoff_date": "2018-01-08",
+      "formation_window": {
+        "hi_inclusive": "2018-01-08",
+        "lo_exclusive": "2017-01-19"
+      },
+      "n_names": 269,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-02-13": {
+      "effective_train_cutoff_date": "2018-01-12",
+      "formation_window": {
+        "hi_inclusive": "2018-01-15",
+        "lo_exclusive": "2017-01-26"
+      },
+      "n_names": 269,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-02-21": {
+      "effective_train_cutoff_date": "2018-01-23",
+      "formation_window": {
+        "hi_inclusive": "2018-01-23",
+        "lo_exclusive": "2017-02-03"
+      },
+      "n_names": 269,
+      "n_scored": 265,
+      "names_floor_ok": true
+    },
+    "2018-02-28": {
+      "effective_train_cutoff_date": "2018-01-30",
+      "formation_window": {
+        "hi_inclusive": "2018-01-30",
+        "lo_exclusive": "2017-02-10"
+      },
+      "n_names": 269,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-03-07": {
+      "effective_train_cutoff_date": "2018-02-06",
+      "formation_window": {
+        "hi_inclusive": "2018-02-06",
+        "lo_exclusive": "2017-02-17"
+      },
+      "n_names": 269,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-03-14": {
+      "effective_train_cutoff_date": "2018-02-13",
+      "formation_window": {
+        "hi_inclusive": "2018-02-13",
+        "lo_exclusive": "2017-02-24"
+      },
+      "n_names": 269,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-03-21": {
+      "effective_train_cutoff_date": "2018-02-20",
+      "formation_window": {
+        "hi_inclusive": "2018-02-20",
+        "lo_exclusive": "2017-03-03"
+      },
+      "n_names": 270,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-03-28": {
+      "effective_train_cutoff_date": "2018-02-27",
+      "formation_window": {
+        "hi_inclusive": "2018-02-27",
+        "lo_exclusive": "2017-03-10"
+      },
+      "n_names": 270,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-04-05": {
+      "effective_train_cutoff_date": "2018-03-07",
+      "formation_window": {
+        "hi_inclusive": "2018-03-07",
+        "lo_exclusive": "2017-03-20"
+      },
+      "n_names": 271,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-04-12": {
+      "effective_train_cutoff_date": "2018-03-14",
+      "formation_window": {
+        "hi_inclusive": "2018-03-14",
+        "lo_exclusive": "2017-03-27"
+      },
+      "n_names": 271,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-04-19": {
+      "effective_train_cutoff_date": "2018-03-21",
+      "formation_window": {
+        "hi_inclusive": "2018-03-21",
+        "lo_exclusive": "2017-04-03"
+      },
+      "n_names": 271,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-04-26": {
+      "effective_train_cutoff_date": "2018-03-28",
+      "formation_window": {
+        "hi_inclusive": "2018-03-28",
+        "lo_exclusive": "2017-04-10"
+      },
+      "n_names": 271,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-05-03": {
+      "effective_train_cutoff_date": "2018-04-04",
+      "formation_window": {
+        "hi_inclusive": "2018-04-04",
+        "lo_exclusive": "2017-04-17"
+      },
+      "n_names": 272,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-05-10": {
+      "effective_train_cutoff_date": "2018-04-11",
+      "formation_window": {
+        "hi_inclusive": "2018-04-11",
+        "lo_exclusive": "2017-04-24"
+      },
+      "n_names": 272,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-05-17": {
+      "effective_train_cutoff_date": "2018-04-18",
+      "formation_window": {
+        "hi_inclusive": "2018-04-18",
+        "lo_exclusive": "2017-05-01"
+      },
+      "n_names": 272,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-05-24": {
+      "effective_train_cutoff_date": "2018-04-25",
+      "formation_window": {
+        "hi_inclusive": "2018-04-25",
+        "lo_exclusive": "2017-05-08"
+      },
+      "n_names": 272,
+      "n_scored": 266,
+      "names_floor_ok": true
+    },
+    "2018-06-01": {
+      "effective_train_cutoff_date": "2018-05-03",
+      "formation_window": {
+        "hi_inclusive": "2018-05-03",
+        "lo_exclusive": "2017-05-16"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-06-08": {
+      "effective_train_cutoff_date": "2018-05-10",
+      "formation_window": {
+        "hi_inclusive": "2018-05-10",
+        "lo_exclusive": "2017-05-23"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-06-15": {
+      "effective_train_cutoff_date": "2018-05-17",
+      "formation_window": {
+        "hi_inclusive": "2018-05-17",
+        "lo_exclusive": "2017-05-30"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-06-22": {
+      "effective_train_cutoff_date": "2018-05-24",
+      "formation_window": {
+        "hi_inclusive": "2018-05-24",
+        "lo_exclusive": "2017-06-06"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-06-29": {
+      "effective_train_cutoff_date": "2018-05-31",
+      "formation_window": {
+        "hi_inclusive": "2018-05-31",
+        "lo_exclusive": "2017-06-13"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-07-09": {
+      "effective_train_cutoff_date": "2018-06-08",
+      "formation_window": {
+        "hi_inclusive": "2018-06-08",
+        "lo_exclusive": "2017-06-21"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-07-16": {
+      "effective_train_cutoff_date": "2018-06-15",
+      "formation_window": {
+        "hi_inclusive": "2018-06-15",
+        "lo_exclusive": "2017-06-28"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-07-23": {
+      "effective_train_cutoff_date": "2018-06-22",
+      "formation_window": {
+        "hi_inclusive": "2018-06-22",
+        "lo_exclusive": "2017-07-05"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-07-30": {
+      "effective_train_cutoff_date": "2018-06-29",
+      "formation_window": {
+        "hi_inclusive": "2018-06-29",
+        "lo_exclusive": "2017-07-12"
+      },
+      "n_names": 272,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-08-06": {
+      "effective_train_cutoff_date": "2018-07-06",
+      "formation_window": {
+        "hi_inclusive": "2018-07-06",
+        "lo_exclusive": "2017-07-19"
+      },
+      "n_names": 273,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-08-13": {
+      "effective_train_cutoff_date": "2018-07-13",
+      "formation_window": {
+        "hi_inclusive": "2018-07-13",
+        "lo_exclusive": "2017-07-26"
+      },
+      "n_names": 273,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-08-20": {
+      "effective_train_cutoff_date": "2018-07-20",
+      "formation_window": {
+        "hi_inclusive": "2018-07-20",
+        "lo_exclusive": "2017-08-02"
+      },
+      "n_names": 273,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-08-27": {
+      "effective_train_cutoff_date": "2018-07-27",
+      "formation_window": {
+        "hi_inclusive": "2018-07-27",
+        "lo_exclusive": "2017-08-09"
+      },
+      "n_names": 273,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-09-04": {
+      "effective_train_cutoff_date": "2018-08-06",
+      "formation_window": {
+        "hi_inclusive": "2018-08-06",
+        "lo_exclusive": "2017-08-17"
+      },
+      "n_names": 273,
+      "n_scored": 267,
+      "names_floor_ok": true
+    },
+    "2018-09-11": {
+      "effective_train_cutoff_date": "2018-08-13",
+      "formation_window": {
+        "hi_inclusive": "2018-08-13",
+        "lo_exclusive": "2017-08-24"
+      },
+      "n_names": 273,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-09-18": {
+      "effective_train_cutoff_date": "2018-08-20",
+      "formation_window": {
+        "hi_inclusive": "2018-08-20",
+        "lo_exclusive": "2017-08-31"
+      },
+      "n_names": 273,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-09-25": {
+      "effective_train_cutoff_date": "2018-08-27",
+      "formation_window": {
+        "hi_inclusive": "2018-08-27",
+        "lo_exclusive": "2017-09-07"
+      },
+      "n_names": 274,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-10-02": {
+      "effective_train_cutoff_date": "2018-08-31",
+      "formation_window": {
+        "hi_inclusive": "2018-09-03",
+        "lo_exclusive": "2017-09-14"
+      },
+      "n_names": 274,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-10-09": {
+      "effective_train_cutoff_date": "2018-09-10",
+      "formation_window": {
+        "hi_inclusive": "2018-09-10",
+        "lo_exclusive": "2017-09-21"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-10-16": {
+      "effective_train_cutoff_date": "2018-09-17",
+      "formation_window": {
+        "hi_inclusive": "2018-09-17",
+        "lo_exclusive": "2017-09-28"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-10-23": {
+      "effective_train_cutoff_date": "2018-09-24",
+      "formation_window": {
+        "hi_inclusive": "2018-09-24",
+        "lo_exclusive": "2017-10-05"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-10-30": {
+      "effective_train_cutoff_date": "2018-10-01",
+      "formation_window": {
+        "hi_inclusive": "2018-10-01",
+        "lo_exclusive": "2017-10-12"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-11-06": {
+      "effective_train_cutoff_date": "2018-10-08",
+      "formation_window": {
+        "hi_inclusive": "2018-10-08",
+        "lo_exclusive": "2017-10-19"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-11-13": {
+      "effective_train_cutoff_date": "2018-10-15",
+      "formation_window": {
+        "hi_inclusive": "2018-10-15",
+        "lo_exclusive": "2017-10-26"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-11-20": {
+      "effective_train_cutoff_date": "2018-10-22",
+      "formation_window": {
+        "hi_inclusive": "2018-10-22",
+        "lo_exclusive": "2017-11-02"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-11-28": {
+      "effective_train_cutoff_date": "2018-10-30",
+      "formation_window": {
+        "hi_inclusive": "2018-10-30",
+        "lo_exclusive": "2017-11-10"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-12-06": {
+      "effective_train_cutoff_date": "2018-11-07",
+      "formation_window": {
+        "hi_inclusive": "2018-11-07",
+        "lo_exclusive": "2017-11-20"
+      },
+      "n_names": 275,
+      "n_scored": 268,
+      "names_floor_ok": true
+    },
+    "2018-12-13": {
+      "effective_train_cutoff_date": "2018-11-14",
+      "formation_window": {
+        "hi_inclusive": "2018-11-14",
+        "lo_exclusive": "2017-11-27"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2018-12-20": {
+      "effective_train_cutoff_date": "2018-11-21",
+      "formation_window": {
+        "hi_inclusive": "2018-11-21",
+        "lo_exclusive": "2017-12-04"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2018-12-28": {
+      "effective_train_cutoff_date": "2018-11-29",
+      "formation_window": {
+        "hi_inclusive": "2018-11-29",
+        "lo_exclusive": "2017-12-12"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2019-01-07": {
+      "effective_train_cutoff_date": "2018-12-07",
+      "formation_window": {
+        "hi_inclusive": "2018-12-07",
+        "lo_exclusive": "2017-12-20"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2019-01-14": {
+      "effective_train_cutoff_date": "2018-12-14",
+      "formation_window": {
+        "hi_inclusive": "2018-12-14",
+        "lo_exclusive": "2017-12-27"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2019-01-22": {
+      "effective_train_cutoff_date": "2018-12-24",
+      "formation_window": {
+        "hi_inclusive": "2018-12-24",
+        "lo_exclusive": "2018-01-04"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2019-01-29": {
+      "effective_train_cutoff_date": "2018-12-31",
+      "formation_window": {
+        "hi_inclusive": "2018-12-31",
+        "lo_exclusive": "2018-01-11"
+      },
+      "n_names": 275,
+      "n_scored": 269,
+      "names_floor_ok": true
+    },
+    "2019-02-05": {
+      "effective_train_cutoff_date": "2019-01-07",
+      "formation_window": {
+        "hi_inclusive": "2019-01-07",
+        "lo_exclusive": "2018-01-18"
+      },
+      "n_names": 275,
+      "n_scored": 270,
+      "names_floor_ok": true
+    },
+    "2019-02-12": {
+      "effective_train_cutoff_date": "2019-01-14",
+      "formation_window": {
+        "hi_inclusive": "2019-01-14",
+        "lo_exclusive": "2018-01-25"
+      },
+      "n_names": 275,
+      "n_scored": 270,
+      "names_floor_ok": true
+    },
+    "2019-02-20": {
+      "effective_train_cutoff_date": "2019-01-22",
+      "formation_window": {
+        "hi_inclusive": "2019-01-22",
+        "lo_exclusive": "2018-02-02"
+      },
+      "n_names": 275,
+      "n_scored": 271,
+      "names_floor_ok": true
+    },
+    "2019-02-27": {
+      "effective_train_cutoff_date": "2019-01-29",
+      "formation_window": {
+        "hi_inclusive": "2019-01-29",
+        "lo_exclusive": "2018-02-09"
+      },
+      "n_names": 275,
+      "n_scored": 271,
+      "names_floor_ok": true
+    },
+    "2019-03-06": {
+      "effective_train_cutoff_date": "2019-02-05",
+      "formation_window": {
+        "hi_inclusive": "2019-02-05",
+        "lo_exclusive": "2018-02-16"
+      },
+      "n_names": 275,
+      "n_scored": 271,
+      "names_floor_ok": true
+    },
+    "2019-03-13": {
+      "effective_train_cutoff_date": "2019-02-12",
+      "formation_window": {
+        "hi_inclusive": "2019-02-12",
+        "lo_exclusive": "2018-02-23"
+      },
+      "n_names": 275,
+      "n_scored": 271,
+      "names_floor_ok": true
+    },
+    "2019-03-20": {
+      "effective_train_cutoff_date": "2019-02-19",
+      "formation_window": {
+        "hi_inclusive": "2019-02-19",
+        "lo_exclusive": "2018-03-02"
+      },
+      "n_names": 276,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-03-27": {
+      "effective_train_cutoff_date": "2019-02-26",
+      "formation_window": {
+        "hi_inclusive": "2019-02-26",
+        "lo_exclusive": "2018-03-09"
+      },
+      "n_names": 276,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-04-03": {
+      "effective_train_cutoff_date": "2019-03-05",
+      "formation_window": {
+        "hi_inclusive": "2019-03-05",
+        "lo_exclusive": "2018-03-16"
+      },
+      "n_names": 276,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-04-10": {
+      "effective_train_cutoff_date": "2019-03-12",
+      "formation_window": {
+        "hi_inclusive": "2019-03-12",
+        "lo_exclusive": "2018-03-23"
+      },
+      "n_names": 276,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-04-17": {
+      "effective_train_cutoff_date": "2019-03-19",
+      "formation_window": {
+        "hi_inclusive": "2019-03-19",
+        "lo_exclusive": "2018-03-30"
+      },
+      "n_names": 276,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-04-25": {
+      "effective_train_cutoff_date": "2019-03-27",
+      "formation_window": {
+        "hi_inclusive": "2019-03-27",
+        "lo_exclusive": "2018-04-09"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-05-02": {
+      "effective_train_cutoff_date": "2019-04-03",
+      "formation_window": {
+        "hi_inclusive": "2019-04-03",
+        "lo_exclusive": "2018-04-16"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-05-09": {
+      "effective_train_cutoff_date": "2019-04-10",
+      "formation_window": {
+        "hi_inclusive": "2019-04-10",
+        "lo_exclusive": "2018-04-23"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-05-16": {
+      "effective_train_cutoff_date": "2019-04-17",
+      "formation_window": {
+        "hi_inclusive": "2019-04-17",
+        "lo_exclusive": "2018-04-30"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-05-23": {
+      "effective_train_cutoff_date": "2019-04-24",
+      "formation_window": {
+        "hi_inclusive": "2019-04-24",
+        "lo_exclusive": "2018-05-07"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-05-31": {
+      "effective_train_cutoff_date": "2019-05-02",
+      "formation_window": {
+        "hi_inclusive": "2019-05-02",
+        "lo_exclusive": "2018-05-15"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-06-07": {
+      "effective_train_cutoff_date": "2019-05-09",
+      "formation_window": {
+        "hi_inclusive": "2019-05-09",
+        "lo_exclusive": "2018-05-22"
+      },
+      "n_names": 277,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-06-14": {
+      "effective_train_cutoff_date": "2019-05-16",
+      "formation_window": {
+        "hi_inclusive": "2019-05-16",
+        "lo_exclusive": "2018-05-29"
+      },
+      "n_names": 278,
+      "n_scored": 272,
+      "names_floor_ok": true
+    },
+    "2019-06-21": {
+      "effective_train_cutoff_date": "2019-05-23",
+      "formation_window": {
+        "hi_inclusive": "2019-05-23",
+        "lo_exclusive": "2018-06-05"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-06-28": {
+      "effective_train_cutoff_date": "2019-05-30",
+      "formation_window": {
+        "hi_inclusive": "2019-05-30",
+        "lo_exclusive": "2018-06-12"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-07-08": {
+      "effective_train_cutoff_date": "2019-06-07",
+      "formation_window": {
+        "hi_inclusive": "2019-06-07",
+        "lo_exclusive": "2018-06-20"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-07-15": {
+      "effective_train_cutoff_date": "2019-06-14",
+      "formation_window": {
+        "hi_inclusive": "2019-06-14",
+        "lo_exclusive": "2018-06-27"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-07-22": {
+      "effective_train_cutoff_date": "2019-06-21",
+      "formation_window": {
+        "hi_inclusive": "2019-06-21",
+        "lo_exclusive": "2018-07-04"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-07-29": {
+      "effective_train_cutoff_date": "2019-06-28",
+      "formation_window": {
+        "hi_inclusive": "2019-06-28",
+        "lo_exclusive": "2018-07-11"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-08-05": {
+      "effective_train_cutoff_date": "2019-07-05",
+      "formation_window": {
+        "hi_inclusive": "2019-07-05",
+        "lo_exclusive": "2018-07-18"
+      },
+      "n_names": 278,
+      "n_scored": 273,
+      "names_floor_ok": true
+    },
+    "2019-08-12": {
+      "effective_train_cutoff_date": "2019-07-12",
+      "formation_window": {
+        "hi_inclusive": "2019-07-12",
+        "lo_exclusive": "2018-07-25"
+      },
+      "n_names": 278,
+      "n_scored": 274,
+      "names_floor_ok": true
+    },
+    "2019-08-19": {
+      "effective_train_cutoff_date": "2019-07-19",
+      "formation_window": {
+        "hi_inclusive": "2019-07-19",
+        "lo_exclusive": "2018-08-01"
+      },
+      "n_names": 278,
+      "n_scored": 274,
+      "names_floor_ok": true
+    },
+    "2019-08-26": {
+      "effective_train_cutoff_date": "2019-07-26",
+      "formation_window": {
+        "hi_inclusive": "2019-07-26",
+        "lo_exclusive": "2018-08-08"
+      },
+      "n_names": 278,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-09-03": {
+      "effective_train_cutoff_date": "2019-08-05",
+      "formation_window": {
+        "hi_inclusive": "2019-08-05",
+        "lo_exclusive": "2018-08-16"
+      },
+      "n_names": 278,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-09-10": {
+      "effective_train_cutoff_date": "2019-08-12",
+      "formation_window": {
+        "hi_inclusive": "2019-08-12",
+        "lo_exclusive": "2018-08-23"
+      },
+      "n_names": 278,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-09-17": {
+      "effective_train_cutoff_date": "2019-08-19",
+      "formation_window": {
+        "hi_inclusive": "2019-08-19",
+        "lo_exclusive": "2018-08-30"
+      },
+      "n_names": 279,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-09-24": {
+      "effective_train_cutoff_date": "2019-08-26",
+      "formation_window": {
+        "hi_inclusive": "2019-08-26",
+        "lo_exclusive": "2018-09-06"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-10-01": {
+      "effective_train_cutoff_date": "2019-08-30",
+      "formation_window": {
+        "hi_inclusive": "2019-09-02",
+        "lo_exclusive": "2018-09-13"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-10-08": {
+      "effective_train_cutoff_date": "2019-09-09",
+      "formation_window": {
+        "hi_inclusive": "2019-09-09",
+        "lo_exclusive": "2018-09-20"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-10-15": {
+      "effective_train_cutoff_date": "2019-09-16",
+      "formation_window": {
+        "hi_inclusive": "2019-09-16",
+        "lo_exclusive": "2018-09-27"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-10-22": {
+      "effective_train_cutoff_date": "2019-09-23",
+      "formation_window": {
+        "hi_inclusive": "2019-09-23",
+        "lo_exclusive": "2018-10-04"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-10-29": {
+      "effective_train_cutoff_date": "2019-09-30",
+      "formation_window": {
+        "hi_inclusive": "2019-09-30",
+        "lo_exclusive": "2018-10-11"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-11-05": {
+      "effective_train_cutoff_date": "2019-10-07",
+      "formation_window": {
+        "hi_inclusive": "2019-10-07",
+        "lo_exclusive": "2018-10-18"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-11-12": {
+      "effective_train_cutoff_date": "2019-10-14",
+      "formation_window": {
+        "hi_inclusive": "2019-10-14",
+        "lo_exclusive": "2018-10-25"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-11-19": {
+      "effective_train_cutoff_date": "2019-10-21",
+      "formation_window": {
+        "hi_inclusive": "2019-10-21",
+        "lo_exclusive": "2018-11-01"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-11-26": {
+      "effective_train_cutoff_date": "2019-10-28",
+      "formation_window": {
+        "hi_inclusive": "2019-10-28",
+        "lo_exclusive": "2018-11-08"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-12-04": {
+      "effective_train_cutoff_date": "2019-11-05",
+      "formation_window": {
+        "hi_inclusive": "2019-11-05",
+        "lo_exclusive": "2018-11-16"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-12-11": {
+      "effective_train_cutoff_date": "2019-11-12",
+      "formation_window": {
+        "hi_inclusive": "2019-11-12",
+        "lo_exclusive": "2018-11-23"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-12-18": {
+      "effective_train_cutoff_date": "2019-11-19",
+      "formation_window": {
+        "hi_inclusive": "2019-11-19",
+        "lo_exclusive": "2018-11-30"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2019-12-26": {
+      "effective_train_cutoff_date": "2019-11-27",
+      "formation_window": {
+        "hi_inclusive": "2019-11-27",
+        "lo_exclusive": "2018-12-10"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2020-01-03": {
+      "effective_train_cutoff_date": "2019-12-05",
+      "formation_window": {
+        "hi_inclusive": "2019-12-05",
+        "lo_exclusive": "2018-12-18"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2020-01-10": {
+      "effective_train_cutoff_date": "2019-12-12",
+      "formation_window": {
+        "hi_inclusive": "2019-12-12",
+        "lo_exclusive": "2018-12-25"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2020-01-17": {
+      "effective_train_cutoff_date": "2019-12-19",
+      "formation_window": {
+        "hi_inclusive": "2019-12-19",
+        "lo_exclusive": "2019-01-01"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2020-01-27": {
+      "effective_train_cutoff_date": "2019-12-27",
+      "formation_window": {
+        "hi_inclusive": "2019-12-27",
+        "lo_exclusive": "2019-01-09"
+      },
+      "n_names": 280,
+      "n_scored": 275,
+      "names_floor_ok": true
+    },
+    "2020-02-03": {
+      "effective_train_cutoff_date": "2020-01-03",
+      "formation_window": {
+        "hi_inclusive": "2020-01-03",
+        "lo_exclusive": "2019-01-16"
+      },
+      "n_names": 280,
+      "n_scored": 276,
+      "names_floor_ok": true
+    },
+    "2020-02-10": {
+      "effective_train_cutoff_date": "2020-01-10",
+      "formation_window": {
+        "hi_inclusive": "2020-01-10",
+        "lo_exclusive": "2019-01-23"
+      },
+      "n_names": 280,
+      "n_scored": 276,
+      "names_floor_ok": true
+    },
+    "2020-02-18": {
+      "effective_train_cutoff_date": "2020-01-17",
+      "formation_window": {
+        "hi_inclusive": "2020-01-20",
+        "lo_exclusive": "2019-01-31"
+      },
+      "n_names": 280,
+      "n_scored": 276,
+      "names_floor_ok": true
+    },
+    "2020-02-25": {
+      "effective_train_cutoff_date": "2020-01-27",
+      "formation_window": {
+        "hi_inclusive": "2020-01-27",
+        "lo_exclusive": "2019-02-07"
+      },
+      "n_names": 280,
+      "n_scored": 276,
+      "names_floor_ok": true
+    },
+    "2020-03-03": {
+      "effective_train_cutoff_date": "2020-02-03",
+      "formation_window": {
+        "hi_inclusive": "2020-02-03",
+        "lo_exclusive": "2019-02-14"
+      },
+      "n_names": 280,
+      "n_scored": 276,
+      "names_floor_ok": true
+    },
+    "2020-03-10": {
+      "effective_train_cutoff_date": "2020-02-10",
+      "formation_window": {
+        "hi_inclusive": "2020-02-10",
+        "lo_exclusive": "2019-02-21"
+      },
+      "n_names": 280,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-03-17": {
+      "effective_train_cutoff_date": "2020-02-14",
+      "formation_window": {
+        "hi_inclusive": "2020-02-17",
+        "lo_exclusive": "2019-02-28"
+      },
+      "n_names": 280,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-03-24": {
+      "effective_train_cutoff_date": "2020-02-24",
+      "formation_window": {
+        "hi_inclusive": "2020-02-24",
+        "lo_exclusive": "2019-03-07"
+      },
+      "n_names": 281,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-03-31": {
+      "effective_train_cutoff_date": "2020-03-02",
+      "formation_window": {
+        "hi_inclusive": "2020-03-02",
+        "lo_exclusive": "2019-03-14"
+      },
+      "n_names": 281,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-04-07": {
+      "effective_train_cutoff_date": "2020-03-09",
+      "formation_window": {
+        "hi_inclusive": "2020-03-09",
+        "lo_exclusive": "2019-03-21"
+      },
+      "n_names": 281,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-04-15": {
+      "effective_train_cutoff_date": "2020-03-17",
+      "formation_window": {
+        "hi_inclusive": "2020-03-17",
+        "lo_exclusive": "2019-03-29"
+      },
+      "n_names": 281,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-04-22": {
+      "effective_train_cutoff_date": "2020-03-24",
+      "formation_window": {
+        "hi_inclusive": "2020-03-24",
+        "lo_exclusive": "2019-04-05"
+      },
+      "n_names": 281,
+      "n_scored": 277,
+      "names_floor_ok": true
+    },
+    "2020-04-29": {
+      "effective_train_cutoff_date": "2020-03-31",
+      "formation_window": {
+        "hi_inclusive": "2020-03-31",
+        "lo_exclusive": "2019-04-12"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-05-06": {
+      "effective_train_cutoff_date": "2020-04-07",
+      "formation_window": {
+        "hi_inclusive": "2020-04-07",
+        "lo_exclusive": "2019-04-19"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-05-13": {
+      "effective_train_cutoff_date": "2020-04-14",
+      "formation_window": {
+        "hi_inclusive": "2020-04-14",
+        "lo_exclusive": "2019-04-26"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-05-20": {
+      "effective_train_cutoff_date": "2020-04-21",
+      "formation_window": {
+        "hi_inclusive": "2020-04-21",
+        "lo_exclusive": "2019-05-03"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-05-28": {
+      "effective_train_cutoff_date": "2020-04-29",
+      "formation_window": {
+        "hi_inclusive": "2020-04-29",
+        "lo_exclusive": "2019-05-13"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-06-04": {
+      "effective_train_cutoff_date": "2020-05-06",
+      "formation_window": {
+        "hi_inclusive": "2020-05-06",
+        "lo_exclusive": "2019-05-20"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-06-11": {
+      "effective_train_cutoff_date": "2020-05-13",
+      "formation_window": {
+        "hi_inclusive": "2020-05-13",
+        "lo_exclusive": "2019-05-27"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-06-18": {
+      "effective_train_cutoff_date": "2020-05-20",
+      "formation_window": {
+        "hi_inclusive": "2020-05-20",
+        "lo_exclusive": "2019-06-03"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-06-25": {
+      "effective_train_cutoff_date": "2020-05-27",
+      "formation_window": {
+        "hi_inclusive": "2020-05-27",
+        "lo_exclusive": "2019-06-10"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-07-02": {
+      "effective_train_cutoff_date": "2020-06-03",
+      "formation_window": {
+        "hi_inclusive": "2020-06-03",
+        "lo_exclusive": "2019-06-17"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-07-10": {
+      "effective_train_cutoff_date": "2020-06-11",
+      "formation_window": {
+        "hi_inclusive": "2020-06-11",
+        "lo_exclusive": "2019-06-25"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-07-17": {
+      "effective_train_cutoff_date": "2020-06-18",
+      "formation_window": {
+        "hi_inclusive": "2020-06-18",
+        "lo_exclusive": "2019-07-02"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-07-24": {
+      "effective_train_cutoff_date": "2020-06-25",
+      "formation_window": {
+        "hi_inclusive": "2020-06-25",
+        "lo_exclusive": "2019-07-09"
+      },
+      "n_names": 281,
+      "n_scored": 278,
+      "names_floor_ok": true
+    },
+    "2020-07-31": {
+      "effective_train_cutoff_date": "2020-07-02",
+      "formation_window": {
+        "hi_inclusive": "2020-07-02",
+        "lo_exclusive": "2019-07-16"
+      },
+      "n_names": 281,
+      "n_scored": 279,
+      "names_floor_ok": true
+    },
+    "2020-08-07": {
+      "effective_train_cutoff_date": "2020-07-09",
+      "formation_window": {
+        "hi_inclusive": "2020-07-09",
+        "lo_exclusive": "2019-07-23"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-08-14": {
+      "effective_train_cutoff_date": "2020-07-16",
+      "formation_window": {
+        "hi_inclusive": "2020-07-16",
+        "lo_exclusive": "2019-07-30"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-08-21": {
+      "effective_train_cutoff_date": "2020-07-23",
+      "formation_window": {
+        "hi_inclusive": "2020-07-23",
+        "lo_exclusive": "2019-08-06"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-08-28": {
+      "effective_train_cutoff_date": "2020-07-30",
+      "formation_window": {
+        "hi_inclusive": "2020-07-30",
+        "lo_exclusive": "2019-08-13"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-09-04": {
+      "effective_train_cutoff_date": "2020-08-06",
+      "formation_window": {
+        "hi_inclusive": "2020-08-06",
+        "lo_exclusive": "2019-08-20"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-09-14": {
+      "effective_train_cutoff_date": "2020-08-14",
+      "formation_window": {
+        "hi_inclusive": "2020-08-14",
+        "lo_exclusive": "2019-08-28"
+      },
+      "n_names": 281,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-09-21": {
+      "effective_train_cutoff_date": "2020-08-21",
+      "formation_window": {
+        "hi_inclusive": "2020-08-21",
+        "lo_exclusive": "2019-09-04"
+      },
+      "n_names": 282,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-09-28": {
+      "effective_train_cutoff_date": "2020-08-28",
+      "formation_window": {
+        "hi_inclusive": "2020-08-28",
+        "lo_exclusive": "2019-09-11"
+      },
+      "n_names": 282,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-10-05": {
+      "effective_train_cutoff_date": "2020-09-04",
+      "formation_window": {
+        "hi_inclusive": "2020-09-04",
+        "lo_exclusive": "2019-09-18"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-10-12": {
+      "effective_train_cutoff_date": "2020-09-11",
+      "formation_window": {
+        "hi_inclusive": "2020-09-11",
+        "lo_exclusive": "2019-09-25"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-10-19": {
+      "effective_train_cutoff_date": "2020-09-18",
+      "formation_window": {
+        "hi_inclusive": "2020-09-18",
+        "lo_exclusive": "2019-10-02"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-10-26": {
+      "effective_train_cutoff_date": "2020-09-25",
+      "formation_window": {
+        "hi_inclusive": "2020-09-25",
+        "lo_exclusive": "2019-10-09"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-11-02": {
+      "effective_train_cutoff_date": "2020-10-02",
+      "formation_window": {
+        "hi_inclusive": "2020-10-02",
+        "lo_exclusive": "2019-10-16"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-11-09": {
+      "effective_train_cutoff_date": "2020-10-09",
+      "formation_window": {
+        "hi_inclusive": "2020-10-09",
+        "lo_exclusive": "2019-10-23"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-11-16": {
+      "effective_train_cutoff_date": "2020-10-16",
+      "formation_window": {
+        "hi_inclusive": "2020-10-16",
+        "lo_exclusive": "2019-10-30"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-11-23": {
+      "effective_train_cutoff_date": "2020-10-23",
+      "formation_window": {
+        "hi_inclusive": "2020-10-23",
+        "lo_exclusive": "2019-11-06"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-12-01": {
+      "effective_train_cutoff_date": "2020-11-02",
+      "formation_window": {
+        "hi_inclusive": "2020-11-02",
+        "lo_exclusive": "2019-11-14"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-12-08": {
+      "effective_train_cutoff_date": "2020-11-09",
+      "formation_window": {
+        "hi_inclusive": "2020-11-09",
+        "lo_exclusive": "2019-11-21"
+      },
+      "n_names": 283,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-12-15": {
+      "effective_train_cutoff_date": "2020-11-16",
+      "formation_window": {
+        "hi_inclusive": "2020-11-16",
+        "lo_exclusive": "2019-11-28"
+      },
+      "n_names": 284,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-12-22": {
+      "effective_train_cutoff_date": "2020-11-23",
+      "formation_window": {
+        "hi_inclusive": "2020-11-23",
+        "lo_exclusive": "2019-12-05"
+      },
+      "n_names": 284,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2020-12-30": {
+      "effective_train_cutoff_date": "2020-12-01",
+      "formation_window": {
+        "hi_inclusive": "2020-12-01",
+        "lo_exclusive": "2019-12-13"
+      },
+      "n_names": 284,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2021-01-07": {
+      "effective_train_cutoff_date": "2020-12-09",
+      "formation_window": {
+        "hi_inclusive": "2020-12-09",
+        "lo_exclusive": "2019-12-23"
+      },
+      "n_names": 285,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2021-01-14": {
+      "effective_train_cutoff_date": "2020-12-16",
+      "formation_window": {
+        "hi_inclusive": "2020-12-16",
+        "lo_exclusive": "2019-12-30"
+      },
+      "n_names": 286,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2021-01-22": {
+      "effective_train_cutoff_date": "2020-12-24",
+      "formation_window": {
+        "hi_inclusive": "2020-12-24",
+        "lo_exclusive": "2020-01-07"
+      },
+      "n_names": 286,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2021-01-29": {
+      "effective_train_cutoff_date": "2020-12-31",
+      "formation_window": {
+        "hi_inclusive": "2020-12-31",
+        "lo_exclusive": "2020-01-14"
+      },
+      "n_names": 286,
+      "n_scored": 280,
+      "names_floor_ok": true
+    },
+    "2021-02-05": {
+      "effective_train_cutoff_date": "2021-01-07",
+      "formation_window": {
+        "hi_inclusive": "2021-01-07",
+        "lo_exclusive": "2020-01-21"
+      },
+      "n_names": 286,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-02-12": {
+      "effective_train_cutoff_date": "2021-01-14",
+      "formation_window": {
+        "hi_inclusive": "2021-01-14",
+        "lo_exclusive": "2020-01-28"
+      },
+      "n_names": 286,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-02-22": {
+      "effective_train_cutoff_date": "2021-01-22",
+      "formation_window": {
+        "hi_inclusive": "2021-01-22",
+        "lo_exclusive": "2020-02-05"
+      },
+      "n_names": 286,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-03-01": {
+      "effective_train_cutoff_date": "2021-01-29",
+      "formation_window": {
+        "hi_inclusive": "2021-01-29",
+        "lo_exclusive": "2020-02-12"
+      },
+      "n_names": 286,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-03-08": {
+      "effective_train_cutoff_date": "2021-02-05",
+      "formation_window": {
+        "hi_inclusive": "2021-02-05",
+        "lo_exclusive": "2020-02-19"
+      },
+      "n_names": 286,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-03-15": {
+      "effective_train_cutoff_date": "2021-02-12",
+      "formation_window": {
+        "hi_inclusive": "2021-02-12",
+        "lo_exclusive": "2020-02-26"
+      },
+      "n_names": 288,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-03-22": {
+      "effective_train_cutoff_date": "2021-02-19",
+      "formation_window": {
+        "hi_inclusive": "2021-02-19",
+        "lo_exclusive": "2020-03-04"
+      },
+      "n_names": 288,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-03-29": {
+      "effective_train_cutoff_date": "2021-02-26",
+      "formation_window": {
+        "hi_inclusive": "2021-02-26",
+        "lo_exclusive": "2020-03-11"
+      },
+      "n_names": 288,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-04-06": {
+      "effective_train_cutoff_date": "2021-03-08",
+      "formation_window": {
+        "hi_inclusive": "2021-03-08",
+        "lo_exclusive": "2020-03-19"
+      },
+      "n_names": 288,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-04-13": {
+      "effective_train_cutoff_date": "2021-03-15",
+      "formation_window": {
+        "hi_inclusive": "2021-03-15",
+        "lo_exclusive": "2020-03-26"
+      },
+      "n_names": 288,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-04-20": {
+      "effective_train_cutoff_date": "2021-03-22",
+      "formation_window": {
+        "hi_inclusive": "2021-03-22",
+        "lo_exclusive": "2020-04-02"
+      },
+      "n_names": 290,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-04-27": {
+      "effective_train_cutoff_date": "2021-03-29",
+      "formation_window": {
+        "hi_inclusive": "2021-03-29",
+        "lo_exclusive": "2020-04-09"
+      },
+      "n_names": 291,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-05-04": {
+      "effective_train_cutoff_date": "2021-04-05",
+      "formation_window": {
+        "hi_inclusive": "2021-04-05",
+        "lo_exclusive": "2020-04-16"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-05-11": {
+      "effective_train_cutoff_date": "2021-04-12",
+      "formation_window": {
+        "hi_inclusive": "2021-04-12",
+        "lo_exclusive": "2020-04-23"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-05-18": {
+      "effective_train_cutoff_date": "2021-04-19",
+      "formation_window": {
+        "hi_inclusive": "2021-04-19",
+        "lo_exclusive": "2020-04-30"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-05-25": {
+      "effective_train_cutoff_date": "2021-04-26",
+      "formation_window": {
+        "hi_inclusive": "2021-04-26",
+        "lo_exclusive": "2020-05-07"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-06-02": {
+      "effective_train_cutoff_date": "2021-05-04",
+      "formation_window": {
+        "hi_inclusive": "2021-05-04",
+        "lo_exclusive": "2020-05-15"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-06-09": {
+      "effective_train_cutoff_date": "2021-05-11",
+      "formation_window": {
+        "hi_inclusive": "2021-05-11",
+        "lo_exclusive": "2020-05-22"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-06-16": {
+      "effective_train_cutoff_date": "2021-05-18",
+      "formation_window": {
+        "hi_inclusive": "2021-05-18",
+        "lo_exclusive": "2020-05-29"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-06-23": {
+      "effective_train_cutoff_date": "2021-05-25",
+      "formation_window": {
+        "hi_inclusive": "2021-05-25",
+        "lo_exclusive": "2020-06-05"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-06-30": {
+      "effective_train_cutoff_date": "2021-06-01",
+      "formation_window": {
+        "hi_inclusive": "2021-06-01",
+        "lo_exclusive": "2020-06-12"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-07-08": {
+      "effective_train_cutoff_date": "2021-06-09",
+      "formation_window": {
+        "hi_inclusive": "2021-06-09",
+        "lo_exclusive": "2020-06-22"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-07-15": {
+      "effective_train_cutoff_date": "2021-06-16",
+      "formation_window": {
+        "hi_inclusive": "2021-06-16",
+        "lo_exclusive": "2020-06-29"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-07-22": {
+      "effective_train_cutoff_date": "2021-06-23",
+      "formation_window": {
+        "hi_inclusive": "2021-06-23",
+        "lo_exclusive": "2020-07-06"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-07-29": {
+      "effective_train_cutoff_date": "2021-06-30",
+      "formation_window": {
+        "hi_inclusive": "2021-06-30",
+        "lo_exclusive": "2020-07-13"
+      },
+      "n_names": 292,
+      "n_scored": 281,
+      "names_floor_ok": true
+    },
+    "2021-08-05": {
+      "effective_train_cutoff_date": "2021-07-07",
+      "formation_window": {
+        "hi_inclusive": "2021-07-07",
+        "lo_exclusive": "2020-07-20"
+      },
+      "n_names": 292,
+      "n_scored": 282,
+      "names_floor_ok": true
+    },
+    "2021-08-12": {
+      "effective_train_cutoff_date": "2021-07-14",
+      "formation_window": {
+        "hi_inclusive": "2021-07-14",
+        "lo_exclusive": "2020-07-27"
+      },
+      "n_names": 292,
+      "n_scored": 282,
+      "names_floor_ok": true
+    },
+    "2021-08-19": {
+      "effective_train_cutoff_date": "2021-07-21",
+      "formation_window": {
+        "hi_inclusive": "2021-07-21",
+        "lo_exclusive": "2020-08-03"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-08-26": {
+      "effective_train_cutoff_date": "2021-07-28",
+      "formation_window": {
+        "hi_inclusive": "2021-07-28",
+        "lo_exclusive": "2020-08-10"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-09-02": {
+      "effective_train_cutoff_date": "2021-08-04",
+      "formation_window": {
+        "hi_inclusive": "2021-08-04",
+        "lo_exclusive": "2020-08-17"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-09-10": {
+      "effective_train_cutoff_date": "2021-08-12",
+      "formation_window": {
+        "hi_inclusive": "2021-08-12",
+        "lo_exclusive": "2020-08-25"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-09-17": {
+      "effective_train_cutoff_date": "2021-08-19",
+      "formation_window": {
+        "hi_inclusive": "2021-08-19",
+        "lo_exclusive": "2020-09-01"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-09-24": {
+      "effective_train_cutoff_date": "2021-08-26",
+      "formation_window": {
+        "hi_inclusive": "2021-08-26",
+        "lo_exclusive": "2020-09-08"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-10-01": {
+      "effective_train_cutoff_date": "2021-09-02",
+      "formation_window": {
+        "hi_inclusive": "2021-09-02",
+        "lo_exclusive": "2020-09-15"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-10-08": {
+      "effective_train_cutoff_date": "2021-09-09",
+      "formation_window": {
+        "hi_inclusive": "2021-09-09",
+        "lo_exclusive": "2020-09-22"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-10-15": {
+      "effective_train_cutoff_date": "2021-09-16",
+      "formation_window": {
+        "hi_inclusive": "2021-09-16",
+        "lo_exclusive": "2020-09-29"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-10-22": {
+      "effective_train_cutoff_date": "2021-09-23",
+      "formation_window": {
+        "hi_inclusive": "2021-09-23",
+        "lo_exclusive": "2020-10-06"
+      },
+      "n_names": 292,
+      "n_scored": 283,
+      "names_floor_ok": true
+    },
+    "2021-10-29": {
+      "effective_train_cutoff_date": "2021-09-30",
+      "formation_window": {
+        "hi_inclusive": "2021-09-30",
+        "lo_exclusive": "2020-10-13"
+      },
+      "n_names": 292,
+      "n_scored": 284,
+      "names_floor_ok": true
+    },
+    "2021-11-05": {
+      "effective_train_cutoff_date": "2021-10-07",
+      "formation_window": {
+        "hi_inclusive": "2021-10-07",
+        "lo_exclusive": "2020-10-20"
+      },
+      "n_names": 292,
+      "n_scored": 284,
+      "names_floor_ok": true
+    },
+    "2021-11-12": {
+      "effective_train_cutoff_date": "2021-10-14",
+      "formation_window": {
+        "hi_inclusive": "2021-10-14",
+        "lo_exclusive": "2020-10-27"
+      },
+      "n_names": 292,
+      "n_scored": 284,
+      "names_floor_ok": true
+    },
+    "2021-11-19": {
+      "effective_train_cutoff_date": "2021-10-21",
+      "formation_window": {
+        "hi_inclusive": "2021-10-21",
+        "lo_exclusive": "2020-11-03"
+      },
+      "n_names": 292,
+      "n_scored": 285,
+      "names_floor_ok": true
+    },
+    "2021-11-29": {
+      "effective_train_cutoff_date": "2021-10-29",
+      "formation_window": {
+        "hi_inclusive": "2021-10-29",
+        "lo_exclusive": "2020-11-11"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2021-12-06": {
+      "effective_train_cutoff_date": "2021-11-05",
+      "formation_window": {
+        "hi_inclusive": "2021-11-05",
+        "lo_exclusive": "2020-11-18"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2021-12-13": {
+      "effective_train_cutoff_date": "2021-11-12",
+      "formation_window": {
+        "hi_inclusive": "2021-11-12",
+        "lo_exclusive": "2020-11-25"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2021-12-20": {
+      "effective_train_cutoff_date": "2021-11-19",
+      "formation_window": {
+        "hi_inclusive": "2021-11-19",
+        "lo_exclusive": "2020-12-02"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2021-12-28": {
+      "effective_train_cutoff_date": "2021-11-29",
+      "formation_window": {
+        "hi_inclusive": "2021-11-29",
+        "lo_exclusive": "2020-12-10"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2022-01-04": {
+      "effective_train_cutoff_date": "2021-12-06",
+      "formation_window": {
+        "hi_inclusive": "2021-12-06",
+        "lo_exclusive": "2020-12-17"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2022-01-11": {
+      "effective_train_cutoff_date": "2021-12-13",
+      "formation_window": {
+        "hi_inclusive": "2021-12-13",
+        "lo_exclusive": "2020-12-24"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2022-01-19": {
+      "effective_train_cutoff_date": "2021-12-21",
+      "formation_window": {
+        "hi_inclusive": "2021-12-21",
+        "lo_exclusive": "2021-01-01"
+      },
+      "n_names": 292,
+      "n_scored": 286,
+      "names_floor_ok": true
+    },
+    "2022-01-26": {
+      "effective_train_cutoff_date": "2021-12-28",
+      "formation_window": {
+        "hi_inclusive": "2021-12-28",
+        "lo_exclusive": "2021-01-08"
+      },
+      "n_names": 292,
+      "n_scored": 288,
+      "names_floor_ok": true
+    },
+    "2022-02-02": {
+      "effective_train_cutoff_date": "2022-01-04",
+      "formation_window": {
+        "hi_inclusive": "2022-01-04",
+        "lo_exclusive": "2021-01-15"
+      },
+      "n_names": 292,
+      "n_scored": 288,
+      "names_floor_ok": true
+    },
+    "2022-02-09": {
+      "effective_train_cutoff_date": "2022-01-11",
+      "formation_window": {
+        "hi_inclusive": "2022-01-11",
+        "lo_exclusive": "2021-01-22"
+      },
+      "n_names": 292,
+      "n_scored": 288,
+      "names_floor_ok": true
+    },
+    "2022-02-16": {
+      "effective_train_cutoff_date": "2022-01-18",
+      "formation_window": {
+        "hi_inclusive": "2022-01-18",
+        "lo_exclusive": "2021-01-29"
+      },
+      "n_names": 292,
+      "n_scored": 288,
+      "names_floor_ok": true
+    },
+    "2022-02-24": {
+      "effective_train_cutoff_date": "2022-01-26",
+      "formation_window": {
+        "hi_inclusive": "2022-01-26",
+        "lo_exclusive": "2021-02-08"
+      },
+      "n_names": 292,
+      "n_scored": 288,
+      "names_floor_ok": true
+    },
+    "2022-03-03": {
+      "effective_train_cutoff_date": "2022-02-02",
+      "formation_window": {
+        "hi_inclusive": "2022-02-02",
+        "lo_exclusive": "2021-02-15"
+      },
+      "n_names": 292,
+      "n_scored": 290,
+      "names_floor_ok": true
+    },
+    "2022-03-10": {
+      "effective_train_cutoff_date": "2022-02-09",
+      "formation_window": {
+        "hi_inclusive": "2022-02-09",
+        "lo_exclusive": "2021-02-22"
+      },
+      "n_names": 292,
+      "n_scored": 291,
+      "names_floor_ok": true
+    },
+    "2022-03-17": {
+      "effective_train_cutoff_date": "2022-02-16",
+      "formation_window": {
+        "hi_inclusive": "2022-02-16",
+        "lo_exclusive": "2021-03-01"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-03-24": {
+      "effective_train_cutoff_date": "2022-02-23",
+      "formation_window": {
+        "hi_inclusive": "2022-02-23",
+        "lo_exclusive": "2021-03-08"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-03-31": {
+      "effective_train_cutoff_date": "2022-03-02",
+      "formation_window": {
+        "hi_inclusive": "2022-03-02",
+        "lo_exclusive": "2021-03-15"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-04-07": {
+      "effective_train_cutoff_date": "2022-03-09",
+      "formation_window": {
+        "hi_inclusive": "2022-03-09",
+        "lo_exclusive": "2021-03-22"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-04-14": {
+      "effective_train_cutoff_date": "2022-03-16",
+      "formation_window": {
+        "hi_inclusive": "2022-03-16",
+        "lo_exclusive": "2021-03-29"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-04-22": {
+      "effective_train_cutoff_date": "2022-03-24",
+      "formation_window": {
+        "hi_inclusive": "2022-03-24",
+        "lo_exclusive": "2021-04-06"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-04-29": {
+      "effective_train_cutoff_date": "2022-03-31",
+      "formation_window": {
+        "hi_inclusive": "2022-03-31",
+        "lo_exclusive": "2021-04-13"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-05-06": {
+      "effective_train_cutoff_date": "2022-04-07",
+      "formation_window": {
+        "hi_inclusive": "2022-04-07",
+        "lo_exclusive": "2021-04-20"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-05-13": {
+      "effective_train_cutoff_date": "2022-04-14",
+      "formation_window": {
+        "hi_inclusive": "2022-04-14",
+        "lo_exclusive": "2021-04-27"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-05-20": {
+      "effective_train_cutoff_date": "2022-04-21",
+      "formation_window": {
+        "hi_inclusive": "2022-04-21",
+        "lo_exclusive": "2021-05-04"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-05-27": {
+      "effective_train_cutoff_date": "2022-04-28",
+      "formation_window": {
+        "hi_inclusive": "2022-04-28",
+        "lo_exclusive": "2021-05-11"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-06-06": {
+      "effective_train_cutoff_date": "2022-05-06",
+      "formation_window": {
+        "hi_inclusive": "2022-05-06",
+        "lo_exclusive": "2021-05-19"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-06-13": {
+      "effective_train_cutoff_date": "2022-05-13",
+      "formation_window": {
+        "hi_inclusive": "2022-05-13",
+        "lo_exclusive": "2021-05-26"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-06-21": {
+      "effective_train_cutoff_date": "2022-05-23",
+      "formation_window": {
+        "hi_inclusive": "2022-05-23",
+        "lo_exclusive": "2021-06-03"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-06-28": {
+      "effective_train_cutoff_date": "2022-05-27",
+      "formation_window": {
+        "hi_inclusive": "2022-05-30",
+        "lo_exclusive": "2021-06-10"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-07-06": {
+      "effective_train_cutoff_date": "2022-06-07",
+      "formation_window": {
+        "hi_inclusive": "2022-06-07",
+        "lo_exclusive": "2021-06-18"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-07-13": {
+      "effective_train_cutoff_date": "2022-06-14",
+      "formation_window": {
+        "hi_inclusive": "2022-06-14",
+        "lo_exclusive": "2021-06-25"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-07-20": {
+      "effective_train_cutoff_date": "2022-06-21",
+      "formation_window": {
+        "hi_inclusive": "2022-06-21",
+        "lo_exclusive": "2021-07-02"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-07-27": {
+      "effective_train_cutoff_date": "2022-06-28",
+      "formation_window": {
+        "hi_inclusive": "2022-06-28",
+        "lo_exclusive": "2021-07-09"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-08-03": {
+      "effective_train_cutoff_date": "2022-07-05",
+      "formation_window": {
+        "hi_inclusive": "2022-07-05",
+        "lo_exclusive": "2021-07-16"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-08-10": {
+      "effective_train_cutoff_date": "2022-07-12",
+      "formation_window": {
+        "hi_inclusive": "2022-07-12",
+        "lo_exclusive": "2021-07-23"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-08-17": {
+      "effective_train_cutoff_date": "2022-07-19",
+      "formation_window": {
+        "hi_inclusive": "2022-07-19",
+        "lo_exclusive": "2021-07-30"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-08-24": {
+      "effective_train_cutoff_date": "2022-07-26",
+      "formation_window": {
+        "hi_inclusive": "2022-07-26",
+        "lo_exclusive": "2021-08-06"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-08-31": {
+      "effective_train_cutoff_date": "2022-08-02",
+      "formation_window": {
+        "hi_inclusive": "2022-08-02",
+        "lo_exclusive": "2021-08-13"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-09-08": {
+      "effective_train_cutoff_date": "2022-08-10",
+      "formation_window": {
+        "hi_inclusive": "2022-08-10",
+        "lo_exclusive": "2021-08-23"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-09-15": {
+      "effective_train_cutoff_date": "2022-08-17",
+      "formation_window": {
+        "hi_inclusive": "2022-08-17",
+        "lo_exclusive": "2021-08-30"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-09-22": {
+      "effective_train_cutoff_date": "2022-08-24",
+      "formation_window": {
+        "hi_inclusive": "2022-08-24",
+        "lo_exclusive": "2021-09-06"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-09-29": {
+      "effective_train_cutoff_date": "2022-08-31",
+      "formation_window": {
+        "hi_inclusive": "2022-08-31",
+        "lo_exclusive": "2021-09-13"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-10-06": {
+      "effective_train_cutoff_date": "2022-09-07",
+      "formation_window": {
+        "hi_inclusive": "2022-09-07",
+        "lo_exclusive": "2021-09-20"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-10-13": {
+      "effective_train_cutoff_date": "2022-09-14",
+      "formation_window": {
+        "hi_inclusive": "2022-09-14",
+        "lo_exclusive": "2021-09-27"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-10-20": {
+      "effective_train_cutoff_date": "2022-09-21",
+      "formation_window": {
+        "hi_inclusive": "2022-09-21",
+        "lo_exclusive": "2021-10-04"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-10-27": {
+      "effective_train_cutoff_date": "2022-09-28",
+      "formation_window": {
+        "hi_inclusive": "2022-09-28",
+        "lo_exclusive": "2021-10-11"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-11-03": {
+      "effective_train_cutoff_date": "2022-10-05",
+      "formation_window": {
+        "hi_inclusive": "2022-10-05",
+        "lo_exclusive": "2021-10-18"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-11-10": {
+      "effective_train_cutoff_date": "2022-10-12",
+      "formation_window": {
+        "hi_inclusive": "2022-10-12",
+        "lo_exclusive": "2021-10-25"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-11-17": {
+      "effective_train_cutoff_date": "2022-10-19",
+      "formation_window": {
+        "hi_inclusive": "2022-10-19",
+        "lo_exclusive": "2021-11-01"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-11-25": {
+      "effective_train_cutoff_date": "2022-10-27",
+      "formation_window": {
+        "hi_inclusive": "2022-10-27",
+        "lo_exclusive": "2021-11-09"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-12-02": {
+      "effective_train_cutoff_date": "2022-11-03",
+      "formation_window": {
+        "hi_inclusive": "2022-11-03",
+        "lo_exclusive": "2021-11-16"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-12-09": {
+      "effective_train_cutoff_date": "2022-11-10",
+      "formation_window": {
+        "hi_inclusive": "2022-11-10",
+        "lo_exclusive": "2021-11-23"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-12-16": {
+      "effective_train_cutoff_date": "2022-11-17",
+      "formation_window": {
+        "hi_inclusive": "2022-11-17",
+        "lo_exclusive": "2021-11-30"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2022-12-23": {
+      "effective_train_cutoff_date": "2022-11-23",
+      "formation_window": {
+        "hi_inclusive": "2022-11-24",
+        "lo_exclusive": "2021-12-07"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-01-03": {
+      "effective_train_cutoff_date": "2022-12-05",
+      "formation_window": {
+        "hi_inclusive": "2022-12-05",
+        "lo_exclusive": "2021-12-16"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-01-10": {
+      "effective_train_cutoff_date": "2022-12-12",
+      "formation_window": {
+        "hi_inclusive": "2022-12-12",
+        "lo_exclusive": "2021-12-23"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-01-18": {
+      "effective_train_cutoff_date": "2022-12-20",
+      "formation_window": {
+        "hi_inclusive": "2022-12-20",
+        "lo_exclusive": "2021-12-31"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-01-25": {
+      "effective_train_cutoff_date": "2022-12-27",
+      "formation_window": {
+        "hi_inclusive": "2022-12-27",
+        "lo_exclusive": "2022-01-07"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-02-01": {
+      "effective_train_cutoff_date": "2023-01-03",
+      "formation_window": {
+        "hi_inclusive": "2023-01-03",
+        "lo_exclusive": "2022-01-14"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-02-08": {
+      "effective_train_cutoff_date": "2023-01-10",
+      "formation_window": {
+        "hi_inclusive": "2023-01-10",
+        "lo_exclusive": "2022-01-21"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-02-15": {
+      "effective_train_cutoff_date": "2023-01-17",
+      "formation_window": {
+        "hi_inclusive": "2023-01-17",
+        "lo_exclusive": "2022-01-28"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-02-23": {
+      "effective_train_cutoff_date": "2023-01-25",
+      "formation_window": {
+        "hi_inclusive": "2023-01-25",
+        "lo_exclusive": "2022-02-07"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-03-02": {
+      "effective_train_cutoff_date": "2023-02-01",
+      "formation_window": {
+        "hi_inclusive": "2023-02-01",
+        "lo_exclusive": "2022-02-14"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-03-09": {
+      "effective_train_cutoff_date": "2023-02-08",
+      "formation_window": {
+        "hi_inclusive": "2023-02-08",
+        "lo_exclusive": "2022-02-21"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-03-16": {
+      "effective_train_cutoff_date": "2023-02-15",
+      "formation_window": {
+        "hi_inclusive": "2023-02-15",
+        "lo_exclusive": "2022-02-28"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-03-23": {
+      "effective_train_cutoff_date": "2023-02-22",
+      "formation_window": {
+        "hi_inclusive": "2023-02-22",
+        "lo_exclusive": "2022-03-07"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-03-30": {
+      "effective_train_cutoff_date": "2023-03-01",
+      "formation_window": {
+        "hi_inclusive": "2023-03-01",
+        "lo_exclusive": "2022-03-14"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-04-06": {
+      "effective_train_cutoff_date": "2023-03-08",
+      "formation_window": {
+        "hi_inclusive": "2023-03-08",
+        "lo_exclusive": "2022-03-21"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-04-14": {
+      "effective_train_cutoff_date": "2023-03-16",
+      "formation_window": {
+        "hi_inclusive": "2023-03-16",
+        "lo_exclusive": "2022-03-29"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-04-21": {
+      "effective_train_cutoff_date": "2023-03-23",
+      "formation_window": {
+        "hi_inclusive": "2023-03-23",
+        "lo_exclusive": "2022-04-05"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-04-28": {
+      "effective_train_cutoff_date": "2023-03-30",
+      "formation_window": {
+        "hi_inclusive": "2023-03-30",
+        "lo_exclusive": "2022-04-12"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-05-05": {
+      "effective_train_cutoff_date": "2023-04-06",
+      "formation_window": {
+        "hi_inclusive": "2023-04-06",
+        "lo_exclusive": "2022-04-19"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-05-12": {
+      "effective_train_cutoff_date": "2023-04-13",
+      "formation_window": {
+        "hi_inclusive": "2023-04-13",
+        "lo_exclusive": "2022-04-26"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-05-19": {
+      "effective_train_cutoff_date": "2023-04-20",
+      "formation_window": {
+        "hi_inclusive": "2023-04-20",
+        "lo_exclusive": "2022-05-03"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-05-26": {
+      "effective_train_cutoff_date": "2023-04-27",
+      "formation_window": {
+        "hi_inclusive": "2023-04-27",
+        "lo_exclusive": "2022-05-10"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-06-05": {
+      "effective_train_cutoff_date": "2023-05-05",
+      "formation_window": {
+        "hi_inclusive": "2023-05-05",
+        "lo_exclusive": "2022-05-18"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-06-12": {
+      "effective_train_cutoff_date": "2023-05-12",
+      "formation_window": {
+        "hi_inclusive": "2023-05-12",
+        "lo_exclusive": "2022-05-25"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-06-20": {
+      "effective_train_cutoff_date": "2023-05-22",
+      "formation_window": {
+        "hi_inclusive": "2023-05-22",
+        "lo_exclusive": "2022-06-02"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-06-27": {
+      "effective_train_cutoff_date": "2023-05-26",
+      "formation_window": {
+        "hi_inclusive": "2023-05-29",
+        "lo_exclusive": "2022-06-09"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-07-05": {
+      "effective_train_cutoff_date": "2023-06-06",
+      "formation_window": {
+        "hi_inclusive": "2023-06-06",
+        "lo_exclusive": "2022-06-17"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-07-12": {
+      "effective_train_cutoff_date": "2023-06-13",
+      "formation_window": {
+        "hi_inclusive": "2023-06-13",
+        "lo_exclusive": "2022-06-24"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-07-19": {
+      "effective_train_cutoff_date": "2023-06-20",
+      "formation_window": {
+        "hi_inclusive": "2023-06-20",
+        "lo_exclusive": "2022-07-01"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-07-26": {
+      "effective_train_cutoff_date": "2023-06-27",
+      "formation_window": {
+        "hi_inclusive": "2023-06-27",
+        "lo_exclusive": "2022-07-08"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-08-02": {
+      "effective_train_cutoff_date": "2023-07-03",
+      "formation_window": {
+        "hi_inclusive": "2023-07-04",
+        "lo_exclusive": "2022-07-15"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-08-09": {
+      "effective_train_cutoff_date": "2023-07-11",
+      "formation_window": {
+        "hi_inclusive": "2023-07-11",
+        "lo_exclusive": "2022-07-22"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-08-16": {
+      "effective_train_cutoff_date": "2023-07-18",
+      "formation_window": {
+        "hi_inclusive": "2023-07-18",
+        "lo_exclusive": "2022-07-29"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-08-23": {
+      "effective_train_cutoff_date": "2023-07-25",
+      "formation_window": {
+        "hi_inclusive": "2023-07-25",
+        "lo_exclusive": "2022-08-05"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-08-30": {
+      "effective_train_cutoff_date": "2023-08-01",
+      "formation_window": {
+        "hi_inclusive": "2023-08-01",
+        "lo_exclusive": "2022-08-12"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-09-07": {
+      "effective_train_cutoff_date": "2023-08-09",
+      "formation_window": {
+        "hi_inclusive": "2023-08-09",
+        "lo_exclusive": "2022-08-22"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-09-14": {
+      "effective_train_cutoff_date": "2023-08-16",
+      "formation_window": {
+        "hi_inclusive": "2023-08-16",
+        "lo_exclusive": "2022-08-29"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-09-21": {
+      "effective_train_cutoff_date": "2023-08-23",
+      "formation_window": {
+        "hi_inclusive": "2023-08-23",
+        "lo_exclusive": "2022-09-05"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    },
+    "2023-09-28": {
+      "effective_train_cutoff_date": "2023-08-30",
+      "formation_window": {
+        "hi_inclusive": "2023-08-30",
+        "lo_exclusive": "2022-09-12"
+      },
+      "n_names": 292,
+      "n_scored": 292,
+      "names_floor_ok": true
+    }
+  },
+  "refit_used_by_score_date": {
+    "2017-01-03": "2016-09-30",
+    "2017-01-10": "2016-09-30",
+    "2017-01-18": "2016-09-30",
+    "2017-01-25": "2016-09-30",
+    "2017-02-01": "2016-09-30",
+    "2017-02-08": "2016-09-30",
+    "2017-02-15": "2016-09-30",
+    "2017-02-23": "2016-09-30",
+    "2017-03-02": "2016-09-30",
+    "2017-03-09": "2016-09-30",
+    "2017-03-16": "2016-09-30",
+    "2017-03-23": "2016-09-30",
+    "2017-03-30": "2016-12-30",
+    "2017-04-06": "2016-12-30",
+    "2017-04-13": "2016-12-30",
+    "2017-04-21": "2016-12-30",
+    "2017-04-28": "2016-12-30",
+    "2017-05-05": "2016-12-30",
+    "2017-05-12": "2016-12-30",
+    "2017-05-19": "2016-12-30",
+    "2017-05-26": "2016-12-30",
+    "2017-06-05": "2016-12-30",
+    "2017-06-12": "2016-12-30",
+    "2017-06-19": "2016-12-30",
+    "2017-06-26": "2016-12-30",
+    "2017-07-03": "2017-03-31",
+    "2017-07-11": "2017-03-31",
+    "2017-07-18": "2017-03-31",
+    "2017-07-25": "2017-03-31",
+    "2017-08-01": "2017-03-31",
+    "2017-08-08": "2017-03-31",
+    "2017-08-15": "2017-03-31",
+    "2017-08-22": "2017-03-31",
+    "2017-08-29": "2017-03-31",
+    "2017-09-06": "2017-03-31",
+    "2017-09-13": "2017-03-31",
+    "2017-09-20": "2017-03-31",
+    "2017-09-27": "2017-06-30",
+    "2017-10-04": "2017-06-30",
+    "2017-10-11": "2017-06-30",
+    "2017-10-18": "2017-06-30",
+    "2017-10-25": "2017-06-30",
+    "2017-11-01": "2017-06-30",
+    "2017-11-08": "2017-06-30",
+    "2017-11-15": "2017-06-30",
+    "2017-11-22": "2017-06-30",
+    "2017-11-30": "2017-06-30",
+    "2017-12-07": "2017-06-30",
+    "2017-12-14": "2017-06-30",
+    "2017-12-21": "2017-06-30",
+    "2017-12-29": "2017-09-29",
+    "2018-01-08": "2017-09-29",
+    "2018-01-16": "2017-09-29",
+    "2018-01-23": "2017-09-29",
+    "2018-01-30": "2017-09-29",
+    "2018-02-06": "2017-09-29",
+    "2018-02-13": "2017-09-29",
+    "2018-02-21": "2017-09-29",
+    "2018-02-28": "2017-09-29",
+    "2018-03-07": "2017-09-29",
+    "2018-03-14": "2017-09-29",
+    "2018-03-21": "2017-09-29",
+    "2018-03-28": "2017-12-29",
+    "2018-04-05": "2017-12-29",
+    "2018-04-12": "2017-12-29",
+    "2018-04-19": "2017-12-29",
+    "2018-04-26": "2017-12-29",
+    "2018-05-03": "2017-12-29",
+    "2018-05-10": "2017-12-29",
+    "2018-05-17": "2017-12-29",
+    "2018-05-24": "2017-12-29",
+    "2018-06-01": "2017-12-29",
+    "2018-06-08": "2017-12-29",
+    "2018-06-15": "2017-12-29",
+    "2018-06-22": "2017-12-29",
+    "2018-06-29": "2018-03-29",
+    "2018-07-09": "2018-03-29",
+    "2018-07-16": "2018-03-29",
+    "2018-07-23": "2018-03-29",
+    "2018-07-30": "2018-03-29",
+    "2018-08-06": "2018-03-29",
+    "2018-08-13": "2018-03-29",
+    "2018-08-20": "2018-03-29",
+    "2018-08-27": "2018-03-29",
+    "2018-09-04": "2018-03-29",
+    "2018-09-11": "2018-03-29",
+    "2018-09-18": "2018-03-29",
+    "2018-09-25": "2018-06-29",
+    "2018-10-02": "2018-06-29",
+    "2018-10-09": "2018-06-29",
+    "2018-10-16": "2018-06-29",
+    "2018-10-23": "2018-06-29",
+    "2018-10-30": "2018-06-29",
+    "2018-11-06": "2018-06-29",
+    "2018-11-13": "2018-06-29",
+    "2018-11-20": "2018-06-29",
+    "2018-11-28": "2018-06-29",
+    "2018-12-06": "2018-06-29",
+    "2018-12-13": "2018-06-29",
+    "2018-12-20": "2018-06-29",
+    "2018-12-28": "2018-09-28",
+    "2019-01-07": "2018-09-28",
+    "2019-01-14": "2018-09-28",
+    "2019-01-22": "2018-09-28",
+    "2019-01-29": "2018-09-28",
+    "2019-02-05": "2018-09-28",
+    "2019-02-12": "2018-09-28",
+    "2019-02-20": "2018-09-28",
+    "2019-02-27": "2018-09-28",
+    "2019-03-06": "2018-09-28",
+    "2019-03-13": "2018-09-28",
+    "2019-03-20": "2018-09-28",
+    "2019-03-27": "2018-09-28",
+    "2019-04-03": "2018-12-31",
+    "2019-04-10": "2018-12-31",
+    "2019-04-17": "2018-12-31",
+    "2019-04-25": "2018-12-31",
+    "2019-05-02": "2018-12-31",
+    "2019-05-09": "2018-12-31",
+    "2019-05-16": "2018-12-31",
+    "2019-05-23": "2018-12-31",
+    "2019-05-31": "2018-12-31",
+    "2019-06-07": "2018-12-31",
+    "2019-06-14": "2018-12-31",
+    "2019-06-21": "2018-12-31",
+    "2019-06-28": "2019-03-29",
+    "2019-07-08": "2019-03-29",
+    "2019-07-15": "2019-03-29",
+    "2019-07-22": "2019-03-29",
+    "2019-07-29": "2019-03-29",
+    "2019-08-05": "2019-03-29",
+    "2019-08-12": "2019-03-29",
+    "2019-08-19": "2019-03-29",
+    "2019-08-26": "2019-03-29",
+    "2019-09-03": "2019-03-29",
+    "2019-09-10": "2019-03-29",
+    "2019-09-17": "2019-03-29",
+    "2019-09-24": "2019-06-28",
+    "2019-10-01": "2019-06-28",
+    "2019-10-08": "2019-06-28",
+    "2019-10-15": "2019-06-28",
+    "2019-10-22": "2019-06-28",
+    "2019-10-29": "2019-06-28",
+    "2019-11-05": "2019-06-28",
+    "2019-11-12": "2019-06-28",
+    "2019-11-19": "2019-06-28",
+    "2019-11-26": "2019-06-28",
+    "2019-12-04": "2019-06-28",
+    "2019-12-11": "2019-06-28",
+    "2019-12-18": "2019-06-28",
+    "2019-12-26": "2019-09-30",
+    "2020-01-03": "2019-09-30",
+    "2020-01-10": "2019-09-30",
+    "2020-01-17": "2019-09-30",
+    "2020-01-27": "2019-09-30",
+    "2020-02-03": "2019-09-30",
+    "2020-02-10": "2019-09-30",
+    "2020-02-18": "2019-09-30",
+    "2020-02-25": "2019-09-30",
+    "2020-03-03": "2019-09-30",
+    "2020-03-10": "2019-09-30",
+    "2020-03-17": "2019-09-30",
+    "2020-03-24": "2019-09-30",
+    "2020-03-31": "2019-12-31",
+    "2020-04-07": "2019-12-31",
+    "2020-04-15": "2019-12-31",
+    "2020-04-22": "2019-12-31",
+    "2020-04-29": "2019-12-31",
+    "2020-05-06": "2019-12-31",
+    "2020-05-13": "2019-12-31",
+    "2020-05-20": "2019-12-31",
+    "2020-05-28": "2019-12-31",
+    "2020-06-04": "2019-12-31",
+    "2020-06-11": "2019-12-31",
+    "2020-06-18": "2019-12-31",
+    "2020-06-25": "2020-03-31",
+    "2020-07-02": "2020-03-31",
+    "2020-07-10": "2020-03-31",
+    "2020-07-17": "2020-03-31",
+    "2020-07-24": "2020-03-31",
+    "2020-07-31": "2020-03-31",
+    "2020-08-07": "2020-03-31",
+    "2020-08-14": "2020-03-31",
+    "2020-08-21": "2020-03-31",
+    "2020-08-28": "2020-03-31",
+    "2020-09-04": "2020-03-31",
+    "2020-09-14": "2020-03-31",
+    "2020-09-21": "2020-03-31",
+    "2020-09-28": "2020-06-30",
+    "2020-10-05": "2020-06-30",
+    "2020-10-12": "2020-06-30",
+    "2020-10-19": "2020-06-30",
+    "2020-10-26": "2020-06-30",
+    "2020-11-02": "2020-06-30",
+    "2020-11-09": "2020-06-30",
+    "2020-11-16": "2020-06-30",
+    "2020-11-23": "2020-06-30",
+    "2020-12-01": "2020-06-30",
+    "2020-12-08": "2020-06-30",
+    "2020-12-15": "2020-06-30",
+    "2020-12-22": "2020-06-30",
+    "2020-12-30": "2020-09-30",
+    "2021-01-07": "2020-09-30",
+    "2021-01-14": "2020-09-30",
+    "2021-01-22": "2020-09-30",
+    "2021-01-29": "2020-09-30",
+    "2021-02-05": "2020-09-30",
+    "2021-02-12": "2020-09-30",
+    "2021-02-22": "2020-09-30",
+    "2021-03-01": "2020-09-30",
+    "2021-03-08": "2020-09-30",
+    "2021-03-15": "2020-09-30",
+    "2021-03-22": "2020-09-30",
+    "2021-03-29": "2020-09-30",
+    "2021-04-06": "2020-12-31",
+    "2021-04-13": "2020-12-31",
+    "2021-04-20": "2020-12-31",
+    "2021-04-27": "2020-12-31",
+    "2021-05-04": "2020-12-31",
+    "2021-05-11": "2020-12-31",
+    "2021-05-18": "2020-12-31",
+    "2021-05-25": "2020-12-31",
+    "2021-06-02": "2020-12-31",
+    "2021-06-09": "2020-12-31",
+    "2021-06-16": "2020-12-31",
+    "2021-06-23": "2020-12-31",
+    "2021-06-30": "2021-03-31",
+    "2021-07-08": "2021-03-31",
+    "2021-07-15": "2021-03-31",
+    "2021-07-22": "2021-03-31",
+    "2021-07-29": "2021-03-31",
+    "2021-08-05": "2021-03-31",
+    "2021-08-12": "2021-03-31",
+    "2021-08-19": "2021-03-31",
+    "2021-08-26": "2021-03-31",
+    "2021-09-02": "2021-03-31",
+    "2021-09-10": "2021-03-31",
+    "2021-09-17": "2021-03-31",
+    "2021-09-24": "2021-06-30",
+    "2021-10-01": "2021-06-30",
+    "2021-10-08": "2021-06-30",
+    "2021-10-15": "2021-06-30",
+    "2021-10-22": "2021-06-30",
+    "2021-10-29": "2021-06-30",
+    "2021-11-05": "2021-06-30",
+    "2021-11-12": "2021-06-30",
+    "2021-11-19": "2021-06-30",
+    "2021-11-29": "2021-06-30",
+    "2021-12-06": "2021-06-30",
+    "2021-12-13": "2021-06-30",
+    "2021-12-20": "2021-06-30",
+    "2021-12-28": "2021-09-30",
+    "2022-01-04": "2021-09-30",
+    "2022-01-11": "2021-09-30",
+    "2022-01-19": "2021-09-30",
+    "2022-01-26": "2021-09-30",
+    "2022-02-02": "2021-09-30",
+    "2022-02-09": "2021-09-30",
+    "2022-02-16": "2021-09-30",
+    "2022-02-24": "2021-09-30",
+    "2022-03-03": "2021-09-30",
+    "2022-03-10": "2021-09-30",
+    "2022-03-17": "2021-09-30",
+    "2022-03-24": "2021-09-30",
+    "2022-03-31": "2021-12-31",
+    "2022-04-07": "2021-12-31",
+    "2022-04-14": "2021-12-31",
+    "2022-04-22": "2021-12-31",
+    "2022-04-29": "2021-12-31",
+    "2022-05-06": "2021-12-31",
+    "2022-05-13": "2021-12-31",
+    "2022-05-20": "2021-12-31",
+    "2022-05-27": "2021-12-31",
+    "2022-06-06": "2021-12-31",
+    "2022-06-13": "2021-12-31",
+    "2022-06-21": "2021-12-31",
+    "2022-06-28": "2022-03-31",
+    "2022-07-06": "2022-03-31",
+    "2022-07-13": "2022-03-31",
+    "2022-07-20": "2022-03-31",
+    "2022-07-27": "2022-03-31",
+    "2022-08-03": "2022-03-31",
+    "2022-08-10": "2022-03-31",
+    "2022-08-17": "2022-03-31",
+    "2022-08-24": "2022-03-31",
+    "2022-08-31": "2022-03-31",
+    "2022-09-08": "2022-03-31",
+    "2022-09-15": "2022-03-31",
+    "2022-09-22": "2022-03-31",
+    "2022-09-29": "2022-06-30",
+    "2022-10-06": "2022-06-30",
+    "2022-10-13": "2022-06-30",
+    "2022-10-20": "2022-06-30",
+    "2022-10-27": "2022-06-30",
+    "2022-11-03": "2022-06-30",
+    "2022-11-10": "2022-06-30",
+    "2022-11-17": "2022-06-30",
+    "2022-11-25": "2022-06-30",
+    "2022-12-02": "2022-06-30",
+    "2022-12-09": "2022-06-30",
+    "2022-12-16": "2022-06-30",
+    "2022-12-23": "2022-06-30",
+    "2023-01-03": "2022-09-30",
+    "2023-01-10": "2022-09-30",
+    "2023-01-18": "2022-09-30",
+    "2023-01-25": "2022-09-30",
+    "2023-02-01": "2022-09-30",
+    "2023-02-08": "2022-09-30",
+    "2023-02-15": "2022-09-30",
+    "2023-02-23": "2022-09-30",
+    "2023-03-02": "2022-09-30",
+    "2023-03-09": "2022-09-30",
+    "2023-03-16": "2022-09-30",
+    "2023-03-23": "2022-09-30",
+    "2023-03-30": "2022-12-30",
+    "2023-04-06": "2022-12-30",
+    "2023-04-14": "2022-12-30",
+    "2023-04-21": "2022-12-30",
+    "2023-04-28": "2022-12-30",
+    "2023-05-05": "2022-12-30",
+    "2023-05-12": "2022-12-30",
+    "2023-05-19": "2022-12-30",
+    "2023-05-26": "2022-12-30",
+    "2023-06-05": "2022-12-30",
+    "2023-06-12": "2022-12-30",
+    "2023-06-20": "2022-12-30",
+    "2023-06-27": "2022-12-30",
+    "2023-07-05": "2023-03-31",
+    "2023-07-12": "2023-03-31",
+    "2023-07-19": "2023-03-31",
+    "2023-07-26": "2023-03-31",
+    "2023-08-02": "2023-03-31",
+    "2023-08-09": "2023-03-31",
+    "2023-08-16": "2023-03-31",
+    "2023-08-23": "2023-03-31",
+    "2023-08-30": "2023-03-31",
+    "2023-09-07": "2023-03-31",
+    "2023-09-14": "2023-03-31",
+    "2023-09-21": "2023-03-31",
+    "2023-09-28": "2023-06-30"
+  },
+  "refits": [
+    {
+      "booster_clf_sha256": "ba0892c2a859932cce43bd3f29096bccf5f589c87e1ec0ec88abd220eba8c450",
+      "booster_xgb_sha256": "2927e344c6b9f58eefa77eab93de3c4ba1899e78d209815e15562668debbb083",
+      "clf_positive_rate": 0.10266159695817491,
+      "cutoff": "2016-06-30",
+      "first_scoreable_date": "2016-09-26",
+      "fit_seconds_clf": 0.3,
+      "fit_seconds_xgb": 0.3,
+      "n_train_dates": 65,
+      "n_train_rows": 17095,
+      "refit_index": 0,
+      "train_max_date": "2016-04-06",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "250be11c3330fa792c3329306f58dc5e4468cc1bf543c9003155e0126612ab4d",
+      "booster_xgb_sha256": "cbb7a9b4167a38a8f6359dd152d925959fd4f0987b01acc7ad3af795a051f982",
+      "clf_positive_rate": 0.10266159695817491,
+      "cutoff": "2016-09-30",
+      "first_scoreable_date": "2016-12-27",
+      "fit_seconds_clf": 0.4,
+      "fit_seconds_xgb": 0.5,
+      "n_train_dates": 129,
+      "n_train_rows": 33927,
+      "refit_index": 1,
+      "train_max_date": "2016-07-07",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "ef7899dae0dcd0992a46c975e517a9b7c66fd2250aae8bdf201b3e61b23d7b0f",
+      "booster_xgb_sha256": "aecc67e53c06af823d3e4d24488f83ea50ed29d3691950ec105142dd5d9f64de",
+      "clf_positive_rate": 0.10259048900674833,
+      "cutoff": "2016-12-30",
+      "first_scoreable_date": "2017-03-29",
+      "fit_seconds_clf": 0.5,
+      "fit_seconds_xgb": 0.7,
+      "n_train_dates": 192,
+      "n_train_rows": 50531,
+      "refit_index": 2,
+      "train_max_date": "2016-10-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "18b04f9d476405c337147d34bc2eaa5bc5f778341cd9b6421c160e464362d57b",
+      "booster_xgb_sha256": "a1b5b0a791405278e36e05f7f73c30ec2ba63edf6a5a970d5eb82e90bf8ec721",
+      "clf_positive_rate": 0.1025127430903302,
+      "cutoff": "2017-03-31",
+      "first_scoreable_date": "2017-06-27",
+      "fit_seconds_clf": 0.6,
+      "fit_seconds_xgb": 0.8,
+      "n_train_dates": 254,
+      "n_train_rows": 66899,
+      "refit_index": 3,
+      "train_max_date": "2017-01-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "e8534d9a3015e4388fdb08c05b0e1923e5f40e4aef4098a297b87b12ed0f2e1a",
+      "booster_xgb_sha256": "e19c485555a80aba868294b7e2b7af7b0920c9a9d611555f5c27a9f941f0d94e",
+      "clf_positive_rate": 0.10243306964108333,
+      "cutoff": "2017-06-30",
+      "first_scoreable_date": "2017-09-26",
+      "fit_seconds_clf": 0.7,
+      "fit_seconds_xgb": 1.0,
+      "n_train_dates": 317,
+      "n_train_rows": 83557,
+      "refit_index": 4,
+      "train_max_date": "2017-04-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "6ad5d9cf596f99d5f8396a58ca80c3507a5cfcb0ff92d17348268cf6369cc0c0",
+      "booster_xgb_sha256": "fc81f1766f0c4e736a981056bba95a99843fb8714c01c9e3460e446b8f0db831",
+      "clf_positive_rate": 0.10227884442849453,
+      "cutoff": "2017-09-29",
+      "first_scoreable_date": "2017-12-26",
+      "fit_seconds_clf": 0.8,
+      "fit_seconds_xgb": 1.2,
+      "n_train_dates": 380,
+      "n_train_rows": 100314,
+      "refit_index": 5,
+      "train_max_date": "2017-07-06",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "df22e580ceaa7184c78c22c77e2da3fce6e89ed0ef485459b10a4821a93ea0a2",
+      "booster_xgb_sha256": "0c766a75f1c17e84a70d8b6c7912287101d83698d0af374d9cdb4c3786670593",
+      "clf_positive_rate": 0.10211817739415516,
+      "cutoff": "2017-12-29",
+      "first_scoreable_date": "2018-03-28",
+      "fit_seconds_clf": 0.8,
+      "fit_seconds_xgb": 1.3,
+      "n_train_dates": 443,
+      "n_train_rows": 117129,
+      "refit_index": 6,
+      "train_max_date": "2017-10-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "1bd404d0e2f4fa73a46aed9c4e01eedf166cac24c059d2a290bbf3779d4f730e",
+      "booster_xgb_sha256": "fd8793c64ad95a3c3bcaf86411731f487689a965b180696ed421f51aff59ba49",
+      "clf_positive_rate": 0.10195778731821349,
+      "cutoff": "2018-03-29",
+      "first_scoreable_date": "2018-06-25",
+      "fit_seconds_clf": 1.0,
+      "fit_seconds_xgb": 1.5,
+      "n_train_dates": 504,
+      "n_train_rows": 133467,
+      "refit_index": 7,
+      "train_max_date": "2018-01-02",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "e0be9f7cb699a6c5e99016627ca1cdb20e004f74230585427705e40f6dea8f54",
+      "booster_xgb_sha256": "4c00c9f44096b877bbec563184a552d738e7ccb68d2185627c2986781505465b",
+      "clf_positive_rate": 0.10186813551448386,
+      "cutoff": "2018-06-29",
+      "first_scoreable_date": "2018-09-25",
+      "fit_seconds_clf": 1.0,
+      "fit_seconds_xgb": 1.6,
+      "n_train_dates": 568,
+      "n_train_rows": 150685,
+      "refit_index": 8,
+      "train_max_date": "2018-04-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "3270db8d496c9f94b9902c77acf1a671cea69c2cc4ff4a7027d2cda16d4a009b",
+      "booster_xgb_sha256": "a3aafdf69899bee9d1bb7b0172bc15878442f2e77533e5e74be715e43cb02c23",
+      "clf_positive_rate": 0.10198681811139053,
+      "cutoff": "2018-09-28",
+      "first_scoreable_date": "2018-12-26",
+      "fit_seconds_clf": 1.2,
+      "fit_seconds_xgb": 1.8,
+      "n_train_dates": 631,
+      "n_train_rows": 167806,
+      "refit_index": 9,
+      "train_max_date": "2018-07-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "7d81dfdb96e54a31f749d7999955a91639caddf518eb2ea83e35835da2452336",
+      "booster_xgb_sha256": "58fc82514eb90be3e18f832f5926594696a5661d34265237860bedeee5461d1f",
+      "clf_positive_rate": 0.10204544963134338,
+      "cutoff": "2018-12-31",
+      "first_scoreable_date": "2019-03-28",
+      "fit_seconds_clf": 1.2,
+      "fit_seconds_xgb": 1.9,
+      "n_train_dates": 694,
+      "n_train_rows": 184996,
+      "refit_index": 10,
+      "train_max_date": "2018-10-03",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "fa656fc8bfc61904e52c5f15decbbe61fba64e05232a875a886e554784e7cbcc",
+      "booster_xgb_sha256": "5cba7dcc7c5c910b1def213a82dade1847e8b697b56d9dd75b9afccd79687f09",
+      "clf_positive_rate": 0.10202706051444714,
+      "cutoff": "2019-03-29",
+      "first_scoreable_date": "2019-06-25",
+      "fit_seconds_clf": 1.3,
+      "fit_seconds_xgb": 2.1,
+      "n_train_dates": 755,
+      "n_train_rows": 201770,
+      "refit_index": 11,
+      "train_max_date": "2019-01-02",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "60e7e73d8610e7dbe73d1e5587e9253a6297085244f9535a6a3991cce3b489fb",
+      "booster_xgb_sha256": "879516aaf818c8fc5398165082895a09caf2a33a5a8bdf1abee42a3849fd651b",
+      "clf_positive_rate": 0.10200542203317116,
+      "cutoff": "2019-06-28",
+      "first_scoreable_date": "2019-09-24",
+      "fit_seconds_clf": 1.4,
+      "fit_seconds_xgb": 2.3,
+      "n_train_dates": 818,
+      "n_train_rows": 219106,
+      "refit_index": 12,
+      "train_max_date": "2019-04-03",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "f2070fdec2ca66e7e5fe47f461715055d606be375f5124331372342f0dc3708e",
+      "booster_xgb_sha256": "fc1966b8e7ecefa647e6f4db765cefb7a88029b2a7ce7c1e029c092420c3df04",
+      "clf_positive_rate": 0.10193336457792358,
+      "cutoff": "2019-09-30",
+      "first_scoreable_date": "2019-12-24",
+      "fit_seconds_clf": 1.5,
+      "fit_seconds_xgb": 2.4,
+      "n_train_dates": 882,
+      "n_train_rows": 236841,
+      "refit_index": 13,
+      "train_max_date": "2019-07-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "2dd736475dfdcc5502e53089687a62793b5c32d643d0104ced7ac65520c4c6e5",
+      "booster_xgb_sha256": "af91d9477e7d5c9e3044848157cc7af8cc32424c6ae9e4651fc32e5c32e49319",
+      "clf_positive_rate": 0.10188446601560507,
+      "cutoff": "2019-12-31",
+      "first_scoreable_date": "2020-03-27",
+      "fit_seconds_clf": 1.6,
+      "fit_seconds_xgb": 2.7,
+      "n_train_dates": 946,
+      "n_train_rows": 254661,
+      "refit_index": 14,
+      "train_max_date": "2019-10-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "fcbbb05371a5bd705846408e8ee2ee6269af8c1cbd8f0b0b7bb0552491c99cf8",
+      "booster_xgb_sha256": "0939ac0d23916da1d86c7d54e141003caec74a375f46ee5e906b50d70be168d1",
+      "clf_positive_rate": 0.10199212560794939,
+      "cutoff": "2020-03-31",
+      "first_scoreable_date": "2020-06-25",
+      "fit_seconds_clf": 1.8,
+      "fit_seconds_xgb": 2.8,
+      "n_train_dates": 1008,
+      "n_train_rows": 272021,
+      "refit_index": 15,
+      "train_max_date": "2020-01-03",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "143fdf4c1c0d60891f993a9dacf5f56ce3784418ec98dd7ef3a81facd21133fd",
+      "booster_xgb_sha256": "366fe0b9e24660d95c7151dd99b50e55489ba84619a622ea950fa3bac892321a",
+      "clf_positive_rate": 0.10208407411115292,
+      "cutoff": "2020-06-30",
+      "first_scoreable_date": "2020-09-24",
+      "fit_seconds_clf": 1.8,
+      "fit_seconds_xgb": 3.1,
+      "n_train_dates": 1071,
+      "n_train_rows": 289673,
+      "refit_index": 16,
+      "train_max_date": "2020-04-03",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "38e8a81ab1d1cbf1384de20c0496f91f5fb69c77d3d122d2ebdb4103e1eee258",
+      "booster_xgb_sha256": "05edee473bfb1eb5dc914fbc14acfb83bce73b134f297db9d06d1023a845a89c",
+      "clf_positive_rate": 0.10214947165187205,
+      "cutoff": "2020-09-30",
+      "first_scoreable_date": "2020-12-24",
+      "fit_seconds_clf": 1.9,
+      "fit_seconds_xgb": 3.3,
+      "n_train_dates": 1135,
+      "n_train_rows": 307657,
+      "refit_index": 17,
+      "train_max_date": "2020-07-07",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "f7ff1d41a8a5c4bc6902bd37f7472beed85c8d3947e130fc8649d68fc0115166",
+      "booster_xgb_sha256": "dfe7fde0bd73a29c9f05c6d7ad237f6ca159f979349273495c433bc0f7d36301",
+      "clf_positive_rate": 0.1022013689081591,
+      "cutoff": "2020-12-31",
+      "first_scoreable_date": "2021-03-30",
+      "fit_seconds_clf": 2.0,
+      "fit_seconds_xgb": 3.4,
+      "n_train_dates": 1199,
+      "n_train_rows": 325661,
+      "refit_index": 18,
+      "train_max_date": "2020-10-06",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "888f5b15f33c37a5638e2e8272b6d19d6bb5a85b75626662cb1f56fc2448a81d",
+      "booster_xgb_sha256": "c931e221bf2cd7d1018eb6253ac7e722bebb540a15f91506b1656c76a79f9da8",
+      "clf_positive_rate": 0.10221000113722185,
+      "cutoff": "2021-03-31",
+      "first_scoreable_date": "2021-06-25",
+      "fit_seconds_clf": 2.1,
+      "fit_seconds_xgb": 3.7,
+      "n_train_dates": 1260,
+      "n_train_rows": 342941,
+      "refit_index": 19,
+      "train_max_date": "2021-01-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "27a4be28ad515d57581d1a6bcb5c11aa6d69bb0c7928e2b468ca2df5f63990e0",
+      "booster_xgb_sha256": "8f7016b191914ab932a80c56e29e3db91e03cc919163cf16c86d3fe70d8cd792",
+      "clf_positive_rate": 0.10216072467381368,
+      "cutoff": "2021-06-30",
+      "first_scoreable_date": "2021-09-24",
+      "fit_seconds_clf": 2.2,
+      "fit_seconds_xgb": 4.0,
+      "n_train_dates": 1323,
+      "n_train_rows": 360990,
+      "refit_index": 20,
+      "train_max_date": "2021-04-06",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "c09c57956f5b265c8884997258d756d8c104d1661bef61d0100ce4e9ba6edd01",
+      "booster_xgb_sha256": "d0fda3cc1fc53ad32568bc9a82648c844e7a04ba93b813a2131e1842ae377567",
+      "clf_positive_rate": 0.1021839168262481,
+      "cutoff": "2021-09-30",
+      "first_scoreable_date": "2021-12-27",
+      "fit_seconds_clf": 2.4,
+      "fit_seconds_xgb": 4.1,
+      "n_train_dates": 1387,
+      "n_train_rows": 379639,
+      "refit_index": 21,
+      "train_max_date": "2021-07-07",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "189a1469aa6d8a3109dc6cb00d2de00aeb369b72dbe572f98b46a30acc1d6d36",
+      "booster_xgb_sha256": "41a05943065dd451eee36d46709b3b37654f702f2cbf044149bfe4f43516c198",
+      "clf_positive_rate": 0.10220999329696455,
+      "cutoff": "2021-12-31",
+      "first_scoreable_date": "2022-03-29",
+      "fit_seconds_clf": 2.6,
+      "fit_seconds_xgb": 4.4,
+      "n_train_dates": 1451,
+      "n_train_rows": 398327,
+      "refit_index": 22,
+      "train_max_date": "2021-10-06",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "69c930471da0ad68151f3df91bad6b0df1126b478a1fc7a5d5a3ebf82021a231",
+      "booster_xgb_sha256": "1e6e7875251c86dfab97098a89dd4a3461ea094efeb231691fc103aee8e25499",
+      "clf_positive_rate": 0.10223302299780757,
+      "cutoff": "2022-03-31",
+      "first_scoreable_date": "2022-06-28",
+      "fit_seconds_clf": 2.8,
+      "fit_seconds_xgb": 4.6,
+      "n_train_dates": 1513,
+      "n_train_rows": 416431,
+      "refit_index": 23,
+      "train_max_date": "2022-01-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "d3102ded012ed3b4ca38c161c14b29350d761b1b2c3bff15f23c4f1e43068abc",
+      "booster_xgb_sha256": "6a842472d550244d57377b068d48e244efce5379527e255e9307aaf21a396662",
+      "clf_positive_rate": 0.10225413372915876,
+      "cutoff": "2022-06-30",
+      "first_scoreable_date": "2022-09-26",
+      "fit_seconds_clf": 2.9,
+      "fit_seconds_xgb": 4.7,
+      "n_train_dates": 1575,
+      "n_train_rows": 434535,
+      "refit_index": 24,
+      "train_max_date": "2022-04-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "48d51b8266c68adb0804c6aeb720657c246d21fea4838d70f6895bd8dde86f08",
+      "booster_xgb_sha256": "0016bc6d699cec38700a3f2ddd2a36105a621b3be472c46a0796915f73e2785a",
+      "clf_positive_rate": 0.10227415643071953,
+      "cutoff": "2022-09-30",
+      "first_scoreable_date": "2022-12-27",
+      "fit_seconds_clf": 3.0,
+      "fit_seconds_xgb": 4.9,
+      "n_train_dates": 1639,
+      "n_train_rows": 453223,
+      "refit_index": 25,
+      "train_max_date": "2022-07-07",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "cd91b00fc3070cca91caa746190d124221cc672287035c9c7cc592be7444cd99",
+      "booster_xgb_sha256": "c075e41eafed15df0c91c2e9a7cf533717389978683615081c23520cf15bae0d",
+      "clf_positive_rate": 0.1022923164673179,
+      "cutoff": "2022-12-30",
+      "first_scoreable_date": "2023-03-29",
+      "fit_seconds_clf": 3.2,
+      "fit_seconds_xgb": 5.2,
+      "n_train_dates": 1702,
+      "n_train_rows": 471619,
+      "refit_index": 26,
+      "train_max_date": "2022-10-05",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "40f23e8dd663dd3e42f261d00e6925650b3be032cf58f6b1322a30242ac16889",
+      "booster_xgb_sha256": "56ef7d0046e85a224c344253e91a05717c134c3af0140e6b6477040596f90cbd",
+      "clf_positive_rate": 0.10230885623097138,
+      "cutoff": "2023-03-31",
+      "first_scoreable_date": "2023-06-28",
+      "fit_seconds_clf": 3.2,
+      "fit_seconds_xgb": 5.3,
+      "n_train_dates": 1764,
+      "n_train_rows": 489723,
+      "refit_index": 27,
+      "train_max_date": "2023-01-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "bc5ec5421819892a75cd8f337df0425c8aee5546314b1fabf7267e5d5a6261a5",
+      "booster_xgb_sha256": "07df9c3c1153e8a81864b3f06db6631d04b3c483524d09329d8e439466a758de",
+      "clf_positive_rate": 0.10232421671159667,
+      "cutoff": "2023-06-30",
+      "first_scoreable_date": "2023-09-26",
+      "fit_seconds_clf": 3.3,
+      "fit_seconds_xgb": 5.5,
+      "n_train_dates": 1826,
+      "n_train_rows": 507827,
+      "refit_index": 28,
+      "train_max_date": "2023-04-04",
+      "train_min_date": "2016-01-04"
+    },
+    {
+      "booster_clf_sha256": "5c520a196b6f9ac50e0e33f0a94550d7fffde83d5064e93a6228bc7b62bba295",
+      "booster_xgb_sha256": "5fccc3519c8a65496eefb9607955fe0d0d36d5fd4c9d8610746f30308afdeb3d",
+      "clf_positive_rate": 0.10233874232027107,
+      "cutoff": "2023-09-29",
+      "first_scoreable_date": "2023-12-26",
+      "fit_seconds_clf": 3.4,
+      "fit_seconds_xgb": 5.5,
+      "n_train_dates": 1889,
+      "n_train_rows": 526223,
+      "refit_index": 29,
+      "train_max_date": "2023-07-06",
+      "train_min_date": "2016-01-04"
+    }
+  ],
+  "runner": "2026-08-18-served-blend-plus-clf-derivation.py"
+}
