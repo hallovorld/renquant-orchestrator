@@ -1,0 +1,350 @@
+{
+  "question": "on the SERVED construction, does adding the top-decile classifier leg beat what production serves today?",
+  "semantics": "BACKTEST under the operator's 2026-08-18 policy (backtests replace evidence-accumulation waits). NOT a preregistered confirmatory; nothing here changes production.",
+  "verdict": "BEATS",
+  "verdict_reason": "one-sided-95% (CI90) lower bound > 0 on BOTH inference legs",
+  "frozen_bar": "CI90 lower bound > 0 on BOTH inference legs \u2014 inherited verbatim from model#75's decision rule (the rule model#76 passed); not invented or tuned here",
+  "run_utc": "2026-08-19T00:03:01Z",
+  "runtime_sec": 208.9,
+  "results": {
+    "primary": {
+      "n_blocks": 28,
+      "mean": 0.05862765852926826,
+      "sd_blocks": 0.13490185814355204,
+      "pos_block_frac": 0.75,
+      "rho1": 0.2180365590506838,
+      "ess": 17.975631506204877,
+      "measurable": true,
+      "nw": {
+        "mean": 0.05862765852926826,
+        "se": 0.02762943120028032,
+        "t": 2.121927813290396,
+        "df": 27,
+        "t_crit_one_sided_95": 1.7032884457221265,
+        "ci_lower_one_sided_95": 0.01156676760395637,
+        "passes": true
+      },
+      "bootstrap": {
+        "q05": 0.01060858065745167,
+        "q95": 0.10596004543834953,
+        "n_resamples": 10000,
+        "expected_block_length": 2.0,
+        "seed": 0,
+        "passes": true
+      },
+      "disagreement": false,
+      "both_legs_pass": true,
+      "contrast": "B_3leg - A_prod",
+      "per_date_mean": 0.06002500617772839,
+      "n_dates": 340,
+      "winsorized_w50_per_date_mean": 0.011071750129356003,
+      "verdict": "BEATS",
+      "verdict_reason": "one-sided-95% (CI90) lower bound > 0 on BOTH inference legs"
+    },
+    "control": {
+      "n_blocks": 28,
+      "mean": 0.028428794673291412,
+      "sd_blocks": 0.09785565014552815,
+      "pos_block_frac": 0.6785714285714286,
+      "rho1": 0.32899308842027264,
+      "ess": 14.137164209458179,
+      "measurable": true,
+      "nw": {
+        "mean": 0.028428794673291412,
+        "se": 0.02093491098508342,
+        "t": 1.3579610963498985,
+        "df": 27,
+        "t_crit_one_sided_95": 1.7032884457221265,
+        "ci_lower_one_sided_95": -0.007229397319822393,
+        "passes": false
+      },
+      "bootstrap": {
+        "q05": -0.005795582215026125,
+        "q95": 0.061560017531306715,
+        "n_resamples": 10000,
+        "expected_block_length": 2.0,
+        "seed": 0,
+        "passes": false
+      },
+      "disagreement": false,
+      "both_legs_pass": false,
+      "contrast": "C_2leg_certified - D_solo_xgb",
+      "per_date_mean": 0.03249037921308206,
+      "verdict": "NOT DISTINGUISHABLE",
+      "verdict_reason": "point estimate > 0 but the CI90 lower bound includes 0",
+      "certified_reference": {
+        "diff": 0.0687,
+        "ci90": [
+          0.0156,
+          0.1269
+        ],
+        "source": "renquant-model doc/research/2026-07-26-blend-confirmatory-v2-results.md"
+      },
+      "comparability": "DIRECTIONAL control, not a numeric identity check: model#76 measured the seed-averaged placebo-differenced clean TOP-10 spread over 5 purged folds on its own corpus; this runner measures the DGTW-adjusted top-decile spread on an expanding quarterly ladder over 2017-01-03..2023-09-29. Agreement in SIGN and rough magnitude supports the harness; a numeric gap does not by itself impeach it."
+    },
+    "per_arm_levels": {
+      "A_prod": {
+        "legs": [
+          "xgb",
+          "mom"
+        ],
+        "per_date_mean_spread": 0.08925514458621814,
+        "per_date_mean_spread_w50": 0.015146083612015773,
+        "block_mean": 0.08865760048550386,
+        "n_blocks": 28
+      },
+      "B_3leg": {
+        "legs": [
+          "xgb",
+          "mom",
+          "clf"
+        ],
+        "per_date_mean_spread": 0.14928015076394652,
+        "per_date_mean_spread_w50": 0.026217833741371772,
+        "block_mean": 0.1472852590147721,
+        "n_blocks": 28
+      },
+      "C_2leg_certified": {
+        "legs": [
+          "xgb",
+          "clf"
+        ],
+        "per_date_mean_spread": 0.15419908731756074,
+        "per_date_mean_spread_w50": 0.026086483672081884,
+        "block_mean": 0.14781389024858954,
+        "n_blocks": 28
+      },
+      "D_solo_xgb": {
+        "legs": [
+          "xgb"
+        ],
+        "per_date_mean_spread": 0.1217087081044787,
+        "per_date_mean_spread_w50": 0.01944492122061958,
+        "block_mean": 0.11938509557529813,
+        "n_blocks": 28
+      }
+    },
+    "on_state_sub_read": {
+      "definition": "SPY vol20 > 0.135 (fixed, orch#1001/#1003)",
+      "decisive": false,
+      "n_on_weekly_dates": 165,
+      "n_on_eligible_blocks_in_corpus": 19,
+      "n_blocks_with_on_dates": 19,
+      "per_date_mean": 0.0504123566654733,
+      "n_blocks": 19,
+      "mean": 0.06252677635209465,
+      "sd_blocks": 0.1539165049644676,
+      "pos_block_frac": 0.6842105263157895,
+      "rho1": 0.36162349230422913,
+      "ess": 8.90786161870187,
+      "measurable": true,
+      "nw": {
+        "mean": 0.06252677635209465,
+        "se": 0.04010480071322349,
+        "t": 1.5590845794049317,
+        "df": 18,
+        "t_crit_one_sided_95": 1.7340636066175354,
+        "ci_lower_one_sided_95": -0.007017499015355186,
+        "passes": false
+      },
+      "bootstrap": {
+        "q05": -0.0050938325797689685,
+        "q95": 0.1304609026115092,
+        "n_resamples": 10000,
+        "expected_block_length": 2.0,
+        "seed": 0,
+        "passes": false
+      },
+      "disagreement": false,
+      "both_legs_pass": false,
+      "verdict_if_this_were_decisive": "NOT DISTINGUISHABLE",
+      "verdict_reason": "point estimate > 0 but the CI90 lower bound includes 0"
+    },
+    "off_state_sub_read": {
+      "decisive": false,
+      "n_off_weekly_dates": 171,
+      "n_blocks_with_off_dates": 23,
+      "per_date_mean": 0.066554704187316,
+      "block_mean": 0.09591706759645569
+    }
+  },
+  "served_blend_contract": {
+    "config": "/Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json",
+    "kind": "blend",
+    "components": [
+      {
+        "artifact_path": "artifacts/prod/panel-ltr.alpha158_fund.json",
+        "expected_content_sha256": "sha256:6461b827ab2339a8",
+        "expected_config_fingerprint": "sha256:f8fb2259b2bf1537"
+      },
+      {
+        "kind": "momentum_residual",
+        "artifact_path": "artifacts/momentum/momentum_artifact_ledger.jsonl",
+        "expected_config_fingerprint": "momentum-v0-fd65161a20b29314"
+      }
+    ],
+    "combination_rule": "unweighted sum of per-leg cross-sectional z-scores, ddof=0, NaN-propagating (blend_scorer.BlendPanelScorer.score)"
+  },
+  "arms": {
+    "A_prod": [
+      "xgb",
+      "mom"
+    ],
+    "B_3leg": [
+      "xgb",
+      "mom",
+      "clf"
+    ],
+    "C_2leg_certified": [
+      "xgb",
+      "clf"
+    ],
+    "D_solo_xgb": [
+      "xgb"
+    ]
+  },
+  "momentum_ledger_coverage": {
+    "path": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/momentum/momentum_artifact_ledger.jsonl",
+    "n_rows": 3,
+    "cutoffs": [
+      "2026-08-02",
+      "2026-08-08",
+      "2026-08-15"
+    ],
+    "genesis_cutoff": "2026-08-02",
+    "covers_primary_corpus": false,
+    "finding": "the served momentum ledger begins at its genesis cutoff and holds NO row inside the primary corpus; the historical series is RECONSTRUCTED here by the owning library (renquant_model_momentum.train_momentum_artifact, pure over readers, no fitted state), NOT extrapolated from ledger rows",
+    "params_v0": {
+      "params_version": "v0",
+      "window": 252,
+      "skip": 21,
+      "min_obs": 200,
+      "min_features": 3,
+      "names_per_date_floor": 50,
+      "min_side_obs": 30
+    }
+  },
+  "corpus": {
+    "start": "2017-01-03",
+    "end": "2023-09-29",
+    "n_td": 1697,
+    "n_weekly": 340,
+    "n_blocks": 28
+  },
+  "frozen_geometry_measured": {
+    "corpus_td": 1697,
+    "on_days_fixed": 821,
+    "complete_blocks": 28,
+    "weekly_grid_n": 340
+  },
+  "coverage": {
+    "n_panel_usable_mean": 281.27941176470586,
+    "n_panel_usable_min": 264,
+    "n_common_mean": 277.57941176470587,
+    "n_common_min": 263,
+    "n_common_max": 292,
+    "frac_flagged_unadjusted_mean": 0.26731995395078667
+  },
+  "frozen_rule": {
+    "block_td": 60,
+    "sample_step": 5,
+    "dgtw_min_cell": 15,
+    "winsor_clip": 0.5,
+    "nw_lag": 1,
+    "one_sided_alpha": 0.05,
+    "bootstrap": {
+      "resamples": 10000,
+      "expected_block_length": 2.0,
+      "seed": 0
+    },
+    "min_blocks": 15,
+    "min_ess": 6.0,
+    "embargo_trading_days": 60,
+    "n_refits": 30,
+    "xgb_objective": "rank:pairwise",
+    "clf_objective": "binary:logistic",
+    "clf_top_decile": 0.9
+  },
+  "params": {
+    "xgb": {
+      "objective": "rank:pairwise",
+      "eta": 0.05,
+      "max_depth": 5,
+      "min_child_weight": 50,
+      "subsample": 0.7,
+      "colsample_bytree": 0.7,
+      "verbosity": 0,
+      "seed": 42
+    },
+    "clf": {
+      "objective": "binary:logistic",
+      "eta": 0.05,
+      "max_depth": 5,
+      "min_child_weight": 50,
+      "subsample": 0.7,
+      "colsample_bytree": 0.7,
+      "verbosity": 0,
+      "eval_metric": "logloss",
+      "seed": 42
+    }
+  },
+  "sentiment_gate_replay": {
+    "sentiment_runtime_gate_contract": "trained_zeroing",
+    "sentiment_runtime_gate_feature_cols": [
+      "mean_sentiment",
+      "n_articles_log",
+      "sentiment_pos_share"
+    ],
+    "sentiment_runtime_gate_disabled_regimes": [
+      "BULL_CALM",
+      "BULL_STRONG",
+      "LOW_NORMAL",
+      "LOW_SPIKED",
+      "MED_NORMAL"
+    ],
+    "sentiment_runtime_gate_zeroed_rows": 528303,
+    "sentiment_runtime_gate_warmup_zeroed_rows": 7627,
+    "sentiment_runtime_gate_missing_regime_policy": "warmup_zero_only",
+    "sentiment_runtime_gate_policy": {
+      "HIGH_SPIKED": true,
+      "HIGH_NORMAL": true,
+      "MED_CALM": true,
+      "MED_SPIKED": true,
+      "LOW_CALM": true,
+      "LOW_SPIKED": false,
+      "LOW_NORMAL": false,
+      "MED_NORMAL": false,
+      "HIGH_CALM": true,
+      "BULL_CALM": false,
+      "BULL_VOLATILE": true,
+      "BULL_STRONG": false,
+      "BEAR": true,
+      "CHOPPY": true
+    }
+  },
+  "declared_fidelity_gaps": [
+    "survivorship: 292-name survivor panel + today's OHLCV store \u2014 LEVELS inflated for every arm; the paired contrast is the robust object",
+    "serving freshness: production publishes momentum WEEKLY and serves it until the next publish, so the served leg is up to ~7 calendar days staler than what this runner computes at each weekly grid date",
+    "sentiment gate: both legs are trained on the production-gated frame; the deployed clf shadow artifact carries no such stamp",
+    "sector map: the momentum f3 leg reads the CURRENT umbrella sector map for historical dates (1 of 5 equal-weight features)",
+    "this is a BACKTEST standing in for forward accumulation; the corpus ends 2023-09-29 and it is not a live shadow readout"
+  ],
+  "pins": {
+    "xgboost_version": "2.1.4",
+    "served_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.json",
+    "served_artifact_sha256": "6461b827ab2339a8d2351db6e45ac4f4c8d4c231937d8d6a4f8d127ecc546d15",
+    "served_config_fingerprint": "sha256:f8fb2259b2bf1537",
+    "clf_artifact": "/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/shadow/panel-clf.top-decile.fwd60.json",
+    "clf_artifact_sha256": "1e644354e0981f470d13161a771a0c668ab918124531f9955c037688d607ddf8",
+    "clf_config_fingerprint": "sha256:1d8f167fed18cd8cb1e0760251fdd5398724e630462d92b41561d2e19973e41b",
+    "served_config_sha256": "343328e3fcf1f4c1166ddd05ec1332a79b932bca358c4f314cdadf417d479a98",
+    "momentum_ledger_sha256": "3734b1b5261b255468660dfa8d1bde641648e64f3cc4ba3bde461dbd0f6f58ea",
+    "panel_parquet": "/Users/renhao/git/github/RenQuant/data/alpha158_291_fundamental_dataset.parquet",
+    "panel_parquet_sha256": "02b611cd4cf38afdac38af666864201bdd2a89b044ef0b4425e20f795fa4d041",
+    "trainer_script_sha256": "f35e8778aaec26b7a8f18bc86c86ea1aceb538e5a8a19486f004d520faed3aec",
+    "sector_map_sha256": "ec26bb1efcf8463519366478ae72c933f93c9d110d65f8af1634e2fcbb578d3b",
+    "spy_1d_sha256": "4b79cdd4bde5ff2f4ddef60a1f089d3382b9afb1420808999ed1dfeefe131e34",
+    "vol_switch_runner_sha256": "e6002a85225e01f743aabcfd2fbc6c89cb6b6124a80bba3b3bc7b90347fe5296",
+    "tailq90_runner_sha256": "df5c1d66bb14c9660aebd48664210eef6837bdc46ca08f7affd008a13dae9edc"
+  }
+}
