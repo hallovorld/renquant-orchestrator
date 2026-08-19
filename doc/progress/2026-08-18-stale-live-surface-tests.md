@@ -54,6 +54,22 @@ WHAT:      `make test` on `main` has been red on three live-surface tests.
            ack-re-affirmation decision rather than an edited assertion.
            Filed separately; left red on purpose so it keeps being visible.
 
+WHY/DIR:   G-F (observability): the probes answer "did it arrive", never
+           "was it correct". A suite that is permanently red is the same
+           failure one level up — `make test` is a per-loop gate in the
+           SOP, and a standing 3-red baseline trains every reader to scan
+           past the summary line, which is how a REAL regression lands
+           unnoticed. Both fixed tests were firing on behaviour the system
+           was designed to produce (a cap the operator legitimately raised;
+           a probe projecting once the weekly job gave it enough cutoffs),
+           so neither was protecting anything — they were spending the
+           alarm budget. This is the [[guards-that-report-instead-of-enforce]]
+           family read from the other side: not a guard that never fails,
+           but a guard that always does. Direction: shrink the red baseline
+           to findings that are REAL, which is why the ops_audit ack drift
+           is filed (orch#1010) and left red rather than edited green — the
+           point is a suite whose red means something, not a green one.
+
 EVIDENCE:
   artifact:      tests/test_position_cap_conformance.py,
                  tests/test_goal7_arm_b_accrual_probe.py
