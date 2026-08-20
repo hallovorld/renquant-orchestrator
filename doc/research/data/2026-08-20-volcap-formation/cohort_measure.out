@@ -1,0 +1,19 @@
+INPUT MANIFEST: {"config_sha256_16": "94f1aca8eb3bb883", "n_ticker_files": 145, "ohlcv_rollup_sha256_16": "f5fa35269d21ab37"}
+INPUT MANIFEST: matches the committed manifest
+watchlist=145  with price data=145  dates 2014-01-02..2026-08-19
+
+=== h=20 trading days | 94 NON-OVERLAPPING blocks (2016-04-22..2026-06-30) ===
+  cohort sizes/block   dropped 15.8   kept 123.8
+  mean fwd return      dropped +0.0449   kept +0.0183
+  return per unit of own block-to-block sd (higher = better risk-adjusted)
+                       dropped +0.357   kept +0.416
+  paired diff (drop-keep) +0.0266  sd 0.1028  t +2.51  blocks positive 59/94
+  -> the cap REMOVES the better cohort
+
+=== h=60 trading days | 30 NON-OVERLAPPING blocks (2016-05-20..2026-03-05) ===
+  cohort sizes/block   dropped 15.9   kept 123.3
+  mean fwd return      dropped +0.1246   kept +0.0594
+  return per unit of own block-to-block sd (higher = better risk-adjusted)
+                       dropped +0.453   kept +0.706
+  paired diff (drop-keep) +0.0652  sd 0.2285  t +1.56  blocks positive 18/30
+  -> NOT DISTINGUISHABLE at |t|>2
