@@ -1,0 +1,20 @@
+
+=== h=20  129 fixed non-overlapping blocks  2016-04-22..2026-06-30 ===
+    40%  mean +0.0126  ret/sd +0.276  n=127
+    50%  mean +0.0140  ret/sd +0.290  n=128
+    60%  mean +0.0151  ret/sd +0.302  n=129
+    70%  mean +0.0165  ret/sd +0.314  n=129
+    80%  mean +0.0169  ret/sd +0.314  n=129
+   100%  mean +0.0175  ret/sd +0.317  n=129
+   none  mean +0.0175  ret/sd +0.312  n=129
+  paired 100% vs 60% on 129 shared blocks: diff +0.0023 t +2.18 positive 74/129
+
+=== h=60  42 fixed non-overlapping blocks  2016-05-20..2026-03-05 ===
+    40%  mean +0.0366  ret/sd +0.497  n=42
+    50%  mean +0.0442  ret/sd +0.547  n=42
+    60%  mean +0.0492  ret/sd +0.553  n=42
+    70%  mean +0.0539  ret/sd +0.551  n=42
+    80%  mean +0.0552  ret/sd +0.544  n=42
+   100%  mean +0.0563  ret/sd +0.546  n=42
+   none  mean +0.0563  ret/sd +0.538  n=42
+  paired 100% vs 60% on 42 shared blocks: diff +0.0071 t +2.04 positive 22/42
