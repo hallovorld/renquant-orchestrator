@@ -89,6 +89,24 @@ CORRECTION (2026-08-20, codex on orch#1017, before merge): the first draft let
            the committed logs. Drift guard mutation-tested: corrupting the
            manifest exits 1 with INPUT DRIFT.
 
+CORRECTION 2 (2026-08-20, codex round 2 on orch#1017): the frozen statistic was
+           still outcome-affecting ambiguous in two ways, both fixed.
+           (a) It never said whether the DGTW cell means and the score fit are
+           shared across arms. They now are, explicitly: ONE score vector and
+           ONE set of self-excluded cell means per date, both computed on a
+           COMMON PRE-CAP universe U(d) and reused byte-identically — the cap
+           changes ELIGIBILITY ONLY. A benchmark or fit that moved with the arm
+           would have made B_cap100 − A_cap60 a comparison of two models or two
+           yardsticks rather than of one cap.
+           (b) Round 1's coverage guard read only the TOP DECILE, while the
+           statistic subtracts a whole-pool mean — so a date could pass on a
+           clean numerator with an adjusted/raw mixture in the denominator, the
+           decisive quantity changing character unnoticed. The guard now reads
+           U(d): ≥80% of the common pre-cap universe must have a defined
+           adjustment or the date is dropped from BOTH arms. Being defined on
+           the pre-cap universe, it is arm-independent by construction and
+           cannot admit a date into one arm only.
+
 NEXT:      Runner PR (reusing the reviewed vol-switch refit engine), then ONE
            run, then a results PR. A PASS authorizes exactly one thing: the
            `shadow_cap100` lane. A production cap proposal needs that lane's own

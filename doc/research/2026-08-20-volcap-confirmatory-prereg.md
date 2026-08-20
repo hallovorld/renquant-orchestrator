@@ -63,30 +63,47 @@ which names are IN the top decile, so a pool-level improvement does not imply a
 book-level one, and could even reverse (the added high-vol names may crowd out
 better picks).
 
-**FROZEN PRIMARY ESTIMAND**, stated as the exact per-date arithmetic so it
-cannot change character mid-corpus [codex on orch#1017]. For each weekly date
-`d` and arm `A`:
+**FROZEN PRIMARY ESTIMAND**, stated as exact per-date arithmetic so it cannot
+change character mid-corpus, and so the contrast is isolated to the cap and
+nothing else [codex on orch#1017, rounds 1 and 2].
 
-1. Candidates = panel-usable names with `vol60(d) <= cap_A`; scores from §2's
-   frozen recipe; **top decile** = `ceil(0.10 * n_candidates)` highest scores,
+**Common, arm-independent objects — computed ONCE per date, BEFORE any cap is
+applied, and reused byte-identically by both arms:**
+
+- **U(d) = the COMMON PRE-CAP UNIVERSE** — every panel-usable name on date `d`,
+  irrespective of vol. Both arms are subsets of it.
+- **One score vector.** A single fitted model per refit date produces one score
+  per name in `U(d)`. **The cap changes ELIGIBILITY ONLY** — never the fit,
+  never the training sample, never the scores. If the fit moved with the arm,
+  `B_cap100 − A_cap60` would be comparing two models, not one cap.
+- **One DGTW benchmark.** The (vol × mom × beta) terciles and their
+  self-excluded cell means are computed on `U(d)` and are the SAME numbers in
+  both arms. They are NOT recomputed inside each capped pool — a benchmark that
+  moves with the arm would confound the contrast with a change of yardstick.
+
+**Per-arm, per-date statistic.** For arm `A` with cap `c_A`:
+
+1. Eligible = `{ n in U(d) : vol60(n, d) <= c_A }`.
+2. Top decile = the `ceil(0.10 * |Eligible|)` highest scores among Eligible;
    ties broken by ticker ascending.
-2. Each name's h=60 forward excess return is DGTW-adjusted by subtracting the
-   equal-weight mean of its (vol × mom × beta) tercile cell, self-excluded,
-   **only when that cell holds ≥15 names**; a name whose cell is thinner is
-   marked UNADJUSTED and keeps its raw excess return.
-3. **Per-date arm statistic** = equal-weight mean of the top decile's adjusted
-   values minus the equal-weight mean of the whole candidate pool's adjusted
-   values.
+3. `adj(n) = fwd60_excess(n) − cellmean(cell(n))`, the cell mean from `U(d)`,
+   self-excluded, defined only where that cell holds ≥15 names in `U(d)`.
+4. **statistic = mean(adj) over the top decile − mean(adj) over Eligible.**
 
-**ADJUSTED-COVERAGE GUARD (fail-closed).** The instrument is named
-"DGTW-adjusted", so it must actually be adjusted: a date is **DROPPED from both
-arms** unless **≥80% of that date's top-decile names are DGTW-adjusted in BOTH
-arms**. Dropping is symmetric by construction — no date can enter one arm and
-not the other. The dropped-date count and the coverage distribution are
-REPORTED with the verdict; if fewer than the §4 minimum of complete blocks
-survive, the run is **UNMEASURABLE**, not a FAIL and not a PASS. Without this,
-27 tercile cells over a 292-name universe let sparse dates silently degrade the
-decisive statistic into a raw-return spread while the verdict rule reads on.
+**ADJUSTED-COVERAGE GUARD (fail-closed, arm-independent).** The instrument is
+named "DGTW-adjusted", so it must actually be adjusted — in BOTH terms, not just
+the numerator. A date is **DROPPED FROM BOTH ARMS** unless **≥80% of the names
+in `U(d)` have a defined `adj`**. Because the guard reads `U(d)`, which is
+computed before any cap, it is identical for both arms and cannot admit a date
+into one and not the other, nor bias which names survive.
+
+This replaces round 1's guard, which read only the top decile: the statistic
+subtracts a whole-pool mean, so a date could pass on a clean numerator while the
+denominator stayed an adjusted/raw mixture — the decisive quantity changing
+character with nothing in the verdict rule noticing. Coverage over `U(d)`, the
+per-date `|U(d)|`, and the dropped-date count are REPORTED with the verdict. If
+fewer than the §4 minimum of complete blocks survive, the run is
+**UNMEASURABLE** — neither PASS nor FAIL.
 
 Two arms, identical in every other respect:
 
