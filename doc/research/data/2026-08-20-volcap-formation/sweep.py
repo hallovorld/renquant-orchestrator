@@ -9,9 +9,10 @@ import json, math, sys
 from pathlib import Path
 import numpy as np, pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
-from cohort_measure import load_closes, CFG, VOL_WINDOW, ANNUALIZE
+from cohort_measure import load_closes, CFG, VOL_WINDOW, ANNUALIZE, assert_inputs
 
 cfg = json.loads(CFG.read_text()); wl = sorted(set(cfg["watchlist"]))
+assert_inputs(wl)
 px = load_closes(wl); vol = px.pct_change().rolling(VOL_WINDOW).std() * ANNUALIZE
 for h in (20, 60):
     fwd = px.shift(-h) / px - 1.0

@@ -1,4 +1,4 @@
-# The 60% vol cap: frozen confirmatory prereg + its formation evidence
+# The 60% vol cap: frozen SCREEN prereg (contaminated) + formation evidence
 
 STATUS:   delivered — prereg + the committed formation bundle. **Docs and
           exploratory scripts only.** No config, no code path, no live
@@ -68,11 +68,31 @@ EVIDENCE:
   scope:        docs + exploratory scripts. Deliberately does NOT touch
                 `RealizedVolGateTask`, any config, or any job.
 
+CORRECTION (2026-08-20, codex on orch#1017, before merge): the first draft let
+           a PASS authorize a live config PR. **Withdrawn.** The formation chose
+           the direction AND the arm from 2016-2026 outcomes, and the primary
+           window sits inside that history; swapping the estimand from pool-mean
+           to top-decile DGTW does not restore error control. No untouched
+           historical holdout exists — the sweep consumed the panel. So the
+           grade is now SCREEN, and the consequence is staged: FAIL closes the
+           line, PASS reaches only a never-submits `shadow_cap100` lane whose
+           PROSPECTIVE record is the untouched evidence. Contaminated evidence
+           can kill a hypothesis it cannot license.
+
+           Two further blockers from the same review, both fixed: the decisive
+           statistic is now written as exact per-date arithmetic with an 80%
+           DGTW-adjusted-coverage guard (27 tercile cells over 292 names let
+           sparse dates silently degrade it into a raw-return spread), and the
+           formation scripts now compute, print and ASSERT an input manifest
+           (config sha + rolled-up per-ticker parquet shas) so a rerun on a
+           refreshed live tree fails loudly instead of quietly disagreeing with
+           the committed logs. Drift guard mutation-tested: corrupting the
+           manifest exits 1 with INPUT DRIFT.
+
 NEXT:      Runner PR (reusing the reviewed vol-switch refit engine), then ONE
-           run, then a results PR. A PASS authorizes exactly one config PR
-           raising the cap to 1.00 — not removing the cap, not choosing an
-           intermediate value, and not touching sizing, all of which would be
-           fresh searches needing their own preregistration.
+           run, then a results PR. A PASS authorizes exactly one thing: the
+           `shadow_cap100` lane. A production cap proposal needs that lane's own
+           prospective record and is a separate, operator-gated step.
 
 REVIEW:    codex (haorensjtu-dev). Design-review fixes on this are mine
            personally — the withdrawn first reading was my error.

@@ -1,3 +1,5 @@
+INPUT MANIFEST: {"config_sha256_16": "94f1aca8eb3bb883", "n_ticker_files": 145, "ohlcv_rollup_sha256_16": "f5fa35269d21ab37"}
+INPUT MANIFEST: matches the committed manifest
 
 === h=20  129 fixed non-overlapping blocks  2016-04-22..2026-06-30 ===
     40%  mean +0.0126  ret/sd +0.276  n=127

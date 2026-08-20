@@ -1,9 +1,15 @@
-# The 60% realized-vol cap — CONFIRMATORY prereg (FROZEN before any scoring)
+# The 60% realized-vol cap — frozen SCREEN prereg (contaminated; shadow-only consequence)
 
-STATUS: **frozen confirmatory prereg (docs only — the run happens AFTER this
-merges AND the committed runner is reviewed).** DATE: 2026-08-20.
-Stakes declared: a PASS authorizes a config PR raising the cap on a live book;
-a FAIL closes the line and the 60% cap stands as measured-good-enough.
+STATUS: **frozen prereg (docs only — the run happens AFTER this merges AND the
+committed runner is reviewed).** DATE: 2026-08-20.
+
+**GRADE, stated first because it bounds everything below: this is a SCREEN run
+with confirmatory discipline, NOT a clean confirmatory.** The formation swept
+2016-2026 outcomes to choose the direction and the arm, and the primary window
+lies inside that history; no untouched historical holdout exists. Consequences
+are asymmetric to match (§4a): a FAIL closes the line, a PASS authorizes only a
+never-submits shadow lane whose PROSPECTIVE record is the untouched evidence.
+A production cap change is not on the table here.
 
 ## 1. Why this exists, and the exposure ledger first
 
@@ -57,11 +63,32 @@ which names are IN the top decile, so a pool-level improvement does not imply a
 book-level one, and could even reverse (the added high-vol names may crowd out
 better picks).
 
-**FROZEN PRIMARY ESTIMAND:** the DGTW-adjusted top-decile spread — the house
-instrument (vol × mom × beta terciles, self-excluded, ≥15/cell else
-flagged-unadjusted) — of the panel's top decile **selected within the capped
-pool**, per weekly cross-section, at h=60. Two arms, identical in every other
-respect:
+**FROZEN PRIMARY ESTIMAND**, stated as the exact per-date arithmetic so it
+cannot change character mid-corpus [codex on orch#1017]. For each weekly date
+`d` and arm `A`:
+
+1. Candidates = panel-usable names with `vol60(d) <= cap_A`; scores from §2's
+   frozen recipe; **top decile** = `ceil(0.10 * n_candidates)` highest scores,
+   ties broken by ticker ascending.
+2. Each name's h=60 forward excess return is DGTW-adjusted by subtracting the
+   equal-weight mean of its (vol × mom × beta) tercile cell, self-excluded,
+   **only when that cell holds ≥15 names**; a name whose cell is thinner is
+   marked UNADJUSTED and keeps its raw excess return.
+3. **Per-date arm statistic** = equal-weight mean of the top decile's adjusted
+   values minus the equal-weight mean of the whole candidate pool's adjusted
+   values.
+
+**ADJUSTED-COVERAGE GUARD (fail-closed).** The instrument is named
+"DGTW-adjusted", so it must actually be adjusted: a date is **DROPPED from both
+arms** unless **≥80% of that date's top-decile names are DGTW-adjusted in BOTH
+arms**. Dropping is symmetric by construction — no date can enter one arm and
+not the other. The dropped-date count and the coverage distribution are
+REPORTED with the verdict; if fewer than the §4 minimum of complete blocks
+survive, the run is **UNMEASURABLE**, not a FAIL and not a PASS. Without this,
+27 tercile cells over a 292-name universe let sparse dates silently degrade the
+decisive statistic into a raw-return spread while the verdict rule reads on.
+
+Two arms, identical in every other respect:
 
 - **A_cap60** — candidates filtered at `vol60 > 0.60` (today's production rule)
 - **B_cap100** — candidates filtered at `vol60 > 1.00`
@@ -82,12 +109,14 @@ off"); if the effect is real it must show there.
 - **PRIMARY: 2017-01-03 .. 2023-09-29**, weekly cross-sections, h=60 labels —
   the same pre-exploration corpus the vol-switch line used, chosen so the
   geometry is already known and reviewed.
-- **The formation sweep used 2016-2026, so it OVERLAPS this window.** This is
-  therefore NOT a clean out-of-sample confirmation. What makes it a
-  confirmatory rather than a re-run: the estimand is different (top-decile
-  DGTW selection vs equal-weight pool mean), the arms are frozen to two points
-  instead of seven, and the rule below is fixed before any scoring. Declared,
-  not disguised — a reader should discount accordingly.
+- **The formation sweep used 2016-2026, so it OVERLAPS this window, and that is
+  fatal to any confirmatory claim.** A different function of the same outcome
+  history is still the same outcome history: the sweep chose both the direction
+  and the arm. What the frozen estimand, the two-point arms and the pre-fixed
+  rule DO buy is protection against the remaining degrees of freedom — they stop
+  the run being tuned after the fact. They do not manufacture error control that
+  the data cannot supply. Hence §4a: FAIL closes, PASS only reaches a shadow
+  lane, and the untouched evidence is prospective by construction.
 - **SECONDARY (reported, never decisive): 2023-10-01 .. 2026-03-31**, the
   segment the formation's block set barely reaches at h=60.
 - Universe: the production panel (292 tickers). Survivorship DECLARED and
@@ -111,13 +140,37 @@ artifact: the primary corpus yields **28 complete non-overlapping 60-td blocks**
   the column orch#1007's erratum showed matters); positive control = the
   unconditional primary-corpus spread must be positive before any arm is read.
 - **Verdicts, pre-frozen:**
-  - **P1 PASS** → authorizes ONE config PR raising `RealizedVolGateTask`'s cap,
-    codex-gated, operator-gated at deploy. It does NOT authorize removing the
-    cap, and does NOT authorize picking a cap other than 1.00 without a fresh
-    prereg.
+  - **P1 PASS** → authorizes ONE thing: a **`shadow_cap100` lane** (the standard
+    never-submits lane pattern, own config, own sink) whose prospective record
+    is what may later support a production change. **It does NOT authorize a
+    production config change.**
   - **P1 FAIL** → the line CLOSES. The 60% cap stands, and the "it cuts all the
     AI names" observation is recorded as true-but-not-costly at the traded
     estimand.
+
+### 4a. Why a PASS cannot authorize a production cap change [codex on orch#1017]
+
+The first draft let P1 PASS authorize a live config PR. **That was wrong and is
+withdrawn.** The formation swept 2016-2026 outcomes to choose BOTH the direction
+(loosen) and the arm (100%), and the primary window sits inside that same
+outcome history. Changing the estimand from pool-mean to top-decile DGTW does
+**not** restore confirmatory error control when the same outcomes selected the
+hypothesis — a different function of contaminated data is still contaminated.
+
+There is no untouched historical holdout available: the sweep consumed the whole
+panel. The only clean evidence is **prospective**. So the consequence chain is
+staged, matching the vol-window precedent (#1003 confirmatory → #1004 shadow
+lane → operator-gated activation on the lane's own record):
+
+```
+this prereg (contaminated, so: a SCREEN with confirmatory discipline)
+  -> PASS: shadow_cap100 lane, never submits, logs would-be picks + outcomes
+  -> the lane's PROSPECTIVE record is the untouched evidence
+  -> only then a production cap proposal, operator-gated
+```
+
+A FAIL still closes the line, and that asymmetry is deliberate: contaminated
+evidence can kill a hypothesis it cannot license.
 
 ## 5. What this deliberately does not test
 

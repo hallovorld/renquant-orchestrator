@@ -45,6 +45,59 @@ VOL_WINDOW = 60          # trading days, from the live log line
 VOL_CAP = 0.60           # 60% annualized, from the live log line
 ANNUALIZE = math.sqrt(252)
 
+# INPUT PINNING [codex on orch#1017]. These paths point at the operator's LIVE
+# tree, which is refreshed daily — so without a fingerprint a rerun silently
+# scores whatever parquet/config happens to be on disk that day, and the
+# committed .out logs would carry no evidence of what produced them. The
+# manifest below is computed and PRINTED on every run, and asserted when
+# `input_manifest.json` sits beside this script. A rerun on different inputs
+# fails loudly instead of quietly disagreeing with the record.
+MANIFEST = Path(__file__).with_name("input_manifest.json")
+
+
+def _sha(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def input_manifest(tickers: list[str]) -> dict:
+    """Identity of every input this measurement consumes."""
+    files = [OHLCV / t / "1d.parquet" for t in tickers]
+    present = sorted(p for p in files if p.exists())
+    import hashlib
+    roll = hashlib.sha256()
+    for p in present:
+        roll.update(p.name.encode())
+        roll.update(_sha(p).encode())
+    return {
+        "config_sha256_16": _sha(CFG),
+        "n_ticker_files": len(present),
+        "ohlcv_rollup_sha256_16": roll.hexdigest()[:16],
+    }
+
+
+def assert_inputs(tickers: list[str]) -> dict:
+    got = input_manifest(tickers)
+    print("INPUT MANIFEST:", json.dumps(got, sort_keys=True))
+    if MANIFEST.exists():
+        want = json.loads(MANIFEST.read_text())
+        if want != got:
+            raise SystemExit(
+                "INPUT DRIFT — this run's inputs differ from the manifest the "
+                f"committed .out logs were produced against.\n  manifest: {want}\n"
+                f"  this run: {got}\nRefusing to produce numbers that would be "
+                "mistaken for the frozen evidence."
+            )
+        print("INPUT MANIFEST: matches the committed manifest")
+    else:
+        MANIFEST.write_text(json.dumps(got, sort_keys=True, indent=2) + "\n")
+        print(f"INPUT MANIFEST: written to {MANIFEST.name} (first run)")
+    return got
+
 
 def load_closes(tickers: list[str]) -> pd.DataFrame:
     cols = {}
@@ -63,6 +116,7 @@ def load_closes(tickers: list[str]) -> pd.DataFrame:
 def main() -> None:
     cfg = json.loads(CFG.read_text())
     watchlist = sorted(set(cfg["watchlist"]))
+    assert_inputs(watchlist)
     px = load_closes(watchlist)
     rets = px.pct_change()
     # PIT realized vol: uses returns up to and including each date.

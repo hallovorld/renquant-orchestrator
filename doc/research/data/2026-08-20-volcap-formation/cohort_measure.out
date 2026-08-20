@@ -1,3 +1,5 @@
+INPUT MANIFEST: {"config_sha256_16": "94f1aca8eb3bb883", "n_ticker_files": 145, "ohlcv_rollup_sha256_16": "f5fa35269d21ab37"}
+INPUT MANIFEST: matches the committed manifest
 watchlist=145  with price data=145  dates 2014-01-02..2026-08-19
 
 === h=20 trading days | 94 NON-OVERLAPPING blocks (2016-04-22..2026-06-30) ===
