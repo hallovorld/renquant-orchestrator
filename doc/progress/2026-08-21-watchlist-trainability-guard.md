@@ -47,10 +47,9 @@ EVIDENCE:
                    RenQuant/logs/daily_104/2026-08-20.log:214-216]
                  - SPY's `no_artifact` is BY DESIGN, declared with a reason
                    [VERIFIED — 2026-08-09.expected_non_trainable.json, 8 entries]
-                 - RKLB has 1,332 rows vs APP's 1,344, the shortest name
-                   currently in the tournament — it QUALIFIES and is a plain
-                   omission; CRWV has 293, SPCX 48, NBIS no parquet at all
-                   [VERIFIED — data/ohlcv/<T>/1d.parquet row counts]
+                 - row counts: RKLB 1,332, CRWV 293, SPCX 48, NBIS no parquet
+                   at all; the shortest name currently IN the tournament is APP
+                   at 1,344 [VERIFIED — data/ohlcv/<T>/1d.parquet]
                  - the check fires on the real state today [VERIFIED — run]
                  - mutation: inverting the subset direction turns 3 tests red
                    [VERIFIED]
@@ -63,14 +62,23 @@ EVIDENCE:
   scope:        one read-only check plus its tests. No config edited, no ticker
                 added or removed — those decisions belong in orch#1020.
 
-  NOT CLAIMED:  that 1,344 rows is a threshold. No coded minimum-history bound
-                exists anywhere I could find in `backtesting/renquant_104/`;
-                1,344 is the empirical floor of the current 142. Whether a
-                293-row ticker would fail loudly or quietly train a bad model
-                is UNMEASURED.
+  NOT CLAIMED:  that any of the three is trainable, or that 1,344 is a
+                threshold. No coded minimum-history bound exists anywhere I
+                could find in `backtesting/renquant_104/`; 1,344 is merely the
+                empirical floor of the current 142, and RKLB's 1,332 sits
+                BELOW it. An earlier draft of this doc called RKLB "a plain
+                omission" that "QUALIFIES" [codex on orch#1023] — that
+                contradicted this very paragraph. The measurements establish
+                that RKLB is CLOSE to the cohort, not that it qualifies or
+                would produce a valid artifact. All three dispositions are
+                UNRESOLVED pending the training/admission criteria measured in
+                orch#1020. This guard is deliberately agnostic about them: it
+                establishes only that a served name is accounted for by the
+                training universe.
 
-NEXT:      orch#1020 — RKLB into the training watchlist; CRWV/SPCX declared
-           non-trainable with a reason and a revisit condition; NBIS needs data
-           fetched before it is anything but a no-op.
+NEXT:      orch#1020 — establish the actual training/admission criteria, then
+           give each of the three a disposition (trained, or declared
+           non-trainable with a reason and a revisit condition). NBIS needs
+           data fetched before it can be either.
 
 REVIEW:    codex (haorensjtu-dev).
