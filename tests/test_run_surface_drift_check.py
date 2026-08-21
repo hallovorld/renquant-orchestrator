@@ -494,3 +494,101 @@ def test_the_failing_set_comes_from_the_PROBE_not_a_second_list(monkeypatch):
     # the drift check did NOT re-derive "STALE means bad" on its own
     assert problems == []
     assert infos and "STALE" in infos[0]
+
+
+# ---------------------------------------------------------------------------
+# watchlist trainability (2026-08-20): a ticker the book may BUY must be able
+# to receive a model artifact. Two watchlists in two repos drifted to 145 vs
+# 142 and nothing reported it; the three-name difference was skipped
+# `no_artifact` every session, silently.
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+
+def _cfgs(tmp_path: Path, served: list[str], trained: list[str]) -> tuple[str, str]:
+    s = tmp_path / "served.json"
+    t = tmp_path / "trained.json"
+    s.write_text(json.dumps({"watchlist": served}))
+    t.write_text(json.dumps({"watchlist": trained}))
+    return str(s), str(t)
+
+
+@pytest.fixture
+def wl_paths(monkeypatch):
+    """Point the check at fixtures instead of the operator's real configs.
+
+    A test that reads the live config measures the operator's disk, so it goes
+    red for the wrong reason on someone else's machine and vacuously green once
+    the real drift is fixed.
+    """
+    def _apply(served, trained, tmp_path):
+        sp, tp = _cfgs(tmp_path, served, trained)
+        monkeypatch.setattr(drift, "SERVED_STRATEGY_CONFIG", sp)
+        monkeypatch.setattr(drift, "TRAINING_STRATEGY_CONFIG", tp)
+    return _apply
+
+
+class TestTheRealDriftAlarms:
+    def test_a_served_ticker_absent_from_training_is_a_problem(self, wl_paths, tmp_path):
+        """The measured 2026-08-20 state, reduced: CRWV/RKLB/SPCX served, not trained."""
+        wl_paths(["AAPL", "CRWV", "RKLB", "SPCX"], ["AAPL"], tmp_path)
+        problems, _ = drift.check_watchlist_trainability()
+        assert len(problems) == 1, problems
+        for t in ("CRWV", "RKLB", "SPCX"):
+            assert t in problems[0]
+        assert "no_artifact" in problems[0], "the alarm must name the observable symptom"
+
+    def test_a_covered_watchlist_is_clean(self, wl_paths, tmp_path):
+        wl_paths(["AAPL", "MSFT"], ["AAPL", "MSFT", "SPY"], tmp_path)
+        problems, infos = drift.check_watchlist_trainability()
+        assert problems == []
+        assert any("unaccounted=0" in i for i in infos), infos
+
+
+class TestItCannotGoQUIETOnBadInput:
+    """A check that returns clean when it could not read its inputs is worse
+    than no check: `[[guards-that-validate-the-wrong-object]]`. An empty
+    watchlist would make every subset test pass."""
+
+    def test_a_missing_served_config_is_a_problem_not_a_pass(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(drift, "SERVED_STRATEGY_CONFIG", str(tmp_path / "nope.json"))
+        monkeypatch.setattr(drift, "TRAINING_STRATEGY_CONFIG", str(tmp_path / "also_nope.json"))
+        problems, infos = drift.check_watchlist_trainability()
+        assert problems, "unreadable configs must alarm"
+        assert all("UNVERIFIED" in p for p in problems), problems
+        assert infos == []
+
+    def test_an_empty_watchlist_is_treated_as_unreadable(self, wl_paths, tmp_path):
+        """`{"watchlist": []}` would otherwise be a vacuous subset of anything."""
+        wl_paths([], ["AAPL"], tmp_path)
+        problems, _ = drift.check_watchlist_trainability()
+        assert problems and "UNVERIFIED" in problems[0], problems
+
+    def test_a_malformed_watchlist_is_treated_as_unreadable(self, tmp_path, monkeypatch):
+        bad = tmp_path / "bad.json"
+        bad.write_text('{"watchlist": "AAPL,MSFT"}')   # a string, not a list
+        ok = tmp_path / "ok.json"
+        ok.write_text(json.dumps({"watchlist": ["AAPL"]}))
+        monkeypatch.setattr(drift, "SERVED_STRATEGY_CONFIG", str(bad))
+        monkeypatch.setattr(drift, "TRAINING_STRATEGY_CONFIG", str(ok))
+        problems, _ = drift.check_watchlist_trainability()
+        assert problems and "UNVERIFIED" in problems[0], problems
+
+
+class TestTheOppositeDirectionIsInfoOnly:
+    def test_trained_not_served_does_not_alarm(self, wl_paths, tmp_path):
+        wl_paths(["AAPL"], ["AAPL", "GHOST"], tmp_path)
+        problems, infos = drift.check_watchlist_trainability()
+        assert problems == [], "an unused artifact is waste, not a live defect"
+        assert any("GHOST" in i for i in infos), infos
+
+
+class TestItIsWiredIntoTheSCAN:
+    """A check nobody calls is a document. This module's own history is that
+    `referenced_checkout_freshness.py` did the right thing for weeks while
+    wired to nothing."""
+
+    def test_main_calls_it(self):
+        src = (REPO / "ops" / "run_surface_drift_check.py").read_text(encoding="utf-8")
+        main_body = src[src.index("def main("):]
+        assert "check_watchlist_trainability()" in main_body
