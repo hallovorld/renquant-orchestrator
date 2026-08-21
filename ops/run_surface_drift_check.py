@@ -56,6 +56,15 @@ LAUNCH_AGENTS = os.path.expanduser("~/Library/LaunchAgents")
 MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "launchd_manifest.json")
 LABEL_PREFIX = "com.renquant."
 
+#: The config the DAILY DECISION reads (resolved through the pinned subrepo,
+#: exactly as `daily_104.sh` resolves it via `renquant_strategy_config`).
+SERVED_STRATEGY_CONFIG = os.path.join(
+    RUNTIME_ROOT, "renquant-strategy-104", "configs", "strategy_config.json")
+#: The config the WEEKLY TOURNAMENT freezes its universe from — a different
+#: file, in a different repo. `weekly_tournament_retrain.sh` names it in its
+#: own log line: "Freezing expected watchlist from <this path>".
+TRAINING_STRATEGY_CONFIG = os.path.join(RQ, "backtesting", "renquant_104", "strategy_config.json")
+
 
 # ---------------------------------------------------------------------------
 # git surface
@@ -735,6 +744,91 @@ def check_referenced_checkout_freshness() -> tuple[list[str], list[str]]:
     return problems, infos
 
 
+def _read_watchlist(path: str) -> tuple[set[str] | None, str]:
+    """`(tickers, error)` — never `(set(), "")` for an unreadable file.
+
+    A missing or malformed config returns an explicit error rather than an
+    empty set, because an empty set makes every subset test pass. That is the
+    `[[invented-keys-return-silent-empties]]` shape: absence reading as
+    compliance.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"{type(exc).__name__}: {exc}"
+    wl = cfg.get("watchlist")
+    if not isinstance(wl, list) or not wl:
+        return None, "no non-empty 'watchlist' list"
+    return {str(t) for t in wl}, ""
+
+
+def check_watchlist_trainability() -> tuple[list[str], list[str]]:
+    """Can every ticker the book may BUY actually receive a model artifact?
+
+    THE DEFECT THIS EXISTS FOR (2026-08-20). There are two watchlists in two
+    different repos. The daily decision reads the pinned strategy-104 config
+    (145 tickers); the weekly per-ticker tournament freezes its universe from
+    `backtesting/renquant_104/strategy_config.json` (142). The difference was
+    exactly `{CRWV, RKLB, SPCX}` — and those were exactly the three names the
+    daily run logged as `no_artifact, skipping`, every session, silently.
+
+    So a ticker added to the served watchlist is scored NEVER: artifacts come
+    from a file nobody updated. The operator asked for CoreWeave on 2026-08-19,
+    it was added to the served list, and it has been inert ever since with no
+    signal beyond one WARNING line among dozens.
+
+    WHY A SUBSET TEST AND NOT A DIFF. The tournament already has a mechanism
+    for a ticker it deliberately will not train — an explicit
+    `non_trainable` map of ticker -> justification, which is how SPY and the
+    sector ETFs are handled. But that map is derived by intersecting
+    benchmark/`sector_etf_map`/`defensive_tickers` WITH THE TRAINING WATCHLIST
+    (`weekly_tournament_retrain.sh`), so a ticker absent from the training
+    watchlist cannot even be *declared* non-trainable. It is invisible to the
+    one mechanism designed to account for it. `served ⊆ trained` is therefore
+    the invariant: be in the training universe, then be excluded from it with
+    a reason if that is the intent.
+
+    This is class 1 of this module's docstring — reviewed surface vs run
+    surface — with the twist that BOTH surfaces are reviewed and neither knows
+    about the other.
+    """
+    served, err_s = _read_watchlist(SERVED_STRATEGY_CONFIG)
+    trained, err_t = _read_watchlist(TRAINING_STRATEGY_CONFIG)
+    problems: list[str] = []
+    if served is None:
+        problems.append(
+            f"watchlist-trainability: served config unreadable at "
+            f"{SERVED_STRATEGY_CONFIG} ({err_s}) — coverage UNVERIFIED, not clean")
+    if trained is None:
+        problems.append(
+            f"watchlist-trainability: training config unreadable at "
+            f"{TRAINING_STRATEGY_CONFIG} ({err_t}) — coverage UNVERIFIED, not clean")
+    if problems:
+        return problems, []
+
+    unaccounted = sorted(served - trained)
+    if unaccounted:
+        problems.append(
+            f"watchlist-trainability: {len(unaccounted)} served ticker(s) are absent "
+            f"from the training watchlist and can never receive a per-ticker "
+            f"artifact — {', '.join(unaccounted)}. They will be skipped "
+            f"`no_artifact` every session. Fix: add them to "
+            f"{TRAINING_STRATEGY_CONFIG}, or remove them from the served "
+            f"watchlist; a ticker cannot be declared non-trainable while absent "
+            f"from the training universe (orch#1020)."
+        )
+
+    infos = [f"watchlist-trainability: served={len(served)} trained={len(trained)} "
+             f"unaccounted={len(unaccounted)}"]
+    stale = sorted(trained - served)
+    if stale:
+        infos.append(
+            f"watchlist-trainability: {len(stale)} trained ticker(s) not in the served "
+            f"watchlist (artifacts built for names never traded) — {', '.join(stale)}")
+    return problems, infos
+
+
 def check_import_resolution() -> tuple[list[str], list[str]]:
     """Do this repo's imported public symbols still resolve where they were reviewed?
 
@@ -1121,6 +1215,9 @@ def main(argv: list[str] | None = None) -> int:
     problems += p
     infos += i
     p, i = check_sentinel_receipt()
+    problems += p
+    infos += i
+    p, i = check_watchlist_trainability()
     problems += p
     infos += i
 
