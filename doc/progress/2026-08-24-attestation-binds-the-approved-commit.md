@@ -3,11 +3,21 @@
 STATUS:   delivered. One function + its reporting + tests. Read-only audit
           logic; no gate threshold changed, nothing deployed.
 
-WHAT:     `_review_attestation` now requires the attesting review's
-          `commit.oid` to equal the PR's `headRefOid`. A review that cannot be
-          bound to the merged commit is reported as
-          `review_not_bound_to_merged_commit` — a status of its own, not folded
-          into `missing_pre_merge_audit`.
+WHAT:     BOTH accepted attestation paths must now identify the merged commit.
+
+          * a REVIEW attests only when `review.commit.oid` == the PR's
+            `headRefOid`; otherwise `review_not_bound_to_merged_commit`;
+          * a MARKER attests only when the merged `headRefOid` appears in the
+            comment body — the convention already writes
+            `- Head SHA: <40 hex>`; otherwise
+            `marker_not_bound_to_merged_commit`.
+
+          Each near-miss keeps its own status rather than folding into
+          `missing_pre_merge_audit`, because "attested to a DIFFERENT commit"
+          and "nobody attested at all" are different findings and only one is a
+          near-miss. An unbound marker does not veto a review that DID bind —
+          the two records stay independent; they simply both have to name the
+          commit.
 
 WHY/DIR:  orch#991, my own deferred finding from the #989 review — raised then,
           not blocked on, recorded as a decision rather than left to be
@@ -42,22 +52,29 @@ EVIDENCE:
                  Collapsing "approved a different commit" into "nobody
                  reviewed" would hide the one case that is a near-miss rather
                  than an absence — and hiding it is what #991 is about.
-  scope:         the attestation path only. The `merged by` comment convention
-                 is untouched and still audits independently; a test pins that
-                 a marker audits even when the approval bound elsewhere,
-                 because the marker is its own attestation.
+  scope:         both attestation paths, and nothing else. The `merged by`
+                 convention's FORMAT is unchanged — it already carries the head
+                 SHA, so no producer had to change; what changed is that the
+                 audit now reads it. Independence of the two records is
+                 preserved and tested (an unbound marker does not veto a bound
+                 review); sufficiency is not — a record that names no commit no
+                 longer audits, on either path. No gate threshold, window or
+                 producer was touched.
 
 VERIFICATION:
-  80 passed. Mutation-verified per property:
-    drop the commit comparison (restore the original gap)  -> 2 failed
-    let a MISSING commit pass as an attestation            -> 2 failed
-    restored                                               -> 80 passed
+  83 passed. Mutation-verified per PATH, because closing one and leaving the
+  other is exactly what round 2 caught:
+    remove the REVIEW binding    -> 2 failed
+    remove the MARKER binding    -> 3 failed
+    restored                     -> 83 passed
   [VERIFIED 2026-08-24]
 
   RUN AGAINST REAL MERGED PRs, because a stricter audit that mis-flags honest
-  merges is worse than the gap: the last 12 merged PRs on this repo score
-  8 × `review_attested` + 4 × `ok`, **zero** `review_not_bound_to_merged_commit`
-  [VERIFIED]. The check tightens without inventing findings.
+  merges is worse than the gap it closes. With BOTH bindings live, the last 40
+  merged PRs on this repo score **25 × `ok` + 15 × `review_attested`, ZERO
+  unaudited** [VERIFIED 2026-08-24]. Measured before tightening the marker
+  path: 26 of 26 markers already contained the head SHA, so nothing existing
+  was invalidated. The check tightens without inventing findings.
 
   The fixture change is the quiet half. `_merged_pr_with_review` built reviews
   with no `commit` key at all — but a real `gh --json reviews` payload ALWAYS
