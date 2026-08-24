@@ -1,0 +1,27 @@
+[check_paper_trading_readiness] 2 check(s) failed -- fix the items above before enabling paper trading.
+[check_paper_trading_readiness] data_root = /Users/renhao/git/github/RenQuant
+[check_paper_trading_readiness] strategy_config = /Users/renhao/git/github/renquant-strategy-104/configs/strategy_config.json
+
+  [PASS] data/rq105 directory exists
+         Found at /Users/renhao/git/github/RenQuant/data/rq105
+  [FAIL] section 9.4 economic authorization file
+         Not authorized (file missing, unparseable, or content invalid): /Users/renhao/git/github/RenQuant/data/rq105/section_9_4_economic_authorization.json
+  [PASS] PaperBrokerPort importable
+         importable from renquant_execution.paper_broker_port
+  [FAIL] §9.3a quintuple arming gate (config/auth/env/kill/envelope)
+         NOT armed (mode_effective=shadow, gates={'config_mode_live': False, 'authorization_file_valid': False, 'env_live_flag': False, 'kill_switch_absent': True, 'canary_envelope_available': False})
+  [PASS] Shadow session evidence >= 1 clean session(s)
+         Found 37 session manifest(s) in /Users/renhao/git/github/RenQuant/logs/renquant105_pilot (threshold: 1)
+
+--- 2 check(s) FAILED ---
+
+1. section 9.4 economic authorization file
+   Create the file with:
+     mkdir -p "/Users/renhao/git/github/RenQuant/data/rq105"
+     cat > "/Users/renhao/git/github/RenQuant/data/rq105/section_9_4_economic_authorization.json" << 'HEREDOC'
+     {"authorized": true, "prereg_id": "rq105-paper-canary-prereg-v1"}
+     HEREDOC
+
+2. §9.3a quintuple arming gate (config/auth/env/kill/envelope)
+   gate 1 (config): intraday_decisioning must be enabled, error-free, and mode='live' (mode='shadow', enabled=True, errors=[]); gate 2 (authorization file): authorization file absent: /Users/renhao/git/github/RenQuant/data/rq105/stage2_authorization.json; gate 3 (env): RENQUANT_INTRADAY_LIVE is not set truthy; gate 5 (canary envelope): cannot evaluate the §9.3a envelope without a schema-valid authorization (fails closed)
+

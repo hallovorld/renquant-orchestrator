@@ -1,0 +1,74 @@
+{
+  "n_names": 30,
+  "n_rows": 90,
+  "n_sessions": 10,
+  "per_policy": {
+    "baseline_open_delay": {
+      "censored_by_reason": {},
+      "degradation_count": 0,
+      "n_censored": 0,
+      "n_degraded": 0,
+      "n_participated": 30,
+      "n_rows": 30,
+      "participation_rate": 1.0,
+      "reasons": {
+        "baseline_submit_at_open_delay": 30
+      },
+      "saved_vs_baseline_bps": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "n_priced": 30,
+        "p25": 0.0,
+        "p75": 0.0
+      }
+    },
+    "delay_fixed": {
+      "censored_by_reason": {
+        "unresolved_at_flush": 3
+      },
+      "degradation_count": 0,
+      "n_censored": 3,
+      "n_degraded": 0,
+      "n_participated": 27,
+      "n_rows": 30,
+      "participation_rate": 0.9,
+      "reasons": {
+        "fixed_delay_elapsed": 27
+      },
+      "saved_vs_baseline_bps": {
+        "max": 533.0764290301881,
+        "mean": 46.76943539025369,
+        "median": 0.0,
+        "min": -269.57778556412063,
+        "n_priced": 27,
+        "p25": -15.723589401240988,
+        "p75": 56.66990513924354
+      }
+    },
+    "gap_reversion_trigger": {
+      "censored_by_reason": {},
+      "degradation_count": 30,
+      "n_censored": 0,
+      "n_degraded": 30,
+      "n_participated": 30,
+      "n_rows": 30,
+      "participation_rate": 1.0,
+      "reasons": {
+        "missing_gap_reference_submit_now": 30
+      },
+      "saved_vs_baseline_bps": {
+        "max": 0.0,
+        "mean": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "n_priced": 30,
+        "p25": 0.0,
+        "p75": 0.0
+      }
+    }
+  },
+  "schema_version": "rq105-entry-timing-policy-v1",
+  "selection_protocol": "doc/design/2026-07-03-entry-timing-policy.md"
+}
