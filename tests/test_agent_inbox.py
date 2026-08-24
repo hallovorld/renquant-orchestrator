@@ -89,7 +89,14 @@ def test_a_listed_code_is_designed(monkeypatch):
         "R", (), {"stdout": "-\t4\tcom.renquant.rq105-shadow-serving\n"})())
     rows = inbox.read_launchd_exits()
     assert rows[0]["kind"] == "designed"
-    assert "not wired" in rows[0]["detail"]
+    # The description changed when the producer stopped being absent
+    # (orch#1032/#1033): 4 now means "snapshot unavailable — refused or
+    # wrote nothing", not "not wired yet". Assert the STABLE property —
+    # that the listed code is reported as designed with its own detail —
+    # rather than a wording that tracks the system's state.
+    assert rows[0]["detail"], "a designed code must carry a description"
+    assert "not wired yet" not in rows[0]["detail"], (
+        "the pre-producer wording must not survive its cause")
 
 
 def test_the_same_job_with_an_undocumented_code_is_still_unknown(monkeypatch):

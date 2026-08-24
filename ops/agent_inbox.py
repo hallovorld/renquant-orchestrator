@@ -83,8 +83,14 @@ RUNS_DB = RQ / "data" / "runs.alpaca.db"
 #: the code's meaning is known, not that nothing is wrong.
 DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
     "rq105-shadow-serving": {
-        4: ("not wired yet (no feature-snapshot producer)",
+        4: ("snapshot unavailable — the producer refused (fail-closed "
+            "provenance) or wrote nothing; serving skipped, production intact",
             "ops/renquant105/run_shadow_serving.sh", "EXIT_NOT_WIRED=4", False),
+        # 5 (EXIT_PRODUCER_FAILED) is deliberately NOT listed. The producer
+        # failing for a reason that is not a provenance refusal is OUR bug, and
+        # an unlisted code is UNKNOWN here by construction — default "this needs
+        # a human", which is what we want. Listing it would make it look
+        # designed (S3-P3, orch#1033).
     },
     "rq104-shadow-scorer-sentinel": {
         8: ("alarming — a watched shadow lane is degraded",
