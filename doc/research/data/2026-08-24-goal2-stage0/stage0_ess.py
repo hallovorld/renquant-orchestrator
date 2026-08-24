@@ -26,12 +26,51 @@ KILL_BAR = 12          # frozen in the approved design; not a knob
 HORIZONS = [5, 10, 20, 60]
 
 
-def score_dates(db):
+#: Provenance predicate — the ONLY runs that may count toward a 104 ESS claim.
+#: Matches the selection `intraday_session_inputs` / `export_batch_scores.py`
+#: already use: a completed live run of a named strategy, never a sim/backfill.
+#: codex review 2026-08-24: the first revision accepted every candidate_scores
+#: row with a panel score, so `runs.alpaca.db` contributed 560 SIM dates
+#: alongside 90 live ones and the result was reported as a live re-score
+#: history ceiling. Measured: 634 dates unfiltered vs 74 with this predicate.
+_LIVE_ONLY = ("r.run_type = 'live' "
+              "AND r.strategy IS NOT NULL AND r.strategy != ''")
+
+
+def score_dates(db, *, with_provenance=False):
+    """Distinct run_dates of LIVE, strategy-named runs carrying panel scores.
+
+    Returns the date set; with ``with_provenance`` also returns the selected
+    run_ids and the count excluded by the predicate, so the artifact can state
+    what was rejected rather than only what survived — a reader seeing 74 dates
+    and no exclusion count cannot tell a correct filter from an empty source.
+    """
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    return set(d for (d,) in con.execute(
-        "SELECT DISTINCT r.run_date FROM candidate_scores c "
+    sel = list(con.execute(
+        "SELECT DISTINCT r.run_date, r.run_id FROM candidate_scores c "
         "JOIN pipeline_runs r ON r.run_id = c.run_id "
-        "WHERE c.panel_score IS NOT NULL"))
+        f"WHERE c.panel_score IS NOT NULL AND {_LIVE_ONLY}"))
+    dates = {d for d, _ in sel}
+    if not with_provenance:
+        con.close()
+        return dates
+    total = next(con.execute(
+        "SELECT COUNT(DISTINCT r.run_date) FROM candidate_scores c "
+        "JOIN pipeline_runs r ON r.run_id = c.run_id "
+        "WHERE c.panel_score IS NOT NULL"))[0]
+    con.close()
+    run_ids = sorted({rid for _, rid in sel})
+    return dates, {
+        "dates_selected": len(dates),
+        "dates_excluded_by_provenance": total - len(dates),
+        "dates_before_filter": total,
+        "n_run_ids": len(run_ids),
+        # Pins the exact rows, not the file: a DB that grows later still
+        # reproduces this number iff the same runs were selected.
+        "selected_rows_sha256": hashlib.sha256(
+            "\n".join(f"{d}|{r}" for d, r in sorted(sel)).encode()).hexdigest(),
+        "predicate": "run_type='live' AND strategy NOT NULL/''",
+    }
 
 
 def ess(dates, h):
@@ -64,7 +103,7 @@ def main():
     if missing:
         raise SystemExit(f"FAIL CLOSED: core lane DB(s) missing: {missing}")
     multi = set.intersection(*(lane_dates[l] for l in CORE_LANES))
-    hist = score_dates(main_db)
+    hist, hist_prov = score_dates(main_db, with_provenance=True)
 
     out = {
         "kill_bar": KILL_BAR,
@@ -75,7 +114,7 @@ def main():
         "meta_panel": {"multi_leg_dates": len(multi),
                        "range": [min(multi), max(multi)] if multi else None,
                        "ess": {}},
-        "historical_single_scorer_reference": {"ess": {}},
+        "historical_single_scorer_reference": {"ess": {}, "provenance": hist_prov},
         "verdict": None,
     }
     for h in HORIZONS:
@@ -90,8 +129,13 @@ def main():
     ref60 = out["historical_single_scorer_reference"]["ess"]["h=60"]["n_eff"]
     out["verdict"] = (
         f"KILL (per the frozen design bar): meta-panel n_eff={n60} at h=60 "
-        f"(< {KILL_BAR}). Best-case ceiling if all history were re-scored per "
-        f"leg: {ref60} — ALSO below the bar. Stage 1 is not run."
+        f"(< {KILL_BAR}). Best-case ceiling if all LIVE history were re-scored "
+        f"per leg: {ref60} — ALSO below the bar. Stage 1 is not run. "
+        f"The ceiling counts only live, strategy-named runs "
+        f"({hist_prov['dates_selected']} dates; "
+        f"{hist_prov['dates_excluded_by_provenance']} excluded by provenance, "
+        f"overwhelmingly sim); an unfiltered count would inflate it and is not "
+        f"a 104 re-score history."
     )
     body = json.dumps(out, indent=2, sort_keys=True)
     open(a.out, "w").write(body)

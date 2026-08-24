@@ -3,10 +3,25 @@
 STATUS:   delivered. Stage 1 is NOT run; per the approved design, the kill IS
           the finding.
 WHAT:     meta-panel n_eff at h=60 = 0 (14 multi-leg dates, zero labeled;
-          first label ~2026-10-27). Re-score-history ceiling = 11 < 12. The
-          only viable unlock is a shorter-horizon RE-DESIGN (h=20 reference
-          n_eff=34), which is a new estimand and goes back through review —
-          not a quiet re-run at a friendlier horizon.
+          first label ~2026-10-27). Re-score-history ceiling = 1 < 12.
+
+          REVISED 2026-08-24 (codex review): the ceiling was first computed on
+          EVERY candidate_scores row with a panel score, which counted 560 SIM
+          dates from runs.alpaca.db alongside its 90 live ones and reported the
+          result as a 104 re-score history. It was not one. score_dates() now
+          filters run_type='live' AND non-empty strategy — the same selection
+          intraday_session_inputs and export_batch_scores.py already use — and
+          the artifact records what was rejected (74 selected / 560 excluded /
+          634 before filter), the run_id count, and a digest of the selected
+          (run_date, run_id) rows so the number survives a growing DB.
+
+          Corrected ceilings, live-only: h=60 -> 1 (was 11), h=20 -> 4 (was
+          34). The direction was always conservative — filtering removes rows,
+          so an audited ceiling can only fall — but the magnitude changes how
+          the result reads, and it removes the exit the first revision named:
+          h=20 is now ALSO below the bar, so a shorter-horizon re-design is
+          still a new estimand needing its own review AND no longer a ready
+          unlock on audited data.
 WHY/DIR:  the design ordered ESS before any screen so no result could tempt a
           rule into being frozen around it. A panel accrues ~4 independent 60d
           observations/year — that number decides everything downstream.

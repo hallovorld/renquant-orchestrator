@@ -7,21 +7,29 @@
   "historical_single_scorer_reference": {
     "ess": {
       "h=10": {
-        "labeled_dates": 624,
-        "n_eff": 67
+        "labeled_dates": 64,
+        "n_eff": 8
       },
       "h=20": {
-        "labeled_dates": 614,
-        "n_eff": 34
+        "labeled_dates": 54,
+        "n_eff": 4
       },
       "h=5": {
-        "labeled_dates": 629,
-        "n_eff": 132
+        "labeled_dates": 69,
+        "n_eff": 15
       },
       "h=60": {
-        "labeled_dates": 584,
-        "n_eff": 11
+        "labeled_dates": 24,
+        "n_eff": 1
       }
+    },
+    "provenance": {
+      "dates_before_filter": 634,
+      "dates_excluded_by_provenance": 560,
+      "dates_selected": 74,
+      "n_run_ids": 146,
+      "predicate": "run_type='live' AND strategy NOT NULL/''",
+      "selected_rows_sha256": "bae24febb4ed2b1c377d5b256f762252f6f3ab7bda4626eb53646f6a9dddbade"
     }
   },
   "kill_bar": 12,
@@ -101,5 +109,5 @@
       "2026-08-21"
     ]
   },
-  "verdict": "KILL (per the frozen design bar): meta-panel n_eff=0 at h=60 (< 12). Best-case ceiling if all history were re-scored per leg: 11 \u2014 ALSO below the bar. Stage 1 is not run."
+  "verdict": "KILL (per the frozen design bar): meta-panel n_eff=0 at h=60 (< 12). Best-case ceiling if all LIVE history were re-scored per leg: 1 \u2014 ALSO below the bar. Stage 1 is not run. The ceiling counts only live, strategy-named runs (74 dates; 560 excluded by provenance, overwhelmingly sim); an unfiltered count would inflate it and is not a 104 re-score history."
 }
