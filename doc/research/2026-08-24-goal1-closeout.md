@@ -27,8 +27,11 @@ so is AC2's honest deliverable.
 
 ## AC4: the recommendation, with every cost named
 
-**Recommended: raise `max_concurrent_positions` 8 → 10 and enable fractional
-sizing IN THE SAME change**, per the S-FRAC enablement contract's own steps.
+**Recommended: raise `max_concurrent_positions` 8 → 10 now; enable fractional
+sizing SEPARATELY, later, under its own contract** (r2 — the first draft
+proposed one coupled change; the review was right that coupling an
+execution-mode change to a portfolio-capacity change destroys attribution,
+and the grid never established the coupling's premise).
 
 Mechanical evidence (AC1 v3 grid, production-seam parity 2.3e-5, era-gated):
 
@@ -46,27 +49,64 @@ free slots) at the smallest structural change.
 
 **Costs and couplings, named (the AC4 requirement):**
 - **Ticket size**: at ~$10.9k equity, cap 10 → typical per-entry notional
-  falls; under INTEGER sizing this amplifies the orch#608 anti-high-price
-  exclusion — which is why the cap must not move without fractional.
+  falls. The r1 draft claimed this makes cap-10 unsafe without fractional;
+  the grid says otherwise: **cap-10 integer tilt is 1.20×, BETTER than
+  today's 1.28×** — the extra slots admit mid-priced names that the cap,
+  not price, had been excluding. Cap-alone is measured-safe on the only
+  axis the coupling claim invoked. (Tilt worsens at cap 15, 1.40× — one
+  more reason 10, not 15.)
 - **Concentration**: per-name max weight unchanged (regime-capped), but the
   realized book spreads thinner; idiosyncratic single-name risk falls,
   factor-crowding risk (more names from the same admitted cohort) rises.
-- **Wash-sale surface**: more names held → more lots → broader wash-sale
-  interaction surface (renquant-pipeline#223's missing materiality floor
-  becomes marginally more expensive).
-- **Fractional readiness** [all VERIFIED today]: execution-side support
-  exists (`renquant_execution/execution.py`, `live_commit.py`); the
-  `floor_eligible_*` evidence counters are LIVE in production runs; the
-  enablement bit and its documented preconditions live in strategy-104
-  (`execution.fractional_shares.enabled`, broker-guard + sizing-fidelity
-  steps per the S-FRAC v2 contract). Those contract steps are the checklist
-  for the change PR — not bypassed here.
+- **Wash-sale surface** (review r1 asked this be an explicit dependency or a
+  bounded-impact argument — it is the latter): pipeline#223's mass-block
+  zeroes whole buy sessions independent of slot count, so cap-10 does not
+  change that failure mode's trigger; what cap-10 does add is ~25% more lots
+  in steady state → proportionally more per-name wash-sale windows. The
+  measured stake on the floor issue is tax of ~$15-scale per episode vs
+  thousands idle — bounded, and the floor fix (#223) is independently
+  justified regardless of cap. The post-deploy monitoring gate below watches
+  the realized block rate so "bounded" is checked, not assumed.
+- **Fractional is NOT ready, and the r1 readiness claim was wrong** —
+  corrected after verifying on the ACTIVE tree [VERIFIED 2026-08-24]: the
+  live path's capability gate (`fractional_capability_gate`, umbrella
+  `adapters/commit_contract.py:190`) requires `is_fractionable` + a
+  no-submit classifier on the broker adapter, and an ARMED software-stop
+  layer. The live umbrella has **zero** `is_fractionable` implementations
+  (r1 had checked the dev `renquant-execution` checkout — not the active
+  path), and `execution.software_stops.enabled` is `false` with its own
+  stage-3 contract unmet (2026-07-11 enablement packet gap table). Flipping
+  the bit today fail-closes ALL BUY emission by the gate's design
+  (`adapters/runner.py:1110`).
 
-**The exact change, for when the operator decides** (strategy-104, one PR,
-reviewed): `max_concurrent_positions: 8 → 10`;
-`execution.fractional_shares.enabled: false → true` after its contract's
-broker-guard verification, with `_reason` notes on both lines. **This
-document does not make that change** (AC3; landing actions are ask-first).
+**Staged landing plan (r2, supersedes the one-PR plan):**
+1. **Cap only, now**: strategy-104#100 (`max_concurrent_positions: 8 → 10`
+   + `_reason` note; golden + six prod-mirror lanes; frozen arms untouched),
+   authority = LONG-ledger row 2b (orch#1049), operator decision 2026-08-24.
+   *Rollback*: single-key revert PR + pin advance — no state migration; if
+   the book holds >8 names at revert time, positions age out through normal
+   exits (the cap gates ENTRIES only).
+   *Monitoring gates (first 10 sessions post-deploy)*: median deployment
+   (expect movement toward ~32%), realized integer price-tilt (expect ≤
+   today's 1.28×), wash-sale block-session rate (expect no rise vs the
+   trailing baseline); any gate failing → revert PR, findings appended to
+   this doc.
+2. **Fractional, separately, under its own contract**: (a) umbrella
+   broker-adapter PR implementing the renquant-execution#19 contract on the
+   ACTIVE adapter (`live/alpaca_broker.py`); (b) software-stops stage-3
+   arming per its own packet (liveness pager + operator sign-off); (c) only
+   then the one-bit flip under its own ledger row, at whatever cap is then
+   current — attribution stays clean because stage 1's monitoring window
+   will have closed.
+   Order rationale vs "S-FRAC first at cap 8": stage 2's dependency chain is
+   two reviewed PRs plus an ops-act (weeks), stage 1 is executable today,
+   measured-safe on the tilt axis (1.20× < 1.28×), and carries the bulk of
+   the deployment gain (17.3 → 32.6 of the 35.2 endpoint). Sequencing
+   fractional first would idle that gain behind an unrelated dependency
+   chain.
+
+**This document still makes no change itself** (AC3; landing actions are
+ask-first); the changes travel as the reviewed PRs named above.
 
 ## GOAL-1 ledger
 
