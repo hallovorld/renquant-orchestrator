@@ -28,6 +28,10 @@ skip_log() {
 # did not". The ack ledger can disposition them separately (see the
 # acked_exit_codes support added for the sentinel's own row).
 EXIT_NOT_WIRED=4
+#: The producer FAILED (not a provenance refusal). Deliberately unlisted in
+#: ops/agent_inbox.py DESIGNED_EXIT_CODES: an unlisted code is UNKNOWN there by
+#: construction, defaulting to "this needs a human" — correct for our own bug.
+EXIT_PRODUCER_FAILED=5
 TS="$(date +%Y-%m-%d)"
 SCORES="$RQ_ROOT/data/rq105/batch_scores_$TS.json"
 META="$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
@@ -50,12 +54,37 @@ if [ ! -f "$FEATURE_SNAPSHOT" ]; then
   "$(dirname "$0")/build_feature_snapshot.sh" --date "$TS"     >> "$LOG_DIR/feature_snapshot_$TS.log" 2>&1
   PRODUCER_RC=$?
 fi
+# BRANCH ON THE PRODUCER'S EXIT CODE — it is a contract, not a log field.
+# build_feature_snapshot.sh documents 3 = expected provenance refusal, and any
+# OTHER nonzero = unexpected import/decoder/write/programming failure that is
+# explicitly NOT skippable. An earlier revision of this block captured
+# PRODUCER_RC and never branched on it, labelling every outcome
+# "producer-refused" and exiting the calm skip code — which recreated one layer
+# up the exact failure-collapse #1032 removed from the producer's own wrapper
+# (codex review 2026-08-24). It mattered most here: this is the surface that
+# decides whether anyone is told, so a broken producer could never reach the
+# paging path.
+if [ "${PRODUCER_RC:-0}" -ne 0 ] && [ "${PRODUCER_RC:-0}" -ne 3 ]; then
+  # NOT a refusal: the producer BROKE. Distinct evidence, distinct exit, and it
+  # pages — the failure is in our code, and calling it "refused" would be false.
+  skip_log "FAIL producer-broken (rc=$PRODUCER_RC): build_feature_snapshot.sh failed for a reason that is NOT a provenance refusal (3) — see feature_snapshot_$TS.log (S3-P3, orch#1032 exit contract)"
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 feature-snapshot producer FAILED ($TS)" \
+    "build_feature_snapshot.sh exited $PRODUCER_RC — not a provenance refusal (3). Import/decoder/write/bug. Serving skipped; see $LOG_DIR/feature_snapshot_$TS.log" 2>/dev/null || true
+  # Deliberately NOT $EXIT_NOT_WIRED: ops/agent_inbox.py registers 4 as a
+  # designed, non-actionable status. An UNLISTED code is UNKNOWN by
+  # construction there, whose default is "this needs a human" — which is
+  # exactly right for a producer that broke.
+  exit "$EXIT_PRODUCER_FAILED"
+fi
 if [ ! -f "$FEATURE_SNAPSHOT" ]; then
-  # The producer ran and REFUSED (fail-closed provenance: stale/ambiguous
-  # served matrix, schema drift — its log has the specific reason). A refusal
-  # is the producer working, not a serving failure: skip with the reason
-  # recorded, same calm no-ntfy policy as the old not-wired state; only a REAL
-  # failure (missing upstream scores above, bundle verification below) pages.
+  # Either the producer refused (rc=3, fail-closed provenance: stale/ambiguous
+  # served matrix, schema drift — its log carries the specific reason), or it
+  # exited 0 and wrote nothing. Both are the producer working or silent, not a
+  # serving failure: skip with the reason recorded, same calm no-ntfy policy as
+  # the old not-wired state; only a REAL failure (missing upstream scores
+  # above, the producer-broken branch just above, bundle verification below)
+  # pages.
   skip_log "SKIP producer-refused (rc=${PRODUCER_RC:-?}): $FEATURE_SNAPSHOT not produced — see feature_snapshot_$TS.log (S3-P3, orch#1032)"
   exit "$EXIT_NOT_WIRED"
 fi
