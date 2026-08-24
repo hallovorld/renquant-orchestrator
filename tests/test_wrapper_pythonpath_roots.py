@@ -102,13 +102,36 @@ def test_an_unreadable_manifest_is_reported_not_skipped(tmp_path):
 
 
 # -------------------------------------------------------------- live state --
-def test_five_SCHEDULED_wrappers_currently_use_a_fallback():
-    """Was 6 in #675 — that count included `run_liveness_check.sh`, which carries
-    the idiom and which NOTHING SCHEDULES."""
-    problems, _ = D.check_wrapper_pythonpath_roots(
+def test_no_SCHEDULED_wrapper_uses_a_fallback_any_more():
+    """This asserted `len(sites) == 5` until orch#1016 removed the idiom.
+
+    A count-the-defect test has to be flipped when the defect goes, not deleted:
+    the scan's convergence property — that a REMEDIATED fleet reads clean — is
+    the thing most easily lost, and the docstring on
+    `check_wrapper_pythonpath_roots` promises it explicitly ("A check that cannot
+    go green after the documented remediation is not a check, it is a ratchet").
+    Its partner is `test_a_planted_fallback_is_still_detected` below: green here
+    must mean "no fallback", never "the scan stopped looking".
+    """
+    problems, infos = D.check_wrapper_pythonpath_roots(
         os.path.join(ROOT, "ops"), "/nonexistent-repos-root")
     sites = [p for p in problems if "by FALLBACK" in p]
-    assert len(sites) == 5, problems
+    assert not sites, sites
+    assert infos, "the scan produced no findings at all — it inspected nothing"
+
+
+def test_a_planted_fallback_is_still_detected(tmp_path):
+    """The control for the test above. Without it, deleting the matcher passes."""
+    wrapper = tmp_path / "run_planted.sh"
+    wrapper.write_text(
+        '#!/bin/zsh\n'
+        'RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"\n'
+        '[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"\n'
+    )
+    problems: list[str] = []
+    infos: list[str] = []
+    D._scan_wrapper_text("planted", wrapper.read_text(), str(tmp_path), problems, infos)
+    assert any("by FALLBACK" in p for p in problems), problems
 
 
 def test_the_unscheduled_wrapper_is_excluded_by_the_inventory():

@@ -1026,6 +1026,52 @@ def _owning_boundary(declared: str, boundaries: list[dict]) -> dict | None:
     return None
 
 
+#: `. "path"` / `source "path"` — how a wrapper pulls in shared shell.
+#: Matches to END OF LINE and strips quotes afterwards, for the same reason
+#: `_FALLBACK_RE` below does: the wrappers write
+#:     . "$(dirname "$0")/rq105_common_src.sh"
+#: whose value contains NESTED double quotes, so a character class excluding `"`
+#: stops at the inner quote and the line never matches. That exact mistake was
+#: already made once in this file and is documented on _FALLBACK_RE; I made it
+#: again here, and `test_an_unreadable_source_target_is_recorded_not_swallowed`
+#: is what caught it.
+_SOURCE_RE = re.compile(r'^[ \t]*(?:\.|source)[ \t]+(\S.*?)[ \t]*$', re.M)
+
+
+def _with_sourced_text(path: str, text: str) -> str:
+    """`text` plus the contents of anything it sources, one level deep.
+
+    Without this, moving the fallback idiom into a sourced helper would make it
+    INVISIBLE to this scan while leaving it just as live — the scan would go
+    green on a fleet that still lets filesystem state pick the checkout. The
+    inventory is deliberately manifest-derived so it cannot be fooled by the
+    defect; the same has to hold for the text being searched.
+
+    One level, not recursive: the wrappers source exactly one helper, and an
+    unbounded walk over shell `source` targets (globs, $VAR paths, absolute
+    system files) invites both cycles and false subjects. If nesting ever
+    appears, this is where to deepen it — and `test_a_fallback_hidden_in_a
+    _sourced_file_is_still_found` is what fails if it is not deepened.
+    """
+    base = os.path.dirname(os.path.abspath(path))
+    extra: list[str] = []
+    for m in _SOURCE_RE.finditer(text):
+        target = m.group(1).strip().strip('"').strip("'")
+        # Only follow targets we can resolve WITHOUT executing shell. A
+        # $(dirname "$0") prefix is the wrappers' idiom; strip it and resolve
+        # against the wrapper's own directory.
+        target = target.replace('$(dirname "$0")/', "").replace("${0:A:h}/", "")
+        if "$" in target:
+            extra.append(f"\n# [unresolvable source target: {target}]\n")
+            continue
+        cand = target if os.path.isabs(target) else os.path.join(base, target)
+        try:
+            extra.append("\n" + open(cand, encoding="utf-8", errors="replace").read())
+        except OSError:
+            extra.append(f"\n# [unreadable source target: {cand}]\n")
+    return text + "".join(extra)
+
+
 def _scan_wrapper_text(job: str, text: str, repos_root: str,
                        problems: list[str], infos: list[str],
                        origin: str = "") -> None:
@@ -1141,6 +1187,7 @@ def check_wrapper_pythonpath_roots(
                         f"manifested and NO scan is reading it")
                     continue
                 n_xrepo += 1
+                text = _with_sourced_text(declared, text)
                 _scan_wrapper_text(
                     job, text, repos_root, problems, infos,
                     origin=f" [read-only across the repo boundary; "
@@ -1154,6 +1201,8 @@ def check_wrapper_pythonpath_roots(
                     f"({owner.get('why', 'no reason recorded')})")
             continue
         text = open(path, encoding="utf-8", errors="replace").read()
+        # Follow `source`d helpers, or the idiom just moves out of sight (#1016).
+        text = _with_sourced_text(path, text)
         n_checked += 1
         _scan_wrapper_text(job, text, repos_root, problems, infos)
     # COVERAGE IS REPORTED AS A FRACTION, NOT AS A COUNT. "13 inspected" reads like

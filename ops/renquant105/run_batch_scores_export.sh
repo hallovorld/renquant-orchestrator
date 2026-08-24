@@ -13,8 +13,10 @@ RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrat
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
-RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
-[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+# orch#1016: which renquant-common runs is a REVIEWED decision, not a
+# filesystem accident. Single resolver, no fallback, fails closed.
+. "$(dirname "$0")/rq105_common_src.sh"
+rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # 2026-08-05 operator directive ("105 应该用 104 prod 的模型"): the frozen batch
 # vector comes from the PROD lane (runs.alpaca.db) — the same run that placed

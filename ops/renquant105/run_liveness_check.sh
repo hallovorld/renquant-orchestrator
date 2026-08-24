@@ -13,8 +13,10 @@ RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrat
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
-RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
-[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+# orch#1016: which renquant-common runs is a REVIEWED decision, not a
+# filesystem accident. Single resolver, no fallback, fails closed.
+. "$(dirname "$0")/rq105_common_src.sh"
+rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 "$RQ_ROOT/.venv/bin/python" "$RQ105_ORCH_ROOT/ops/renquant105/rq105_liveness_check.py" \
   >> "$LOG_DIR/liveness_$TS.log" 2>&1

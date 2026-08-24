@@ -50,6 +50,11 @@ def _scratch_rq_root(tmp_path: Path) -> Path:
     (rq / "logs" / "rq105").mkdir(parents=True)
     (rq / "logs" / "renquant105_pilot").mkdir(parents=True)
     (rq / "scripts" / "notify.sh").write_text(_FAKE_NOTIFY, encoding="utf-8")
+    # orch#1016: the wrapper now RESOLVES its renquant-common checkout and exits
+    # non-zero if it is missing, instead of assigning a path it never checked.
+    # The fake tree therefore has to contain one — RQ105_ORCH_ROOT is
+    # `<rq>/orch-run`, so the sibling is `<rq>/renquant-common`.
+    (rq / "renquant-common" / "src").mkdir(parents=True, exist_ok=True)
     return rq
 
 

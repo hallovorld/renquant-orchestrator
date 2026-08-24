@@ -38,8 +38,10 @@ CRASH_LOG="$LOG_DIR/quote_logger_crash_$TS.log"
 # renquant_common.market_calendar — put a sibling renquant-common checkout on
 # PYTHONPATH (pinned -run checkout preferred; the venv install alone may
 # predate market_calendar).
-RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
-[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+# orch#1016: which renquant-common runs is a REVIEWED decision, not a
+# filesystem accident. Single resolver, no fallback, fails closed.
+. "$(dirname "$0")/rq105_common_src.sh"
+rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 
 # Collector binary. Env-overridable ONLY so a test can substitute a stub; the

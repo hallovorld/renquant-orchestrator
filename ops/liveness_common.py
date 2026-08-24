@@ -18,16 +18,39 @@ RQ_DEFAULT = "/Users/renhao/git/github/RenQuant"
 ORCH_DEFAULT = "/Users/renhao/git/github/renquant-orchestrator-run"
 
 
+#: Which renquant-common checkout an rq105/rq104 job imports. The shell side of
+#: this decision lives in ops/renquant105/rq105_common_src.sh; both must name the
+#: same checkout, which tests/test_rq105_common_checkout.py asserts.
+COMMON_CHECKOUT = os.environ.get("RQ105_COMMON_CHECKOUT", "renquant-common")
+
+
+def resolve_common_src(orch_root: str) -> str:
+    """The sibling renquant-common src path — one named checkout, no fallback.
+
+    Previously this walked ("renquant-common-run", "renquant-common") and took
+    the first that existed, so which copy of the code executed was decided by
+    filesystem state rather than by review (orch#1016). It raises rather than
+    trying another copy: a job that cannot resolve its own dependency must stop,
+    not guess.
+    """
+    candidate = os.path.join(os.path.dirname(orch_root), COMMON_CHECKOUT, "src")
+    if not os.path.isdir(candidate):
+        raise RuntimeError(
+            f"renquant-common checkout {COMMON_CHECKOUT!r} not found at {candidate}. "
+            "Refusing to fall back to another copy — which code runs is a reviewed "
+            "decision (orch#1016)."
+        )
+    return candidate
+
+
 def _ensure_orch_on_path() -> None:
     root = os.environ.get("RQ_ORCH_ROOT", os.environ.get("RQ104_ORCH_ROOT", ORCH_DEFAULT))
     p = os.path.join(root, "src")
     if p not in sys.path:
         sys.path.insert(0, p)
-    for name in ("renquant-common-run", "renquant-common"):
-        c = os.path.join(os.path.dirname(root), name, "src")
-        if os.path.isdir(c) and c not in sys.path:
-            sys.path.insert(0, c)
-            break
+    c = resolve_common_src(root)
+    if c not in sys.path:
+        sys.path.insert(0, c)
 
 
 def session_calendar():
