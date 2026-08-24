@@ -26,15 +26,36 @@ KILL_BAR = 12          # frozen in the approved design; not a knob
 HORIZONS = [5, 10, 20, 60]
 
 
+#: The EXACT strategy this ESS claim is about. Not "any named strategy" —
+#: these DBs are shared, so a non-empty `strategy` proves only that SOMETHING
+#: was named (codex review round 2). Verified present and uniform across every
+#: lane DB before pinning it.
+EXPECTED_STRATEGY = "renquant-104"
+
 #: Provenance predicate — the ONLY runs that may count toward a 104 ESS claim.
 #: Matches the selection `intraday_session_inputs` / `export_batch_scores.py`
-#: already use: a completed live run of a named strategy, never a sim/backfill.
-#: codex review 2026-08-24: the first revision accepted every candidate_scores
-#: row with a panel score, so `runs.alpaca.db` contributed 560 SIM dates
-#: alongside 90 live ones and the result was reported as a live re-score
-#: history ceiling. Measured: 634 dates unfiltered vs 74 with this predicate.
-_LIVE_ONLY = ("r.run_type = 'live' "
-              "AND r.strategy IS NOT NULL AND r.strategy != ''")
+#: already use: a completed live run of THIS strategy, never a sim/backfill.
+#: Round 1 accepted every candidate_scores row with a panel score, so
+#: `runs.alpaca.db` contributed 560 SIM dates alongside 90 live ones and the
+#: result was reported as a live re-score history ceiling.
+_LIVE_ONLY = "r.run_type = 'live' AND r.strategy = ?"
+
+
+def _assert_no_foreign_strategy(con, db):
+    """Fail closed if the DB carries any strategy other than the expected one.
+
+    Filtering TO a value silently tolerates a DB that has quietly become
+    multi-strategy; asserting that no OTHER value exists turns that into a
+    stop. The two are not the same check and only the second notices drift.
+    """
+    others = sorted({(s or "") for (s,) in con.execute(
+        "SELECT DISTINCT strategy FROM pipeline_runs WHERE run_type = 'live'")
+        } - {EXPECTED_STRATEGY})
+    if others:
+        raise SystemExit(
+            f"FAIL CLOSED: {db} has live runs for unexpected strategies "
+            f"{others} — an ESS claim scoped to {EXPECTED_STRATEGY!r} cannot be "
+            f"made from a DB whose lane membership is ambiguous.")
 
 
 def score_dates(db, *, with_provenance=False):
@@ -46,11 +67,20 @@ def score_dates(db, *, with_provenance=False):
     and no exclusion count cannot tell a correct filter from an empty source.
     """
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    _assert_no_foreign_strategy(con, db)
+    # Every field the INCLUSION decision depends on is selected, because the
+    # digest below must cover all of them (codex review round 2): hashing only
+    # (run_date, run_id) leaves run_type, strategy and panel-score presence
+    # free to change while the digest stays put — a digest whose subject is
+    # narrower than the predicate it claims to pin.
     sel = list(con.execute(
-        "SELECT DISTINCT r.run_date, r.run_id FROM candidate_scores c "
+        "SELECT DISTINCT r.run_date, r.run_id, r.run_type, r.strategy, "
+        "  CASE WHEN c.panel_score IS NOT NULL THEN 1 ELSE 0 END AS has_score "
+        "FROM candidate_scores c "
         "JOIN pipeline_runs r ON r.run_id = c.run_id "
-        f"WHERE c.panel_score IS NOT NULL AND {_LIVE_ONLY}"))
-    dates = {d for d, _ in sel}
+        f"WHERE c.panel_score IS NOT NULL AND {_LIVE_ONLY}",
+        (EXPECTED_STRATEGY,)))
+    dates = {row[0] for row in sel}
     if not with_provenance:
         con.close()
         return dates
@@ -59,17 +89,22 @@ def score_dates(db, *, with_provenance=False):
         "JOIN pipeline_runs r ON r.run_id = c.run_id "
         "WHERE c.panel_score IS NOT NULL"))[0]
     con.close()
-    run_ids = sorted({rid for _, rid in sel})
+    run_ids = sorted({row[1] for row in sel})
     return dates, {
         "dates_selected": len(dates),
         "dates_excluded_by_provenance": total - len(dates),
         "dates_before_filter": total,
         "n_run_ids": len(run_ids),
-        # Pins the exact rows, not the file: a DB that grows later still
-        # reproduces this number iff the same runs were selected.
-        "selected_rows_sha256": hashlib.sha256(
-            "\n".join(f"{d}|{r}" for d, r in sorted(sel)).encode()).hexdigest(),
-        "predicate": "run_type='live' AND strategy NOT NULL/''",
+        "run_ids": run_ids,
+        # Covers EVERY inclusion-determining field, not just row identity, so
+        # a run flipping run_type or losing its panel scores changes the digest.
+        "selection_sha256": hashlib.sha256(
+            "\n".join("|".join(str(v) for v in row)
+                       for row in sorted(sel)).encode()).hexdigest(),
+        "digest_covers": ["run_date", "run_id", "run_type", "strategy",
+                          "panel_score_present"],
+        "predicate": f"run_type='live' AND strategy='{EXPECTED_STRATEGY}' "
+                     f"AND candidate_scores.panel_score IS NOT NULL",
     }
 
 
@@ -96,20 +131,51 @@ def main():
         f"SELECT DISTINCT as_of_date FROM ticker_forward_returns WHERE fwd_{h}d IS NOT NULL"))
         for h in HORIZONS}
 
-    lane_dates = {}
-    for p in sorted(glob.glob(os.path.join(a.data_dir, "runs.alpaca_shadow*.db"))):
-        lane_dates[os.path.basename(p)[5:-3]] = score_dates(p)
-    missing = [l for l in CORE_LANES if l not in lane_dates]
-    if missing:
-        raise SystemExit(f"FAIL CLOSED: core lane DB(s) missing: {missing}")
+    # LANE IDENTITY IS OUT-OF-BAND, and this says so rather than implying
+    # otherwise (codex review round 2). Verified against the schema: for the
+    # DB file
+    #   pipeline_runs(run_id, run_date, run_type, strategy, regime, confidence,
+    #     portfolio_value, cash, n_candidates, n_exits, n_rotations, n_buys,
+    #     buy_blocked, skip_buys, bear_only, counters_json, run_bundle_json,
+    #     commit_sha, training_cutoff, model_content_sha256, created_at)
+    # there is NO lane/tag/variant column, and `model_content_sha256` does not
+    # separate lanes either — one sha (c816b…) is shared by SEVEN lane DBs,
+    # because lanes differ by CONFIG (which legs blend), not by artifact. So
+    # the file path is the only lane signal that exists, and the honest
+    # response is to constrain it and record what it selected, not to dress it
+    # up as in-band provenance.
+    lane_dates, lane_prov = {}, {}
+    for lane in CORE_LANES:
+        path = os.path.join(a.data_dir, f"runs.{lane}.db")
+        if not os.path.exists(path):
+            raise SystemExit(f"FAIL CLOSED: core lane DB missing: {path}")
+        lane_dates[lane], lane_prov[lane] = score_dates(path, with_provenance=True)
+    # An UNEXPECTED shadow DB is also a stop: the intersection defining the
+    # meta-panel is only meaningful if the lane set is the one the design
+    # named. Silently ignoring a new lane would let the corpus change shape
+    # without the artifact saying so.
+    on_disk = {os.path.basename(x)[5:-3]
+               for x in glob.glob(os.path.join(a.data_dir, "runs.alpaca_shadow*.db"))}
+    unexpected = sorted(on_disk - set(CORE_LANES))
+    context_only = {l: len(score_dates(os.path.join(a.data_dir, f"runs.{l}.db")))
+                    for l in unexpected}
     multi = set.intersection(*(lane_dates[l] for l in CORE_LANES))
     hist, hist_prov = score_dates(main_db, with_provenance=True)
 
     out = {
         "kill_bar": KILL_BAR,
         "core_lanes": CORE_LANES,
+        "lane_identity": {
+            "source": "DB FILE PATH — pipeline_runs has no lane/tag column, "
+                      "and model_content_sha256 is shared across lanes "
+                      "(one sha spans 7 lane DBs), so no in-band lane "
+                      "identity exists in this schema",
+            "core_lanes_required": CORE_LANES,
+            "other_shadow_dbs_present": context_only,
+        },
         "lane_coverage": {l: {"n_dates": len(ds),
-                              "range": [min(ds), max(ds)] if ds else None}
+                              "range": [min(ds), max(ds)] if ds else None,
+                              "provenance": lane_prov[l]}
                           for l, ds in sorted(lane_dates.items())},
         "meta_panel": {"multi_leg_dates": len(multi),
                        "range": [min(multi), max(multi)] if multi else None,
