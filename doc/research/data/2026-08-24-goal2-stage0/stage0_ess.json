@@ -1,0 +1,105 @@
+{
+  "core_lanes": [
+    "alpaca_shadow_blend",
+    "alpaca_shadow_blend_mom",
+    "alpaca_shadow_blend_rb_mom"
+  ],
+  "historical_single_scorer_reference": {
+    "ess": {
+      "h=10": {
+        "labeled_dates": 624,
+        "n_eff": 67
+      },
+      "h=20": {
+        "labeled_dates": 614,
+        "n_eff": 34
+      },
+      "h=5": {
+        "labeled_dates": 629,
+        "n_eff": 132
+      },
+      "h=60": {
+        "labeled_dates": 584,
+        "n_eff": 11
+      }
+    }
+  },
+  "kill_bar": 12,
+  "lane_coverage": {
+    "alpaca_shadow": {
+      "n_dates": 40,
+      "range": [
+        "2026-05-19",
+        "2026-08-20"
+      ]
+    },
+    "alpaca_shadow_blend": {
+      "n_dates": 19,
+      "range": [
+        "2026-07-28",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_mom": {
+      "n_dates": 14,
+      "range": [
+        "2026-08-04",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_mom_fast": {
+      "n_dates": 4,
+      "range": [
+        "2026-08-18",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_rb_fast": {
+      "n_dates": 4,
+      "range": [
+        "2026-08-18",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_rb_mom": {
+      "n_dates": 14,
+      "range": [
+        "2026-08-04",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_vol_window": {
+      "n_dates": 4,
+      "range": [
+        "2026-08-18",
+        "2026-08-21"
+      ]
+    }
+  },
+  "meta_panel": {
+    "ess": {
+      "h=10": {
+        "labeled_dates": 4,
+        "n_eff": 1
+      },
+      "h=20": {
+        "labeled_dates": 0,
+        "n_eff": 0
+      },
+      "h=5": {
+        "labeled_dates": 9,
+        "n_eff": 2
+      },
+      "h=60": {
+        "labeled_dates": 0,
+        "n_eff": 0
+      }
+    },
+    "multi_leg_dates": 14,
+    "range": [
+      "2026-08-04",
+      "2026-08-21"
+    ]
+  },
+  "verdict": "KILL (per the frozen design bar): meta-panel n_eff=0 at h=60 (< 12). Best-case ceiling if all history were re-scored per leg: 11 \u2014 ALSO below the bar. Stage 1 is not run."
+}
