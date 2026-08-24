@@ -286,3 +286,39 @@ def test_a_misbound_strategy_config_is_REFUSED(tmp_path):
             "--data-manifest", str(tmp_path / "dm.json"),
             "--artifact-manifest", str(tmp_path / "am.json"),
         ])
+
+
+def test_a_manifest_WITHOUT_a_fingerprint_is_refused(tmp_path):
+    """[codex round 2] Skipping the guard when the field is absent lets an
+    unattributable session produce a green real-pipeline audit — the exact
+    detachment the guard exists to prevent. Absent, empty, and malformed all
+    refuse."""
+    import pytest
+    manifest, _ = record_noop_session(tmp_path)
+    cfg = tmp_path / "cfg.json"; cfg.write_text("{}")
+    for aux in ("dm", "am"):
+        (tmp_path / f"{aux}.json").write_text("{}")
+    for bad in (None, "", "cfg-fp", "sha256:short"):
+        m = dict(manifest)
+        if bad is None:
+            m.pop("strategy_config_fingerprint", None)
+        else:
+            m["strategy_config_fingerprint"] = bad
+        mp = tmp_path / "m.json"; mp.write_text(json.dumps(m))
+        with pytest.raises(SystemExit, match="no valid strategy_config_fingerprint"):
+            replay_main(["--manifest", str(mp),
+                         "--shadow-log", str(tmp_path / "shadow.jsonl"),
+                         "--strategy-config", str(cfg),
+                         "--data-manifest", str(tmp_path / "dm.json"),
+                         "--artifact-manifest", str(tmp_path / "am.json")])
+
+
+def test_the_report_carries_its_binding_provenance(tmp_path):
+    """[codex round 2] A green report used as authorization evidence must say
+    WHICH config and WHICH manifest it verified."""
+    manifest, ticks = record_noop_session(tmp_path)
+    from renquant_orchestrator.intraday_session_scheduler import hash_jsonable
+    report = replay_session(manifest=manifest, ticks=ticks,
+                            tick_runner=_noop_tick_runner)
+    assert report["strategy_config_fingerprint"] == manifest["strategy_config_fingerprint"]
+    assert report["manifest_sha256"] == hash_jsonable(manifest)

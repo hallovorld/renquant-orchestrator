@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -244,6 +245,12 @@ def replay_session(
 
     return {
         "schema_version": REPLAY_SCHEMA_VERSION,
+        # BINDING PROVENANCE [codex round 2 on #1040]: a green report used as
+        # §9.3a authorization evidence must say WHICH reviewed config and WHICH
+        # session manifest it verified, or the JSON can be detached from the
+        # inputs whose authorization it supports.
+        "strategy_config_fingerprint": str(manifest.get("strategy_config_fingerprint") or ""),
+        "manifest_sha256": hash_jsonable(manifest),
         "session_date": session_date,
         "calendar_id": manifest.get("calendar_id"),
         "signal_version": signal_version,
@@ -310,14 +317,22 @@ def main(
                 Path(args.strategy_config).read_text(encoding="utf-8")
             )
             recorded_cfg_fp = str(manifest.get("strategy_config_fingerprint") or "")
-            if recorded_cfg_fp:
-                supplied_fp = hash_jsonable(strategy_config)
-                if supplied_fp != recorded_cfg_fp:
-                    raise SystemExit(
-                        "refusing to replay: --strategy-config hashes to "
-                        f"{supplied_fp[:24]}… but the session manifest recorded "
-                        f"{recorded_cfg_fp[:24]}… — bind the config the session "
-                        "actually ran under (fail closed)")
+            # A MISSING fingerprint must refuse too [codex round 2]: skipping
+            # the check when the field is absent lets an unattributable session
+            # produce a green real-pipeline audit — the exact detachment this
+            # guard exists to prevent.
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", recorded_cfg_fp):
+                raise SystemExit(
+                    "refusing to replay: session manifest carries no valid "
+                    f"strategy_config_fingerprint (got {recorded_cfg_fp[:32]!r}) "
+                    "— an unattributable session cannot be audited (fail closed)")
+            supplied_fp = hash_jsonable(strategy_config)
+            if supplied_fp != recorded_cfg_fp:
+                raise SystemExit(
+                    "refusing to replay: --strategy-config hashes to "
+                    f"{supplied_fp[:24]}… but the session manifest recorded "
+                    f"{recorded_cfg_fp[:24]}… — bind the config the session "
+                    "actually ran under (fail closed)")
             tick_runner = bind_pipeline_tick_runner(
                 strategy_config=strategy_config,
                 data_manifest=json.loads(

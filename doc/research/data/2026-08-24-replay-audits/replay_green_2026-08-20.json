@@ -1,10 +1,12 @@
 {
   "calendar_id": "NYSE",
   "gate_input_fingerprint": "sha256:20f6daaa5f21b88208378688d8e584881d48fa2496f3d3cd6848506d5ef383e9",
+  "manifest_sha256": "sha256:0978c81daed39281b53cc67d89128f87e66d0354f21dbeebe449e3d676f149da",
   "mismatches": [],
   "ok": true,
   "schema_version": "rq105-intraday-replay-audit-v1",
   "session_date": "2026-08-20",
   "signal_version": "2026-08-19-live-33134329:sha256:7a2d4",
+  "strategy_config_fingerprint": "sha256:c6d1abe28cb3fe732a3ae00d4b491f36d6b5038863e8e9b8a103c6cdf6965e9b",
   "ticks_checked": 32
 }
