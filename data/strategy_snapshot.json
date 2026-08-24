@@ -113,6 +113,7 @@
     "expkit.stats",
     "fallback_shadow_logger",
     "feature_drift_audit",
+    "feature_snapshot_producer",
     "g4_admission",
     "g4_shadow_job",
     "gate_calibration_diagnostic",
