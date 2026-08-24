@@ -210,3 +210,79 @@ def test_replay_cli_fails_closed_without_pipeline_binding(tmp_path):
         ]
     )
     assert rc == 2  # no injected runner + no manifests => refuse, never guess
+
+
+# ───────────── the recorder/verifier contract (orch#1039) ─────────────
+def _noop_tick_runner(**kwargs):
+    """A tick with NO intents but a heavy decision_trace — the shape of every
+    real shadow tick to date. The recorder strips the trace on exactly these
+    ticks; the audit must compare with the SAME rule applied."""
+    return {"intents": [], "blocked_by": {"AAA": "no_edge"},
+            "decision_trace": [{"ticker": "AAA", "panel": 1.2, "note": "x" * 200}]}
+
+
+def record_noop_session(tmp_path: Path) -> tuple[dict, list[dict]]:
+    scheduler = SessionScheduler(
+        config=IntradayDecisioningConfig(enabled=True, tick_seconds=600.0),
+        tick_runner=_noop_tick_runner,
+        signal_loader=lambda day: fake_signal(),
+        session_start_provider=lambda day, now: {"watchlist": ["AAA"]},
+        live_state_provider=fake_live_state,
+        writer=ShadowTickWriter(tmp_path / "shadow.jsonl"),
+        manifest_path=tmp_path / "manifest.json",
+        kill_switch=KillSwitch(tmp_path / "KILL"),
+        calendar=FakeCalendar({DAY: ("10:00", "11:00")}),
+        exit_orders_provider=lambda now: [],
+        environ={ENV_FLAG: "1"},
+        strategy_config_fingerprint="cfg-fp",
+    )
+    day = datetime.fromisoformat(DAY)
+    clock = ManualClock(datetime(day.year, day.month, day.day, 10, 0, tzinfo=ET))
+    manifest = scheduler.run_session(now_fn=clock, sleep_fn=clock.sleep)
+    return manifest, load_session_ticks(tmp_path / "shadow.jsonl", DAY)
+
+
+def test_a_NOTRADE_session_replays_green(tmp_path):
+    """The 2026-08-24 finding: every real shadow tick to date is a no-trade
+    tick, the recorder strips its decision_trace, and the audit compared the
+    UNSTRIPPED replay against the stripped record — 31/32 'mismatches' on all
+    three audited sessions that vanish entirely under the recorder's own rule
+    (0/32 x3 on the real log). This is that regression, hermetic."""
+    manifest, ticks = record_noop_session(tmp_path)
+    report = replay_session(manifest=manifest, ticks=ticks,
+                            tick_runner=_noop_tick_runner)
+    assert report["ok"], report["mismatches"][:2]
+    assert report["ticks_checked"] == len(ticks) > 0
+
+
+def test_the_recorded_rows_really_are_stripped(tmp_path):
+    """Guards the premise: if the recorder ever stops stripping, the green
+    above would be testing nothing."""
+    _, ticks = record_noop_session(tmp_path)
+    for row in ticks:
+        d = row["decisions"]
+        assert "decision_trace" not in d
+        assert d.get("decision_trace_stripped") is True
+
+
+def test_a_misbound_strategy_config_is_REFUSED(tmp_path):
+    """Three real audits ran silently bound to the wrong config and reported
+    mismatches that read as non-reproducibility. The CLI now refuses before
+    replaying anything."""
+    import pytest
+    manifest, _ = record_noop_session(tmp_path)
+    manifest["strategy_config_fingerprint"] = "sha256:" + "a" * 64
+    mp = tmp_path / "m.json"
+    mp.write_text(json.dumps(manifest))
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text("{}")
+    for aux in ("dm", "am"):
+        (tmp_path / f"{aux}.json").write_text("{}")
+    with pytest.raises(SystemExit, match="refusing to replay: --strategy-config hashes"):
+        replay_main([
+            "--manifest", str(mp),
+            "--shadow-log", str(tmp_path / "shadow.jsonl"),
+            "--strategy-config", str(cfg),
+            "--data-manifest", str(tmp_path / "dm.json"),
+            "--artifact-manifest", str(tmp_path / "am.json"),
+        ])

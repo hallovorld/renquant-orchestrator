@@ -1,0 +1,10 @@
+{
+  "calendar_id": "NYSE",
+  "gate_input_fingerprint": "sha256:cc439e1cf4aba546d325cfb74e57bed2023ffb04abb729473aa092a47a47c0ae",
+  "mismatches": [],
+  "ok": true,
+  "schema_version": "rq105-intraday-replay-audit-v1",
+  "session_date": "2026-08-21",
+  "signal_version": "2026-08-20-live-5b34a562:sha256:5fcae",
+  "ticks_checked": 32
+}
