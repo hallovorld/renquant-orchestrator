@@ -1,0 +1,22 @@
+{
+  "core_lanes": [
+    "alpaca_shadow_blend",
+    "alpaca_shadow_blend_mom",
+    "alpaca_shadow_blend_rb_mom"
+  ],
+  "historical_single_scorer_reference": {
+    "ess": {
+      "h=10": {
+        "labeled_dates": 624,
+        "n_eff": 67
+      },
+      "h=20": {
+        "labeled_dates": 614,
+        "n_eff": 34
+      },
+      "h=5": {
+        "labeled_dates": 629,
+        "n_eff": 132
+      },
+     …
+sha256: a08e7e9cf0caafb4

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime as dt
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -40,11 +39,30 @@ TIMEOUT_LINE = (
 
 
 def _log(tmp_path: Path, name: str, text: str, *, age_days: int = 0) -> Path:
+    """Write a log whose age is measured from AS_OF, not from the wall clock.
+
+    Ageing from ``time.time()`` while the scan is asked for a FIXED ``as_of``
+    makes the test a time bomb: the file's date walks forward every day while
+    the cutoff (``as_of - MAX_LOG_AGE_DAYS``) stays put, so a case written as
+    "40 days old, comfortably stale" eventually lands on the wrong side of the
+    boundary and the suite starts failing for a reason that has nothing to do
+    with the code under test.
+
+    It detonated on 2026-08-24, and straddled a timezone while doing it:
+    with age_days=40 and MAX_LOG_AGE_DAYS=14 against AS_OF=2026-07-29 the
+    cutoff is 2026-07-15, and ``today - 40d`` was 2026-07-14 in PDT (pass) but
+    2026-07-15 in UTC (fail) — so it was green on a workstation and red on
+    every CI runner, blocking unrelated PRs.
+
+    Anchoring to AS_OF makes the arithmetic hermetic: the same relationship
+    holds on any date, in any zone.
+    """
     p = tmp_path / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding="utf-8")
     if age_days:
-        old = time.time() - age_days * 86400
+        anchor = dt.datetime.combine(AS_OF, dt.time(12, 0), tzinfo=dt.timezone.utc)
+        old = (anchor - dt.timedelta(days=age_days)).timestamp()
         import os
         os.utime(p, (old, old))
     return p
