@@ -26,6 +26,18 @@ REWRITTEN after codex on orch#1028, whose three findings this version answers:
 3. "Hardcoded workstation paths." --runs-db and --strategy-config are REQUIRED
    arguments; the script fails closed without them and records sha256 + row
    counts of both inputs in the output.
+
+4. "The digest does not cover every load-bearing field" [round 3]. The
+   reproducibility claim is only as wide as what is hashed, and it was not
+   wide enough: selection reads run_type / n_candidates / strategy /
+   commit_sha / created_at and the parity block reads
+   candidate_scores.blocked_by, none of which were digested — so any of them
+   could change the selected sessions, the exclusions, the provenance, or the
+   explanation of a set difference while rows_digest_sha256 stayed identical.
+   The digest now hashes the COMPLETE selected pipeline_runs record and every
+   candidate field consumed by selection or parity. The pinned pipeline commit
+   also FAILS CLOSED instead of recording null: an artifact must not claim
+   reproducibility over a seam it cannot identify.
 """
 from __future__ import annotations
 
@@ -294,11 +306,23 @@ def main():
     # pipeline_runs / candidate_scores / price / trades row this script read,
     # in sorted order — plus the pinned pipeline commit and a sha256 of each
     # imported seam module file.
+    # [codex round 3] The digest must cover every field the SELECTION and the
+    # PARITY annotation read, not just the ones the arithmetic consumes.
+    # Session selection reads run_type, n_candidates, strategy, commit_sha and
+    # created_at; the parity block reads candidate_scores.blocked_by. Omitting
+    # them let those values change the selected sessions, the exclusions, the
+    # provenance or the explanation of a set difference while the digest stayed
+    # identical — a digest narrower than the reproducibility claim built on it.
     h = hashlib.sha256()
     for rid, d, pv, cash, rg, cf in sessions:
-        h.update(json.dumps(["run", rid, d, pv, cash, rg, cf], sort_keys=True).encode())
+        full = con.execute(
+            "SELECT run_id, run_date, run_type, strategy, n_candidates, "
+            "  portfolio_value, cash, regime, confidence, commit_sha, created_at "
+            "FROM pipeline_runs WHERE run_id=?", (rid,)).fetchone()
+        h.update(json.dumps(["run", *full], sort_keys=True).encode())
         for row in con.execute(
-                "SELECT ticker, role, panel_score, sigma, expected_return, kelly_target_pct "
+                "SELECT ticker, role, panel_score, sigma, expected_return, "
+                "  kelly_target_pct, blocked_by "
                 "FROM candidate_scores WHERE run_id=? ORDER BY ticker, role", (rid,)):
             h.update(json.dumps(["cs", rid, *row], sort_keys=True).encode())
         for row in con.execute(
@@ -317,12 +341,23 @@ def main():
     seam_files = sorted({inspect.getsourcefile(getattr(sz, n)) for n in
                          ("compute_position_size", "confidence_to_size_multiplier")})
     seam_hashes = {f: _sha(f) for f in seam_files if f}
+    # FAIL CLOSED [codex round 3]: an unresolvable pipeline commit was recorded
+    # as null and the run continued, so an artifact could claim reproducibility
+    # while the code it replayed was unidentifiable. The commit is a
+    # load-bearing input, not an annotation.
     try:
-        pipeline_commit = subprocess.run(
-            ["git", "-C", a.pipeline_src, "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10).stdout.strip() or None
-    except Exception:  # noqa: BLE001
-        pipeline_commit = None
+        r = subprocess.run(["git", "-C", a.pipeline_src, "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"FAIL CLOSED: cannot resolve the pipeline commit at "
+                         f"{a.pipeline_src}: {type(exc).__name__}: {exc}")
+    pipeline_commit = r.stdout.strip()
+    if r.returncode != 0 or not pipeline_commit:
+        raise SystemExit(
+            f"FAIL CLOSED: `git rev-parse HEAD` gave no commit for "
+            f"{a.pipeline_src} (rc={r.returncode}): {r.stderr.strip()!r}. The "
+            f"replayed seam cannot be identified, so the reproducibility claim "
+            f"this artifact makes would be false.")
 
     out = {"inputs": {
         "runs_db": {"path": a.runs_db,

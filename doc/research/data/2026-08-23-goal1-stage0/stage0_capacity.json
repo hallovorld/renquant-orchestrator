@@ -296,7 +296,7 @@
       "candidate_scores": 247461,
       "live_runs": 2680,
       "path": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
-      "rows_digest_sha256": "303b82d39d8a5905d9924d952b5934a5ba34bcc2680ca142e8626628e3116837"
+      "rows_digest_sha256": "736e598079a655a783fc774798b393c536c32daf1db72d3e65b9690d4a797a51"
     },
     "selected_runs": [
       {
