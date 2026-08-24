@@ -1,5 +1,7 @@
 #!/bin/bash
 # rq105: post-close OBSERVE-ONLY shadow real-time serving replay (#221 collector).
+# S3-P3 (2026-08-24): now self-produces its feature snapshot via
+# build_feature_snapshot.sh (orch#1032) before the availability check.
 # Replays today's recorded tick feed at four fixed as-of checkpoints (10:00,
 # 12:00, 14:00, 15:30 ET) against the FROZEN batch score vector exported
 # pre-market by export_batch_scores.py. Deterministic post-close replay — no
@@ -39,19 +41,22 @@ if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   exit 1
 fi
 if [ ! -f "$FEATURE_SNAPSHOT" ]; then
-  # shadow_realtime_serving requires --feature-snapshot-json (Codex #221: every
-  # logged row binds to immutable feature state — the CLI must not accept a
-  # missing snapshot). No producer for this file exists yet (Stage-3 wiring,
-  # tracked separately) — skip cleanly rather than invoke a binary whose
-  # required argument we cannot supply.
-  # NOTE: this "no feature-snapshot producer yet" state is EXPECTED and stable
-  # until Stage-3 (intraday re-scoring) is built (tracked: #208 Stage-3 / #221) —
-  # it is NOT a failure. It was ntfy'ing every scheduled run, which is pure noise
-  # (a healthy job reporting a designed, unchanged deferral). Record it durably in
-  # the skip log (below) but do NOT page: only a REAL failure (missing upstream
-  # scores L38, bundle-verification failure L70) still notifies. Restore the ntfy
-  # here iff the not-wired state should ever become unexpected.
-  skip_log "SKIP not-wired: no producer exists for $FEATURE_SNAPSHOT (Stage-3, #221)"
+  # S3-P3 (orch#1026/#1030/#1032, 2026-08-24): the producer now EXISTS —
+  # build_feature_snapshot.sh bridges the prod-lane served matrix
+  # (PersistServedMatrixTask, orch#703) to the FeatureSnapshot contract. Try
+  # it exactly once before concluding the snapshot is unavailable. This line
+  # replaced a daily "SKIP not-wired: no producer exists" that had fired every
+  # session since 2026-08-12.
+  "$(dirname "$0")/build_feature_snapshot.sh" --date "$TS"     >> "$LOG_DIR/feature_snapshot_$TS.log" 2>&1
+  PRODUCER_RC=$?
+fi
+if [ ! -f "$FEATURE_SNAPSHOT" ]; then
+  # The producer ran and REFUSED (fail-closed provenance: stale/ambiguous
+  # served matrix, schema drift — its log has the specific reason). A refusal
+  # is the producer working, not a serving failure: skip with the reason
+  # recorded, same calm no-ntfy policy as the old not-wired state; only a REAL
+  # failure (missing upstream scores above, bundle verification below) pages.
+  skip_log "SKIP producer-refused (rc=${PRODUCER_RC:-?}): $FEATURE_SNAPSHOT not produced — see feature_snapshot_$TS.log (S3-P3, orch#1032)"
   exit "$EXIT_NOT_WIRED"
 fi
 PY="$RQ_ROOT/.venv/bin/python"
