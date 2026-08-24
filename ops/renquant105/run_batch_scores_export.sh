@@ -13,9 +13,10 @@ RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrat
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
-# orch#1016: which renquant-common runs is a REVIEWED decision, not a
-# filesystem accident. Single resolver, no fallback, fails closed.
-. "$(dirname "$0")/rq105_common_src.sh"
+# orch#1016: renquant-common comes from the PINNED runtime, verified against
+# subrepos.lock.json before import. No fallback, no env override, fails closed.
+RQ105_OPS_DIR="$(dirname "$0")"
+. "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # 2026-08-05 operator directive ("105 应该用 104 prod 的模型"): the frozen batch

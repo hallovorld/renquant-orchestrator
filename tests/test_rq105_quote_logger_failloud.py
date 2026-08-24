@@ -50,12 +50,32 @@ def _scratch_rq_root(tmp_path: Path) -> Path:
     (rq / "logs" / "rq105").mkdir(parents=True)
     (rq / "logs" / "renquant105_pilot").mkdir(parents=True)
     (rq / "scripts" / "notify.sh").write_text(_FAKE_NOTIFY, encoding="utf-8")
-    # orch#1016: the wrapper now RESOLVES its renquant-common checkout and exits
-    # non-zero if it is missing, instead of assigning a path it never checked.
-    # The fake tree therefore has to contain one — RQ105_ORCH_ROOT is
-    # `<rq>/orch-run`, so the sibling is `<rq>/renquant-common`.
-    (rq / "renquant-common" / "src").mkdir(parents=True, exist_ok=True)
+    _pinned_common(rq)
     return rq
+
+
+def _pinned_common(rq: Path) -> None:
+    """orch#1016: the wrapper resolves renquant-common from the PINNED runtime
+    and verifies its HEAD against `subrepos.lock.json` before importing it, so
+    the fake tree needs a real (tiny) git checkout and a matching pin. A fixture
+    that only made a directory would be testing a weaker contract than the one
+    that ships."""
+    import json as _json
+    import subprocess as _sp
+
+    checkout = rq / ".subrepo_runtime" / "repos" / "renquant-common"
+    (checkout / "src").mkdir(parents=True, exist_ok=True)
+    _sp.run(["git", "init", "-q", str(checkout)], check=True)
+    _sp.run(["git", "-C", str(checkout), "config", "user.email", "t@t"], check=True)
+    _sp.run(["git", "-C", str(checkout), "config", "user.name", "t"], check=True)
+    (checkout / "marker").write_text("x")
+    _sp.run(["git", "-C", str(checkout), "add", "-A"], check=True)
+    _sp.run(["git", "-C", str(checkout), "commit", "-qm", "init"], check=True)
+    head = _sp.run(["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                   capture_output=True, text=True, check=True).stdout.strip()
+    (rq / "subrepos.lock.json").write_text(_json.dumps(
+        {"schema_version": 1,
+         "subrepos": [{"name": "renquant-common", "commit": head}]}))
 
 
 def _fake_collector(tmp_path: Path, body: str) -> Path:

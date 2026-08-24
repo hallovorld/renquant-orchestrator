@@ -16,31 +16,33 @@ import sys
 
 RQ_DEFAULT = "/Users/renhao/git/github/RenQuant"
 ORCH_DEFAULT = "/Users/renhao/git/github/renquant-orchestrator-run"
-
-
-#: Which renquant-common checkout an rq105/rq104 job imports. The shell side of
-#: this decision lives in ops/renquant105/rq105_common_src.sh; both must name the
-#: same checkout, which tests/test_rq105_common_checkout.py asserts.
-COMMON_CHECKOUT = os.environ.get("RQ105_COMMON_CHECKOUT", "renquant-common")
+RQ_ROOT_DEFAULT = "/Users/renhao/git/github/RenQuant"
 
 
 def resolve_common_src(orch_root: str) -> str:
-    """The sibling renquant-common src path — one named checkout, no fallback.
+    """The PINNED renquant-common src, verified against subrepos.lock.json.
 
-    Previously this walked ("renquant-common-run", "renquant-common") and took
-    the first that existed, so which copy of the code executed was decided by
-    filesystem state rather than by review (orch#1016). It raises rather than
-    trying another copy: a job that cannot resolve its own dependency must stop,
-    not guess.
+    This used to walk ("renquant-common-run", "renquant-common") and take the
+    first that existed, so which copy of the code executed was decided by
+    filesystem state rather than by review (orch#1016). The first fix replaced
+    that with one NAMED sibling checkout, which was still wrong: a directory
+    name is not a revision, and the named sibling is a mutable working tree.
+
+    It now delegates to ops/renquant105/rq105_pinned_common.py — the same
+    implementation the shell wrappers call — which resolves
+    <RQ_ROOT>/.subrepo_runtime/repos/renquant-common/src and refuses unless its
+    HEAD matches the umbrella's recorded pin.
+
+    `orch_root` is accepted for call-site compatibility and to derive RQ_ROOT
+    when it is not in the environment; the CHECKOUT is never chosen from it.
     """
-    candidate = os.path.join(os.path.dirname(orch_root), COMMON_CHECKOUT, "src")
-    if not os.path.isdir(candidate):
-        raise RuntimeError(
-            f"renquant-common checkout {COMMON_CHECKOUT!r} not found at {candidate}. "
-            "Refusing to fall back to another copy — which code runs is a reviewed "
-            "decision (orch#1016)."
-        )
-    return candidate
+    ops_rq105 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renquant105")
+    if ops_rq105 not in sys.path:
+        sys.path.insert(0, ops_rq105)
+    from rq105_pinned_common import resolve_pinned_common_src  # noqa: PLC0415
+
+    rq_root = os.environ.get("RQ_ROOT") or RQ_ROOT_DEFAULT
+    return resolve_pinned_common_src(rq_root)
 
 
 def _ensure_orch_on_path() -> None:

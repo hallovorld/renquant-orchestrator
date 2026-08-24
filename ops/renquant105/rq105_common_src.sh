@@ -1,44 +1,45 @@
 #!/bin/zsh
 # Single reviewed answer to "which renquant-common does an rq105 job import?"
 #
-# WHY THIS FILE EXISTS (orch#1016). Every rq105 wrapper used to carry its own
-# copy of a two-line fallback:
+# It is the copy the umbrella PINS, verified against the pin before import:
 #
-#     RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
-#     [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+#     <RQ_ROOT>/.subrepo_runtime/repos/renquant-common/src
+#     <RQ_ROOT>/subrepos.lock.json -> subrepos[renquant-common].commit
 #
-# The drift scanner's phrasing is the finding: *which copy executes is decided
-# by filesystem state, not by review*. Three consequences, all live:
-#   1. invisible in the normal case — the jobs work either way;
-#   2. it flips SILENTLY — the day anyone creates renquant-common-run/, five
-#      scheduled jobs change which code they run, with no commit and no review;
-#   3. today the `else` branch wins on every job, so scheduled production work
-#      imports a DEV working tree governed by no pin.
+# WHY (orch#1016). Every rq105 wrapper used to carry its own copy of
 #
-# WHAT THIS RECORDS, AND WHAT IT DOES NOT. `RQ105_COMMON_CHECKOUT` below is a
-# RECORD of which checkout actually runs today — not an endorsement of it.
-# Pointing scheduled jobs at a dev tree is its own problem and is NOT fixed
-# here. What is fixed is that the answer now lives in a reviewed file: changing
-# it takes a commit, and creating a sibling directory no longer changes
-# anything. Migrating to a pinned `-run` checkout is a one-line change to this
-# constant, made deliberately, with the checkout created first.
+#     RQ_COMMON_SRC=".../renquant-common-run/src"
+#     [ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC=".../renquant-common/src"
 #
-# There is deliberately NO fallback. If the named checkout is absent this exits
-# non-zero rather than importing a different copy of the code: a job that cannot
-# resolve its own dependency must stop, not guess.
+# so which copy executed was decided by filesystem state, not by review — and
+# `renquant-common-run` is absent here, so every job imported the mutable dev
+# working tree. run_session_scheduler.sh made it worse by placing that sibling
+# BEFORE $SUBREPO/renquant-common/src on PYTHONPATH: the pinned copy was already
+# there, and was being shadowed by the unpinned one.
+#
+# A directory NAME is not a revision, so this does not merely pick a path. The
+# resolution and the pin check live in rq105_pinned_common.py — ONE
+# implementation for shell and python, because two implementations of a pin
+# check are two chances to disagree about what is pinned.
+#
+# There is deliberately NO fallback and NO env override of which checkout: an
+# unreviewed process environment must not be able to choose the code while the
+# drift scan reports the choice as reviewed. RQ_ROOT remains configurable — it
+# is the deployment root every wrapper already parameterises — and the pin is
+# verified inside whichever root is given.
 
-RQ105_COMMON_CHECKOUT="${RQ105_COMMON_CHECKOUT:-renquant-common}"
-
+# The sourcing wrapper passes its own directory in RQ105_OPS_DIR. Deliberately
+# NOT `${0:A:h}`: that is zsh-only and expands to empty under bash/sh, so the CI
+# runner (ubuntu, no zsh) could not execute this function at all — the tests
+# would have to skip, and a check that skips is a check that covers nothing.
+# Explicit beats clever here; the caller always knows its own directory.
 rq105_resolve_common_src() {
-  local repos_root="$(dirname "${RQ105_ORCH_ROOT:?RQ105_ORCH_ROOT must be set}")"
-  local candidate="$repos_root/$RQ105_COMMON_CHECKOUT/src"
-  if [ ! -d "$candidate" ]; then
-    echo "FATAL: renquant-common checkout '$RQ105_COMMON_CHECKOUT' not found at $candidate." >&2
-    echo "       Refusing to fall back to another copy — which code runs is a reviewed" >&2
-    echo "       decision (orch#1016). Fix the checkout, or change RQ105_COMMON_CHECKOUT" >&2
-    echo "       in ops/renquant105/rq105_common_src.sh via review." >&2
-    return 1
-  fi
-  RQ_COMMON_SRC="$candidate"
+  rq_root="${RQ_ROOT:?RQ_ROOT must be set}"
+  ops_dir="${RQ105_OPS_DIR:?RQ105_OPS_DIR must be set by the sourcing wrapper}"
+  py="$rq_root/.venv/bin/python"
+  [ -x "$py" ] || py="python3"
+  resolved="$("$py" "$ops_dir/rq105_pinned_common.py" --rq-root "$rq_root" --print-src)" || return 1
+  [ -n "$resolved" ] || { echo "FATAL: pinned-common resolver printed nothing" >&2; return 1; }
+  RQ_COMMON_SRC="$resolved"
   export RQ_COMMON_SRC
 }

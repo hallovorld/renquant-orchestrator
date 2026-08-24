@@ -23,12 +23,17 @@ TS="$(date +%Y-%m-%d)"
 # renquant_common.market_calendar — put a sibling renquant-common checkout on
 # PYTHONPATH (pinned -run checkout preferred; the venv install alone may
 # predate market_calendar).
-# orch#1016: which renquant-common runs is a REVIEWED decision, not a
-# filesystem accident. Single resolver, no fallback, fails closed.
-. "$(dirname "$0")/rq105_common_src.sh"
+# orch#1016: renquant-common comes from the PINNED runtime, verified against
+# subrepos.lock.json before import. No fallback, no env override, fails closed.
+RQ105_OPS_DIR="$(dirname "$0")"
+. "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
 SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-common/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
+# orch#1016: $RQ_COMMON_SRC IS $SUBREPO/renquant-common/src now (resolved and
+# pin-verified above), so the duplicate entry is gone. It previously sat
+# AFTER a mutable sibling checkout, which shadowed the pinned copy that was
+# already on this line — the pin was present and losing.
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
 # NOTE: RENQUANT_INTRADAY_DECISIONING is deliberately NOT exported here.
 # Activation (a recorded landing step) uncomments the next line:
 # export RENQUANT_INTRADAY_DECISIONING=1

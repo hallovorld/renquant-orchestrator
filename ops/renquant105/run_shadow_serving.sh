@@ -102,9 +102,10 @@ PY="$RQ_ROOT/.venv/bin/python"
 # renquant_common.market_calendar — put a sibling renquant-common checkout on
 # PYTHONPATH BEFORE the verify step (pinned -run checkout preferred; the venv
 # install alone may predate market_calendar).
-# orch#1016: which renquant-common runs is a REVIEWED decision, not a
-# filesystem accident. Single resolver, no fallback, fails closed.
-. "$(dirname "$0")/rq105_common_src.sh"
+# orch#1016: renquant-common comes from the PINNED runtime, verified against
+# subrepos.lock.json before import. No fallback, no env override, fails closed.
+RQ105_OPS_DIR="$(dirname "$0")"
+. "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # Verify the on-disk bundle is genuinely today's, sourced from the correct
