@@ -179,9 +179,25 @@ class TestTheInputsAreFingerprintedNotJustCounted:
             P._digest_of_rows([("BBB", "2026-01-02", 2.0)] + one)
 
     def test_the_orchestrator_revision_comes_from_THIS_repo_not_the_cwd(self):
-        """`Path.cwd()` identifies whatever checkout the caller stood in."""
+        """`Path.cwd()` identifies whatever checkout the caller stood in.
+
+        [orch#1052] The identity assertion must be by CONTENT and by git
+        toplevel — not by basename. `ORCH_REPO.name == "renquant-orchestrator"`
+        was false in every `git worktree` (whose directory carries the branch's
+        scratch name), failing THIS repo's own test for being itself — the
+        directory-name-is-not-an-identity lesson applied to the test itself.
+        """
         assert (P.ORCH_REPO / "ops" / "ops_audit.py").is_file(), P.ORCH_REPO
-        assert P.ORCH_REPO.name == "renquant-orchestrator"
+        # the module the producer fingerprints must live INSIDE the repo it
+        # reports the revision of — cwd-independence is what the test is for
+        assert Path(P.__file__).resolve().is_relative_to(P.ORCH_REPO)
+        import subprocess
+        top = subprocess.run(
+            ["git", "-C", str(P.ORCH_REPO), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        assert Path(top).resolve() == P.ORCH_REPO.resolve(), (
+            f"ORCH_REPO {P.ORCH_REPO} is not a git toplevel — the revision it "
+            f"reports would describe some enclosing checkout, not this repo")
 
     def test_the_rollup_is_ORDER_independent_but_VALUE_sensitive(self):
         a = {"ohlcv/AAPL": "sha1", "ohlcv/MSFT": "sha2"}
