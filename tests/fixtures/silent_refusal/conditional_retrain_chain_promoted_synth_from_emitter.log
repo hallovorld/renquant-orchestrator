@@ -2,4 +2,4 @@
 2026-08-17 13:10:03,633 [INFO] renquant-orchestrator.anomaly-triggers: Firing retrain triggers: ['anomaly_vix_5pct']
 anomaly_vix_5pct
 === Firing gated weekly promote chain: trigger=anomaly_vix_5pct ===
-=== Gated WF promote chain complete (anomaly_vix_5pct) at Mon Aug 17 14:41:12 PDT 2026 ===
+=== Gated WF promote chain PROMOTED (anomaly_vix_5pct) at Mon Aug 17 14:41:12 PDT 2026 — === weekly_wf_promote PASSED at Mon Aug 17 14:41:10 PDT 2026 ===

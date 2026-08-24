@@ -203,9 +203,22 @@ def test_conditional_retrain_has_no_refusal_vocabulary_and_real_failure_lines():
     import re
     assert j.refusal_re is None
     assert re.search(j.failure_re,
-                     "=== Gated WF promote chain FAILED (anomaly_vix_5pct) at Fri ===")
+                     "=== Gated WF promote chain FAILED (anomaly_vix_5pct) at Fri — rc=1 ===")
+    # RenQuant#603/#604 (orch#1052): the wrapper names the POSITIVELY
+    # established outcome. Both completed decisions are actions; a refusal by
+    # the gate is the gate working, not silence.
     assert re.search(j.action_re,
-                     "=== Gated WF promote chain complete (anomaly_vix_5pct) at ===")
+                     "=== Gated WF promote chain PROMOTED (anomaly_vix_5pct) at Fri — passed ===")
+    assert re.search(j.action_re,
+                     "=== Gated WF promote chain RAN, NOTHING PROMOTED (anomaly_vix_5pct) at Fri — refused ===")
+    # the wrapper's own contract-drift report is a FAILURE to establish, never
+    # an action and never silence
+    assert re.search(j.failure_re,
+                     "=== Gated WF promote chain OUTCOME UNVERIFIED (anomaly_vix_5pct) at Fri ===")
+    # the RETIRED exit-code-derived line must no longer classify as action —
+    # an old log replayed through the new patterns must not read as a decision
+    assert not re.search(j.action_re,
+                         "=== Gated WF promote chain complete (anomaly_vix_5pct) at ===")
     # the healthy idle line must classify as NEITHER refusal nor action nor failure
     idle = "anomaly-triggers: No anomaly triggers fired; no retrain needed"
     assert not re.search(j.action_re, idle)
@@ -217,9 +230,16 @@ def test_retrain_panel_patterns_classify_the_real_lines():
     import re
     assert j.refusal_re is None
     assert re.search(j.failure_re,
-                     "=== retrain_panel delegated weekly_wf_promote FAIL at Sun ===")
+                     "=== retrain_panel delegated weekly_wf_promote FAILED at Sun — rc=1 ===")
     assert re.search(j.action_re,
-                     "=== retrain_panel delegated weekly_wf_promote PASS at Sun ===")
+                     "=== retrain_panel delegated weekly_wf_promote PROMOTED at Sun — passed ===")
+    assert re.search(j.action_re,
+                     "=== retrain_panel delegated weekly_wf_promote RAN, NOTHING PROMOTED at Sun — refused ===")
+    assert re.search(j.failure_re,
+                     "=== retrain_panel delegated weekly_wf_promote OUTCOME UNVERIFIED at Sun ===")
+    # retired exit-code-derived line: must NOT classify as action (orch#1052)
+    assert not re.search(j.action_re,
+                         "=== retrain_panel delegated weekly_wf_promote PASS at Sun ===")
     assert not re.search(j.failure_re, "weekly_wf_promote already ran today")
 
 
@@ -259,8 +279,8 @@ def test_weekly_wf_promote_left_the_unwatchable_registry():
 
 @pytest.mark.parametrize("script,pattern", [
     ("scripts/weekly_wf_promote.sh", "weekly_wf_promote PASSED"),
-    ("scripts/conditional_retrain_104.sh", "Gated WF promote chain complete"),
-    ("scripts/retrain_panel.sh", "delegated weekly_wf_promote PASS"),
+    ("scripts/conditional_retrain_104.sh", "Gated WF promote chain PROMOTED"),
+    ("scripts/retrain_panel.sh", "delegated weekly_wf_promote PROMOTED"),
 ])
 def test_action_patterns_are_pinned_to_their_emitter_sources(script, pattern):
     """The doctrine amendment's enforcement: an action pattern read off source instead
@@ -269,9 +289,18 @@ def test_action_patterns_are_pinned_to_their_emitter_sources(script, pattern):
     src = Path("/Users/renhao/git/github/RenQuant") / script
     if not src.exists():
         pytest.skip(f"{src} absent on this machine — emitter pin not verifiable here")
-    assert pattern in src.read_text(errors="ignore"), (
-        f"{script} no longer emits '{pattern}' — the watch for it is now blind; "
-        f"update the pattern from the CURRENT emitter, do not delete this test")
+    # [orch#1052] the pattern must sit on an EMIT line, not merely in the file:
+    # the previous pin ("delegated weekly_wf_promote PASS") stayed green for a
+    # day because a COMMENT quoted the retired wording — a check satisfiable by
+    # commentary validates the wrong object.
+    emit_lines = [
+        ln for ln in src.read_text(errors="ignore").splitlines()
+        if ln.lstrip().startswith(("echo", "printf", "notify"))
+    ]
+    assert any(pattern in ln for ln in emit_lines), (
+        f"{script} no longer emits '{pattern}' on any echo/printf/notify line — "
+        f"the watch for it is now blind; update the pattern from the CURRENT "
+        f"emitter, do not delete this test")
 
 
 # ----------------------------------------------- emitter contract (CI-enforced) ----
@@ -486,9 +515,9 @@ def _delegating(tmp_path, name, day, delegator_text, child_text):
 
 @pytest.mark.parametrize("name,fixture", [
     ("conditional-retrain104",
-     "conditional_retrain_chain_complete_synth_from_emitter.log"),
+     "conditional_retrain_chain_promoted_synth_from_emitter.log"),
     ("retrain-panel104",
-     "retrain_panel_delegated_pass_synth_from_emitter.log"),
+     "retrain_panel_delegated_promoted_synth_from_emitter.log"),
 ])
 def test_D1_a_CALM_FRESH_refusal_must_never_read_as_acted(tmp_path, name,
                                                           fixture):
@@ -526,9 +555,9 @@ def test_D1_the_child_fixture_is_a_refusal_that_exits_zero():
 
 @pytest.mark.parametrize("name,fixture", [
     ("conditional-retrain104",
-     "conditional_retrain_chain_complete_synth_from_emitter.log"),
+     "conditional_retrain_chain_promoted_synth_from_emitter.log"),
     ("retrain-panel104",
-     "retrain_panel_delegated_pass_synth_from_emitter.log"),
+     "retrain_panel_delegated_promoted_synth_from_emitter.log"),
 ])
 def test_D1_a_MISSING_child_log_is_its_own_reason_never_acted(tmp_path, name,
                                                               fixture):
@@ -570,9 +599,9 @@ def test_D1_the_conditional_lane_shows_the_same_exit2_shape(tmp_path):
 
 @pytest.mark.parametrize("name,fixture", [
     ("conditional-retrain104",
-     "conditional_retrain_chain_complete_synth_from_emitter.log"),
+     "conditional_retrain_chain_promoted_synth_from_emitter.log"),
     ("retrain-panel104",
-     "retrain_panel_delegated_pass_synth_from_emitter.log"),
+     "retrain_panel_delegated_promoted_synth_from_emitter.log"),
 ])
 def test_D1_a_GENUINE_promotion_still_clears_the_streak(tmp_path, name,
                                                         fixture):
@@ -616,7 +645,7 @@ def test_D1_a_delegator_without_a_date_cannot_be_corroborated_so_is_not_acted():
     """Fail toward alarming: with no date there is no child log to read, and
     an unverifiable success claim must not clear a streak."""
     job = _watched("conditional-retrain104")
-    text = _fx("conditional_retrain_chain_complete_synth_from_emitter.log")
+    text = _fx("conditional_retrain_chain_promoted_synth_from_emitter.log")
     assert S.classify_run(text, job) == "uncorroborated"
 
 
@@ -629,7 +658,7 @@ def test_D1_the_new_outcomes_keep_the_streak_alive_and_are_named_in_the_alarm(
     ddir, cdir = tmp_path / "d", tmp_path / "c"
     ddir.mkdir()
     cdir.mkdir()
-    claim = _fx("conditional_retrain_chain_complete_synth_from_emitter.log")
+    claim = _fx("conditional_retrain_chain_promoted_synth_from_emitter.log")
     for day in ("2026-08-04", "2026-08-05"):
         (ddir / f"{day}.log").write_text(claim, encoding="utf-8")
         (cdir / f"{day}.log").write_text(
@@ -662,9 +691,9 @@ def test_the_synthesised_fixtures_render_the_CONTRACTED_emitters():
     line the wrappers do not emit."""
     want = {
         "weekly_promoted_synth_from_emitter.log": "weekly-wf-promote",
-        "conditional_retrain_chain_complete_synth_from_emitter.log":
+        "conditional_retrain_chain_promoted_synth_from_emitter.log":
             "conditional-retrain104",
-        "retrain_panel_delegated_pass_synth_from_emitter.log":
+        "retrain_panel_delegated_promoted_synth_from_emitter.log":
             "retrain-panel104",
     }
     for fixture, job in want.items():
