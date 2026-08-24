@@ -62,7 +62,43 @@ not this design.
 and that is the finding. (12 is the floor for a block-t to mean anything at
 all; it is deliberately harsher than hope.)
 
-## 5. Stage 1 — the simplest conditional model, prereg-frozen
+### 4a. Two floors, not one — the feasibility floor does NOT authorize Stage 1
+
+`[REVISED 2026-08-24, codex review]` An earlier revision used `n_eff >= 12` as
+though clearing it were sufficient to proceed. It is not, and conflating the
+two floors is how an underpowered fit gets authorized by a number that was
+never about fitting:
+
+- **FEASIBILITY floor — `n_eff >= 12`.** Below it, no statistic on this corpus
+  means anything and the line stops. This is the floor already stated above and
+  it is unchanged.
+- **MODEL-EVALUATION floor — derived, and much higher.** Stage 1 does not
+  compute one statistic; it *fits* a conditional learner over state buckets and
+  evaluates it out of sample. Every (state bucket x evaluation fold) cell needs
+  its own independent observations, so the requirement is a product, not a
+  threshold:
+
+  | state buckets | folds | min indep obs / cell | required n_eff |
+  |---|---|---|---|
+  | 2 | 2 | 5 | **20** |
+  | 3 (the terciles §4.3 uses) | 2 | 5 | **30** |
+  | 3 | 3 | 5 | **45** |
+  | 3 | 3 | 8 | **72** |
+
+  **Every one of these exceeds 12.** So there is a real band —
+  `12 <= n_eff < 20` at the most permissive shape — in which Stage 0's
+  descriptive table is measurable and **Stage 1 is still not runnable**. That
+  band is a legitimate outcome, not a gap to be argued past.
+
+For calibration on how far away this is: live data gives **n_eff = 2 at h=60**
+[measured 2026-08-23]. The backtest corpus may do better, but the gap to 30 is
+the thing Stage 0 is actually measuring, and the design should not pretend the
+answer is likely.
+
+**Stage 1 is authorized only when the realized n_eff clears the MODEL-EVALUATION
+floor for the exact shape frozen in §5a — not the feasibility floor.**
+
+## 5. Stage 1 — the simplest conditional model (shape only; frozen in a SECOND prereg, §5a)
 
 - Model: ridge gating or depth-≤2 xgb, strong regularisation. NOTHING larger:
   a transformer at this n_eff is guaranteed memorisation of which years were
@@ -79,6 +115,49 @@ all; it is deliberately harsher than hope.)
 
 **KILL: Stage 1 fails placebo or fails to beat uniform ⇒ line closed, written
 up, no Stage 2.**
+
+### 5a. This design does NOT authorize a Stage-1 run — a second prereg must merge first
+
+`[REVISED 2026-08-24, codex review]` As written, §5 leaves the model choice
+("ridge **or** depth-≤2 xgb"), the folds, the regularisation grid, `w_max`, and
+the numerical meaning of "beats uniform" to be settled later. Settling them
+later, after Stage 0 has shown the data, is not a scheduling detail — it is
+choosing the decision rule with the outcome partly visible, which is the defect
+class this programme has hit repeatedly and which no amount of downstream rigour
+repairs. **This section removes that freedom rather than promising not to use
+it.**
+
+Approving this design authorizes **Stage 0 only**. A label-bearing Stage-1 run
+requires a SECOND design/prereg PR, reviewed and merged, that freezes:
+
+1. **One** model — not a disjunction. `ridge` or `depth-<=2 xgb`, chosen and
+   named, with its hyperparameters as literals (penalty/depth, and the full
+   grid if any search is permitted at all).
+2. The **state buckets** (count and boundaries) and the **folds** — including
+   the fold-defining constants, which are prereg content, not implementation
+   (fold-defining constants belong IN the frozen table, not in the runner).
+3. `w_max` and any clamp, as numbers.
+4. A **numerical** promotion criterion. "Beats uniform" is not a criterion:
+   state the statistic, the threshold, and the dependence-aware inference
+   (block-t over non-overlapping blocks with gap >= h — never a borrowed 1.96),
+   plus the placebo floor the WF gate applies.
+5. The realized `n_eff` from Stage 0, and an explicit demonstration that it
+   clears the §4a MODEL-EVALUATION floor **for the shape frozen in that same
+   PR** — per state bucket, per fold, counted before the rule.
+
+**The binding constraint on that second PR: Stage 0's results may NOT be used to
+choose any of items 1–4.** Stage 0 is descriptive by construction (§4.3) and it
+runs on the same corpus Stage 1 will be evaluated on, so a model or threshold
+picked to suit its table is a rule fitted to the data it will be tested on.
+Items 1–4 must be justified from theory, prior work, or house convention that
+predates the Stage-0 output. If they cannot be — if the honest answer is "we
+would need to see the table first" — then **this corpus is burned for Stage 1**
+and the second PR must say so and propose a fresh corpus, exactly as the
+candidate-manifest rule requires elsewhere in this programme (orch#993).
+
+Stage 0 may of course *report* whatever it finds, and its n_eff measurement is
+precisely what item 5 consumes — measuring the sample is not the same as
+choosing the rule from the sample.
 
 ## 6. Stage 2 — capacity, only on survival
 
