@@ -69,14 +69,32 @@ test of that window exists with these recipes. The promotion path is
 unchanged: re-fit on the live legs' accruing shadow panel, whose first
 labeled multi-leg rows land ~2026-09 and whose own ESS clock applies.
 
-**Ex-ante sensitivity rule [codex r2], frozen in the Stage-1 prereg BEFORE
-any outcome is inspected:** with the assembled n_eff (known at 0b-β end,
-before any conditional result), the prereg fixes α=0.05, target power 0.80,
-and computes the standardized minimum detectable effect from those constants
-and n_eff alone. A null with observed |effect| below that PREREGISTERED
-threshold is recorded UNDERPOWERED-NULL; at or above it, NO-EFFECT. No
-post-hoc power or MDE is computed or cited — the rule exists before the data
-speaks, or the label does not attach.
+**Ex-ante sensitivity rule [codex r2, label semantics corrected r4], frozen
+in the Stage-1 prereg BEFORE any outcome is inspected:** with the assembled
+n_eff (known at 0b-β end, before any conditional result), the prereg fixes
+α=0.05, target power 0.80, and computes the standardized minimum detectable
+effect from those constants and n_eff alone. The MDE describes the DESIGN's
+sensitivity — it is not an equivalence test, and the observed effect size
+never selects the interpretation of a null. Labels, fixed ex ante:
+
+- Every outcome is reported as **estimate + interval**, whatever the label.
+- Survival of the preregistered test → the Stage-1 claim, no more.
+- Nonsurvival → **NOT-DEMONSTRATED**. That is the terminal scientific label
+  when the preregistered MDE ≤ the minimum effect of interest (the design
+  was sensitive enough, and still nothing was demonstrated).
+- Nonsurvival with preregistered MDE > the minimum effect of interest →
+  **UNDERPOWERED-NULL** (the design could not have seen the effect it
+  cares about; the null carries no information).
+- **NO-EFFECT is not an available label in this design.** Claiming absence
+  would require a SESOI and an equivalence test (e.g. TOST) frozen before
+  outcomes; this prereg deliberately does not include one — the operational
+  consequence of nonsurvival (the kill) does not need the absence claim.
+
+The minimum effect of interest is frozen with the rest of the prereg
+(Stage-1 table) before 0b-β outcomes exist. No post-hoc power or MDE is
+computed or cited — the rule exists before the data speaks, or the label
+does not attach. The operational kill below is unchanged by the label:
+nonsurvival kills the line either way.
 
 KILL (0b-α): any leg's recipe provenance cannot demonstrate a 2024–2026-only
 selection window; or feature coverage < 80% on either the training or the

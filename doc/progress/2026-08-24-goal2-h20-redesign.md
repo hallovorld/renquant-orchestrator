@@ -25,9 +25,14 @@ V3 AFTER ROUND-2 REVIEW: recipe SELECTION is itself leakage — the
           recipe selection; ceiling ~16 blocks >= bar 12), recipe provenance
           (selection window + the runs that chose it) recorded per leg in
           0b-α with its own kill. The sensitivity rule is EX-ANTE: α, power,
-          and the MDE formula frozen in the prereg before outcomes are
-          inspected; UNDERPOWERED-NULL keys to that preregistered threshold,
-          and no post-hoc power/MDE is computed at all.
+          the MDE formula, and the minimum effect of interest frozen in the
+          prereg before outcomes are inspected; every outcome reports
+          estimate + interval; nonsurvival is NOT-DEMONSTRATED (or
+          UNDERPOWERED-NULL when the preregistered MDE exceeds the minimum
+          effect of interest). NO-EFFECT is not an available label — absence
+          claims would need a preregistered SESOI + equivalence test, which
+          this design deliberately omits (r4, codex). No post-hoc power/MDE
+          is computed at all.
 
 WHY/DIR:  operator delegated GOAL-2 design decisions; the h=60 kill left
           exactly one honest continuation and this is it, with the
