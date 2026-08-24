@@ -121,6 +121,50 @@ def verify_pinned_file(rq_root: str, subrepo: str, relpath: str) -> str:
     return abspath
 
 
+def verify_pinned_subrepo(rq_root: str, subrepo: str) -> str:
+    """The ``src`` path of ``subrepo``'s pinned checkout, verified or refused
+    (orch#1053 review: a code dependency placed on PYTHONPATH by pathname only
+    can be drifted, dirty, or mid-sync while importing successfully — artifact
+    verification does not establish LOADER-code identity):
+
+      1. the lock names ``subrepo`` and the checkout HEAD equals that pin;
+      2. the working tree is CLEAN (``git status --porcelain`` empty) — a
+         dirty pinned checkout is exactly as unreviewed as a sibling tree;
+      3. ``src/`` exists (the thing PYTHONPATH would import).
+
+    Never falls back. Same refusal semantics as :func:`verify_pinned_file`.
+    """
+    checkout = os.path.join(rq_root, ".subrepo_runtime", "repos", subrepo)
+    if not os.path.isdir(checkout):
+        raise PinRefusal(
+            f"pinned runtime checkout missing at {checkout} — refusing to fall "
+            f"back to a sibling working tree (orch#1016/#1041)")
+    want = pinned_commit_for(rq_root, subrepo)
+    have = checkout_head(checkout)
+    if have != want:
+        raise PinRefusal(
+            f"pinned {subrepo} checkout is at {have}, but {LOCK_RELNAME} pins "
+            f"{want} — a directory name is not a revision")
+    try:
+        status = subprocess.run(
+            ["git", "-C", checkout, "status", "--porcelain"],
+            capture_output=True, text=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise PinRefusal(
+            f"cannot read git status of {checkout}: {exc} — an unverifiable "
+            f"checkout is not a verified one") from exc
+    if status.strip():
+        raise PinRefusal(
+            f"pinned {subrepo} checkout is DIRTY relative to the pinned commit "
+            f"({status.strip().splitlines()[0]!r}…) — hand-edited pinned code "
+            f"is exactly as unreviewed as a sibling working tree; revert it or "
+            f"land a reviewed pin bump")
+    src = os.path.join(checkout, "src")
+    if not os.path.isdir(src):
+        raise PinRefusal(f"{subrepo} pinned checkout has no src/ at {src}")
+    return src
+
+
 def checkout_head(checkout: str) -> str:
     try:
         out = subprocess.run(
@@ -167,8 +211,15 @@ def main() -> int:
                     help="verify RELPATH inside --subrepo's pinned checkout "
                          "(lock entry + HEAD==pin + bytes==pinned blob) and "
                          "print its absolute path, or exit non-zero")
+    ap.add_argument("--verify-subrepo", default=None, metavar="NAME",
+                    help="verify NAME's pinned checkout as a CODE dependency "
+                         "(lock entry + HEAD==pin + clean tree) and print its "
+                         "src path, or exit non-zero (orch#1053)")
     args = ap.parse_args()
     try:
+        if args.verify_subrepo:
+            print(verify_pinned_subrepo(args.rq_root, args.verify_subrepo))
+            return 0
         if args.verify_file:
             if not args.subrepo:
                 print("FATAL: --verify-file requires --subrepo", file=sys.stderr)

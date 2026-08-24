@@ -107,15 +107,32 @@ PY="$RQ_ROOT/.venv/bin/python"
 RQ105_OPS_DIR="$(dirname "$0")"
 . "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
-# S3-b (orch#1052): the pinned blend scorer loads through the PINNED
+# S3-b (orch#1053): the pinned blend scorer loads through the PINNED
 # renquant-pipeline (load_blend_scorer does the fail-closed pin verification —
-# one shared definition, not re-implemented here), so pipeline joins the path.
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_ROOT/.subrepo_runtime/repos/renquant-pipeline/src"
+# one shared definition, not re-implemented here). Codex on #1053: putting the
+# LOADER code on PYTHONPATH by pathname only would let drifted/dirty/mid-sync
+# pipeline code import successfully while every artifact pin still verified —
+# artifact verification does not establish loader-code identity. So the
+# checkout is verified (lock entry + HEAD==pin + clean tree) BEFORE it joins
+# the path, through the same rq105_pinned_common contract as everything else.
+PYBIN="$PY"
+[ -x "$PYBIN" ] || PYBIN="python3"
+if ! RQ_PIPELINE_SRC=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+      --rq-root "$RQ_ROOT" --verify-subrepo renquant-pipeline \
+      2>> "$LOG_DIR/shadow_serving_$TS.log"); then
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving FAILED — pinned renquant-pipeline verification refused ($TS)" \
+    "rq105_pinned_common --verify-subrepo renquant-pipeline refused (orch#1053); see logs/rq105/shadow_serving_$TS.log" || true
+  echo "FATAL: pinned renquant-pipeline verification refused (orch#1053) — refusing to import unverified loader code" \
+    >> "$LOG_DIR/shadow_serving_$TS.log"
+  exit 1
+fi
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_PIPELINE_SRC"
 # S3-b: the scorer's config identity comes from the PINNED strategy-104
 # checkout, verified lock+HEAD+bytes — the same rq105_pinned_common contract
 # the session scheduler uses (orch#1041). Refusal = stop, page-free skip is
 # wrong here: an unverifiable config is a broken deploy, not a calm state.
-if ! PINNED_STRATEGY_CONFIG=$("$PY" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+if ! PINNED_STRATEGY_CONFIG=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
       --rq-root "$RQ_ROOT" --subrepo renquant-strategy-104 \
       --verify-file configs/strategy_config.json 2>> "$LOG_DIR/shadow_serving_$TS.log"); then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true

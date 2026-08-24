@@ -69,3 +69,25 @@ Merge → orch-run ff sync (wrapper + module travel together) → tomorrow's
 13:45 job is the first real served session; its log should show the
 `[OBSERVE-ONLY]` summary instead of "no scorer wired", and
 `data/rq105/shadow_scores/…` rows bind to the composite digest.
+
+## r2 (codex round 1): loader-code identity
+
+The review's blocker: the wrapper put `renquant-pipeline/src` on PYTHONPATH by
+pathname only — drifted/dirty/mid-sync loader code would import successfully
+while every ARTIFACT pin still verified. Fixed at the shared contract:
+
+- `rq105_pinned_common.py` grows `verify_pinned_subrepo` + CLI
+  `--verify-subrepo NAME`: lock entry + HEAD==pin + **clean tree**
+  (`git status --porcelain` empty) + `src/` present; refusal semantics
+  identical to the file verifier, one implementation for all callers.
+- The wrapper resolves `RQ_PIPELINE_SRC` through it BEFORE constructing
+  PYTHONPATH; refusal notifies and exits 1 with a named FATAL line. The
+  strategy-config gate now shares the same python fallback (`$PYBIN`).
+- Wrapper-level regressions (REAL script, hermetic fake RQ_ROOT with three
+  real git checkouts + lock): HEAD-mismatch refuses before serving;
+  DIRTY-at-right-HEAD refuses; all-pins-valid passes BOTH gates and fails
+  later at bundle verification (pass-through proven, not fail-open).
+  **20 passed** across the wrapper + module suites [VERIFIED — py3.10].
+- Deploy preflight: all three REAL pinned checkouts
+  (pipeline/common/strategy-104) pass `--verify-subrepo` today
+  [VERIFIED 2026-08-24] — tomorrow's job will not refuse spuriously.
