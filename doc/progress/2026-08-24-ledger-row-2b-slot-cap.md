@@ -50,14 +50,17 @@ artifact]; saturation ~15. The strategy-104 test that pinned 8 was updated in
 measurement predates the 08-04/08-06 config era that made the slot cap
 binding).
 
-## 4. Countersignature status
+## 4. Authorization status (r2 — codex was right that this is the blocker)
 
-As in row 2a: Claude shares the `hallovorld` login, so no Claude comment can
-countersign. Unlike 2a, the directive was received in a Claude session, so
-Codex cannot attest first-hand receipt. The row is validated by Codex review of
-this PR against the evidence chain (orch#1046, under Codex review in
-parallel); the operator can add first-hand confirmation in either PR thread or
-a Codex session if Codex requires it.
+The verbatim "同意" approved the THEN-CURRENT r1 package (cap + fractional,
+coupled). orch#1046 was then redesigned (r2, now MERGED) into cap-only now /
+fractional later. Approval of A+B does not convert into first-hand approval
+of A alone — so row 2b now carries an explicit **PENDING** slot and does not
+merge until the operator confirms the narrowed cap-only Stage 1; the
+confirmation will be quoted verbatim in the row with date and channel.
+Codex review of this PR verifies scope and evidence only; it is NOT a
+countersignature of operator intent and the row no longer describes it as
+one.
 
 ## 5. Merge order
 
