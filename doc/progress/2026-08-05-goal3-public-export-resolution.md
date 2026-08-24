@@ -48,6 +48,7 @@ VERIFIED-AT repo revision e8b0f75aafb76620ccf51e88dc9c624a363a9ee9
 VERIFIED-AT repo revision 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
 VERIFIED-AT repo revision 7477978c2ff4dc9747be220f82ab63fe84917751
 VERIFIED-AT repo revision 69bf71169cab883ccc44175d02c62f9fdff7360b
+VERIFIED-AT repo revision 9c476b48a0916c3e560920a61ca525ee358795c2
 ```
 
 ### 2026-08-09: the guard fired again — re-derived at 69bf71169cab
@@ -211,3 +212,17 @@ what its `__all__` exports resolve to. The candidate change is to re-point the
 19 exports at the kernel definitions — which is a behaviour change for anyone
 importing the public surface, and needs the pipeline's own review. This record
 is the evidence for that proposal, not the proposal.
+
+
+### 2026-08-24: the guard fired again — re-derived at 9c476b48a091
+
+`renquant-pipeline`'s sibling `main` advanced to `9c476b48a091` (pipeline#293
+merge) and the binding test went red on a clean checkout with the full CI dep
+set (catalogued in orch#1052; the failure is dep-gated — the test SKIPS
+without xgboost, which is why lighter local runs looked green). Re-derived
+with `resolve_exports("renquant_pipeline")` against the sibling checkout with
+the full sibling PYTHONPATH set `[VERIFIED — live run, 2026-08-24 session]`:
+**20 exported duplicates / 19 resolve to the NON-kernel twin / 0 to the
+kernel one / 1 with no twin — unchanged**, and `validate_order_attribution`
+still reports `differing-bodies`. The VERIFIED-AT line above is the
+machine-readable binding for this revision.
