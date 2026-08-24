@@ -17,6 +17,18 @@ WHAT:     doc/design/2026-08-24-goal2-h20-redesign.md, v2 after review.
           cannot masquerade as evidence of no effect. The replicas' scope
           limitation is stated: Stage-1 survival re-fits on the live legs'
           own shadow panel before anything ships.
+V3 AFTER ROUND-2 REVIEW: recipe SELECTION is itself leakage — the
+          legs' recipes were chosen on 2024-2026 outcomes, so a pre-2024
+          training cutoff alone just relocates the leak. v3 quarantines
+          2024-2026 entirely: train replicas 2016-2019, evaluate EXCLUSIVELY
+          2020-2023 (the one window untouched by both weight fitting and
+          recipe selection; ceiling ~16 blocks >= bar 12), recipe provenance
+          (selection window + the runs that chose it) recorded per leg in
+          0b-α with its own kill. The sensitivity rule is EX-ANTE: α, power,
+          and the MDE formula frozen in the prereg before outcomes are
+          inspected; UNDERPOWERED-NULL keys to that preregistered threshold,
+          and no post-hoc power/MDE is computed at all.
+
 WHY/DIR:  operator delegated GOAL-2 design decisions; the h=60 kill left
           exactly one honest continuation and this is it, with the
           multiple-comparisons question answered first and in the open.

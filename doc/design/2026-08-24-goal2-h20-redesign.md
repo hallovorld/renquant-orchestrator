@@ -34,64 +34,54 @@ DGTW-adjusted returns of the blended cross-sectional score? Null = uniform =
 production. Output form, state variables, bounded-failure clamping: unchanged
 from #1027.
 
-## 3. Stage 0b, redesigned PIT-safe [codex: the first draft measured memorization]
+## 3. Stage 0b, third design [codex r2: recipe SELECTION is itself leakage]
 
-The first draft proposed scoring the 2024-2026 corpus with TODAY'S pinned
-artifacts. That places most or all evaluation dates INSIDE each leg's
-training/validation/selection window, and neither gap-blocking nor a
-shuffled-label placebo detects upstream score leakage — Stage 1 would have
-measured memorization as conditional skill. Withdrawn.
+Round-2 review was right that a pre-corpus TRAINING cutoff is not enough: the
+leg recipes (feature sets, hyperparameters, the model families themselves)
+were selected using 2024–2026 training/validation outcomes. Retraining those
+recipes on pre-2024 data moves the leakage from fitted weights into recipe
+selection; "one fit, no retries" cannot undo a selection that already
+happened. And no demonstrably pre-2024 recipe exists — every leg was designed
+in 2026.
 
-**The three PIT-safe options, dispositioned against this system's reality:**
+**The one window untouched by BOTH weight fitting and recipe selection is the
+pre-corpus past.** Recipe selection consumed 2024–2026 outcomes only; nothing
+in 2016–2023 was ever an input to any leg's development [provenance recorded
+per leg in 0b-α: selection window, the WF/GOAL runs that chose it]. So:
 
-| option | disposition |
-|---|---|
-| (a) artifacts as-of each date | IMPOSSIBLE for the legs: the momentum/clf legs were first trained Jul–Aug 2026; no 2024-vintage artifacts exist |
-| (b) evaluate only post-cutoff dates | EMPTY: leg cutoffs are ≥ 2026-07 and the labeled corpus ends 2026-07 — near-zero genuinely OOS dates |
-| **(c) study-only leg replicas, pre-corpus cutoff** | **CHOSEN** — the only option that yields a non-empty OOS panel |
+  * **train replicas on 2016-01..2019-12** (frozen recipes, one fit each);
+  * **evaluate EXCLUSIVELY on 2020-01..2023-12** — four years the recipes'
+    development never saw, in either direction;
+  * the 2024–2026 corpus is NOT evaluated at all in Stage 0b/1 — it is
+    development-contaminated and stays quarantined.
 
-**Stage 0b-α (availability + freeze, BEFORE any training or scoring):**
-1. For each of the 3 core legs, freeze a STUDY RECIPE: the leg's feature set
-   and learner hyperparameters as pinned today, with ONE change — training
-   data ends at the STUDY CUTOFF `2023-12-29`. Recorded per leg: recipe hash,
-   the pinned artifact it mirrors, the cutoff.
-2. Verify feature availability for the training window AND the 2024+
-   evaluation window from the local OHLCV store, per leg, per ticker; record
-   coverage. **KILL (0b-α): any leg untrainable at the study cutoff, or
-   evaluation coverage < 80% of corpus dates.** All of this is committed
-   before a single model is trained — the availability check codex required
-   before compute.
+Ceiling at h=20 over 2020–2023: ~16 non-overlapping blocks ≥ the bar of 12;
+the kill applies to the ASSEMBLED panel as before. The window contains 2020 —
+one of the concentration years the slow-state hypothesis is about — and
+2021–2023 as contrast. Feature availability for 2016+ is checked in 0b-α
+(the universe-extension survey already established ~609 full-recipe tickers;
+coverage is verified, not assumed, with its own kill).
 
-**Stage 0b-β (train + score + assemble):**
-3. Train each study replica ONCE on data ≤ 2023-12-29. No selection loop, no
-   retries, no peeking: one recipe, one fit, frozen. (A replica that fails to
-   converge is recorded and its leg drops; the panel proceeds only if ≥ 2
-   legs survive — a 1-leg "panel" has no weighting question.)
-4. Score 2024-01..corpus-end with the replicas. EVERY ROW records: leg
-   replica artifact sha256, its train cutoff, the evaluation date — so the
-   OOS property of each row is checkable, not asserted.
-5. Recompute ESS on the ASSEMBLED OOS panel at h=20. **KILL (0b-β): n_eff <
-   12.**
+**What this can and cannot license, sharpened:** survival says the leg
+FAMILY's slow-state conditioning carried information in a fully quarantined
+window. It says nothing about 2024–2026 — deliberately, because no honest
+test of that window exists with these recipes. The promotion path is
+unchanged: re-fit on the live legs' accruing shadow panel, whose first
+labeled multi-leg rows land ~2026-09 and whose own ESS clock applies.
 
-**What the replicas do and do not stand for, stated now:** Stage 1 on this
-panel tests whether SLOW-STATE CONDITIONING of this leg FAMILY carries
-information out of sample. It does not certify today's pinned artifacts —
-those differ from the replicas by training window. If Stage 1 survives, the
-promotion path re-runs the weighting fit on the live legs' own accruing
-shadow panel before anything ships (and that panel's own ESS clock applies).
-This limitation is accepted because the alternative — waiting for the live
-panel — is the mid-2027 path.
+**Ex-ante sensitivity rule [codex r2], frozen in the Stage-1 prereg BEFORE
+any outcome is inspected:** with the assembled n_eff (known at 0b-β end,
+before any conditional result), the prereg fixes α=0.05, target power 0.80,
+and computes the standardized minimum detectable effect from those constants
+and n_eff alone. A null with observed |effect| below that PREREGISTERED
+threshold is recorded UNDERPOWERED-NULL; at or above it, NO-EFFECT. No
+post-hoc power or MDE is computed or cited — the rule exists before the data
+speaks, or the label does not attach.
 
-**The ESS bar, re-derived rather than inherited [codex]:** 12 is a
-MINIMUM-INDEPENDENT-BLOCKS validity floor for a block-t (single-digit blocks
-make the t reference meaningless — the borrowed-critical-values failure), not
-a power claim, and it is horizon-independent by construction. What changes
-with h=20 is the detectable effect size: with n_eff ≈ 30 (the plausible
-assembled range), a block-t at α=0.05 has ~80% power only for effects ≥
-~0.52σ of the per-block statistic. Stage 1's prereg will therefore state the
-post-hoc minimum detectable effect ALONGSIDE any result, and a "null" verdict
-below that sensitivity is recorded as UNDERPOWERED-NULL, not as evidence of
-no effect.
+KILL (0b-α): any leg's recipe provenance cannot demonstrate a 2024–2026-only
+selection window; or feature coverage < 80% on either the training or the
+evaluation window.
+KILL (0b-β): assembled 2020–2023 panel n_eff at h=20 < 12.
 
 ## 4. Stage 1 (unchanged discipline, h=20 statistic)
 
