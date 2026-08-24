@@ -14,8 +14,11 @@ TS="$(date +%Y-%m-%d)"
 # renquant_common.market_calendar — put a sibling renquant-common checkout on
 # PYTHONPATH (pinned -run checkout preferred; the venv install alone may
 # predate market_calendar).
-RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common-run/src"
-[ -d "$RQ_COMMON_SRC" ] || RQ_COMMON_SRC="$(dirname "$RQ105_ORCH_ROOT")/renquant-common/src"
+# orch#1016: renquant-common comes from the PINNED runtime, verified against
+# subrepos.lock.json before import. No fallback, no env override, fails closed.
+RQ105_OPS_DIR="$(dirname "$0")"
+. "$RQ105_OPS_DIR/rq105_common_src.sh"
+rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 PY="$RQ_ROOT/.venv/bin/python"
 RC_TOTAL=0

@@ -16,6 +16,33 @@ import sys
 
 RQ_DEFAULT = "/Users/renhao/git/github/RenQuant"
 ORCH_DEFAULT = "/Users/renhao/git/github/renquant-orchestrator-run"
+RQ_ROOT_DEFAULT = "/Users/renhao/git/github/RenQuant"
+
+
+def resolve_common_src(orch_root: str) -> str:
+    """The PINNED renquant-common src, verified against subrepos.lock.json.
+
+    This used to walk ("renquant-common-run", "renquant-common") and take the
+    first that existed, so which copy of the code executed was decided by
+    filesystem state rather than by review (orch#1016). The first fix replaced
+    that with one NAMED sibling checkout, which was still wrong: a directory
+    name is not a revision, and the named sibling is a mutable working tree.
+
+    It now delegates to ops/renquant105/rq105_pinned_common.py — the same
+    implementation the shell wrappers call — which resolves
+    <RQ_ROOT>/.subrepo_runtime/repos/renquant-common/src and refuses unless its
+    HEAD matches the umbrella's recorded pin.
+
+    `orch_root` is accepted for call-site compatibility and to derive RQ_ROOT
+    when it is not in the environment; the CHECKOUT is never chosen from it.
+    """
+    ops_rq105 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renquant105")
+    if ops_rq105 not in sys.path:
+        sys.path.insert(0, ops_rq105)
+    from rq105_pinned_common import resolve_pinned_common_src  # noqa: PLC0415
+
+    rq_root = os.environ.get("RQ_ROOT") or RQ_ROOT_DEFAULT
+    return resolve_pinned_common_src(rq_root)
 
 
 def _ensure_orch_on_path() -> None:
@@ -23,11 +50,30 @@ def _ensure_orch_on_path() -> None:
     p = os.path.join(root, "src")
     if p not in sys.path:
         sys.path.insert(0, p)
-    for name in ("renquant-common-run", "renquant-common"):
-        c = os.path.join(os.path.dirname(root), name, "src")
-        if os.path.isdir(c) and c not in sys.path:
-            sys.path.insert(0, c)
-            break
+    # WHICH LAYER CARRIES WHICH GUARANTEE (orch#1016).
+    #
+    # The scheduled jobs' pinned-code guarantee lives in the SHELL resolver:
+    # rq105_common_src.sh resolves the pinned runtime, verifies HEAD against
+    # subrepos.lock.json, and exits non-zero on any doubt — before the job's
+    # python starts. That is the fail-closed gate, and it is not this function.
+    #
+    # This function's job is narrower: extend sys.path so imports resolve. The
+    # defect it must not commit is importing a DIFFERENT, unpinned copy — and it
+    # cannot, because the only path it will ever add is the pin-verified one.
+    # When that is unavailable (CI, a dev box with no umbrella, an unassembled
+    # runtime) it adds NOTHING and lets normal import resolution apply. Raising
+    # instead would make this module unimportable off the operator's machine —
+    # my first version did exactly that and turned every CI job red, which is
+    # the operator's-disk defect wearing production clothes.
+    try:
+        c = resolve_common_src(root)
+    except Exception as exc:  # noqa: BLE001 — PinRefusal or anything under it
+        print(f"liveness_common: no pin-verified renquant-common on this machine "
+              f"({exc}); not extending sys.path with any other copy",
+              file=sys.stderr)
+        return
+    if c not in sys.path:
+        sys.path.insert(0, c)
 
 
 def session_calendar():

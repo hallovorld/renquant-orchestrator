@@ -122,13 +122,25 @@ def _orch_src_on_path() -> None:
         sys.path.insert(0, p)
     # Campaign B5: the primitive re-exported by intraday_quote_logger now
     # lives in renquant_common.market_calendar — a stale venv install may
-    # predate it, so put a sibling renquant-common checkout on sys.path too
-    # (pinned -run checkout preferred).
-    for name in ("renquant-common-run", "renquant-common"):
-        c = os.path.join(os.path.dirname(RQ105_ORCH_ROOT), name, "src")
-        if os.path.isdir(c) and c not in sys.path:
+    # predate it, so put a sibling renquant-common checkout on sys.path too.
+    # orch#1016: ONE named checkout via the shared resolver, no fallback — this
+    # used to try "renquant-common-run" then "renquant-common", which let
+    # filesystem state decide which copy of the code ran.
+    _ops_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _ops_dir not in sys.path:
+        sys.path.insert(0, _ops_dir)
+    from liveness_common import resolve_common_src  # noqa: PLC0415
+    # Same split as liveness_common._ensure_orch_on_path: the pinned-code gate is
+    # the shell resolver this job is launched through; here we only extend the
+    # path, and only ever with the pin-verified copy — never a substitute.
+    try:
+        c = resolve_common_src(RQ105_ORCH_ROOT)
+    except Exception as exc:  # noqa: BLE001
+        print(f"rq105_liveness_check: no pin-verified renquant-common ({exc}); "
+              f"not substituting another copy", file=sys.stderr)
+    else:
+        if c not in sys.path:
             sys.path.insert(0, c)
-            break
 
 
 
