@@ -120,6 +120,7 @@
     "gate_registry",
     "gtc_catastrophe_planner",
     "intraday_cash_drag_scorecard",
+    "intraday_entry_decision",
     "intraday_governors",
     "intraday_live_executor",
     "intraday_pairing_logger",
