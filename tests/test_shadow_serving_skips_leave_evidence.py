@@ -183,3 +183,104 @@ def test_with_a_valid_served_matrix_the_wrapper_PRODUCES_its_own_snapshot(tmp_pa
     log = (rq / "logs" / "rq105" / f"shadow_serving_{ts}.log")
     if log.exists():
         assert "producer-refused" not in log.read_text()
+
+
+# ---------------------------------------------------------------------------
+# orch#1053: pinned-pipeline loader-code identity — the wrapper must verify the
+# renquant-pipeline checkout (lock + HEAD==pin + clean tree) BEFORE it joins
+# PYTHONPATH, and refuse before any serving. These drive the REAL wrapper
+# against a hermetic fake RQ_ROOT holding real git checkouts.
+# ---------------------------------------------------------------------------
+def _git(cwd, *args):
+    subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True,
+        env=dict(os.environ,
+                 GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                 GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
+
+
+def _mk_pinned_repo(root, name, files, *, lock_matches=True, dirty=False):
+    """A real git checkout under .subrepo_runtime/repos/<name>; returns the
+    commit the LOCK should record (HEAD when lock_matches, else a bogus sha)."""
+    repo = root / ".subrepo_runtime" / "repos" / name
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q")
+    for rel, content in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "pinned")
+    head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    if dirty:
+        (repo / "src" / "drifted.py").write_text("# hand edit\n")
+    return head if lock_matches else "0" * 40
+
+
+def _run_pinned(tmp_path, *, pipeline_lock_matches=True, pipeline_dirty=False):
+    """Fake root where common + strategy-104 pins VERIFY and the pipeline pin is
+    controlled by the test. Scores/meta/snapshot exist so the wrapper reaches
+    the code-identity gates; .venv/bin/python symlinks the system python."""
+    import datetime as dt
+    import json as _json
+    import shutil
+
+    rq = tmp_path / "RQ"
+    for d in ("data/rq105", "logs/rq105", "scripts"):
+        (rq / d).mkdir(parents=True)
+    (rq / "scripts" / "notify.sh").write_text("rq_notify() { :; }\n")
+    venv_bin = rq / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    os.symlink(shutil.which("python3"), venv_bin / "python")
+    ts = dt.date.today().isoformat()
+    for rel in (f"batch_scores_{ts}.json", f"batch_scores_{ts}.meta.json",
+                f"feature_snapshot_{ts}.json"):
+        (rq / "data" / "rq105" / rel).write_text("{}")
+
+    locks = []
+    locks.append(("renquant-common", _mk_pinned_repo(
+        rq, "renquant-common", {"src/renquant_common/__init__.py": ""})))
+    locks.append(("renquant-strategy-104", _mk_pinned_repo(
+        rq, "renquant-strategy-104",
+        {"configs/strategy_config.json": "{}", "src/keep.py": ""})))
+    locks.append(("renquant-pipeline", _mk_pinned_repo(
+        rq, "renquant-pipeline", {"src/renquant_pipeline/__init__.py": ""},
+        lock_matches=pipeline_lock_matches, dirty=pipeline_dirty)))
+    (rq / "subrepos.lock.json").write_text(_json.dumps(
+        {"subrepos": [{"name": n, "commit": c} for n, c in locks]}))
+
+    proc = subprocess.run(["/bin/bash", WRAPPER], env=dict(os.environ, RQ_ROOT=str(rq)),
+                          capture_output=True, text=True)
+    log = rq / "logs" / "rq105" / f"shadow_serving_{ts}.log"
+    return proc.returncode, (log.read_text() if log.exists() else "")
+
+
+def test_a_pipeline_HEAD_mismatch_refuses_before_serving(tmp_path):
+    """[codex on orch#1053] drifted loader code must not import: lock pins a
+    different revision than the checkout HEAD → visible refusal, exit 1, and
+    the run never reaches bundle verification (nothing served)."""
+    rc, log = _run_pinned(tmp_path, pipeline_lock_matches=False)
+    assert rc == 1
+    assert "pinned renquant-pipeline verification refused" in log
+    assert "directory name is not a revision" in log
+    assert "bundle verification" not in log, "must refuse BEFORE serving steps"
+
+
+def test_a_DIRTY_pipeline_tree_refuses_even_at_the_right_HEAD(tmp_path):
+    """HEAD==pin is not enough: a hand-edited pinned checkout is unreviewed
+    code. The clean-tree prong must refuse it."""
+    rc, log = _run_pinned(tmp_path, pipeline_lock_matches=True, pipeline_dirty=True)
+    assert rc == 1
+    assert "pinned renquant-pipeline verification refused" in log
+    assert "DIRTY" in log
+
+
+def test_verified_pins_pass_the_code_identity_gates(tmp_path):
+    """Control: with all three pins verifying, the wrapper proceeds PAST both
+    code-identity gates and fails later at bundle verification (the fake
+    bundle is empty) — proving the gates pass-through rather than fail-open."""
+    rc, log = _run_pinned(tmp_path)
+    assert "pinned renquant-pipeline verification refused" not in log
+    assert "pinned strategy-config verification refused" not in log
+    assert rc != 0, "the empty fake bundle cannot verify — but only AFTER the gates"
