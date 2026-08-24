@@ -77,14 +77,23 @@ if [ "${PRODUCER_RC:-0}" -ne 0 ] && [ "${PRODUCER_RC:-0}" -ne 3 ]; then
   # exactly right for a producer that broke.
   exit "$EXIT_PRODUCER_FAILED"
 fi
+# rc=0 MEANS "snapshot written". If it is missing anyway, the producer FALSELY
+# REPORTED SUCCESS (or its output-path wiring is broken) — implementation
+# breakage, not a refusal, and it must not inherit the calm path. An earlier
+# revision merged this case into the refusal branch, which left a producer
+# lying about success completely silent (codex review 2026-08-24).
+if [ "${PRODUCER_RC:-0}" -eq 0 ] && [ ! -f "$FEATURE_SNAPSHOT" ]; then
+  skip_log "FAIL producer-lied (rc=0): build_feature_snapshot.sh reported success but $FEATURE_SNAPSHOT does not exist — false success or broken output path, NOT a provenance refusal — see feature_snapshot_$TS.log (S3-P3, orch#1032 exit contract)"
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 feature-snapshot producer reported FALSE SUCCESS ($TS)" \
+    "build_feature_snapshot.sh exited 0 but wrote no snapshot at $FEATURE_SNAPSHOT. Not a refusal. Serving skipped; see $LOG_DIR/feature_snapshot_$TS.log" 2>/dev/null || true
+  exit "$EXIT_PRODUCER_FAILED"
+fi
 if [ ! -f "$FEATURE_SNAPSHOT" ]; then
-  # Either the producer refused (rc=3, fail-closed provenance: stale/ambiguous
-  # served matrix, schema drift — its log carries the specific reason), or it
-  # exited 0 and wrote nothing. Both are the producer working or silent, not a
-  # serving failure: skip with the reason recorded, same calm no-ntfy policy as
-  # the old not-wired state; only a REAL failure (missing upstream scores
-  # above, the producer-broken branch just above, bundle verification below)
-  # pages.
+  # By elimination this is rc=3: the producer REFUSED (fail-closed provenance —
+  # stale/ambiguous served matrix, schema drift; its log carries the specific
+  # reason). A refusal is the producer working, so this is the one calm path:
+  # recorded, no page, designed skip code. Every other outcome above pages.
   skip_log "SKIP producer-refused (rc=${PRODUCER_RC:-?}): $FEATURE_SNAPSHOT not produced — see feature_snapshot_$TS.log (S3-P3, orch#1032)"
   exit "$EXIT_NOT_WIRED"
 fi

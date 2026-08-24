@@ -100,6 +100,18 @@ def test_a_producer_BREAKAGE_is_not_reported_as_a_refusal(tmp_path):
     assert "producer-refused" not in log, "breakage must not be labelled a refusal"
 
 
+def test_rc0_without_a_snapshot_is_breakage_not_a_refusal(tmp_path):
+    """exit 0 means "snapshot written". If it is missing anyway the producer
+    FALSELY REPORTED SUCCESS — our bug, and the loudest kind, because nothing
+    else in the chain will notice. Merging it into the refusal branch left a
+    lying producer completely silent (codex, orch#1033)."""
+    rc, log = _run(tmp_path, scores=True, snapshot=False, producer_rc=0)
+    assert rc == 5, "a producer that lies about success must not take the calm skip"
+    assert log is not None
+    assert "FAIL producer-lied (rc=0)" in log
+    assert "producer-refused" not in log, "false success must not be called a refusal"
+
+
 def test_an_unexpected_producer_code_is_also_breakage(tmp_path):
     """127 (script missing) is the case the earlier tests accidentally ran."""
     rc, log = _run(tmp_path, scores=True, snapshot=False, producer_rc=127)
