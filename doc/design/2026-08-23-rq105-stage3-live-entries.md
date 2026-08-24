@@ -36,25 +36,30 @@ intraday lane): `daily_104` already places live buys **once** at 13:55 **PT**
 | `shadow_realtime_serving.py` | EXISTS — observe-only collector; DI scorer via `renquant_common.load_scorer` (read-only pinned artifact); requires `FeatureSnapshot.from_mapping` (`feature_cutoff`, `builder_version`, non-empty `features`, content digest) |
 | `quote_logger` | RUNNING — ~51k rows/day |
 | `batch_scores_<date>.json` + meta | RUNNING — 06:15 export with `score_content_sha256`, scorer identity, coverage |
-| **T-1 frozen FEATURE panel** | **MISSING** — nothing persists the served feature vectors (G-K gap; also why score attribution is impossible, task #17). Verified today: no feature file under `data/` |
+| **T-1 frozen FEATURE panel** | **EXISTS — correction 2026-08-24.** `PersistServedMatrixTask` (orch#703, kernel chain since 2026-08-04) writes `backtesting/renquant_104/logs/served_matrix/<date>/<lane>__<run_id>.parquet` + JSON manifest daily; verified live: 90 tickers × 180 alpha158 columns, prod lane `alpaca__*`, current through 2026-08-21. The original claim "nothing persists the served features — verified" searched `data/` for an expected filename instead of searching the codebase for the concept; the twin-pairs guard caught the resulting duplicate implementation in CI (pipeline#297, withdrawn) |
 | snapshot producer | MISSING — the `#221` blocker |
 | intraday BUY path | MISSING — `intraday104` is sell-only |
 
 ## 4. Architecture — four pieces, each its own implementation PR
 
-**S3-P1 — persist the daily feature panel.** The daily full run writes
-`data/rq105/feature_panel_<date>.json` + `.meta.json`: per-ticker served
-feature vector frozen at T-1 EOD, with `feature_cutoff`, `builder_version`,
-content sha256. Mirrors the existing `batch_scores` export shape. Side
-benefits: closes part of G-K and unblocks post-hoc score attribution (#17).
+**S3-P1 — WITHDRAWN AS A BUILD (2026-08-24): the persister already exists.**
+`PersistServedMatrixTask` (orch#703) has written the served matrix daily since
+2026-08-04. Building a second persister was attempted (pipeline#297), caught
+by the twin-pairs guard in CI, and withdrawn. S3-P1's deliverable is absorbed
+into S3-P2.
 
-**S3-P2 — snapshot producer.** New module + `ops/renquant105/
-build_feature_snapshot.sh`: feature panel (T-1 frozen) + intraday overlay via
-`realtime_data_plane` (causality + staleness censoring as-is) →
-`feature_snapshot_<date>.json` conforming to `FeatureSnapshot.from_mapping`.
-Deterministic given (panel, ticks, as_of); content-digested.
+**S3-P2 — snapshot producer (now the first build).** New orchestrator module +
+`ops/renquant105/build_feature_snapshot.sh`: read the PROD-lane served matrix
+(`logs/served_matrix/<T-1>/alpaca__<run_id>.parquet` + manifest), overlay
+intraday quotes via `realtime_data_plane` (causality + staleness censoring
+as-is), emit `feature_snapshot_<date>.json` conforming to
+`FeatureSnapshot.from_mapping`. Deterministic given (matrix, ticks, as_of);
+content-digested. HONEST CUTOFF SEMANTICS: the served matrix is built at the
+13:55 run with that day's partial bar, so `feature_cutoff` records the
+producing run's date and vintage rather than claiming an EOD freeze — the
+snapshot's provenance says what the features actually are.
 
-**S3-P3 — wire the existing shadow lane.** `run_shadow_serving.sh` stops
+**S3-P3 — wire the existing shadow lane.** (unchanged) `run_shadow_serving.sh` stops
 skipping; the collector starts pairing intraday re-scores with frozen batch
 scores daily. Zero new decision surface — this is the lane doing what it was
 built for.
