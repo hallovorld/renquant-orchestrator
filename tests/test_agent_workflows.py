@@ -963,18 +963,27 @@ def test_merge_audit_status_rejects_post_merge_marker_as_pre_merge():
 # keeps firing on merges with NEITHER record.
 
 
+#: A real `gh pr view --json reviews` payload ALWAYS carries the reviewed
+#: commit; the fixture omitted it, which is how the gap in orch#991 could exist
+#: without a red test. Default: the review is of the merged head.
+_MERGED_HEAD = "a" * 40
+
+
 def _merged_pr_with_review(num, *, author_login, merged_by, review_state="APPROVED",
                            reviewer=None, review_at="2026-06-09T00:09:00Z",
-                           merged_at="2026-06-09T00:10:00Z"):
+                           merged_at="2026-06-09T00:10:00Z",
+                           head_oid=_MERGED_HEAD, review_oid=None):
     pr = _pr(num, author="claude", state="MERGED")
     pr["author"] = {"login": author_login}
     pr["mergedAt"] = merged_at
     pr["mergedBy"] = {"login": merged_by}
+    pr["headRefOid"] = head_oid
     pr["comments"] = []
     pr["reviews"] = [{
         "state": review_state,
         "author": {"login": reviewer or merged_by},
         "submittedAt": review_at,
+        "commit": {"oid": head_oid if review_oid is None else review_oid},
     }]
     return pr
 
@@ -1057,6 +1066,7 @@ def test_merge_audit_status_reapproval_after_changes_attests():
         "state": "APPROVED",
         "author": {"login": "codex-user"},
         "submittedAt": "2026-06-09T00:09:00Z",
+        "commit": {"oid": _MERGED_HEAD},
     })
 
     status = merge_audit_status(pr)
@@ -1464,3 +1474,96 @@ def test_a_merge_exactly_ON_the_cutoff_counts_as_reaching_back_past_it(monkeypat
     assert audit["n_merged_in_window"] == 2     # the boundary merge IS in the window…
     assert audit["window_fully_covered"] is True   # …and therefore was observed
     assert audit["ok"] is True
+
+
+# ===========================================================================
+# orch#991 — an attestation must say WHAT was approved, not only who and when
+# ===========================================================================
+
+def test_approve_A_force_push_B_merge_B_is_NOT_attested():
+    """The sequence the gap admitted, verbatim:
+
+        1. codex APPROVES head A
+        2. the author force-pushes head B — no new review
+        3. codex merges B
+
+    The merger's latest pre-merge review is APPROVED, so the audit reported
+    `review_attested`. Its commit was A. Nobody approved B. Reachable on this
+    repo because `require_last_push_approval` is FALSE here.
+    """
+    pr = _merged_pr_with_review(
+        20, author_login="claude-user", merged_by="codex-user",
+        head_oid="b" * 40, review_oid="a" * 40,
+    )
+
+    status = merge_audit_status(pr)
+
+    assert status["review_attested"] is False
+    assert status["audited"] is False
+    assert status["status"] == "review_not_bound_to_merged_commit"
+    assert status["approved_commit"] == "a" * 40
+    assert status["merged_commit"] == "b" * 40
+    assert "head moved after the approval" in status["attestation_gap"]
+
+
+def test_the_near_miss_is_reported_separately_from_no_review_at_all():
+    """"approved a DIFFERENT commit" and "nobody reviewed" are different
+    findings, and only one of them is a near-miss. Collapsing them to
+    `missing_pre_merge_audit` would hide exactly what #991 is about."""
+    moved = _merged_pr_with_review(21, author_login="claude-user",
+                                   merged_by="codex-user",
+                                   head_oid="b" * 40, review_oid="a" * 40)
+    none_at_all = _merged_pr_with_review(22, author_login="claude-user",
+                                         merged_by="codex-user")
+    none_at_all["reviews"] = []
+
+    assert merge_audit_status(moved)["status"] == "review_not_bound_to_merged_commit"
+    assert merge_audit_status(none_at_all)["status"] == "missing_pre_merge_audit"
+
+
+def test_an_approval_OF_the_merged_commit_still_attests():
+    """The control. A check that cannot pass on the good case is a ratchet."""
+    pr = _merged_pr_with_review(23, author_login="claude-user",
+                                merged_by="codex-user")
+    status = merge_audit_status(pr)
+    assert status["status"] == "review_attested"
+    assert status["review_attested"] is True
+    assert status["approved_commit"] == status["merged_commit"] == _MERGED_HEAD
+
+
+def test_a_review_with_NO_recorded_commit_does_not_attest():
+    """Absence is not agreement: a review that cannot be shown to be OF the
+    merged code does not attest to it."""
+    pr = _merged_pr_with_review(24, author_login="claude-user",
+                                merged_by="codex-user")
+    pr["reviews"][0].pop("commit")
+    status = merge_audit_status(pr)
+    assert status["review_attested"] is False
+    assert status["status"] == "review_not_bound_to_merged_commit"
+    assert "carries no commit" in status["attestation_gap"]
+
+
+def test_a_PR_with_no_recorded_head_does_not_attest():
+    pr = _merged_pr_with_review(25, author_login="claude-user",
+                                merged_by="codex-user")
+    pr["headRefOid"] = ""
+    status = merge_audit_status(pr)
+    assert status["review_attested"] is False
+    assert "records no merged head" in status["attestation_gap"]
+
+
+def test_a_pre_merge_MARKER_still_audits_regardless_of_the_commit_check():
+    """The two records never blur. The comment convention is independent — a
+    marker audits even when the approval bound to a different commit, because
+    the marker is its own attestation."""
+    pr = _merged_pr_with_review(26, author_login="claude-user",
+                                merged_by="codex-user",
+                                head_oid="b" * 40, review_oid="a" * 40)
+    pr["comments"] = [{
+        "body": "merged by codex after review",
+        "createdAt": "2026-06-09T00:09:30Z",
+        "author": {"login": "codex-user"},
+    }]
+    status = merge_audit_status(pr)
+    assert status["status"] == "ok"
+    assert status["audited"] is True

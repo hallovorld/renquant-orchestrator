@@ -869,7 +869,29 @@ def _review_attestation(pr: dict) -> Optional[dict]:
         the same second). An approval the merger later superseded with
         CHANGES_REQUESTED before the merge does NOT attest. Ordering is
         deterministic: parsed timestamps, list position breaking ties.
-    Anything else returns None and the merge stays unaudited.
+      * the approval is OF THE MERGED COMMIT — ``review.commit.oid`` equals the
+        PR's ``headRefOid`` (orch#991).
+
+    THE COMMIT CHECK IS WHY THIS IS AN ATTESTATION AND NOT A VIBE. Verifying
+    WHO approved and WHEN, but never WHAT, admits:
+
+        1. codex APPROVES head A
+        2. the author force-pushes head B — no new review
+        3. codex merges B
+
+    The merger's latest review at/before ``mergedAt`` is APPROVED, so the audit
+    reported ``review_attested``. Its commit was A. Nobody approved B. This is
+    reachable on this repo specifically because ``require_last_push_approval``
+    is FALSE here — measured, and per-repo, not a family constant.
+
+    Absence is not agreement either way: a review with no recorded commit, or a
+    PR with no ``headRefOid``, cannot be shown to attest to the merged code and
+    therefore does not.
+
+    Returns the attesting review, or a dict with ``attested=False`` and a
+    ``reason`` when a review was found but could not bind — the caller
+    surfaces that, because "approved a DIFFERENT commit" and "nobody reviewed
+    at all" are different findings and only one of them is a near-miss.
     """
     merged_by = ((pr.get("mergedBy") or {}).get("login") or "").strip()
     author = ((pr.get("author") or {}).get("login") or "").strip()
@@ -892,9 +914,40 @@ def _review_attestation(pr: dict) -> Optional[dict]:
             continue
         if latest is None or (submitted, idx) > (latest[0], latest[1]):
             latest = (submitted, idx, review)
-    if latest is not None and str(latest[2].get("state") or "").upper() == "APPROVED":
-        return {"author": merged_by, "submitted_at": latest[2].get("submittedAt")}
-    return None
+    if latest is None or str(latest[2].get("state") or "").upper() != "APPROVED":
+        return None
+
+    review = latest[2]
+    approved_oid = str(((review.get("commit") or {}).get("oid") or "")).strip()
+    merged_oid = str(pr.get("headRefOid") or "").strip()
+    if not approved_oid or not merged_oid:
+        return {
+            "attested": False,
+            "author": merged_by,
+            "submitted_at": review.get("submittedAt"),
+            "reason": (
+                "the approval carries no commit"
+                if not approved_oid else "the PR records no merged head"
+            ) + " — it cannot be shown to attest to the merged code",
+        }
+    if approved_oid != merged_oid:
+        return {
+            "attested": False,
+            "author": merged_by,
+            "submitted_at": review.get("submittedAt"),
+            "approved_commit": approved_oid,
+            "merged_commit": merged_oid,
+            "reason": (
+                f"approved {approved_oid[:12]} but merged {merged_oid[:12]} — the "
+                f"head moved after the approval and nothing re-reviewed it"
+            ),
+        }
+    return {
+        "attested": True,
+        "author": merged_by,
+        "submitted_at": review.get("submittedAt"),
+        "approved_commit": approved_oid,
+    }
 
 
 def merge_audit_status(pr: dict) -> dict:
@@ -925,12 +978,19 @@ def merge_audit_status(pr: dict) -> dict:
         else:
             post_merge.append(row)
 
-    attestation = _review_attestation(pr) if not pre_merge else None
+    found = _review_attestation(pr) if not pre_merge else None
+    # A review that was found but could not bind to the merged commit is NOT an
+    # attestation — and it is also not the same finding as "nobody reviewed".
+    # Collapsing them would hide the near-miss that orch#991 is about.
+    attestation = found if (found or {}).get("attested") else None
+    unbound = found if found is not None and not found.get("attested") else None
     first_pre = pre_merge[0] if pre_merge else {}
     if pre_merge:
         status = "ok"
     elif attestation:
         status = "review_attested"
+    elif unbound:
+        status = "review_not_bound_to_merged_commit"
     else:
         status = "missing_pre_merge_audit"
     return {
@@ -944,6 +1004,9 @@ def merge_audit_status(pr: dict) -> dict:
         "has_pre_merge_audit": bool(pre_merge),
         "review_attested": bool(attestation),
         "review_attested_at": (attestation or {}).get("submitted_at"),
+        "approved_commit": (attestation or unbound or {}).get("approved_commit"),
+        "merged_commit": pr.get("headRefOid"),
+        "attestation_gap": (unbound or {}).get("reason"),
         "audited": bool(pre_merge) or bool(attestation),
         "pre_merge_audit_comment_at": first_pre.get("created_at"),
         "pre_merge_audit_comment_author": first_pre.get("author"),
