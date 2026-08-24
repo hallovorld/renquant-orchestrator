@@ -1,0 +1,16 @@
+canonical sessions: 38  excluded dates: 19
+PARITY cap8/int: 5/9 sessions set-identical; 2/5 matched orders input+share exact; max|Δ| {'conviction': 0.0, 'sigma_mult': 0.00013296796361739194, 'max_pct': 2.3234529020130235e-05, 'reserve_pct': 0.0}
+ cap        mode   n med_filled med_deployed   tilt
+---------------------------------------------------
+   8     integer  31        2.0       17.3%   1.28x
+   8  fractional  31        2.0       20.3%   1.00x
+  10     integer  34        3.0       32.6%   1.20x
+  10  fractional  34        4.0       35.2%   1.06x
+  12     integer  35        5.0       42.9%   1.21x
+  12  fractional  35        5.0       44.7%   1.07x
+  15     integer  35        5.0       44.6%   1.40x
+  15  fractional  35        5.0       47.3%   1.10x
+  20     integer  35        5.0       44.6%   1.50x
+  20  fractional  35        5.0       47.3%   1.13x
+
+wrote stage0_v3b.json

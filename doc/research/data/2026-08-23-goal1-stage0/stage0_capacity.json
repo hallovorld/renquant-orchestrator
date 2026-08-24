@@ -1,0 +1,647 @@
+{
+  "grid": {
+    "10_fractional": {
+      "med_deployed": 0.35238962193479567,
+      "med_filled": 4.0,
+      "med_price_in": 232.28499603271484,
+      "med_price_out": 246.0399932861328,
+      "n_in": 136,
+      "n_out": 523,
+      "sessions": 34,
+      "tilt": 1.0592160384370273
+    },
+    "10_integer": {
+      "med_deployed": 0.32627351172817276,
+      "med_filled": 3.0,
+      "med_price_in": 220.7750015258789,
+      "med_price_out": 264.6499938964844,
+      "n_in": 126,
+      "n_out": 533,
+      "sessions": 34,
+      "tilt": 1.1987317045288866
+    },
+    "12_fractional": {
+      "med_deployed": 0.4470147591462486,
+      "med_filled": 5,
+      "med_price_in": 232.28499603271484,
+      "med_price_out": 248.26499938964844,
+      "n_in": 178,
+      "n_out": 506,
+      "sessions": 35,
+      "tilt": 1.0687948151187647
+    },
+    "12_integer": {
+      "med_deployed": 0.42903236483299534,
+      "med_filled": 5,
+      "med_price_in": 220.14500427246094,
+      "med_price_out": 265.9049987792969,
+      "n_in": 164,
+      "n_out": 520,
+      "sessions": 35,
+      "tilt": 1.2078629704001886
+    },
+    "15_fractional": {
+      "med_deployed": 0.4732551813539964,
+      "med_filled": 5,
+      "med_price_in": 231.52999877929688,
+      "med_price_out": 255.57000732421875,
+      "n_in": 210,
+      "n_out": 474,
+      "sessions": 35,
+      "tilt": 1.1038310744684006
+    },
+    "15_integer": {
+      "med_deployed": 0.44587778266351047,
+      "med_filled": 5,
+      "med_price_in": 195.0,
+      "med_price_out": 273.0399932861328,
+      "n_in": 190,
+      "n_out": 494,
+      "sessions": 35,
+      "tilt": 1.40020509377504
+    },
+    "20_fractional": {
+      "med_deployed": 0.4732551813539964,
+      "med_filled": 5,
+      "med_price_in": 230.42999267578125,
+      "med_price_out": 261.30999755859375,
+      "n_in": 227,
+      "n_out": 457,
+      "sessions": 35,
+      "tilt": 1.1340103539657755
+    },
+    "20_integer": {
+      "med_deployed": 0.44587778266351047,
+      "med_filled": 5,
+      "med_price_in": 186.40999603271484,
+      "med_price_out": 280.00999450683594,
+      "n_in": 206,
+      "n_out": 478,
+      "sessions": 35,
+      "tilt": 1.5021189875337713
+    },
+    "8_fractional": {
+      "med_deployed": 0.20341235333890165,
+      "med_filled": 2,
+      "med_price_in": 231.6699981689453,
+      "med_price_out": 230.8000030517578,
+      "n_in": 81,
+      "n_out": 513,
+      "sessions": 31,
+      "tilt": 0.9962446793971438
+    },
+    "8_integer": {
+      "med_deployed": 0.17315422002865366,
+      "med_filled": 2,
+      "med_price_in": 202.5399932861328,
+      "med_price_out": 258.9200134277344,
+      "n_in": 77,
+      "n_out": 517,
+      "sessions": 31,
+      "tilt": 1.2783648761257351
+    }
+  },
+  "inputs": {
+    "admission_note": "rank-order fill by panel_score among direction-gate passers; corr/sector guards NOT replayed (inputs not persisted) \u2014 UPPER-BOUND admission; the parity block measures the realised gap at cap 8",
+    "excluded_dates": [
+      {
+        "date": "2026-04-23",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-04-23-live-275efe7e",
+          "2026-04-23-live-2473b6b1",
+          "2026-04-23-live-15024c07"
+        ]
+      },
+      {
+        "date": "2026-04-24",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-04-24-live-e8cb98dc",
+          "2026-04-24-live-97e3ca55",
+          "2026-04-24-live-0e847f30"
+        ]
+      },
+      {
+        "date": "2026-04-25",
+        "reason": "5 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-04-25-live-0ee1389f",
+          "2026-04-25-live-1f22ef9a",
+          "2026-04-25-live-24abba4f",
+          "2026-04-25-live-eb61dde9",
+          "2026-04-25-live-7393cc43"
+        ]
+      },
+      {
+        "date": "2026-04-26",
+        "reason": "6 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-04-26-live-554cbc74",
+          "2026-04-26-live-7d3d7c37",
+          "2026-04-26-live-c4bf2cf3",
+          "2026-04-26-live-ed955a01",
+          "2026-04-26-live-4eb326a0",
+          "2026-04-26-live-aa94fcd9"
+        ]
+      },
+      {
+        "date": "2026-04-27",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-04-27-live-d3240cf2",
+          "2026-04-27-live-da1f03ba",
+          "2026-04-27-live-1085e806"
+        ]
+      },
+      {
+        "date": "2026-05-03",
+        "reason": "2 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-03-live-860c171b",
+          "2026-05-03-live-baeb1770"
+        ]
+      },
+      {
+        "date": "2026-05-08",
+        "reason": "4 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-08-live-abfd9673",
+          "2026-05-08-live-4c9e53e5",
+          "2026-05-08-live-f1025e21",
+          "2026-05-08-live-5afe02ce"
+        ]
+      },
+      {
+        "date": "2026-05-09",
+        "reason": "6 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-09-live-1fb47df1",
+          "2026-05-09-live-12f56025",
+          "2026-05-09-live-7621615e",
+          "2026-05-09-live-bc36f3c9",
+          "2026-05-09-live-5ee918ce",
+          "2026-05-09-live-1d6f7518"
+        ]
+      },
+      {
+        "date": "2026-05-17",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-17-live-2eb948df",
+          "2026-05-17-live-9eb3e363",
+          "2026-05-17-live-c484875b"
+        ]
+      },
+      {
+        "date": "2026-05-18",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-18-live-53ae6b87",
+          "2026-05-18-live-d2ae1948",
+          "2026-05-18-live-bafc1ea8"
+        ]
+      },
+      {
+        "date": "2026-05-19",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-19-live-dfd9a190",
+          "2026-05-19-live-e9dec6a2",
+          "2026-05-19-live-7165ae82"
+        ]
+      },
+      {
+        "date": "2026-05-20",
+        "reason": "4 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-20-live-56e526a1",
+          "2026-05-20-live-a543eb33",
+          "2026-05-20-live-2858f63b",
+          "2026-05-20-live-9694f79f"
+        ]
+      },
+      {
+        "date": "2026-05-30",
+        "reason": "5 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-05-30-live-cb1fd5de",
+          "2026-05-30-live-f8a0736f",
+          "2026-05-30-live-f113015b",
+          "2026-05-30-live-87d2171f",
+          "2026-05-30-live-43e5dcd7"
+        ]
+      },
+      {
+        "date": "2026-06-09",
+        "reason": "2 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-06-09-live-b92892f6",
+          "2026-06-09-live-70c90efc"
+        ]
+      },
+      {
+        "date": "2026-06-23",
+        "reason": "2 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-06-23-live-844746ad",
+          "2026-06-23-live-59c11399"
+        ]
+      },
+      {
+        "date": "2026-06-29",
+        "reason": "2 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-06-29-live-de32ecf4",
+          "2026-06-29-live-0534845a"
+        ]
+      },
+      {
+        "date": "2026-07-28",
+        "reason": "2 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-07-28-live-6194047c",
+          "2026-07-28-live-5b859fff"
+        ]
+      },
+      {
+        "date": "2026-08-04",
+        "reason": "3 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-08-04-live-2f5d92df",
+          "2026-08-04-live-9e502d92",
+          "2026-08-04-live-a199b993"
+        ]
+      },
+      {
+        "date": "2026-08-06",
+        "reason": "4 candidate-bearing renquant-104 live runs (expected exactly 1)",
+        "run_ids": [
+          "2026-08-06-live-6463d2cc",
+          "2026-08-06-live-7902b1ea",
+          "2026-08-06-live-de94bd1a",
+          "2026-08-06-live-b01e4201"
+        ]
+      }
+    ],
+    "pipeline": {
+      "commit": "3d9c7fb17c7504b910cf785c51106c5e6855c4b5",
+      "seam_module_sha256": {
+        "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src/renquant_pipeline/kernel/regime.py": "84149b544ecfb51a4a2d3e020d145cb03afc4d3e7b91c7d89a0d2905c2ac5407",
+        "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src/renquant_pipeline/kernel/sizing.py": "59bce218d5814b702f0f9cd6fc48090c5df5f70bc01f1c0a8084896503504da9"
+      },
+      "src": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src"
+    },
+    "runs_db": {
+      "candidate_scores": 247461,
+      "live_runs": 2680,
+      "path": "/Users/renhao/git/github/RenQuant/data/runs.alpaca.db",
+      "rows_digest_sha256": "736e598079a655a783fc774798b393c536c32daf1db72d3e65b9690d4a797a51"
+    },
+    "selected_runs": [
+      {
+        "commit_sha": "6b8a481",
+        "created_at": "2026-05-12 21:08:46",
+        "date": "2026-05-12",
+        "run_id": "2026-05-12-live-99b35be9",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "b1bd27f",
+        "created_at": "2026-05-13 21:06:48",
+        "date": "2026-05-13",
+        "run_id": "2026-05-13-live-28cd4b3c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "01e6528",
+        "created_at": "2026-05-14 21:10:03",
+        "date": "2026-05-14",
+        "run_id": "2026-05-14-live-1885c20c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "e57df8b",
+        "created_at": "2026-05-15 21:11:04",
+        "date": "2026-05-15",
+        "run_id": "2026-05-15-live-45ce9a07",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "296cc58",
+        "created_at": "2026-05-21 21:20:05",
+        "date": "2026-05-21",
+        "run_id": "2026-05-21-live-b2d754d0",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "d315b65",
+        "created_at": "2026-05-23 01:25:41",
+        "date": "2026-05-22",
+        "run_id": "2026-05-22-live-ff554178",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "43c322e",
+        "created_at": "2026-06-10 23:55:57",
+        "date": "2026-06-10",
+        "run_id": "2026-06-10-live-c2bf522c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "1bcdd8c",
+        "created_at": "2026-06-11 21:18:02",
+        "date": "2026-06-11",
+        "run_id": "2026-06-11-live-f68231b0",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "b2f511e",
+        "created_at": "2026-06-23 04:20:15",
+        "date": "2026-06-22",
+        "run_id": "2026-06-22-live-c26c0042",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "b2f511e",
+        "created_at": "2026-06-24 21:07:21",
+        "date": "2026-06-24",
+        "run_id": "2026-06-24-live-710e3805",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "a4f2c79",
+        "created_at": "2026-06-26 21:07:23",
+        "date": "2026-06-26",
+        "run_id": "2026-06-26-live-3d74ce5c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "a4f2c79",
+        "created_at": "2026-06-30 22:51:25",
+        "date": "2026-06-30",
+        "run_id": "2026-06-30-live-b616357c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "a4f2c79",
+        "created_at": "2026-07-01 22:13:39",
+        "date": "2026-07-01",
+        "run_id": "2026-07-01-live-01c54b39",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "a4f2c79",
+        "created_at": "2026-07-02 21:07:27",
+        "date": "2026-07-02",
+        "run_id": "2026-07-02-live-85496d1c",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "82bf17c",
+        "created_at": "2026-07-07 00:23:34",
+        "date": "2026-07-06",
+        "run_id": "2026-07-06-live-ebb9c2ca",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "82bf17c",
+        "created_at": "2026-07-07 21:36:23",
+        "date": "2026-07-07",
+        "run_id": "2026-07-07-live-dc2a3247",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "8e4151a",
+        "created_at": "2026-07-10 21:07:33",
+        "date": "2026-07-10",
+        "run_id": "2026-07-10-live-6f9d5284",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "1c59a96",
+        "created_at": "2026-07-13 22:42:45",
+        "date": "2026-07-13",
+        "run_id": "2026-07-13-live-d250791e",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "576ee30",
+        "created_at": "2026-07-20 21:07:37",
+        "date": "2026-07-20",
+        "run_id": "2026-07-20-live-54ea6604",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "576ee30",
+        "created_at": "2026-07-21 21:07:50",
+        "date": "2026-07-21",
+        "run_id": "2026-07-21-live-fd5949f9",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "0385270",
+        "created_at": "2026-07-22 23:20:19",
+        "date": "2026-07-22",
+        "run_id": "2026-07-22-live-79dbf668",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "92667fd",
+        "created_at": "2026-07-27 20:56:47",
+        "date": "2026-07-27",
+        "run_id": "2026-07-27-live-e548dd21",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "36a8c45",
+        "created_at": "2026-07-29 21:08:15",
+        "date": "2026-07-29",
+        "run_id": "2026-07-29-live-34603e64",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "3f4e3d6",
+        "created_at": "2026-07-30 21:08:01",
+        "date": "2026-07-30",
+        "run_id": "2026-07-30-live-7521e521",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "3f4e3d6",
+        "created_at": "2026-07-31 21:08:05",
+        "date": "2026-07-31",
+        "run_id": "2026-07-31-live-381747dd",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "0bc0f88",
+        "created_at": "2026-08-03 21:07:01",
+        "date": "2026-08-03",
+        "run_id": "2026-08-03-live-ff1f674a",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "f85a639",
+        "created_at": "2026-08-05 21:07:15",
+        "date": "2026-08-05",
+        "run_id": "2026-08-05-live-2d99f969",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "f85a639",
+        "created_at": "2026-08-07 21:06:30",
+        "date": "2026-08-07",
+        "run_id": "2026-08-07-live-1e3a1fb0",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "f85a639",
+        "created_at": "2026-08-10 21:06:31",
+        "date": "2026-08-10",
+        "run_id": "2026-08-10-live-631d30f6",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "f85a639",
+        "created_at": "2026-08-11 21:06:24",
+        "date": "2026-08-11",
+        "run_id": "2026-08-11-live-232af082",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "f85a639",
+        "created_at": "2026-08-12 21:06:35",
+        "date": "2026-08-12",
+        "run_id": "2026-08-12-live-13647888",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "b12f59d",
+        "created_at": "2026-08-13 21:06:26",
+        "date": "2026-08-13",
+        "run_id": "2026-08-13-live-d4652c00",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "3296d36",
+        "created_at": "2026-08-14 20:57:12",
+        "date": "2026-08-14",
+        "run_id": "2026-08-14-live-d6ff044b",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "3296d36",
+        "created_at": "2026-08-17 20:57:16",
+        "date": "2026-08-17",
+        "run_id": "2026-08-17-live-47422b48",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "cf3df09",
+        "created_at": "2026-08-18 20:57:10",
+        "date": "2026-08-18",
+        "run_id": "2026-08-18-live-6afbd72d",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "cf3df09",
+        "created_at": "2026-08-19 20:57:08",
+        "date": "2026-08-19",
+        "run_id": "2026-08-19-live-33134329",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "a10f796",
+        "created_at": "2026-08-20 20:57:11",
+        "date": "2026-08-20",
+        "run_id": "2026-08-20-live-5b34a562",
+        "strategy": "renquant-104"
+      },
+      {
+        "commit_sha": "46c0463",
+        "created_at": "2026-08-21 20:57:13",
+        "date": "2026-08-21",
+        "run_id": "2026-08-21-live-933658ce",
+        "strategy": "renquant-104"
+      }
+    ],
+    "strategy_config": {
+      "path": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json",
+      "sha256": "94f1aca8eb3bb8838f587e08323e1e65b68194c7995462e39883f6c34e836574"
+    }
+  },
+  "parity_cap8_integer_current_era": {
+    "era_start": "2026-08-10",
+    "excluded_sessions": [
+      {
+        "date": "2026-08-21",
+        "gate_passers": 27,
+        "priced": 0,
+        "reason": "fwd close_price backfill incomplete"
+      }
+    ],
+    "max_abs": {
+      "conviction": 0.0,
+      "max_pct": 2.3234529020130235e-05,
+      "reserve_pct": 0.0,
+      "sigma_mult": 0.00013296796361739194
+    },
+    "sessions": 9,
+    "set_agree": 5,
+    "set_diffs": [
+      {
+        "date": "2026-08-10",
+        "production": [
+          "APH",
+          "CRWD",
+          "NET"
+        ],
+        "replay": [
+          "APH",
+          "CRWD",
+          "GOOG",
+          "NET"
+        ],
+        "why": {
+          "GOOG": "candidate_not_selected"
+        }
+      },
+      {
+        "date": "2026-08-18",
+        "production": [],
+        "replay": [
+          "CRWD"
+        ],
+        "why": {
+          "CRWD": "broker_pending_submitted"
+        }
+      },
+      {
+        "date": "2026-08-19",
+        "production": [],
+        "replay": [
+          "PANW"
+        ],
+        "why": {
+          "PANW": "broker_pending_submitted"
+        }
+      },
+      {
+        "date": "2026-08-20",
+        "production": [],
+        "replay": [
+          "CAT",
+          "CRWD"
+        ],
+        "why": {
+          "CAT": "candidate_not_selected",
+          "CRWD": "wash_sale"
+        }
+      }
+    ],
+    "share_mismatches": [],
+    "ticker_matches": 2,
+    "ticker_total": 5
+  }
+}
