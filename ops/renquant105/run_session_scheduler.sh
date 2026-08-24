@@ -37,9 +37,27 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipelin
 # NOTE: RENQUANT_INTRADAY_DECISIONING is deliberately NOT exported here.
 # Activation (a recorded landing step) uncomments the next line:
 # export RENQUANT_INTRADAY_DECISIONING=1
+# orch#1041: pass the PINNED strategy config EXPLICITLY, fail closed if absent.
+# Without this flag, default_strategy_config_path() resolves the SIBLING dev
+# checkout (~/git/github/renquant-strategy-104) in preference to the pinned
+# runtime — measured: every activated session's manifest fingerprints the
+# sibling's config (c6d1abe2…), and the pinned copy was never even a
+# candidate. Same defect class as orch#1016; same fix shape as #1037: the
+# reviewed surface is the pinned runtime, no fallback, refuse rather than
+# silently run the wrong config. NOTE: the session manifest's
+# strategy_config_fingerprint will change on the first post-deploy session —
+# that discontinuity is the fix landing, and the §9.4 LIVE draft requires a
+# session under the NEW fingerprint before it can be signed.
+PINNED_STRATEGY_CONFIG="$RQ_ROOT/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json"
+if [ ! -f "$PINNED_STRATEGY_CONFIG" ]; then
+  echo "FATAL: pinned strategy config absent at $PINNED_STRATEGY_CONFIG — refusing to run on a fallback (orch#1041)" \
+    >> "$LOG_DIR/session_scheduler_$TS.log"
+  exit 1
+fi
 "$RQ_ROOT/.venv/bin/python" -m renquant_orchestrator.intraday_session_scheduler \
   --env-file "$RQ_ROOT/.env" \
   --data-root "$RQ_ROOT" \
+  --strategy-config "$PINNED_STRATEGY_CONFIG" \
   --data-manifest "$RQ_ROOT/data/rq105/data_manifest.json" \
   --artifact-manifest "$RQ_ROOT/data/rq105/artifact_manifest.json" \
   --log-level INFO \
