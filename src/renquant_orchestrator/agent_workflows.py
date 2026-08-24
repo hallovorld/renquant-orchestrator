@@ -960,9 +960,29 @@ def merge_audit_status(pr: dict) -> dict:
     ``status`` distinguishes the two (``ok`` / ``review_attested``) so the audit
     never collapses "marked before" into "approved before"; ``audited`` is the
     single gate-facing bit.
+
+    BOTH PATHS MUST IDENTIFY WHAT WAS REVIEWED (orch#991, codex round 2). The
+    first pass bound only the review path, and the marker path kept the same
+    hole one door over: post the marker, force-push B, merge B, and a plain
+    timestamped comment still said "audited". A comment is independent of a
+    review — that part was right — but independence is not sufficiency, and a
+    comment that names no commit cannot attest to one.
+
+    The convention already carries what is needed. The marker body states the
+    head explicitly:
+
+        - Head SHA: `259900e331e25322e260cbbbcaf1d74f3b10508a`
+
+    so a marker attests only when the merged ``headRefOid`` appears in it —
+    exactly the same rule as the review path, reading data that was already
+    there. Measured before tightening: **26 of 26** markers across the last 40
+    merged PRs already contain the head SHA, so nothing existing is
+    invalidated.
     """
     merged_at = _parse_github_datetime(pr.get("mergedAt"))
+    merged_oid = str(pr.get("headRefOid") or "").strip()
     pre_merge: list[dict] = []
+    unbound_markers: list[dict] = []
     post_merge: list[dict] = []
     for comment in pr.get("comments") or []:
         body = str(comment.get("body") or "")
@@ -973,11 +993,17 @@ def merge_audit_status(pr: dict) -> dict:
             "created_at": comment.get("createdAt"),
             "author": (comment.get("author") or {}).get("login"),
         }
-        if merged_at is not None and created_at is not None and created_at <= merged_at:
+        if merged_at is None or created_at is None or created_at > merged_at:
+            post_merge.append(row)
+        elif merged_oid and merged_oid in body:
             pre_merge.append(row)
         else:
-            post_merge.append(row)
+            # Pre-merge, but it names no commit — or names another one. It is a
+            # record that SOMETHING was merged, not that THIS was reviewed.
+            unbound_markers.append(row)
 
+    # An unbound marker does not block the review path from attesting — the two
+    # records stay independent, they simply both have to identify the commit.
     found = _review_attestation(pr) if not pre_merge else None
     # A review that was found but could not bind to the merged commit is NOT an
     # attestation — and it is also not the same finding as "nobody reviewed".
@@ -991,6 +1017,8 @@ def merge_audit_status(pr: dict) -> dict:
         status = "review_attested"
     elif unbound:
         status = "review_not_bound_to_merged_commit"
+    elif unbound_markers:
+        status = "marker_not_bound_to_merged_commit"
     else:
         status = "missing_pre_merge_audit"
     return {
@@ -1006,7 +1034,11 @@ def merge_audit_status(pr: dict) -> dict:
         "review_attested_at": (attestation or {}).get("submitted_at"),
         "approved_commit": (attestation or unbound or {}).get("approved_commit"),
         "merged_commit": pr.get("headRefOid"),
-        "attestation_gap": (unbound or {}).get("reason"),
+        "attestation_gap": (unbound or {}).get("reason") or (
+            f"a pre-merge marker exists but does not name the merged head "
+            f"{merged_oid[:12]} — it records that something was merged, not that "
+            f"THIS was reviewed" if unbound_markers else None),
+        "unbound_marker_count": len(unbound_markers),
         "audited": bool(pre_merge) or bool(attestation),
         "pre_merge_audit_comment_at": first_pre.get("created_at"),
         "pre_merge_audit_comment_author": first_pre.get("author"),

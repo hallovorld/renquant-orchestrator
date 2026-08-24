@@ -921,8 +921,10 @@ def test_merge_audit_status_accepts_pre_merge_marker():
     pr = _pr(1, author="codex", state="MERGED")
     pr["mergedAt"] = "2026-06-09T00:10:00Z"
     pr["mergedBy"] = {"login": "codex-user"}
+    pr["headRefOid"] = _MERGED_HEAD
     pr["comments"] = [{
-        "body": "merged by `codex` via `renquant-orchestrator agent-workflow merge --execute`",
+        "body": ("merged by `codex` via `renquant-orchestrator agent-workflow merge "
+                 f"--execute`\n\n- Head SHA: `{_MERGED_HEAD}`"),
         "createdAt": "2026-06-09T00:09:59Z",
         "author": {"login": "codex-user"},
     }]
@@ -1112,7 +1114,7 @@ def test_merge_audit_status_pre_merge_marker_still_wins_over_attestation():
     """The marker path is unchanged: when present, status stays 'ok'."""
     pr = _merged_pr_with_review(8, author_login="claude-user", merged_by="codex-user")
     pr["comments"] = [{
-        "body": "merged by `codex`",
+        "body": f"merged by `codex`\n\n- Head SHA: `{_MERGED_HEAD}`",
         "createdAt": "2026-06-09T00:08:00Z",
         "author": {"login": "codex-user"},
     }]
@@ -1159,8 +1161,9 @@ def test_audit_merged_prs_gate_accepts_attested_and_fires_on_neither(monkeypatch
 def test_audit_merged_prs_summarizes_missing_pre_merge_markers(monkeypatch):
     ok_pr = _pr(1, author="codex", state="MERGED")
     ok_pr["mergedAt"] = "2026-06-09T00:10:00Z"
+    ok_pr["headRefOid"] = _MERGED_HEAD
     ok_pr["comments"] = [{
-        "body": "merged by `codex`",
+        "body": f"merged by `codex`\n\n- Head SHA: `{_MERGED_HEAD}`",
         "createdAt": "2026-06-09T00:09:59Z",
         "author": {"login": "codex-user"},
     }]
@@ -1293,7 +1296,8 @@ def _merged(num, when, *, marked):
     pr = _pr(num, author="claude", state="MERGED")
     pr["mergedAt"] = when
     pr["mergedBy"] = {"login": "hallovorld"}
-    pr["comments"] = ([{"body": "merged by `claude`",
+    pr["headRefOid"] = _MERGED_HEAD  # the marker below names this head
+    pr["comments"] = ([{"body": f"merged by `claude`\n\n- Head SHA: `{_MERGED_HEAD}`",
                         "createdAt": when.replace("T", "T").replace("Z", "Z"),
                         "author": {"login": "hallovorld"}}] if marked else [])
     if marked:
@@ -1552,18 +1556,75 @@ def test_a_PR_with_no_recorded_head_does_not_attest():
     assert "records no merged head" in status["attestation_gap"]
 
 
-def test_a_pre_merge_MARKER_still_audits_regardless_of_the_commit_check():
-    """The two records never blur. The comment convention is independent — a
-    marker audits even when the approval bound to a different commit, because
-    the marker is its own attestation."""
+def test_post_marker_force_push_merge_is_NOT_audited():
+    """codex, round 2 — I closed the review path and CODIFIED the same hole on
+    the marker path, in a test that asserted a bare comment was "its own
+    attestation". It is not: the two records are independent, but independence
+    is not sufficiency, and a comment that names no commit cannot attest to one.
+
+        1. the merger posts `merged by ...`
+        2. the author force-pushes head B
+        3. the merger merges B
+
+    Nothing in that sequence reviewed B.
+    """
     pr = _merged_pr_with_review(26, author_login="claude-user",
-                                merged_by="codex-user",
-                                head_oid="b" * 40, review_oid="a" * 40)
+                                merged_by="codex-user", head_oid="b" * 40)
+    pr["reviews"] = []                                   # isolate the marker path
+    pr["comments"] = [{
+        "body": "merged by codex after review",          # names no commit
+        "createdAt": "2026-06-09T00:09:30Z",
+        "author": {"login": "codex-user"},
+    }]
+
+    status = merge_audit_status(pr)
+
+    assert status["audited"] is False
+    assert status["status"] == "marker_not_bound_to_merged_commit"
+    assert status["unbound_marker_count"] == 1
+    assert "does not name the merged head" in status["attestation_gap"]
+
+
+def test_a_marker_that_NAMES_the_merged_head_audits():
+    """The control, and the reason this costs nothing: the convention already
+    writes `- Head SHA: <40 hex>`. Measured before tightening — 26 of 26 markers
+    across the last 40 merged PRs already contain it."""
+    pr = _merged_pr_with_review(27, author_login="claude-user",
+                                merged_by="codex-user")
+    pr["reviews"] = []
+    pr["comments"] = [{
+        "body": (f"merged by `codex`\n\n- Head SHA: `{_MERGED_HEAD}`\n"
+                 f"- Approval: checks pass"),
+        "createdAt": "2026-06-09T00:09:30Z",
+        "author": {"login": "codex-user"},
+    }]
+    status = merge_audit_status(pr)
+    assert status["status"] == "ok"
+    assert status["audited"] is True
+
+
+def test_a_marker_naming_a_DIFFERENT_head_does_not_audit():
+    pr = _merged_pr_with_review(28, author_login="claude-user",
+                                merged_by="codex-user", head_oid="b" * 40)
+    pr["reviews"] = []
+    pr["comments"] = [{
+        "body": f"merged by `codex`\n\n- Head SHA: `{'a' * 40}`",
+        "createdAt": "2026-06-09T00:09:30Z",
+        "author": {"login": "codex-user"},
+    }]
+    assert merge_audit_status(pr)["status"] == "marker_not_bound_to_merged_commit"
+
+
+def test_an_unbound_marker_does_not_block_a_bound_REVIEW_from_attesting():
+    """The two records stay independent — they simply both have to identify the
+    commit. A vague marker must not veto a review that DID bind."""
+    pr = _merged_pr_with_review(29, author_login="claude-user",
+                                merged_by="codex-user")
     pr["comments"] = [{
         "body": "merged by codex after review",
         "createdAt": "2026-06-09T00:09:30Z",
         "author": {"login": "codex-user"},
     }]
     status = merge_audit_status(pr)
-    assert status["status"] == "ok"
+    assert status["status"] == "review_attested"
     assert status["audited"] is True

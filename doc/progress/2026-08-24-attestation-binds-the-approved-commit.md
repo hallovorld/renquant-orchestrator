@@ -65,6 +65,42 @@ VERIFICATION:
   suite: no test could distinguish "approved this commit" from "approved
   something". The fixture now models the real shape.
 
+## Review round 2 (codex) — I closed one path and CODIFIED the hole on the other
+
+The first pass bound the review path and left the marker path exactly as it was,
+and my own test said so out loud:
+`test_a_pre_merge_MARKER_still_audits_regardless_of_the_commit_check`. Post the
+marker, force-push B, merge B — a plain timestamped comment still returned `ok`.
+
+I justified it as "the two records never blur". That is true about their
+INDEPENDENCE and wrong about their SUFFICIENCY: a comment that names no commit
+cannot attest to one, however independent it is. Writing a test around the
+wrong half of a true sentence is how a hole gets a green tick.
+
+The convention already carries what was missing — markers state the head
+explicitly:
+
+    - Head SHA: `259900e331e25322e260cbbbcaf1d74f3b10508a`
+
+So a marker attests only when the merged `headRefOid` appears in its body, the
+same rule as the review path, reading data that was already there. MEASURED
+BEFORE TIGHTENING: **26 of 26** markers across the last 40 merged PRs already
+contain the head SHA, so nothing existing is invalidated.
+
+Unbound markers get their own status, `marker_not_bound_to_merged_commit`, and
+an unbound marker does NOT veto a review that DID bind — the records stay
+independent, they simply both have to identify the commit.
+
+  Mutation-verified per path: removing the marker binding -> 3 failed; removing
+  the review binding -> 2 failed; restored -> 83 passed.
+
+  Against 40 REAL merged PRs after both tightenings: 25 `ok` + 15
+  `review_attested`, **zero unaudited** [VERIFIED 2026-08-24].
+
+  The fixture story repeated exactly: marker fixtures carried no head SHA while
+  every real marker does, which is why the marker hole also had a green suite.
+  Eight existing tests went red on the first run for that reason alone.
+
 NEXT:     Not attempted here: `require_last_push_approval = true` would close
           the same hole at the platform level for this repo, and is a branch
           protection change with its own review. This audit stays useful either
