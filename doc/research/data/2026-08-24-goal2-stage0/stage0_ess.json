@@ -188,6 +188,48 @@
     }
   },
   "kill_bar": 12,
+  "label_availability": {
+    "note": "ESS = |selected_dates & labeled_dates|, so a backfill here moves n_eff without touching any selection digest \u2014 digested per horizon for that reason",
+    "per_horizon": {
+      "h=10": {
+        "field": "fwd_10d IS NOT NULL",
+        "labeled_dates_sha256": "c5d7c0712042cc55e1b237ed791c2c409be3031bfc8bc6af4cbb5f743f8f2655",
+        "n_label_dates": 640,
+        "range": [
+          "2024-01-02",
+          "2026-08-07"
+        ]
+      },
+      "h=20": {
+        "field": "fwd_20d IS NOT NULL",
+        "labeled_dates_sha256": "79f00f01fe95e4acf3a622c1c07accd56423a1713415896a9bd04cf2109dbc07",
+        "n_label_dates": 630,
+        "range": [
+          "2024-01-02",
+          "2026-07-24"
+        ]
+      },
+      "h=5": {
+        "field": "fwd_5d IS NOT NULL",
+        "labeled_dates_sha256": "40c1f9f0d3c41cec418ce521cf9d47693b6950f9673934c20277edbe5efb33db",
+        "n_label_dates": 645,
+        "range": [
+          "2024-01-02",
+          "2026-08-14"
+        ]
+      },
+      "h=60": {
+        "field": "fwd_60d IS NOT NULL",
+        "labeled_dates_sha256": "69c58f6228b1fd1b31850da1fdac53276e39aa2a7053da8b7afe0508290f5923",
+        "n_label_dates": 589,
+        "range": [
+          "2024-01-02",
+          "2026-05-27"
+        ]
+      }
+    },
+    "source": "runs.alpaca.db::ticker_forward_returns"
+  },
   "lane_coverage": {
     "alpaca_shadow_blend": {
       "n_dates": 19,

@@ -127,9 +127,27 @@ def main():
 
     main_db = os.path.join(a.data_dir, "runs.alpaca.db")
     con = sqlite3.connect(f"file:{main_db}?mode=ro", uri=True)
-    labeled = {h: set(d for (d,) in con.execute(
-        f"SELECT DISTINCT as_of_date FROM ticker_forward_returns WHERE fwd_{h}d IS NOT NULL"))
-        for h in HORIZONS}
+    # LABEL AVAILABILITY IS ALSO AN INCLUSION INPUT (codex review round 3).
+    # Every reported ESS is computed over `dates & labeled[h]`, so the label
+    # side determines the number exactly as much as the run selection does.
+    # Round 2 pinned the runs and left this unpinned: `ticker_forward_returns`
+    # can be backfilled or corrected, moving labeled_dates and n_eff while
+    # every selection_sha256 stays identical. Digest it per horizon, so a
+    # label backfill is visible as a changed fingerprint rather than as a
+    # silently different answer.
+    labeled, label_prov = {}, {}
+    for h in HORIZONS:
+        rows = sorted(d for (d,) in con.execute(
+            f"SELECT DISTINCT as_of_date FROM ticker_forward_returns "
+            f"WHERE fwd_{h}d IS NOT NULL"))
+        labeled[h] = set(rows)
+        label_prov[f"h={h}"] = {
+            "n_label_dates": len(rows),
+            "range": [rows[0], rows[-1]] if rows else None,
+            "field": f"fwd_{h}d IS NOT NULL",
+            "labeled_dates_sha256": hashlib.sha256(
+                "\n".join(rows).encode()).hexdigest(),
+        }
 
     # LANE IDENTITY IS OUT-OF-BAND, and this says so rather than implying
     # otherwise (codex review round 2). Verified against the schema: for the
@@ -150,10 +168,14 @@ def main():
         if not os.path.exists(path):
             raise SystemExit(f"FAIL CLOSED: core lane DB missing: {path}")
         lane_dates[lane], lane_prov[lane] = score_dates(path, with_provenance=True)
-    # An UNEXPECTED shadow DB is also a stop: the intersection defining the
-    # meta-panel is only meaningful if the lane set is the one the design
-    # named. Silently ignoring a new lane would let the corpus change shape
-    # without the artifact saying so.
+    # An UNEXPECTED shadow DB is RECORDED, not a stop — and the comment now
+    # says what the code does (codex review round 3: the previous wording
+    # claimed a stop while the code continued, which is an assertion the
+    # implementation did not carry). Continuing is right: the frozen design
+    # names the three core lanes, so the meta-panel intersection is defined
+    # over CORE_LANES regardless of what else exists on disk. Recording the
+    # extras is what keeps a corpus that quietly grew a lane visible in the
+    # artifact instead of invisible.
     on_disk = {os.path.basename(x)[5:-3]
                for x in glob.glob(os.path.join(a.data_dir, "runs.alpaca_shadow*.db"))}
     unexpected = sorted(on_disk - set(CORE_LANES))
@@ -181,6 +203,14 @@ def main():
                        "range": [min(multi), max(multi)] if multi else None,
                        "ess": {}},
         "historical_single_scorer_reference": {"ess": {}, "provenance": hist_prov},
+        # The other half of every ESS: which dates carry a realized label.
+        "label_availability": {
+            "source": f"{os.path.basename(main_db)}::ticker_forward_returns",
+            "note": "ESS = |selected_dates & labeled_dates|, so a backfill here "
+                    "moves n_eff without touching any selection digest — "
+                    "digested per horizon for that reason",
+            "per_horizon": label_prov,
+        },
         "verdict": None,
     }
     for h in HORIZONS:
