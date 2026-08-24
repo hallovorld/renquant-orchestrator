@@ -106,6 +106,17 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     ("import-resolution", "import_resolution_check.py", [], (1,)),
     ("umbrella-script-shadow", "umbrella_script_shadow_check.py", [], (1,)),
     ("launchd-liveness", "launchd_liveness_scan.py", [], (1,)),
+    # watchlist-trainability, added 2026-08-24 (orch#1020, #1047). REGISTERED IN
+    # THE SAME PR that adds the detector, deliberately: codex's review of #1047
+    # pointed out that an unwired script would have allowed the identical
+    # five-day silence it exists to end — which is this aggregator's founding
+    # finding (#723, "merged with no caller") committed one more time. The
+    # detector is read-only: it parses two configs and one declaration file.
+    # Exit 1 = a served ticker that can never be scored and is not declared;
+    # exit 2 = an input that could not be read or a declaration that could not
+    # be BOUND to the run it describes, which lands UNUSABLE here — correct,
+    # because an unverifiable declaration is not an authorisation.
+    ("watchlist-trainability", "watchlist_trainability_check.py", [], (1,)),
     # ack-ledger, added 2026-08-01. MEASURED BEFORE ADDING, and it is the same finding
     # the five entries below were added for: `ack_ledger_audit.py` was merged, works, and
     # reports 11 findings against the live ledger today -- while being invoked by NOTHING

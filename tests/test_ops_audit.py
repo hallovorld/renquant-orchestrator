@@ -245,6 +245,12 @@ def test_the_cited_contract_is_the_one_in_force():
         "silent-refusal": (1,), "blind-notifiers": (1,), "ack-ledger": (1,),
         "undelivered-alerts": (1,), "import-resolution": (1,),
         "umbrella-script-shadow": (1,), "launchd-liveness": (1,),
+        # orch#1020/#1047: exit 1 = a served ticker that can never be scored and
+        # is not declared; exit 2 (unreadable input, or a declaration that cannot
+        # be BOUND to the run it describes) is deliberately NOT a finding — it
+        # lands UNUSABLE, because an unverifiable declaration is not an
+        # authorisation.
+        "watchlist-trainability": (1,),
         # Added 2026-08-01; each cited to its return line in the MEMBERS comment block.
         "gate-stamp-parity": (1,), "booster-identity": (1,),
         "bundle-producer-keys": (1,),
