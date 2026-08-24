@@ -1,0 +1,8 @@
+{
+  "_DRAFT": "OPERATOR ACT — copy to data/rq105/section_9_4_economic_authorization.json to enable PAPER mode. Placing this file is the authorization; do not automate it.",
+  "authorized": true,
+  "prereg_id": "rq105-paper-canary-prereg-v1",
+  "authorized_by": "renhao",
+  "date": "<YYYY-MM-DD of the operator's act>",
+  "economic_case": "orch#1021 measured a partial-bar decision flip (APH batch-declined 13:55, post-close re-score BUY, prod bought next day); entry-timing shadow shows delay_fixed mean +46.8 bps saved vs baseline over 10 sessions/30 names (median 0 — the tail carries it); paper mode validates the execution path at zero capital risk with the K=1 evidence floor the runner derives from this prereg_id."
+}

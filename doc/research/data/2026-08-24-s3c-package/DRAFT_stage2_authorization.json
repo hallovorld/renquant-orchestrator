@@ -1,0 +1,17 @@
+{
+  "_DRAFT": "OPERATOR ACT — copy to data/rq105/stage2_authorization.json (with real dates + your chosen canary names) for §9.3a arming. Schema: Stage2Authorization in intraday_live_executor.py.",
+  "authorized_by": "renhao",
+  "date": "<YYYY-MM-DD>",
+  "expiry": "<YYYY-MM-DD, suggest date+14d>",
+  "evidence": {
+    "shadow_sessions_clean": 13,
+    "replay_audits_green": true,
+    "entry_timing_report": "doc/research/data/2026-08-24-s3c-package/entry_timing_report.txt"
+  },
+  "daily_entry_notional_cap": 1500.0,
+  "canary_allowlist": ["<1-2 names, e.g. APH, NEM — must be a subset of any pinned-config allowlist>"],
+  "max_cumulative_loss_usd": 150.0,
+  "max_live_sessions": 10,
+  "entry_order_type": "limit",
+  "exit_order_type": "market"
+}
