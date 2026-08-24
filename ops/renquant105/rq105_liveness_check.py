@@ -130,9 +130,17 @@ def _orch_src_on_path() -> None:
     if _ops_dir not in sys.path:
         sys.path.insert(0, _ops_dir)
     from liveness_common import resolve_common_src  # noqa: PLC0415
-    c = resolve_common_src(RQ105_ORCH_ROOT)
-    if c not in sys.path:
-        sys.path.insert(0, c)
+    # Same split as liveness_common._ensure_orch_on_path: the pinned-code gate is
+    # the shell resolver this job is launched through; here we only extend the
+    # path, and only ever with the pin-verified copy — never a substitute.
+    try:
+        c = resolve_common_src(RQ105_ORCH_ROOT)
+    except Exception as exc:  # noqa: BLE001
+        print(f"rq105_liveness_check: no pin-verified renquant-common ({exc}); "
+              f"not substituting another copy", file=sys.stderr)
+    else:
+        if c not in sys.path:
+            sys.path.insert(0, c)
 
 
 

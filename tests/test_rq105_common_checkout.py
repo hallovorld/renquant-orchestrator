@@ -207,6 +207,58 @@ def test_the_source_carries_no_env_override_of_the_checkout():
 
 
 # ---------------------------------------------------------------------------
+# WHICH LAYER CARRIES THE GUARANTEE
+# ---------------------------------------------------------------------------
+
+def test_path_assembly_is_portable_but_never_substitutes(tmp_path, monkeypatch, capsys):
+    """`_ensure_orch_on_path` extends sys.path; it is NOT the fail-closed gate.
+
+    That gate is the shell resolver the scheduled jobs are launched through,
+    which refuses before any python starts. Making this function raise as well
+    looked stricter and was simply wrong: it made the module unimportable on any
+    machine without the umbrella and turned every CI job red — the operator's-disk
+    defect wearing production clothes.
+
+    The property that actually matters survives: with no pin-verified copy
+    available it adds NOTHING, so an unpinned sibling can never reach sys.path.
+    """
+    lc = _load(OPS / "liveness_common.py", "lc_portable")
+    monkeypatch.setenv("RQ_ROOT", str(tmp_path / "no-umbrella-here"))
+    # A tempting sibling, exactly where the old fallback would have looked.
+    sibling = tmp_path / "renquant-common" / "src"
+    sibling.mkdir(parents=True)
+    before = list(sys.path)
+    try:
+        lc._ensure_orch_on_path()
+        assert str(sibling) not in sys.path, "an unpinned sibling reached sys.path"
+        assert "no pin-verified renquant-common" in capsys.readouterr().err
+    finally:
+        sys.path[:] = before
+
+
+def test_path_assembly_adds_the_pinned_copy_when_it_is_there(tmp_path, monkeypatch):
+    lc = _load(OPS / "liveness_common.py", "lc_pinned")
+    rq = _fake_umbrella(tmp_path)
+    monkeypatch.setenv("RQ_ROOT", str(rq))
+    before = list(sys.path)
+    try:
+        lc._ensure_orch_on_path()
+        assert str(rq / ".subrepo_runtime" / "repos" / "renquant-common" / "src") in sys.path
+    finally:
+        sys.path[:] = before
+
+
+def test_the_shell_gate_still_refuses_where_python_tolerates(tmp_path):
+    """The asymmetry is deliberate, so pin it: same missing runtime, the shell
+    entrypoint a scheduled job goes through EXITS NON-ZERO."""
+    rq = tmp_path / "no-umbrella-here"
+    rq.mkdir()
+    proc = _run_resolver(rq)
+    assert proc.returncode != 0
+    assert "Refusing to fall back" in proc.stderr
+
+
+# ---------------------------------------------------------------------------
 # the shell entrypoint, exercised for real
 # ---------------------------------------------------------------------------
 

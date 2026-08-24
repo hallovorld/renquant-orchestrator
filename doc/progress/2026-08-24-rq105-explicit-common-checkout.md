@@ -78,7 +78,27 @@ VERIFICATION:
   Affected scope (drift / rq105 / liveness / surface / wrapper): 558 passed,
   2 skipped, 0 failed [VERIFIED 2026-08-24].
 
-  CI RED, AND WHY. The previous push failed both `test` jobs with
+  CI RED TWICE, AND THE SECOND ONE WAS THE INTERESTING ONE.
+
+  Second failure: making `liveness_common.resolve_common_src` fail closed made
+  the MODULE unimportable anywhere without the umbrella. Its `RQ_ROOT_DEFAULT`
+  is the operator's absolute path, so on CI every caller of `session_calendar()`
+  died with PinRefusal — the operator's-disk defect, this time in production
+  code rather than in a test.
+
+  The fix was to put the guarantee in the right LAYER, not to weaken it:
+   * the fail-closed gate is the SHELL resolver, which every scheduled job is
+     launched through and which exits non-zero before any python starts;
+   * `_ensure_orch_on_path` only assembles sys.path. When no pin-verified copy
+     exists it now adds NOTHING and says so on stderr, so the property that
+     matters — an unpinned sibling can never reach sys.path — holds without
+     making the module unusable off this machine.
+  `test_the_shell_gate_still_refuses_where_python_tolerates` pins the asymmetry
+  deliberately, so nobody later "fixes" the tolerance by making both strict.
+  The whole affected scope was re-run with RQ_ROOT pointing at nothing — the
+  condition that was red — and is 561 passed, 2 skipped [VERIFIED].
+
+  FIRST CI RED, AND WHY. The previous push failed both `test` jobs with
   `FileNotFoundError: /bin/zsh` — I hardcoded the operator's shell into
   subprocess tests, and the ubuntu runner has no zsh. Fixed at the source rather
   than by skipping: the resolver had used `${0:A:h}` (zsh-only, EMPTY under
