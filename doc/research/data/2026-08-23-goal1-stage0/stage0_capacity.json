@@ -1,0 +1,102 @@
+{
+  "8_integer": {
+    "sessions": 44,
+    "med_filled": 2.0,
+    "med_deployed": 0.3704210610159773,
+    "med_price_in": 221.0,
+    "med_price_out": 231.18500518798828,
+    "tilt": 1.0460859963257387,
+    "n_in": 121,
+    "n_out": 688
+  },
+  "8_fractional": {
+    "sessions": 44,
+    "med_filled": 2.0,
+    "med_deployed": 0.3982021174199909,
+    "med_price_in": 230.44000244140625,
+    "med_price_out": 229.9199981689453,
+    "tilt": 0.9977434288016328,
+    "n_in": 115,
+    "n_out": 694
+  },
+  "10_integer": {
+    "sessions": 47,
+    "med_filled": 4,
+    "med_deployed": 0.6166290450438653,
+    "med_price_in": 227.22000122070312,
+    "med_price_out": 245.10000610351562,
+    "tilt": 1.078690277206034,
+    "n_in": 191,
+    "n_out": 683
+  },
+  "10_fractional": {
+    "sessions": 47,
+    "med_filled": 4,
+    "med_deployed": 0.6399846644869953,
+    "med_price_in": 232.28499603271484,
+    "med_price_out": 230.42499542236328,
+    "tilt": 0.9919925925388241,
+    "n_in": 178,
+    "n_out": 696
+  },
+  "12_integer": {
+    "sessions": 48,
+    "med_filled": 5.0,
+    "med_deployed": 0.7023594834259773,
+    "med_price_in": 216.9749984741211,
+    "med_price_out": 261.30999755859375,
+    "tilt": 1.2043322935649683,
+    "n_in": 224,
+    "n_out": 675
+  },
+  "12_fractional": {
+    "sessions": 48,
+    "med_filled": 4.0,
+    "med_deployed": 0.7119720034676,
+    "med_price_in": 231.72999572753906,
+    "med_price_out": 230.0800018310547,
+    "tilt": 0.9928796706213883,
+    "n_in": 198,
+    "n_out": 701
+  },
+  "15_integer": {
+    "sessions": 48,
+    "med_filled": 5.0,
+    "med_deployed": 0.7136957943375666,
+    "med_price_in": 212.63999938964844,
+    "med_price_out": 262.9599914550781,
+    "tilt": 1.2366440566679164,
+    "n_in": 232,
+    "n_out": 667
+  },
+  "15_fractional": {
+    "sessions": 48,
+    "med_filled": 4.0,
+    "med_deployed": 0.7290125107474695,
+    "med_price_in": 231.67999267578125,
+    "med_price_out": 230.25,
+    "tilt": 0.9938277247885517,
+    "n_in": 201,
+    "n_out": 698
+  },
+  "20_integer": {
+    "sessions": 48,
+    "med_filled": 5.0,
+    "med_deployed": 0.7148426124457117,
+    "med_price_in": 212.36000061035156,
+    "med_price_out": 263.5500030517578,
+    "tilt": 1.2410529397922359,
+    "n_in": 233,
+    "n_out": 666
+  },
+  "20_fractional": {
+    "sessions": 48,
+    "med_filled": 4.0,
+    "med_deployed": 0.7290125107474695,
+    "med_price_in": 231.67999267578125,
+    "med_price_out": 230.25,
+    "tilt": 0.9938277247885517,
+    "n_in": 201,
+    "n_out": 698
+  }
+}
