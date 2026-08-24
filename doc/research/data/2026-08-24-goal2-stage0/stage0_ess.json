@@ -1,0 +1,413 @@
+{
+  "core_lanes": [
+    "alpaca_shadow_blend",
+    "alpaca_shadow_blend_mom",
+    "alpaca_shadow_blend_rb_mom"
+  ],
+  "historical_single_scorer_reference": {
+    "ess": {
+      "h=10": {
+        "labeled_dates": 64,
+        "n_eff": 8
+      },
+      "h=20": {
+        "labeled_dates": 54,
+        "n_eff": 4
+      },
+      "h=5": {
+        "labeled_dates": 69,
+        "n_eff": 15
+      },
+      "h=60": {
+        "labeled_dates": 24,
+        "n_eff": 1
+      }
+    },
+    "provenance": {
+      "dates_before_filter": 634,
+      "dates_excluded_by_provenance": 560,
+      "dates_selected": 74,
+      "digest_covers": [
+        "run_date",
+        "run_id",
+        "run_type",
+        "strategy",
+        "panel_score_present"
+      ],
+      "n_run_ids": 146,
+      "predicate": "run_type='live' AND strategy='renquant-104' AND candidate_scores.panel_score IS NOT NULL",
+      "run_ids": [
+        "2026-04-22-live-575a8611",
+        "2026-04-22-live-8539e855",
+        "2026-04-23-live-0d2fcf61",
+        "2026-04-23-live-10ae1e1b",
+        "2026-04-23-live-15024c07",
+        "2026-04-23-live-2473b6b1",
+        "2026-04-23-live-275efe7e",
+        "2026-04-23-live-2c6c7315",
+        "2026-04-23-live-4cbc82d3",
+        "2026-04-23-live-6e83f90f",
+        "2026-04-23-live-88feeea5",
+        "2026-04-23-live-dfafdc22",
+        "2026-04-24-live-0e847f30",
+        "2026-04-24-live-97e3ca55",
+        "2026-04-24-live-e8cb98dc",
+        "2026-04-25-live-0ee1389f",
+        "2026-04-25-live-1f22ef9a",
+        "2026-04-25-live-24abba4f",
+        "2026-04-25-live-7393cc43",
+        "2026-04-25-live-eb61dde9",
+        "2026-04-26-live-4eb326a0",
+        "2026-04-26-live-554cbc74",
+        "2026-04-26-live-7d3d7c37",
+        "2026-04-26-live-aa94fcd9",
+        "2026-04-26-live-c4bf2cf3",
+        "2026-04-26-live-ed955a01",
+        "2026-04-27-live-1085e806",
+        "2026-04-27-live-d3240cf2",
+        "2026-04-27-live-da1f03ba",
+        "2026-04-27-live-e4b284f7",
+        "2026-04-29-live-b61a4c03",
+        "2026-04-29-live-cc67bbd2",
+        "2026-04-30-live-0a9e7cf3",
+        "2026-04-30-live-f308bf3e",
+        "2026-05-01-live-b6f52d87",
+        "2026-05-03-live-860c171b",
+        "2026-05-03-live-baeb1770",
+        "2026-05-04-live-47a6034a",
+        "2026-05-06-live-84aa13a7",
+        "2026-05-08-live-4c9e53e5",
+        "2026-05-08-live-5afe02ce",
+        "2026-05-08-live-abfd9673",
+        "2026-05-08-live-f1025e21",
+        "2026-05-09-live-12f56025",
+        "2026-05-09-live-1d6f7518",
+        "2026-05-09-live-1fb47df1",
+        "2026-05-09-live-3df3c078",
+        "2026-05-09-live-5ee918ce",
+        "2026-05-09-live-7621615e",
+        "2026-05-09-live-bc36f3c9",
+        "2026-05-12-live-99b35be9",
+        "2026-05-13-live-28cd4b3c",
+        "2026-05-14-live-1885c20c",
+        "2026-05-15-live-45ce9a07",
+        "2026-05-17-live-2eb948df",
+        "2026-05-17-live-9eb3e363",
+        "2026-05-17-live-c484875b",
+        "2026-05-18-live-53ae6b87",
+        "2026-05-18-live-bafc1ea8",
+        "2026-05-18-live-d2ae1948",
+        "2026-05-19-live-7165ae82",
+        "2026-05-20-live-1cf1b6e5",
+        "2026-05-20-live-2858f63b",
+        "2026-05-20-live-56e526a1",
+        "2026-05-20-live-9694f79f",
+        "2026-05-20-live-a543eb33",
+        "2026-05-21-live-b2d754d0",
+        "2026-05-22-live-ff554178",
+        "2026-05-30-live-0a4b06a7",
+        "2026-05-30-live-32f2b435",
+        "2026-05-30-live-43e5dcd7",
+        "2026-05-30-live-4cbb2c2c",
+        "2026-05-30-live-87d2171f",
+        "2026-05-30-live-91edfc9c",
+        "2026-05-30-live-cb1fd5de",
+        "2026-05-30-live-de5d05b5",
+        "2026-05-30-live-f113015b",
+        "2026-05-30-live-f8a0736f",
+        "2026-06-01-live-002d5971",
+        "2026-06-01-live-57b22252",
+        "2026-06-01-live-84c3b0cb",
+        "2026-06-01-live-87e6abd6",
+        "2026-06-01-live-a5c209a1",
+        "2026-06-01-live-ac43dd31",
+        "2026-06-01-live-bcc8f6cc",
+        "2026-06-01-live-e13444ee",
+        "2026-06-02-live-237c90a5",
+        "2026-06-03-live-2b917827",
+        "2026-06-04-live-38548bd0",
+        "2026-06-09-live-70c90efc",
+        "2026-06-09-live-b92892f6",
+        "2026-06-10-live-c2bf522c",
+        "2026-06-11-live-f68231b0",
+        "2026-06-22-live-c26c0042",
+        "2026-06-23-live-59c11399",
+        "2026-06-23-live-844746ad",
+        "2026-06-24-live-710e3805",
+        "2026-06-25-live-6c3aa3fa",
+        "2026-06-26-live-3d74ce5c",
+        "2026-06-29-live-0534845a",
+        "2026-06-29-live-5970796e",
+        "2026-06-29-live-de32ecf4",
+        "2026-06-30-live-b616357c",
+        "2026-06-30-live-eb6b4031",
+        "2026-07-01-live-01c54b39",
+        "2026-07-02-live-85496d1c",
+        "2026-07-06-live-ebb9c2ca",
+        "2026-07-07-live-dc2a3247",
+        "2026-07-08-live-369734c3",
+        "2026-07-09-live-40e2dbd0",
+        "2026-07-10-live-6f9d5284",
+        "2026-07-13-live-d250791e",
+        "2026-07-16-live-a24a8be1",
+        "2026-07-17-live-41b03289",
+        "2026-07-20-live-54ea6604",
+        "2026-07-21-live-fd5949f9",
+        "2026-07-22-live-79dbf668",
+        "2026-07-23-live-0113fd5f",
+        "2026-07-24-live-4281dc85",
+        "2026-07-27-live-e548dd21",
+        "2026-07-28-live-5b859fff",
+        "2026-07-28-live-6194047c",
+        "2026-07-28-live-be8ee266",
+        "2026-07-29-live-34603e64",
+        "2026-07-30-live-7521e521",
+        "2026-07-31-live-381747dd",
+        "2026-08-03-live-ff1f674a",
+        "2026-08-04-live-2f5d92df",
+        "2026-08-04-live-9e502d92",
+        "2026-08-04-live-a199b993",
+        "2026-08-05-live-2d99f969",
+        "2026-08-06-live-6463d2cc",
+        "2026-08-06-live-7902b1ea",
+        "2026-08-06-live-b01e4201",
+        "2026-08-06-live-de94bd1a",
+        "2026-08-07-live-1e3a1fb0",
+        "2026-08-10-live-631d30f6",
+        "2026-08-11-live-232af082",
+        "2026-08-12-live-13647888",
+        "2026-08-13-live-d4652c00",
+        "2026-08-14-live-d6ff044b",
+        "2026-08-17-live-47422b48",
+        "2026-08-18-live-6afbd72d",
+        "2026-08-19-live-33134329",
+        "2026-08-20-live-5b34a562",
+        "2026-08-21-live-933658ce"
+      ],
+      "selection_sha256": "69932db9eb8583a42b526389e64f90af97007f5642c5ca2bc4799db6d3343be2"
+    }
+  },
+  "kill_bar": 12,
+  "label_availability": {
+    "note": "ESS = |selected_dates & labeled_dates|, so a backfill here moves n_eff without touching any selection digest \u2014 digested per horizon for that reason",
+    "per_horizon": {
+      "h=10": {
+        "field": "fwd_10d IS NOT NULL",
+        "labeled_dates_sha256": "c5d7c0712042cc55e1b237ed791c2c409be3031bfc8bc6af4cbb5f743f8f2655",
+        "n_label_dates": 640,
+        "range": [
+          "2024-01-02",
+          "2026-08-07"
+        ]
+      },
+      "h=20": {
+        "field": "fwd_20d IS NOT NULL",
+        "labeled_dates_sha256": "79f00f01fe95e4acf3a622c1c07accd56423a1713415896a9bd04cf2109dbc07",
+        "n_label_dates": 630,
+        "range": [
+          "2024-01-02",
+          "2026-07-24"
+        ]
+      },
+      "h=5": {
+        "field": "fwd_5d IS NOT NULL",
+        "labeled_dates_sha256": "40c1f9f0d3c41cec418ce521cf9d47693b6950f9673934c20277edbe5efb33db",
+        "n_label_dates": 645,
+        "range": [
+          "2024-01-02",
+          "2026-08-14"
+        ]
+      },
+      "h=60": {
+        "field": "fwd_60d IS NOT NULL",
+        "labeled_dates_sha256": "69c58f6228b1fd1b31850da1fdac53276e39aa2a7053da8b7afe0508290f5923",
+        "n_label_dates": 589,
+        "range": [
+          "2024-01-02",
+          "2026-05-27"
+        ]
+      }
+    },
+    "source": "runs.alpaca.db::ticker_forward_returns"
+  },
+  "lane_coverage": {
+    "alpaca_shadow_blend": {
+      "n_dates": 19,
+      "provenance": {
+        "dates_before_filter": 19,
+        "dates_excluded_by_provenance": 0,
+        "dates_selected": 19,
+        "digest_covers": [
+          "run_date",
+          "run_id",
+          "run_type",
+          "strategy",
+          "panel_score_present"
+        ],
+        "n_run_ids": 28,
+        "predicate": "run_type='live' AND strategy='renquant-104' AND candidate_scores.panel_score IS NOT NULL",
+        "run_ids": [
+          "2026-07-28-live-735c7e9b",
+          "2026-07-28-live-aaa6bd3f",
+          "2026-07-29-live-a68df3f8",
+          "2026-07-30-live-ce5fa504",
+          "2026-07-31-live-8aa713e5",
+          "2026-08-03-live-9375cbac",
+          "2026-08-03-live-9887b62a",
+          "2026-08-03-live-d66b21c1",
+          "2026-08-04-live-70397d12",
+          "2026-08-04-live-954ffab5",
+          "2026-08-04-live-de57b5a7",
+          "2026-08-05-live-9c15b912",
+          "2026-08-05-live-a981a491",
+          "2026-08-06-live-41817c2a",
+          "2026-08-06-live-45dd3972",
+          "2026-08-06-live-800d77f0",
+          "2026-08-06-live-c1cf566b",
+          "2026-08-07-live-58872897",
+          "2026-08-10-live-9324c9af",
+          "2026-08-11-live-9ca4d307",
+          "2026-08-12-live-096dc1f0",
+          "2026-08-13-live-1cbca6b5",
+          "2026-08-14-live-b6c755b0",
+          "2026-08-17-live-253d6ca6",
+          "2026-08-18-live-2bbe3418",
+          "2026-08-19-live-839ca690",
+          "2026-08-20-live-7fe3a1cb",
+          "2026-08-21-live-037884d6"
+        ],
+        "selection_sha256": "fdb337009f731f6238ca0358ba31cdd9c8549057b992ca9adb6e52e7d3648301"
+      },
+      "range": [
+        "2026-07-28",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_mom": {
+      "n_dates": 14,
+      "provenance": {
+        "dates_before_filter": 14,
+        "dates_excluded_by_provenance": 0,
+        "dates_selected": 14,
+        "digest_covers": [
+          "run_date",
+          "run_id",
+          "run_type",
+          "strategy",
+          "panel_score_present"
+        ],
+        "n_run_ids": 20,
+        "predicate": "run_type='live' AND strategy='renquant-104' AND candidate_scores.panel_score IS NOT NULL",
+        "run_ids": [
+          "2026-08-04-live-08638b72",
+          "2026-08-04-live-2b1feb08",
+          "2026-08-04-live-42a1aec4",
+          "2026-08-05-live-0f216cbb",
+          "2026-08-05-live-bd569876",
+          "2026-08-06-live-1ae5e6c2",
+          "2026-08-06-live-4176f084",
+          "2026-08-06-live-af72c875",
+          "2026-08-06-live-fa9277f0",
+          "2026-08-07-live-2cecf2d2",
+          "2026-08-10-live-1687810a",
+          "2026-08-11-live-46fda1cf",
+          "2026-08-12-live-b16a8f09",
+          "2026-08-13-live-6e50697d",
+          "2026-08-14-live-542f6363",
+          "2026-08-17-live-d6547f1b",
+          "2026-08-18-live-f22fc03e",
+          "2026-08-19-live-dc0c82f9",
+          "2026-08-20-live-0ff42812",
+          "2026-08-21-live-0d294322"
+        ],
+        "selection_sha256": "df5911f210cad6d5df19cdd112897d6b0b9901edad72d9410a185d921dded888"
+      },
+      "range": [
+        "2026-08-04",
+        "2026-08-21"
+      ]
+    },
+    "alpaca_shadow_blend_rb_mom": {
+      "n_dates": 14,
+      "provenance": {
+        "dates_before_filter": 14,
+        "dates_excluded_by_provenance": 0,
+        "dates_selected": 14,
+        "digest_covers": [
+          "run_date",
+          "run_id",
+          "run_type",
+          "strategy",
+          "panel_score_present"
+        ],
+        "n_run_ids": 18,
+        "predicate": "run_type='live' AND strategy='renquant-104' AND candidate_scores.panel_score IS NOT NULL",
+        "run_ids": [
+          "2026-08-04-live-46d9f612",
+          "2026-08-05-live-26e69854",
+          "2026-08-05-live-a624adb4",
+          "2026-08-06-live-40b60eba",
+          "2026-08-06-live-b4d8a473",
+          "2026-08-06-live-cad8e7f7",
+          "2026-08-06-live-eadf8c23",
+          "2026-08-07-live-f131ba98",
+          "2026-08-10-live-5c25e018",
+          "2026-08-11-live-1e75cc21",
+          "2026-08-12-live-44317473",
+          "2026-08-13-live-20961ec5",
+          "2026-08-14-live-f14c90a5",
+          "2026-08-17-live-6afe8f43",
+          "2026-08-18-live-afca788a",
+          "2026-08-19-live-037fad14",
+          "2026-08-20-live-dbb6f52a",
+          "2026-08-21-live-03150188"
+        ],
+        "selection_sha256": "1677fb0ada86b157c7f4e93b77f7d16cc02b84b64a1b4d9c804912ca24cdad8e"
+      },
+      "range": [
+        "2026-08-04",
+        "2026-08-21"
+      ]
+    }
+  },
+  "lane_identity": {
+    "core_lanes_required": [
+      "alpaca_shadow_blend",
+      "alpaca_shadow_blend_mom",
+      "alpaca_shadow_blend_rb_mom"
+    ],
+    "other_shadow_dbs_present": {
+      "alpaca_shadow": 40,
+      "alpaca_shadow_blend_mom_fast": 4,
+      "alpaca_shadow_blend_rb_fast": 4,
+      "alpaca_shadow_vol_window": 4
+    },
+    "source": "DB FILE PATH \u2014 pipeline_runs has no lane/tag column, and model_content_sha256 is shared across lanes (one sha spans 7 lane DBs), so no in-band lane identity exists in this schema"
+  },
+  "meta_panel": {
+    "ess": {
+      "h=10": {
+        "labeled_dates": 4,
+        "n_eff": 1
+      },
+      "h=20": {
+        "labeled_dates": 0,
+        "n_eff": 0
+      },
+      "h=5": {
+        "labeled_dates": 9,
+        "n_eff": 2
+      },
+      "h=60": {
+        "labeled_dates": 0,
+        "n_eff": 0
+      }
+    },
+    "multi_leg_dates": 14,
+    "range": [
+      "2026-08-04",
+      "2026-08-21"
+    ]
+  },
+  "verdict": "KILL (per the frozen design bar): meta-panel n_eff=0 at h=60 (< 12). Best-case ceiling if all LIVE history were re-scored per leg: 1 \u2014 ALSO below the bar. Stage 1 is not run. The ceiling counts only live, strategy-named runs (74 dates; 560 excluded by provenance, overwhelmingly sim); an unfiltered count would inflate it and is not a 104 re-score history."
+}
