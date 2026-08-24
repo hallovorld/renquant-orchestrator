@@ -61,10 +61,13 @@ from .runtime_paths import (
 GITHUB = default_github_root()
 DEFAULT_REPO_ROOT = default_repo_root()
 DEFAULT_DATA_DIR = DEFAULT_REPO_ROOT / "data"
-DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+_cands = default_strategy_config_candidates(
     repo_root=DEFAULT_REPO_ROOT,
     github_root=GITHUB,
 )
+# orch#1041: the candidate list grew (pinned runtime leads); primary = first,
+# umbrella legacy = LAST. A fixed-pair unpack breaks when the tuple grows.
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = _cands[0], _cands[-1]
 
 
 # ────────────────────────────────────────────────────────────────────────────────

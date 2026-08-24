@@ -152,10 +152,14 @@ DEFAULT_REPO_DIR = default_repo_root()
 _REQUIRED_REPO_PATHS = [
     Path("data"),
 ]
-DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+_cands = default_strategy_config_candidates(
     repo_root=DEFAULT_REPO_DIR,
     github_root=GITHUB,
 )
+# orch#1041: the candidate list grew (pinned runtime now leads); primary is
+# the first candidate and the umbrella legacy fallback is the LAST — unpacking
+# a fixed pair broke when the tuple grew, which CI caught.
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = _cands[0], _cands[-1]
 
 
 @dataclass

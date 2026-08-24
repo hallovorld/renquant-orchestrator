@@ -1326,7 +1326,7 @@ def build_context(args: argparse.Namespace) -> ModelFreshnessContext:
     ).expanduser().resolve()
     strategy_config = (
         args.strategy_config
-        or default_strategy_config_candidates(repo_root=repo_root, github_root=github_root)[1]
+        or default_strategy_config_candidates(repo_root=repo_root, github_root=github_root)[-1]  # umbrella legacy = LAST (orch#1041: the list grew; [1] silently became the sibling)
     ).expanduser().resolve()
     promote_receipt_dir = (
         args.promote_receipt_dir or default_promote_receipt_dir(repo_root)

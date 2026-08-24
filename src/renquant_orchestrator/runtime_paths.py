@@ -75,10 +75,18 @@ def default_strategy_config_candidates(
     *,
     repo_root: Path | None = None,
     github_root: Path | None = None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, ...]:
     github = github_root or default_github_root()
     repo = repo_root or default_repo_root()
+    # orch#1041: the PINNED runtime copy leads. The sibling checkout is a
+    # MUTABLE dev tree — preferring it meant every activated intraday session
+    # ran under whatever the dev checkout happened to contain (measured:
+    # manifests fingerprint the sibling's config; the pinned copy was not
+    # even a candidate). Sibling and umbrella remain as migration fallbacks
+    # for callers with no pinned runtime on disk; the scheduler wrapper
+    # additionally passes the pinned path explicitly and fails closed.
     return (
+        repo / ".subrepo_runtime" / "repos" / "renquant-strategy-104" / "configs" / "strategy_config.json",
         github / "renquant-strategy-104" / "configs" / "strategy_config.json",
         repo / "backtesting" / "renquant_104" / "strategy_config.json",
     )
