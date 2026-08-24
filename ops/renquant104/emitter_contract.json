@@ -9,25 +9,25 @@
     "local test detects drift between this contract and the live wrapper; the local",
     "source pin is an ADDITIONAL check, not the proof."
   ],
-  "captured": "2026-08-18 | re-captured for orch#1006: 4 measured classification defects \u2014 new failure/refusal rows + line pins after RQ#799 blend-reference block",
+  "captured": "2026-08-24 | re-captured RenQuant#603/#604: exit-code-derived 'chain complete'/'PASS' replaced with positive outcome vocabulary (PROMOTED / RAN, NOTHING PROMOTED / FAILED / OUTCOME UNVERIFIED) classified from the child's own markers; orch#1052",
   "wrappers": {
-    "scripts/weekly_wf_promote.sh": "7123cf8d4a56a787",
-    "scripts/conditional_retrain_104.sh": "ddaf80955602752e",
-    "scripts/retrain_panel.sh": "d97d9686fe434641"
+    "scripts/weekly_wf_promote.sh": "63c3d1ac70f06ea9",
+    "scripts/conditional_retrain_104.sh": "eedeba2155907596",
+    "scripts/retrain_panel.sh": "b37cf748a83182d6"
   },
   "lines": [
     {
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote PASSED at $(date) \u2014 $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:699",
+      "source": "scripts/weekly_wf_promote.sh:714",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote FALLBACK-PROMOTED (rfc210) at $(date) \u2014 $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:695",
+      "source": "scripts/weekly_wf_promote.sh:710",
       "observed_in_logs": false,
       "_comment": "RFC#210 freshness-fallback action (RenQuant#559 Step 4b): the served artifact CHANGED, so the sentinel counts it as ACTION \u2014 a fallback promotion clearing the streak is the #101 design, not a relaxation."
     },
@@ -35,7 +35,7 @@
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote FALLBACK-PROMOTED (rfc210) at $(date) \u2014 $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:362",
+      "source": "scripts/weekly_wf_promote.sh:377",
       "observed_in_logs": false,
       "_comment": "RFC#210 freshness-fallback action (RenQuant#559 Step 4b): the served artifact CHANGED, so the sentinel counts it as ACTION \u2014 a fallback promotion clearing the streak is the #101 design, not a relaxation.",
       "_dual_source_note": "RQ#566: the identical template fires from the --promote-staged operator mode; same action semantics, same sentinel pattern"
@@ -44,14 +44,14 @@
       "job": "weekly-wf-promote",
       "kind": "refusal",
       "template": "WF gate REJECTED staged model \u2014 production unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:501",
+      "source": "scripts/weekly_wf_promote.sh:516",
       "observed_in_logs": "logs/weekly_wf_promote/2026-08-01.log"
     },
     {
       "job": "weekly-wf-promote",
       "kind": "refusal",
       "template": "RFC#210 fallback verdict: REFUSE \u2014 production unchanged. See $FALLBACK_JSON",
-      "source": "scripts/weekly_wf_promote.sh:494",
+      "source": "scripts/weekly_wf_promote.sh:509",
       "observed_in_logs": "logs/weekly_wf_promote/2026-08-04.log",
       "_comment": "orch#1006/D1: the freshness fallback's own refusal verdict. Today it is always followed by the REJECTED line, but the watch must not rest on that coupling."
     },
@@ -59,14 +59,14 @@
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Promote FAILED \u2014 production may still be on prior model or .previous rollback target.",
-      "source": "scripts/weekly_wf_promote.sh:640",
+      "source": "scripts/weekly_wf_promote.sh:655",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Training FAILED \u2014 production artifact unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:419",
+      "source": "scripts/weekly_wf_promote.sh:434",
       "observed_in_logs": "logs/weekly_wf_promote/2026-07-31.log",
       "_comment": "orch#1006/D4: 12 logs end on this line and matched NOTHING, so 8 real Step-3 failures classified `undecided` and were dropped from the streak tally."
     },
@@ -74,58 +74,86 @@
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Training FAILED \u2014 staging artifacts missing.",
-      "source": "scripts/weekly_wf_promote.sh:424",
+      "source": "scripts/weekly_wf_promote.sh:439",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "WF manifest stamping/recipe validation FAILED \u2014 production unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:449",
+      "source": "scripts/weekly_wf_promote.sh:464",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Fallback promote FAILED \u2014 production may still be on prior model or .previous rollback target.",
-      "source": "scripts/weekly_wf_promote.sh:544",
+      "source": "scripts/weekly_wf_promote.sh:559",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Smoke test FAILED \u2014 aborting weekly promote (no train).",
-      "source": "scripts/weekly_wf_promote.sh:277",
+      "source": "scripts/weekly_wf_promote.sh:292",
       "observed_in_logs": "logs/weekly_wf_promote/2026-06-06.log",
       "_comment": "orch#1006/D3: an ABORT, not a decision (WatchedJob.abort_re). It stays a `failed` outcome, but it must not suppress the crash verdict for the SIGSEGV it is reporting."
     },
     {
       "job": "conditional-retrain104",
       "kind": "action",
-      "template": "=== Gated WF promote chain complete ($TRIGGER) at $(date) ===",
-      "source": "scripts/conditional_retrain_104.sh:105",
+      "template": "=== Gated WF promote chain PROMOTED ($TRIGGER) at $(date) \u2014 ${CHAIN_WHY} ===",
+      "source": "scripts/conditional_retrain_104.sh:147",
+      "observed_in_logs": false
+    },
+    {
+      "job": "conditional-retrain104",
+      "kind": "action",
+      "template": "=== Gated WF promote chain RAN, NOTHING PROMOTED ($TRIGGER) at $(date) \u2014 ${CHAIN_WHY:-refused} ===",
+      "source": "scripts/conditional_retrain_104.sh:151",
       "observed_in_logs": false
     },
     {
       "job": "conditional-retrain104",
       "kind": "failure",
-      "template": "=== Gated WF promote chain FAILED ($TRIGGER) at $(date) ===",
-      "source": "scripts/conditional_retrain_104.sh:108",
-      "observed_in_logs": "logs/conditional_retrain_104/2026-07-31.log"
+      "template": "=== Gated WF promote chain FAILED ($TRIGGER) at $(date) \u2014 rc=$CHAIN_RC ===",
+      "source": "scripts/conditional_retrain_104.sh:158",
+      "observed_in_logs": false
+    },
+    {
+      "job": "conditional-retrain104",
+      "kind": "failure",
+      "template": "=== Gated WF promote chain OUTCOME UNVERIFIED ($TRIGGER) at $(date) ===",
+      "source": "scripts/conditional_retrain_104.sh:163",
+      "observed_in_logs": false
     },
     {
       "job": "retrain-panel104",
       "kind": "action",
-      "template": "=== retrain_panel delegated weekly_wf_promote PASS at $(date) ===",
-      "source": "scripts/retrain_panel.sh:72",
+      "template": "=== retrain_panel delegated weekly_wf_promote PROMOTED at $(date) \u2014 ${RP_WHY} ===",
+      "source": "scripts/retrain_panel.sh:94",
+      "observed_in_logs": false
+    },
+    {
+      "job": "retrain-panel104",
+      "kind": "action",
+      "template": "=== retrain_panel delegated weekly_wf_promote RAN, NOTHING PROMOTED at $(date) \u2014 ${RP_WHY:-refused} ===",
+      "source": "scripts/retrain_panel.sh:98",
       "observed_in_logs": false
     },
     {
       "job": "retrain-panel104",
       "kind": "failure",
-      "template": "=== retrain_panel delegated weekly_wf_promote FAIL at $(date) ===",
-      "source": "scripts/retrain_panel.sh:75",
-      "observed_in_logs": "logs/retrain_panel/2026-07-26.log"
+      "template": "=== retrain_panel delegated weekly_wf_promote FAILED at $(date) \u2014 rc=$RP_RC ===",
+      "source": "scripts/retrain_panel.sh:103",
+      "observed_in_logs": false
+    },
+    {
+      "job": "retrain-panel104",
+      "kind": "failure",
+      "template": "=== retrain_panel delegated weekly_wf_promote OUTCOME UNVERIFIED at $(date) ===",
+      "source": "scripts/retrain_panel.sh:115",
+      "observed_in_logs": false
     }
   ]
 }

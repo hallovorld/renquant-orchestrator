@@ -331,9 +331,18 @@ WATCHED: tuple[WatchedJob, ...] = (
         # as SKIP, not as a refusal streak. Measured 2026-08-01: 59 dated logs, 22
         # trigger-fired, 22 chain FAILED, 0 completed.
         refusal_re=None,
-        # emitter: scripts/conditional_retrain_104.sh:105
-        action_re=r"Gated WF promote chain complete",
-        failure_re=r"Gated WF promote chain FAILED|Trigger check FAILED",
+        # emitter: scripts/conditional_retrain_104.sh:147/151 (RenQuant#603/#604,
+        # orch#1052 re-pin): "chain complete" was an exit-code echo that read
+        # CALM_FRESH refusals as success; the wrapper now names the outcome it
+        # POSITIVELY established from the child's own markers. Both PROMOTED and
+        # RAN, NOTHING PROMOTED are completed decisions (the gate declining is
+        # the gate working), so both count as action here.
+        action_re=r"Gated WF promote chain (PROMOTED|RAN, NOTHING PROMOTED)",
+        # OUTCOME UNVERIFIED is the wrapper reporting its own contract drifted
+        # (exit 2) — a failure to establish, never an action and never silence.
+        failure_re=(r"Gated WF promote chain FAILED"
+                    r"|Gated WF promote chain OUTCOME UNVERIFIED"
+                    r"|Trigger check FAILED"),
         # D1: this line is printed off `if bash scripts/weekly_wf_promote.sh`
         # — the CHILD'S EXIT CODE — and the child now exits 0 on a CALM_FRESH
         # refusal. Corroborate against what the child itself printed.
@@ -350,9 +359,15 @@ WATCHED: tuple[WatchedJob, ...] = (
         # PASS/FAIL; "already ran today" is a SKIP. Measured 2026-08-01: 19 dated
         # logs, 7 delegated runs, 7 FAIL, 0 PASS.
         refusal_re=None,
-        # emitter: scripts/retrain_panel.sh:72
-        action_re=r"delegated weekly_wf_promote PASS",
-        failure_re=r"delegated weekly_wf_promote FAIL",
+        # emitter: scripts/retrain_panel.sh:94/98 (RenQuant#603/#604, orch#1052
+        # re-pin — same reasoning as conditional-retrain104 above).
+        action_re=r"delegated weekly_wf_promote (PROMOTED|RAN, NOTHING PROMOTED)",
+        # FAIL(ED)? deliberately matches the RETIRED pre-#603 "FAIL" line too:
+        # historical logs in the scan window keep classifying as the honest
+        # failures they were. Only the retired SUCCESS vocabulary is dropped —
+        # that is the half that lied.
+        failure_re=(r"delegated weekly_wf_promote FAIL(ED)?"
+                    r"|delegated weekly_wf_promote OUTCOME UNVERIFIED"),
         # D1: same shape as conditional-retrain104 — the PASS echo is the
         # child's exit code wearing the delegator's vocabulary.
         corroborator=Corroborator(
