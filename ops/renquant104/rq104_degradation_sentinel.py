@@ -45,6 +45,7 @@ import datetime as dt
 import json
 import math
 import os
+import pathlib
 import re
 import sqlite3
 import subprocess
@@ -420,6 +421,33 @@ ACK_LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "sentinel_acks.json")
 
 
+def designed_exit_meaning(label: str, code: int | None):
+    """``(meaning, source, token, actionable)`` for a DESIGNED exit, else None.
+
+    Reuses ``ops/agent_inbox.py``'s ``DESIGNED_EXIT_CODES`` rather than keeping a
+    second copy. That map is not a comment: ``tests/test_agent_inbox.py`` re-greps
+    every source file it cites and fails when a wrapper's contract moves, so it is
+    the only list here that cannot quietly rot. A private duplicate would rot by
+    exactly the mechanism this split exists to defeat.
+
+    Import failure returns None for EVERY job, i.e. everything becomes UNKNOWN and
+    stays LOUD. That direction is deliberate: losing the map must make this alarm
+    noisier, never quieter. An exception here would be a monitor that goes silent
+    because its own dependency broke.
+    """
+    if code is None:
+        return None
+    try:
+        import sys as _sys  # noqa: PLC0415
+        _ops = str(pathlib.Path(__file__).resolve().parents[1])
+        if _ops not in _sys.path:
+            _sys.path.insert(0, _ops)
+        from agent_inbox import DESIGNED_EXIT_CODES, _job_suffix  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        return None
+    return DESIGNED_EXIT_CODES.get(_job_suffix(label), {}).get(code)
+
+
 def parse_exit_code(job: str) -> int | None:
     """``'<label> (last exit <n>)'`` -> ``n``, else ``None``.
 
@@ -562,9 +590,35 @@ def check_launchd_exits(today: dt.date | None = None) -> tuple[str | None, list[
     today = today or dt.date.today()
     for job in sorted(failures):
         name = job.split(" ")[0]
+        code = parse_exit_code(job)
+        designed = designed_exit_meaning(name, code)
+        # THE SPLIT (orch#1011). Before this, nine jobs rendered as nine
+        # identical `(last exit N)` strings and the operator had to know, from
+        # memory, which numbers meant "I found something" and which meant "I
+        # crashed". They read as nine failures; on 2026-08-08 and 08-15 a
+        # genuinely dead promote chain sat inside that list for 14 days.
+        #
+        # `actionable=False` is a job REPORTING (agent_inbox's own words: the
+        # code's meaning is known, and it is not a problem). It does not belong
+        # in an alarm at all — it moves to infos.
+        if designed is not None and not designed[3]:
+            infos.append(
+                f"designed status report: {job} — {designed[0]} "
+                f"[contract: {designed[1]} :: {designed[2]}]"
+            )
+            continue
         ack = acks.get(name)
         if not ack:
-            loud.append(job)
+            # Still loud, but no longer a bare number. Either the code's
+            # documented meaning IS the problem, or there is no documented
+            # meaning — and saying which is the whole point.
+            if designed is not None:
+                loud.append(f"{job} [{designed[0]}; contract: {designed[1]}]")
+            else:
+                loud.append(
+                    f"{job} [NO DOCUMENTED MEANING for exit {code} — unknown by "
+                    f"construction, needs a human]"
+                )
             continue
         if not ack_covers_exit(ack, job):
             # The job IS acked -- but not for THIS exit code. Before this check
