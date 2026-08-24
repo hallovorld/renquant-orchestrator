@@ -189,6 +189,7 @@
     "shadow_ab_epoch_telemetry",
     "shadow_ab_runner",
     "shadow_realtime_serving",
+    "shadow_serving_pinned",
     "sign_laundering_harness",
     "signal_pipeline_config",
     "software_stop",

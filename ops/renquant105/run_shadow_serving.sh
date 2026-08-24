@@ -107,7 +107,25 @@ PY="$RQ_ROOT/.venv/bin/python"
 RQ105_OPS_DIR="$(dirname "$0")"
 . "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
+# S3-b (orch#1052): the pinned blend scorer loads through the PINNED
+# renquant-pipeline (load_blend_scorer does the fail-closed pin verification —
+# one shared definition, not re-implemented here), so pipeline joins the path.
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_ROOT/.subrepo_runtime/repos/renquant-pipeline/src"
+# S3-b: the scorer's config identity comes from the PINNED strategy-104
+# checkout, verified lock+HEAD+bytes — the same rq105_pinned_common contract
+# the session scheduler uses (orch#1041). Refusal = stop, page-free skip is
+# wrong here: an unverifiable config is a broken deploy, not a calm state.
+if ! PINNED_STRATEGY_CONFIG=$("$PY" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+      --rq-root "$RQ_ROOT" --subrepo renquant-strategy-104 \
+      --verify-file configs/strategy_config.json 2>> "$LOG_DIR/shadow_serving_$TS.log"); then
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving FAILED — pinned strategy-config verification refused ($TS)" \
+    "rq105_pinned_common --verify-file refused (orch#1041); see logs/rq105/shadow_serving_$TS.log" || true
+  echo "FATAL: pinned strategy-config verification refused (orch#1041)" \
+    >> "$LOG_DIR/shadow_serving_$TS.log"
+  exit 1
+fi
+STRATEGY_DIR="$RQ_ROOT/backtesting/renquant_104"
 # Verify the on-disk bundle is genuinely today's, sourced from the correct
 # prior session, and unmodified before trusting it — session_date match +
 # source_run_date match against the real prior NYSE session + score-content-
@@ -126,7 +144,12 @@ RUN_ID=$(python3 -c "import json;print(json.load(open('$META'))['run_id'])")
 RC_TOTAL=0
 for T in 10:00 12:00 14:00 15:30; do
   AS_OF=$("$PY" -c "import datetime,zoneinfo; h,m='${T}'.split(':'); print(datetime.datetime.combine(datetime.date.today(), datetime.time(int(h),int(m)), tzinfo=zoneinfo.ZoneInfo('America/New_York')).isoformat())")
-  "$PY" -m renquant_orchestrator.shadow_realtime_serving \
+  # S3-b (orch#1052): the pinned wiring module builds the verified blend
+  # scorer and delegates to the same observe-only collector. The bare module
+  # (which refuses with "no scorer wired", rc=2) is no longer the entrypoint.
+  "$PY" -m renquant_orchestrator.shadow_serving_pinned \
+    --pinned-strategy-config "$PINNED_STRATEGY_CONFIG" \
+    --strategy-dir "$STRATEGY_DIR" \
     --as-of "$AS_OF" \
     --feature-snapshot-json "$FEATURE_SNAPSHOT" \
     --batch-scores-json "$SCORES" \
