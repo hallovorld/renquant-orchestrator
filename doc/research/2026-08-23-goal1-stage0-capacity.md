@@ -44,11 +44,21 @@ to 2.3e-5.
 
 ## Session provenance
 
-Per date, **exactly one** live run carries `n_candidates > 0` — the daily full
-run. The selector asserts uniqueness; 19 dates violating it (older multi-run
-days) are EXCLUDED and every selected run_id and every exclusion is recorded
-in the artifact. 38 canonical sessions, 2026-04-23 .. 2026-08-21. Inputs are
-required CLI arguments; the artifact records sha256 + row counts (fail closed).
+Selection is by EXPLICIT provenance, not uniqueness alone [codex round 2]:
+`strategy = 'renquant-104'` is filtered AND validated — any other strategy
+value among candidate-bearing live runs fails the whole script closed, because
+an unexpected lane means the selection model is wrong, not that a row should
+be skipped. Every selected run's `{run_id, strategy, commit_sha, created_at}`
+is recorded; 19 dates with multiple qualifying runs are excluded and recorded.
+38 canonical sessions, 2026-04-23 .. 2026-08-21.
+
+Reproducibility is fingerprinted on THE EXACT INPUTS USED, not the container:
+a deterministic sha256 over every selected `pipeline_runs` /
+`candidate_scores` / price / trades row this script read (the DB is live — a
+path and row counts cannot anchor a re-run), plus the pinned pipeline commit
+(`git rev-parse` of `--pipeline-src`) and a sha256 of each imported seam
+module file (`sizing.py`, `regime.py`). All in the artifact; re-run
+reproduces the JSON byte-identically including the digests.
 
 ## The grid (38 canonical sessions; medians)
 

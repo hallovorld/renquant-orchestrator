@@ -13,4 +13,4 @@ PARITY cap8/int: 5/9 sessions set-identical; 2/5 matched orders input+share exac
   20     integer  35        5.0       44.6%   1.50x
   20  fractional  35        5.0       47.3%   1.13x
 
-wrote stage0_v2b.json
+wrote stage0_v3b.json

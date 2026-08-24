@@ -56,26 +56,53 @@ def load_seams(pipeline_src):
     return SimpleNamespace(**{k: v for k, v in locals().items() if k != "pipeline_src"})
 
 
+EXPECTED_STRATEGY = "renquant-104"
+
+
 def canonical_sessions(con):
-    """(run_id, date, pv, cash, regime, conf) for the unique full run per date."""
+    """The daily-104 full run per date, selected by EXPLICIT provenance.
+
+    [codex on orch#1028, round 2] Uniqueness of "a candidate-bearing live run"
+    does not prove the row is the daily-104 run — another candidate-bearing
+    lane could be uniquely wrong. So the filter now names the strategy, the
+    per-run provenance (strategy, commit_sha, created_at) is RECORDED for every
+    selected run, and any strategy value outside the expected one anywhere in
+    the candidate-bearing live set FAILS CLOSED rather than being silently
+    dropped — an unexpected lane in this DB means the selection model is wrong,
+    not that one row should be skipped.
+    """
+    stray = con.execute(
+        "SELECT DISTINCT strategy FROM pipeline_runs "
+        "WHERE run_type='live' AND n_candidates > 0 AND strategy != ?",
+        (EXPECTED_STRATEGY,)).fetchall()
+    if stray:
+        raise SystemExit(f"FAIL CLOSED: unexpected strategy value(s) in "
+                         f"candidate-bearing live runs: {[r[0] for r in stray]} "
+                         f"— the session-selection model assumes only "
+                         f"{EXPECTED_STRATEGY!r}; revisit before trusting any grid")
     rows = con.execute("""
-        SELECT run_date, run_id, portfolio_value, cash, regime, confidence
+        SELECT run_date, run_id, portfolio_value, cash, regime, confidence,
+               strategy, commit_sha, created_at
         FROM pipeline_runs
-        WHERE run_type='live' AND n_candidates > 0 AND portfolio_value IS NOT NULL
-        ORDER BY run_date""").fetchall()
+        WHERE run_type='live' AND n_candidates > 0
+          AND strategy = ? AND portfolio_value IS NOT NULL
+        ORDER BY run_date""", (EXPECTED_STRATEGY,)).fetchall()
     by = {}
     excluded = []
-    for d, rid, pv, cash, rg, cf in rows:
-        by.setdefault(d, []).append((rid, pv, cash, rg, cf))
-    out = []
+    for d, rid, pv, cash, rg, cf, strat, sha, ts in rows:
+        by.setdefault(d, []).append((rid, pv, cash, rg, cf, strat, sha, ts))
+    out, provenance = [], []
     for d in sorted(by):
         if len(by[d]) != 1:
-            excluded.append({"date": d, "reason": f"{len(by[d])} candidate-bearing live runs (expected exactly 1)",
+            excluded.append({"date": d,
+                             "reason": f"{len(by[d])} candidate-bearing {EXPECTED_STRATEGY} live runs (expected exactly 1)",
                              "run_ids": [r[0] for r in by[d]]})
             continue
-        rid, pv, cash, rg, cf = by[d][0]
+        rid, pv, cash, rg, cf, strat, sha, ts = by[d][0]
         out.append((rid, d, pv, cash, rg, cf))
-    return out, excluded
+        provenance.append({"run_id": rid, "date": d, "strategy": strat,
+                           "commit_sha": sha, "created_at": ts})
+    return out, excluded, provenance
 
 
 def rows_for_run(con, run_id):
@@ -183,7 +210,7 @@ def main():
     sz = load_seams(a.pipeline_src)
     cfg = json.load(open(a.strategy_config))
     con = sqlite3.connect(f"file:{a.runs_db}?mode=ro", uri=True)
-    sessions, excluded = canonical_sessions(con)
+    sessions, excluded, run_provenance = canonical_sessions(con)
     print(f"canonical sessions: {len(sessions)}  excluded dates: {len(excluded)}")
 
     cache = {s[0]: rows_for_run(con, s[0]) for s in sessions}
@@ -260,13 +287,52 @@ def main():
           f"max|Δ| {par['max_abs']}")
 
     # ── the grid ─────────────────────────────────────────────────────────────
+    # DIGEST THE ROWS, NOT THE FILE [codex round 2]: the DB is live and can
+    # change without any recorded row count moving, and the pipeline checkout
+    # can change in place. Reproducibility is only a claim about THE EXACT
+    # INPUTS USED, so: a deterministic sha256 over every selected
+    # pipeline_runs / candidate_scores / price / trades row this script read,
+    # in sorted order — plus the pinned pipeline commit and a sha256 of each
+    # imported seam module file.
+    h = hashlib.sha256()
+    for rid, d, pv, cash, rg, cf in sessions:
+        h.update(json.dumps(["run", rid, d, pv, cash, rg, cf], sort_keys=True).encode())
+        for row in con.execute(
+                "SELECT ticker, role, panel_score, sigma, expected_return, kelly_target_pct "
+                "FROM candidate_scores WHERE run_id=? ORDER BY ticker, role", (rid,)):
+            h.update(json.dumps(["cs", rid, *row], sort_keys=True).encode())
+        for row in con.execute(
+                "SELECT f.ticker, f.close_price FROM ticker_forward_returns f "
+                "WHERE f.as_of_date=? ORDER BY f.ticker", (d,)):
+            h.update(json.dumps(["px", d, *row], sort_keys=True).encode())
+        for row in con.execute(
+                "SELECT ticker, shares, decision_inputs_json FROM trades "
+                "WHERE run_id=? AND action IN ('buy_pending','buy') "
+                "AND order_type='NEW_BUY' ORDER BY ticker", (rid,)):
+            h.update(json.dumps(["tr", rid, *row], sort_keys=True).encode())
+    rows_digest = h.hexdigest()
+
+    import inspect
+    import subprocess
+    seam_files = sorted({inspect.getsourcefile(getattr(sz, n)) for n in
+                         ("compute_position_size", "confidence_to_size_multiplier")})
+    seam_hashes = {f: _sha(f) for f in seam_files if f}
+    try:
+        pipeline_commit = subprocess.run(
+            ["git", "-C", a.pipeline_src, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10).stdout.strip() or None
+    except Exception:  # noqa: BLE001
+        pipeline_commit = None
+
     out = {"inputs": {
         "runs_db": {"path": a.runs_db,
+                    "rows_digest_sha256": rows_digest,
                     "live_runs": con.execute("SELECT COUNT(*) FROM pipeline_runs WHERE run_type='live'").fetchone()[0],
                     "candidate_scores": con.execute("SELECT COUNT(*) FROM candidate_scores").fetchone()[0]},
         "strategy_config": {"path": a.strategy_config, "sha256": _sha(a.strategy_config)},
-        "pipeline_src": a.pipeline_src,
-        "selected_run_ids": [s[0] for s in sessions],
+        "pipeline": {"src": a.pipeline_src, "commit": pipeline_commit,
+                     "seam_module_sha256": seam_hashes},
+        "selected_runs": run_provenance,
         "excluded_dates": excluded,
         "admission_note": ("rank-order fill by panel_score among direction-gate passers; "
                            "corr/sector guards NOT replayed (inputs not persisted) — "
