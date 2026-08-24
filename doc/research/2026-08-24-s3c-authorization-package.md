@@ -31,6 +31,22 @@ operator-act files this package drafts.
    `RENQUANT_INTRADAY_LIVE=1` in the scheduler wrapper (a reviewed ops PR).
    Any missing gate ⇒ shadow, counted, never partial.
 
+## LIVE is gated on a HARD prerequisite, not a recommendation [codex]
+
+The Stage-2 draft is marked **NOT READY TO SIGN** and encodes it in the file
+itself: orch#1041 (pinned-config resolution) must be merged AND deployed, and
+≥1 shadow session recorded under the PINNED config fingerprint, before
+`live_config_fingerprint` can be filled and the draft becomes signable. Both
+drafts carry `evidence_bindings` — immutable sha256 identifiers of the exact
+replay reports, the timing report, and the config fingerprint the evidence
+attaches to — and state that any binding change voids the draft. Neither
+prefills the operator's identity.
+
+The timing study's caveat stays attached wherever the number travels: the
++46.8 bps mean is TAIL-CARRIED (median 0.0, p25 −15.7, 3 censored); adequate
+for choosing a paper canary, not by itself evidence for unrestricted live
+rollout.
+
 ## Known caveat attached to the evidence
 
 The 13 shadow sessions ran under the SIBLING checkout's strategy config, not
@@ -38,8 +54,8 @@ the pinned one (orch#1041, orch#1016-class). The sessions are attributable —
 every manifest fingerprints the config, and the replay audit binds to that
 fingerprint fail-closed — but the §9.4 signer should know the evidence
 attaches to config `sha256:c6d1abe2…`, and the resolution fix (#1041) will
-change the fingerprint on its flip day. Recommendation: land #1041 BEFORE the
-live-canary step; paper mode need not wait for it.
+change the fingerprint on its flip day. This is encoded as a HARD prerequisite inside the Stage-2 draft itself
+(see above); paper mode need not wait for it.
 
 ## Explicitly not done here
 
