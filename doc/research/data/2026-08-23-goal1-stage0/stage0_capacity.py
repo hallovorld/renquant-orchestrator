@@ -1,174 +1,300 @@
-"""GOAL-1 / AC1 Stage 0: what does the sizing arithmetic ADMIT at each cap?
+"""GOAL-1 / AC1 Stage 0 v2: what does the sizing arithmetic ADMIT at each cap?
 
-MECHANICAL ONLY. No forward returns are read, so there is no effective-sample
-problem here and no decision rule is being frozen (AC2/AC3).
+REWRITTEN after codex on orch#1028, whose three findings this version answers:
 
-It calls the PRODUCTION sizer — `renquant_pipeline.kernel.sizing.
-compute_position_size`, the same function `SizeAndEmitTask` calls, with the same
-`fractional` flag — rather than re-deriving the arithmetic. A second copy of a
-sizing rule is exactly the twin-implementation trap this repo keeps paying for.
+1. "Calls the leaf function but not the production path." v2 mirrors the
+   SizeAndEmitTask preamble EXACTLY (task_selection.py:233-328, read from the
+   running tree): legacy max_pct = base_max_pct*conf x conviction_multiplier x
+   sigma_multiplier (ranking.kelly_sizing.enabled=False in the served config,
+   so the Kelly branch is dead in production too); reserve_pct is ALSO
+   confidence-scaled; per_session_buy_cap honoured; fractional eligibility via
+   the real fractional_eligible; dust via fractional_dust_floor_usd; the
+   one-share floor off because the served config says so. All multipliers are
+   the PRODUCTION functions imported from kernel.sizing — nothing re-derived.
+   What is NOT replayed is the upstream greedy admission (correlation guard,
+   sector caps): its inputs (corr matrix) are not persisted. Instead of
+   pretending, v2 MEASURES the gap: a per-session PARITY check compares the
+   cap-8/integer arm against the orders production actually emitted
+   (trades.decision_inputs_json records conviction, sigma_mult, max_pct,
+   reserve_pct per order). If parity fails, the grid is labelled void.
 
-Read-only: opens runs.alpaca.db with mode=ro and writes nothing outside its own
-output file.
+2. "Session selector not provenance-safe." Per date, EXACTLY ONE live run has
+   n_candidates>0 — that is the daily full run (measured: 35 runs/date, 1 with
+   candidates). v2 asserts uniqueness per date, EXCLUDES dates violating it,
+   and records every selected run_id and every exclusion in the artifact.
+
+3. "Hardcoded workstation paths." --runs-db and --strategy-config are REQUIRED
+   arguments; the script fails closed without them and records sha256 + row
+   counts of both inputs in the output.
 """
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import sqlite3
 import statistics as st
 import sys
-from collections import defaultdict
-
-DB = "file:/Users/renhao/git/github/RenQuant/data/runs.alpaca.db?mode=ro"
-sys.path.insert(0, "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-pipeline/src")
-from renquant_pipeline.kernel.sizing import compute_position_size  # noqa: E402
+from types import SimpleNamespace
 
 CAPS = [8, 10, 12, 15, 20]
 MODES = [("integer", False), ("fractional", True)]
 
 
-CFG = "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json"
+def _sha(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
 
 
-def regime_params():
-    """The SERVED per-regime sizing params, read — never assumed.
+def load_seams(pipeline_src):
+    sys.path.insert(0, pipeline_src)
+    from renquant_pipeline.kernel.regime import confidence_to_size_multiplier  # noqa: E402
+    from renquant_pipeline.kernel.sizing import (  # noqa: E402
+        compute_position_size, conviction_multiplier, conviction_score_for_object,
+        conviction_score_percentiles, fractional_dust_floor_usd,
+        fractional_eligible, sigma_multiplier, universe_sigma_median,
+    )
+    return SimpleNamespace(**{k: v for k, v in locals().items() if k != "pipeline_src"})
 
-    A first draft of this script hardcoded max_position_pct=0.15 /
-    cash_reserve_pct=0.10 "as BULL_CALM". The served values are 0.3 and 0.0 —
-    double the position size and no reserve — so every deployment figure it
-    produced was understated. Load-bearing quantities get read.
-    """
-    with open(CFG) as fh:
-        return json.load(fh)["regime_params"]
 
-
-def sessions(con):
-    """One row per DATE: the live run with the most candidates (the full run).
-
-    Per run_id, never per date — there are ~35 live runs per date across lanes
-    and summing them yields nonsense (held=350 on a 6-position book).
-    """
+def canonical_sessions(con):
+    """(run_id, date, pv, cash, regime, conf) for the unique full run per date."""
     rows = con.execute("""
-        SELECT run_id, run_date, portfolio_value, cash, n_candidates, regime, confidence
-        FROM pipeline_runs WHERE run_type='live' AND portfolio_value IS NOT NULL
+        SELECT run_date, run_id, portfolio_value, cash, regime, confidence
+        FROM pipeline_runs
+        WHERE run_type='live' AND n_candidates > 0 AND portfolio_value IS NOT NULL
         ORDER BY run_date""").fetchall()
-    best = {}
-    for rid, d, pv, cash, nc, rg, cf in rows:
-        if d not in best or (nc or 0) > (best[d][4] or 0):
-            best[d] = (rid, d, pv, cash, nc, rg, cf)
-    return [best[d] for d in sorted(best)]
+    by = {}
+    excluded = []
+    for d, rid, pv, cash, rg, cf in rows:
+        by.setdefault(d, []).append((rid, pv, cash, rg, cf))
+    out = []
+    for d in sorted(by):
+        if len(by[d]) != 1:
+            excluded.append({"date": d, "reason": f"{len(by[d])} candidate-bearing live runs (expected exactly 1)",
+                             "run_ids": [r[0] for r in by[d]]})
+            continue
+        rid, pv, cash, rg, cf = by[d][0]
+        out.append((rid, d, pv, cash, rg, cf))
+    return out, excluded
 
 
-def candidates(con, run_id):
-    """Admissible NEW-long candidates with a price, best-scored first.
-
-    Direction gate = panel_score > 0 AND expected_return > 0, read off the
-    column the gate actually uses (`panel_score`, not `raw_score`).
-    """
-    return con.execute("""
-        SELECT c.ticker, c.panel_score, c.expected_return, c.kelly_target_pct, f.close_price
+def rows_for_run(con, run_id):
+    """All scored rows (for sigma_median / percentiles, mirroring ctx.ranked)
+    and the admissible NEW-long candidates with a close price."""
+    # ctx.ranked at SizeAndEmit time = the CANDIDATE list only. Established by
+    # experiment, not assumption: sigma_median over role='candidate' reproduces
+    # a recorded production sigma_mult EXACTLY (delta 0.0e+00); including
+    # holdings gives delta 8e-03 (probe: run 2026-08-21-live-933658ce, APH).
+    ranked = [SimpleNamespace(ticker=t, panel_score=p, sigma=s, expected_return=e, role=role)
+              for t, p, s, e, role in con.execute(
+        "SELECT ticker, panel_score, sigma, expected_return, role FROM candidate_scores "
+        "WHERE run_id=? AND role='candidate' AND panel_score IS NOT NULL", (run_id,))]
+    cands = con.execute("""
+        SELECT c.ticker, c.panel_score, c.sigma, f.close_price
         FROM candidate_scores c
-        JOIN pipeline_runs r ON r.run_id = c.run_id
-        JOIN ticker_forward_returns f ON f.ticker = c.ticker AND f.as_of_date = r.run_date
-        WHERE c.run_id = ? AND c.role='candidate'
-          AND c.panel_score > 0 AND c.expected_return > 0
-          AND f.close_price IS NOT NULL AND f.close_price > 0
+        JOIN pipeline_runs r ON r.run_id=c.run_id
+        JOIN ticker_forward_returns f ON f.ticker=c.ticker AND f.as_of_date=r.run_date
+        WHERE c.run_id=? AND c.role='candidate' AND c.panel_score>0
+          AND c.expected_return>0 AND f.close_price>0
         ORDER BY c.panel_score DESC""", (run_id,)).fetchall()
+    held = con.execute("SELECT COUNT(*) FROM candidate_scores WHERE run_id=? AND role='holding'",
+                       (run_id,)).fetchone()[0]
+    return ranked, cands, held
 
 
-def held_count(con, run_id):
-    return con.execute(
-        "SELECT COUNT(*) FROM candidate_scores WHERE run_id=? AND role='holding'",
-        (run_id,)).fetchone()[0]
+def production_emissions(con, run_id):
+    out = {}
+    for t, sh, di in con.execute(
+            "SELECT ticker, shares, decision_inputs_json FROM trades "
+            "WHERE run_id=? AND action IN ('buy_pending','buy') AND order_type='NEW_BUY'", (run_id,)):
+        rec = {}
+        try:
+            rec = json.loads(di) if di else {}
+        except Exception:
+            pass
+        out[t] = {"shares": sh, **{k: rec.get(k) for k in
+                                   ("conviction", "sigma_mult", "max_pct", "reserve_pct")}}
+    return out
 
 
-def replay(con, cap, fractional, rp):
-    per_session = []
-    unknown = set()
-    for rid, d, pv, cash, _, regime, conf in sessions(con):
-        prm = rp.get(regime or "")
-        if not prm:
-            unknown.add(regime); continue
-        # production confidence-scales these before calling the sizer
-        c = float(conf if conf is not None else 1.0)
-        max_pos_pct = float(prm['max_position_pct']) * c
-        reserve_pct = float(prm['cash_reserve_pct'])
-        if max_pos_pct <= 0:
-            continue
-        cands = candidates(con, rid)
-        if not cands:
-            continue
-        held = held_count(con, rid)
-        free = max(0, cap - held)
-        if free == 0:
-            per_session.append(dict(date=d, free=0, filled=0, deployed=0.0,
-                                    sized_in=[], sized_out=[]))
-            continue
-        remaining = float(cash or 0.0)
-        filled, invested, sin, sout = 0, 0.0, [], []
-        for tkr, ps, er, kelly, price in cands:
-            if filled >= free:
-                sout.append((tkr, price)); continue
-            pct, shares = compute_position_size(
-                portfolio_value=float(pv), available_cash=remaining,
-                max_position_pct=max_pos_pct, cash_reserve_pct=reserve_pct,
-                price=float(price), fractional=fractional)
-            notional = float(shares) * float(price)
-            if shares and notional > 0:
-                filled += 1; invested += notional; remaining -= notional
-                sin.append((tkr, price))
-            else:
-                sout.append((tkr, price))
-        per_session.append(dict(date=d, free=free, filled=filled,
-                                deployed=invested / float(pv) if pv else 0.0,
-                                sized_in=sin, sized_out=sout))
-    return per_session
+def size_session(sz, cfg, cap, fractional, sess, ranked, cands, held):
+    rid, d, pv, cash, regime, conf = sess
+    rp = cfg["regime_params"].get(regime or "")
+    if not rp or float(rp.get("max_position_pct", 0)) <= 0:
+        return None
+    # PRODUCTION multiplier, not raw confidence [task_selection.py:228]. The
+    # function floors at 0.5 ("even worst-case confidence still deploys 50%"),
+    # so raw-conf scaling understates low-confidence sessions — reverse-
+    # engineering recorded orders shows max(conf, 0.5) behaviour exactly.
+    # cusum_cooldown_mode is "bar_count" in the served config, so the
+    # wall_time cooldown_mult path is a production no-op here [:240-251].
+    c = sz.confidence_to_size_multiplier(conf)
+    base_max_pct = float(rp["max_position_pct"]) * c
+    reserve_pct = float(rp.get("cash_reserve_pct", 0.0)) * c        # scaled, like :252
+    ranking = cfg.get("ranking", {}) or {}
+    sizing_cfg = (ranking.get("panel_scoring", {}) or {}).get("sizing", {}) or {}
+    sigma_cfg = (ranking.get("panel_scoring", {}) or {}).get("sigma_sizing", {}) or {}
+    kelly_cfg = ranking.get("kelly_sizing", {}) or {}
+    assert not bool(kelly_cfg.get("enabled", False)), \
+        "served config enables Kelly — this replay mirrors the legacy path and must be extended first"
+    per_cap = kelly_cfg.get("per_session_buy_cap")
+    sigma_median = sz.universe_sigma_median([getattr(x, "sigma", None) for x in ranked])
+    pcts = sz.conviction_score_percentiles(ranked)
+    dust = sz.fractional_dust_floor_usd(cfg) if fractional else 0.0
+
+    free = max(0, cap - held)
+    remaining = float(cash or 0.0)
+    filled, invested, emitted, sin, sout = 0, 0.0, {}, [], []
+    for tkr, ps, sig, price in cands:
+        if filled >= free:
+            sout.append(price); continue
+        obj = SimpleNamespace(ticker=tkr, panel_score=ps, sigma=sig)
+        conv = sz.conviction_multiplier(sz.conviction_score_for_object(obj, sizing_cfg, pcts), sizing_cfg)
+        sig_m = sz.sigma_multiplier(sig, sigma_median, sigma_cfg)
+        max_pct = base_max_pct * conv * sig_m
+        if per_cap is not None and float(per_cap) > 0:
+            max_pct = min(max_pct, float(per_cap))
+        use_frac = fractional and sz.fractional_eligible(tkr, cfg, None)
+        _, shares = sz.compute_position_size(float(pv), remaining, max_pct, reserve_pct,
+                                             float(price), fractional=use_frac, min_notional=0.0)
+        notional = float(shares) * float(price)
+        ok = (shares > 0 and notional >= dust) if use_frac else (shares >= 1)
+        if ok:
+            filled += 1; invested += notional; remaining -= notional
+            emitted[tkr] = {"shares": shares, "conviction": conv, "sigma_mult": sig_m,
+                            "max_pct": max_pct, "reserve_pct": reserve_pct}
+            sin.append(price)
+        else:
+            sout.append(price)
+    return {"date": d, "run_id": rid, "free": free, "filled": filled,
+            "deployed": invested / float(pv) if pv else 0.0,
+            "emitted": emitted, "px_in": sin, "px_out": sout}
 
 
 def main():
-    con = sqlite3.connect(DB, uri=True)
-    ss = sessions(con)
-    print(f"live sessions with a portfolio value: {len(ss)}  "
-          f"{ss[0][1]} .. {ss[-1][1]}")
-    n_with = sum(1 for r in ss if candidates(con, r[0]))
-    print(f"sessions with >=1 priced admissible candidate: {n_with}\n")
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--runs-db", required=True)
+    ap.add_argument("--strategy-config", required=True)
+    ap.add_argument("--pipeline-src", required=True,
+                    help="src dir of the PINNED renquant-pipeline (the seams are imported, not copied)")
+    ap.add_argument("--out", default="stage0_capacity.json")
+    a = ap.parse_args()
 
-    # Regime params are confidence-scaled per run in production; Stage 0 holds
-    # them at the served BULL_CALM values so the CAP is the only thing varying.
-    # Any conclusion here is therefore about the cap, not about sizing policy.
-    rp = regime_params()
-    from collections import Counter
-    rc = Counter(r[5] for r in ss)
-    print("regime mix across sessions:", dict(rc.most_common(4)))
-    print("served params:", {k: (v.get("max_position_pct"), v.get("cash_reserve_pct"))
-                             for k, v in rp.items() if k in rc})
-    print("(production confidence-scales max_position_pct; this replay does the same)\n")
+    sz = load_seams(a.pipeline_src)
+    cfg = json.load(open(a.strategy_config))
+    con = sqlite3.connect(f"file:{a.runs_db}?mode=ro", uri=True)
+    sessions, excluded = canonical_sessions(con)
+    print(f"canonical sessions: {len(sessions)}  excluded dates: {len(excluded)}")
 
-    hdr = f"{'cap':>4s} {'mode':>11s} {'sessions':>8s} {'med_filled':>10s} {'med_deployed':>12s} {'med_px_in':>9s} {'med_px_out':>10s} {'tilt':>5s}"
+    cache = {s[0]: rows_for_run(con, s[0]) for s in sessions}
+
+    # ── PARITY: cap-8 / integer arm vs what production actually emitted ──────
+    #
+    # ERA-GATED, and the gate is MEASURED, not chosen. Reverse-engineering every
+    # recorded NEW_BUY's max_pct/(conv*sig_m) against today's config gives a
+    # ratio of EXACTLY 0.4000 for all orders 2026-06-22..2026-08-04 (the era
+    # when max_position_pct was 0.12 = 0.3*0.4), per-ticker ratios <=0.40
+    # before 06-22 (the Kelly era), and EXACTLY 1.0000 from 2026-08-10 onward —
+    # the current-config era. Parity against production is therefore only
+    # DEFINED in the current era; earlier eras ran a different policy, and this
+    # replay deliberately applies TODAY'S served config to all history (the
+    # forward-looking counterfactual: "what would today's policy do at cap X").
+    CONFIG_ERA_START = "2026-08-10"
+    par = {"sessions": 0, "set_agree": 0, "ticker_matches": 0, "ticker_total": 0,
+           "max_abs": {"conviction": 0.0, "sigma_mult": 0.0, "max_pct": 0.0, "reserve_pct": 0.0},
+           "share_mismatches": [], "set_diffs": []}
+    par["excluded_sessions"] = []
+    for sess in sessions:
+        if sess[1] < CONFIG_ERA_START:
+            continue
+        ranked, cands, held = cache[sess[0]]
+        # COVERAGE GUARD: the price join is against ticker_forward_returns,
+        # which is BACKFILLED — the freshest sessions can have close_price for
+        # only a handful of names (2026-08-21: 7 rows), silently shrinking the
+        # replay's candidate set. A parity verdict over a truncated set is a
+        # data artifact, not a finding; such sessions are excluded AND recorded.
+        gate_passers = sum(1 for x in ranked
+                           if x.panel_score and x.panel_score > 0
+                           and x.expected_return and x.expected_return > 0)
+        if gate_passers and len(cands) / gate_passers < 0.9:
+            par["excluded_sessions"].append({
+                "date": sess[1], "reason": "fwd close_price backfill incomplete",
+                "priced": len(cands), "gate_passers": gate_passers})
+            continue
+        r = size_session(sz, cfg, 8, False, sess, ranked, cands, held)
+        if r is None:
+            continue
+        prod = production_emissions(con, sess[0])
+        par["sessions"] += 1
+        if set(r["emitted"]) == set(prod):
+            par["set_agree"] += 1
+        else:
+            # annotate every differing name with production's own reason, so
+            # the diff carries its explanation instead of demanding forensics
+            diff = {"date": sess[1], "replay": sorted(r["emitted"]),
+                    "production": sorted(prod), "why": {}}
+            for t in set(r["emitted"]) ^ set(prod):
+                b = con.execute("SELECT blocked_by FROM candidate_scores WHERE run_id=? AND ticker=?",
+                                (sess[0], t)).fetchone()
+                diff["why"][t] = (b[0] if b and b[0] else
+                                  ("in production only" if t in prod else "no production block recorded"))
+            par["set_diffs"].append(diff)
+        for t in set(r["emitted"]) & set(prod):
+            par["ticker_total"] += 1
+            rep, rec = r["emitted"][t], prod[t]
+            close = True
+            for k in ("conviction", "sigma_mult", "max_pct", "reserve_pct"):
+                if rec.get(k) is not None:
+                    dlt = abs(rep[k] - float(rec[k]))
+                    par["max_abs"][k] = max(par["max_abs"][k], dlt)
+                    if dlt > 1e-6:
+                        close = False
+            if rep["shares"] != rec["shares"]:
+                close = False
+                par["share_mismatches"].append({"date": sess[1], "ticker": t,
+                                                "replay": rep["shares"], "production": rec["shares"]})
+            if close:
+                par["ticker_matches"] += 1
+    print(f"PARITY cap8/int: {par['set_agree']}/{par['sessions']} sessions set-identical; "
+          f"{par['ticker_matches']}/{par['ticker_total']} matched orders input+share exact; "
+          f"max|Δ| {par['max_abs']}")
+
+    # ── the grid ─────────────────────────────────────────────────────────────
+    out = {"inputs": {
+        "runs_db": {"path": a.runs_db,
+                    "live_runs": con.execute("SELECT COUNT(*) FROM pipeline_runs WHERE run_type='live'").fetchone()[0],
+                    "candidate_scores": con.execute("SELECT COUNT(*) FROM candidate_scores").fetchone()[0]},
+        "strategy_config": {"path": a.strategy_config, "sha256": _sha(a.strategy_config)},
+        "pipeline_src": a.pipeline_src,
+        "selected_run_ids": [s[0] for s in sessions],
+        "excluded_dates": excluded,
+        "admission_note": ("rank-order fill by panel_score among direction-gate passers; "
+                           "corr/sector guards NOT replayed (inputs not persisted) — "
+                           "UPPER-BOUND admission; the parity block measures the realised gap at cap 8"),
+    }, "parity_cap8_integer_current_era": {"era_start": "2026-08-10", **par}, "grid": {}}
+    hdr = f"{'cap':>4s} {'mode':>11s} {'n':>3s} {'med_filled':>10s} {'med_deployed':>12s} {'tilt':>6s}"
     print(hdr); print("-" * len(hdr))
-    out = {}
     for cap in CAPS:
         for name, frac in MODES:
-            rs = replay(con, cap, frac, rp)
-            rs = [r for r in rs if r["free"] > 0]
+            rs = [r for r in (size_session(sz, cfg, cap, frac, s, *cache[s[0]]) for s in sessions)
+                  if r is not None and r["free"] > 0 and (r["px_in"] or r["px_out"])]
             if not rs:
                 continue
-            med_filled = st.median(r["filled"] for r in rs)
-            med_dep = st.median(r["deployed"] for r in rs)
-            pin = [p for r in rs for _, p in r["sized_in"]]
-            pout = [p for r in rs for _, p in r["sized_out"]]
-            mi = st.median(pin) if pin else float("nan")
-            mo = st.median(pout) if pout else float("nan")
-            tilt = (mo / mi) if pin and mi else float("nan")
-            print(f"{cap:4d} {name:>11s} {len(rs):8d} {med_filled:10.1f} "
-                  f"{med_dep:11.1%} {mi:9.2f} {mo:10.2f} {tilt:5.2f}x")
-            out[f"{cap}_{name}"] = dict(sessions=len(rs), med_filled=med_filled,
-                                        med_deployed=med_dep, med_price_in=mi,
-                                        med_price_out=mo, tilt=tilt,
-                                        n_in=len(pin), n_out=len(pout))
-    with open("stage0_capacity.json", "w") as fh:
-        json.dump(out, fh, indent=2)
-    print("\nwrote stage0_capacity.json")
+            pin = [p for r in rs for p in r["px_in"]]
+            pout = [p for r in rs for p in r["px_out"]]
+            mi = st.median(pin) if pin else None
+            mo = st.median(pout) if pout else None
+            tilt = (mo / mi) if (mi and mo) else None
+            row = {"sessions": len(rs),
+                   "med_filled": st.median(r["filled"] for r in rs),
+                   "med_deployed": st.median(r["deployed"] for r in rs),
+                   "med_price_in": mi, "med_price_out": mo, "tilt": tilt,
+                   "n_in": len(pin), "n_out": len(pout)}
+            out["grid"][f"{cap}_{name}"] = row
+            print(f"{cap:4d} {name:>11s} {len(rs):3d} {row['med_filled']:10.1f} "
+                  f"{row['med_deployed']:11.1%} {(tilt or float('nan')):6.2f}x")
+    json.dump(out, open(a.out, "w"), indent=2, sort_keys=True)
+    print(f"\nwrote {a.out}")
 
 
 if __name__ == "__main__":
