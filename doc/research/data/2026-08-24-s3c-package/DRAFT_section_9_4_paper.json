@@ -1,8 +1,18 @@
 {
-  "_DRAFT": "OPERATOR ACT — copy to data/rq105/section_9_4_economic_authorization.json to enable PAPER mode. Placing this file is the authorization; do not automate it.",
+  "_DRAFT": "OPERATOR ACT \u2014 copy to data/rq105/section_9_4_economic_authorization.json to enable PAPER mode. Placing this file IS the authorization; do not automate it.",
   "authorized": true,
   "prereg_id": "rq105-paper-canary-prereg-v1",
-  "authorized_by": "renhao",
-  "date": "<YYYY-MM-DD of the operator's act>",
-  "economic_case": "orch#1021 measured a partial-bar decision flip (APH batch-declined 13:55, post-close re-score BUY, prod bought next day); entry-timing shadow shows delay_fixed mean +46.8 bps saved vs baseline over 10 sessions/30 names (median 0 — the tail carries it); paper mode validates the execution path at zero capital risk with the K=1 evidence floor the runner derives from this prereg_id."
+  "authorized_by": "<OPERATOR: your identity \u2014 a draft must not assert it for you>",
+  "date": "<OPERATOR: YYYY-MM-DD of your act>",
+  "economic_case": "orch#1021 measured a partial-bar decision flip (APH: batch-declined 13:55, post-close re-score BUY, prod bought next day). Entry-timing shadow: delay_fixed mean +46.8 bps saved vs baseline over 10 sessions/30 names \u2014 MEAN IS TAIL-CARRIED (median 0.0, p25 -15.7), 3 censored unresolved_at_flush; adequate for choosing a PAPER canary, NOT by itself evidence for unrestricted live rollout. Paper validates the execution path at zero capital risk under the K=1 floor this prereg_id derives.",
+  "evidence_bindings": {
+    "_meaning": "IMMUTABLE identifiers of the exact evidence this authorization rests on. If ANY of these changes, the draft is void and must be regenerated and re-reviewed.",
+    "shadow_evidence_config_fingerprint": "sha256:c6d1abe28cb3fe732a3ae00d4b491f36d6b5038863e8e9b8a103c6cdf6965e9b",
+    "replay_reports_sha256": {
+      "2026-08-19": "sha256:90eac2957445d54fffe2a6cdfb0e0c224649c01003f22e156b2b1640673c11fb",
+      "2026-08-20": "sha256:8e0cc8e575772f34d9df4a7b883a35c212981d903e042d17b79d1855a8666b13",
+      "2026-08-21": "sha256:78da799d577b6a7e5cda11b57e12be8e9559d391722d4e6c768e25c03e913658"
+    },
+    "entry_timing_report_sha256": "sha256:2fbd303ef3f5ee9e8d2fdcbf3d1e1d4af60b7bcf782f7f9e9f43ca8982758bc3"
+  }
 }
