@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from renquant_orchestrator.feature_snapshot_producer import (
+    ProvenanceRefusal,
     build_payload,
     locate_source,
     main,
@@ -39,12 +40,27 @@ def _matrix():
 
 
 def _source(tmp_path, date="2026-08-21", lane="alpaca", n=1, manifest=None):
+    """Lay out a served-matrix tree whose PATH IDENTITY MATCHES its manifest.
+
+    The first revision named files ``…-live-{i}`` while every manifest said
+    ``…-live-abc``, so the fixture itself was the mismatched pair the producer
+    is now required to refuse — it passed only because nothing compared the
+    two. Each file now carries the run_id its manifest declares, with the
+    index appended only when several are laid down to build the ambiguity case
+    (and those manifests are made to agree too, so that test fails on
+    ambiguity rather than incidentally on identity).
+    """
     d = tmp_path / date
     d.mkdir(parents=True, exist_ok=True)
     for i in range(n):
-        pq = d / f"{lane}__2026-08-21-live-{i}.parquet"
+        m = dict(manifest or _manifest())
+        run_id = str(m.get("run_id") or f"{date}-live-abc")
+        if n > 1:                      # ambiguity fixture: distinct, consistent pairs
+            run_id = f"{run_id}-{i}"
+            m["run_id"] = run_id
+        pq = d / f"{lane}__{run_id}.parquet"
         _matrix().to_parquet(pq)
-        pq.with_suffix(".json").write_text(json.dumps(manifest or _manifest()))
+        pq.with_suffix(".json").write_text(json.dumps(m))
     return tmp_path
 
 
@@ -129,3 +145,79 @@ class TestWriteIsAtomicAndSelfDescribing:
         first = (tmp_path / "o" / "feature_snapshot_2026-08-24.json").read_bytes()
         assert main(args) == 0
         assert (tmp_path / "o" / "feature_snapshot_2026-08-24.json").read_bytes() == first
+
+
+class TestTheNewGuardsRefuse:
+    """Each guard added for codex's round-1 findings, driven to its refusal.
+
+    A guard with no test that makes it fire is indistinguishable from one that
+    cannot fire.
+    """
+
+    def test_directory_date_must_match_the_manifest(self):
+        with pytest.raises(ProvenanceRefusal, match="directory date"):
+            build_payload(_matrix(), _manifest(), source_date="2026-08-20",
+                          source_run_id="2026-08-21-live-abc")
+
+    def test_filename_run_identity_must_match_the_manifest(self):
+        with pytest.raises(ProvenanceRefusal, match="filename run identity"):
+            build_payload(_matrix(), _manifest(), source_date="2026-08-21",
+                          source_run_id="2026-08-21-live-SOMEONE-ELSE")
+
+    def test_a_duplicate_ticker_is_refused_not_silently_collapsed(self):
+        m = pd.concat([_matrix(), _matrix().head(1)], ignore_index=True)
+        with pytest.raises(ProvenanceRefusal, match="duplicate tickers"):
+            build_payload(m, _manifest())
+
+    def test_an_empty_ticker_is_refused(self):
+        m = _matrix()
+        m.loc[0, "ticker"] = "   "
+        with pytest.raises(ProvenanceRefusal, match="empty ticker"):
+            build_payload(m, _manifest())
+
+    def test_a_refusal_is_distinguishable_from_an_unexpected_failure(self):
+        """The boundary property: ProvenanceRefusal carries its own exit code
+        and is a distinct type, so the wrapper can pass 3 through for THIS and
+        preserve anything else as unexpected."""
+        assert ProvenanceRefusal.EXIT_CODE == 3
+        assert issubclass(ProvenanceRefusal, SystemExit)
+        with pytest.raises(ProvenanceRefusal) as e:
+            build_payload(_matrix(), _manifest(schema_version="wrong"))
+        assert "PROVENANCE REFUSAL" in str(e.value)
+
+
+class TestTheHandoffToTheExistingOverlay:
+    """codex: prove the emitted snapshot is accepted by the EXISTING
+    build_realtime_snapshot path, without relocating or duplicating the join.
+
+    This is the seam the whole piece exists to feed: S3-P2 emits the frozen
+    T-1 FeatureSnapshot; the overlay stays owned by realtime_data_plane.
+    """
+
+    def test_the_emitted_snapshot_drives_the_real_overlay(self, tmp_path):
+        from renquant_orchestrator.realtime_data_plane import build_realtime_snapshot
+
+        payload = build_payload(_matrix(), _manifest(),
+                                source_date="2026-08-21",
+                                source_run_id="2026-08-21-live-abc")
+        snap = FeatureSnapshot.from_mapping(payload)
+
+        class _Feed:
+            def __init__(self, rows): self._rows = rows
+            def read_ticks(self): return list(self._rows)
+
+        as_of = "2026-08-24T14:00:00-04:00"
+        causal = {"ticker": "APH", "bid": 10.0, "ask": 10.2,
+                  "source_ts": "2026-08-24T13:59:30-04:00"}
+        future = {"ticker": "NEM", "bid": 5.0, "ask": 5.2,
+                  "source_ts": "2026-08-24T14:00:30-04:00"}   # AFTER as_of
+
+        out = build_realtime_snapshot(as_of=as_of, feature_snapshot=snap,
+                                      feed_source=_Feed([causal, future]))
+        rows = out.by_ticker()
+        assert "APH" in rows, "the causal tick must join"
+        # The future tick must NOT produce a fresh row — causality is enforced
+        # by the data plane, which is exactly why this producer does not
+        # reimplement it.
+        assert all(r.ticker != "NEM" for r in out.fresh_rows()), \
+            "a tick after as_of must not be treated as fresh"

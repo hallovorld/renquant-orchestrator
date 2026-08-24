@@ -40,6 +40,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import sys
 import math
 import os
 from pathlib import Path
@@ -71,48 +72,99 @@ def _clean(v: Any) -> Any:
 def locate_source(root: Path, for_date: str, max_gap_days: int = 4) -> tuple[Path, Path]:
     """The prod-lane (parquet, manifest) pair for the session preceding ``for_date``."""
     if not root.is_dir():
-        raise SystemExit(f"FAIL CLOSED: served-matrix root missing: {root}")
+        raise ProvenanceRefusal(f"served-matrix root missing: {root}")
     target = dt.date.fromisoformat(for_date)
     dated = sorted(d.name for d in root.iterdir()
                    if d.is_dir() and d.name < for_date)
     if not dated:
-        raise SystemExit(f"FAIL CLOSED: no served-matrix date directory before {for_date}")
+        raise ProvenanceRefusal(f"no served-matrix date directory before {for_date}")
     src = dated[-1]
     gap = (target - dt.date.fromisoformat(src)).days
     if gap > max_gap_days:
-        raise SystemExit(
-            f"FAIL CLOSED: newest served matrix is {src}, {gap} calendar days "
+        raise ProvenanceRefusal(
+            f"newest served matrix is {src}, {gap} calendar days "
             f"before {for_date} (max {max_gap_days}) — an older matrix must not "
             f"silently stand in for the prior session")
     pairs = sorted((root / src).glob(f"{EXPECTED_LANE}__*.parquet"))
     if len(pairs) != 1:
-        raise SystemExit(
-            f"FAIL CLOSED: expected exactly one {EXPECTED_LANE}__*.parquet under "
+        raise ProvenanceRefusal(
+            f"expected exactly one {EXPECTED_LANE}__*.parquet under "
             f"{root / src}, found {len(pairs)}: {[p.name for p in pairs]}")
     parquet = pairs[0]
     manifest = parquet.with_suffix(".json")
     if not manifest.is_file():
-        raise SystemExit(f"FAIL CLOSED: manifest missing beside {parquet.name}")
+        raise ProvenanceRefusal(f"manifest missing beside {parquet.name}")
     return parquet, manifest
 
 
-def build_payload(matrix: pd.DataFrame, manifest: dict) -> dict:
-    """Served matrix + manifest → the FeatureSnapshot payload (validated)."""
+class ProvenanceRefusal(SystemExit):
+    """An EXPECTED refusal: the source is absent, stale, ambiguous or internally
+    inconsistent. Distinct from every other failure so the wrapper can map this
+    — and only this — to the skippable status. An import error, a parquet
+    decoder failure or a write failure reaching S3-P3 as "no input today" is a
+    guard that fails closed inside the module and open at its boundary
+    (codex review 2026-08-24)."""
+
+    EXIT_CODE = 3
+
+    def __init__(self, msg: str) -> None:
+        super().__init__(f"PROVENANCE REFUSAL: {msg}")
+
+
+def build_payload(matrix: pd.DataFrame, manifest: dict,
+                  *, source_date: str | None = None,
+                  source_run_id: str | None = None) -> dict:
+    """Served matrix + manifest → the FeatureSnapshot payload (validated).
+
+    ``source_date`` / ``source_run_id`` are the identity the CALLER derived from
+    the path. They are cross-checked against the manifest rather than trusted
+    alongside it: `locate_source` trusts the directory and filename while this
+    function trusts the manifest, so without a comparison a copied or mismatched
+    manifest could stamp a different cutoff or run into a snapshot sourced from
+    another parquet and every individual check would still pass
+    (codex review 2026-08-24). Each half was validated; the PAIR was not.
+    """
     schema = manifest.get("schema_version")
     if schema != EXPECTED_SCHEMA:
-        raise SystemExit(f"FAIL CLOSED: schema_version {schema!r} != {EXPECTED_SCHEMA!r} "
+        raise ProvenanceRefusal(f"schema_version {schema!r} != {EXPECTED_SCHEMA!r} "
                          f"— the bridge's assumptions are stale, not the data wrong")
     if manifest.get("lane") != EXPECTED_LANE:
-        raise SystemExit(f"FAIL CLOSED: lane {manifest.get('lane')!r} != {EXPECTED_LANE!r}")
+        raise ProvenanceRefusal(f"lane {manifest.get('lane')!r} != {EXPECTED_LANE!r}")
     cols = list(manifest.get("feature_cols") or [])
     if not cols:
-        raise SystemExit("FAIL CLOSED: manifest carries no feature_cols")
+        raise ProvenanceRefusal("manifest carries no feature_cols")
     missing = [c for c in cols if c not in matrix.columns]
     if missing:
-        raise SystemExit(f"FAIL CLOSED: manifest feature_cols absent from parquet: "
+        raise ProvenanceRefusal(f"manifest feature_cols absent from parquet: "
                          f"{missing[:5]}{'…' if len(missing) > 5 else ''}")
     if "ticker" not in matrix.columns:
-        raise SystemExit("FAIL CLOSED: parquet has no 'ticker' column")
+        raise ProvenanceRefusal("parquet has no 'ticker' column")
+
+    # PATH IDENTITY vs MANIFEST IDENTITY — compare, do not merely trust both.
+    m_date = str(manifest.get("as_of_date") or "").strip()
+    if source_date is not None and m_date != source_date:
+        raise ProvenanceRefusal(
+            f"directory date {source_date!r} != manifest as_of_date {m_date!r} — "
+            f"the manifest does not describe the parquet it sits beside")
+    m_run = str(manifest.get("run_id") or "").strip()
+    if source_run_id is not None and m_run != source_run_id:
+        raise ProvenanceRefusal(
+            f"filename run identity {source_run_id!r} != manifest run_id "
+            f"{m_run!r} — mismatched manifest/parquet pair")
+
+    # A dict comprehension over rows silently DROPS duplicates and admits an
+    # empty ticker; both would produce a well-formed snapshot describing fewer
+    # names than the matrix carried, with nothing recording the loss.
+    tickers = [str(row["ticker"]).strip().upper() for _, row in matrix.iterrows()]
+    blank = sum(1 for t in tickers if not t)
+    if blank:
+        raise ProvenanceRefusal(f"{blank} row(s) carry an empty ticker")
+    dupes = sorted({t for t in tickers if tickers.count(t) > 1})
+    if dupes:
+        raise ProvenanceRefusal(
+            f"duplicate tickers in the served matrix: {dupes[:5]}"
+            f"{'…' if len(dupes) > 5 else ''} — a dict build would silently keep "
+            f"only the last row for each")
     features = {
         str(row["ticker"]).strip().upper(): {c: _clean(row[c]) for c in cols}
         for _, row in matrix.iterrows()
@@ -159,9 +211,14 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     for_date = a.date or dt.date.today().isoformat()
     source = locate_source(Path(a.served_matrix_root), for_date, a.max_gap_days)
+    # The identity the PATH asserts, handed to build_payload to be COMPARED
+    # against the manifest rather than trusted in parallel with it.
+    src_date = source[0].parent.name
+    src_run = source[0].stem.split("__", 1)[1] if "__" in source[0].stem else None
     matrix = pd.read_parquet(source[0])
     manifest = json.loads(source[1].read_text(encoding="utf-8"))
-    payload = build_payload(matrix, manifest)
+    payload = build_payload(matrix, manifest,
+                            source_date=src_date, source_run_id=src_run)
     out, out_meta = write_snapshot(payload, Path(a.out_dir), for_date, source)
     print(f"feature snapshot written: {out} "
           f"({len(payload['features'])} tickers, cutoff {payload['feature_cutoff']})")
@@ -170,4 +227,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # A provenance refusal exits with ITS OWN code so the wrapper can pass the
+    # distinction through. Everything else — import errors, decoder failures,
+    # write failures, programming errors — propagates unchanged and lands on a
+    # different nonzero, so S3-P3 can never read implementation breakage as
+    # "no input today" (codex review 2026-08-24).
+    try:
+        raise SystemExit(main())
+    except ProvenanceRefusal as refusal:
+        print(refusal, file=sys.stderr)
+        raise SystemExit(ProvenanceRefusal.EXIT_CODE) from None

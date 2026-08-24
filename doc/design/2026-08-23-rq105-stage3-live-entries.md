@@ -50,11 +50,33 @@ into S3-P2.
 
 **S3-P2 — snapshot producer (now the first build).** New orchestrator module +
 `ops/renquant105/build_feature_snapshot.sh`: read the PROD-lane served matrix
-(`logs/served_matrix/<T-1>/alpaca__<run_id>.parquet` + manifest), overlay
-intraday quotes via `realtime_data_plane` (causality + staleness censoring
-as-is), emit `feature_snapshot_<date>.json` conforming to
-`FeatureSnapshot.from_mapping`. Deterministic given (matrix, ticks, as_of);
-content-digested. HONEST CUTOFF SEMANTICS: the served matrix is built at the
+(`logs/served_matrix/<T-1>/alpaca__<run_id>.parquet` + manifest) and emit
+`feature_snapshot_<date>.json` conforming to `FeatureSnapshot.from_mapping`.
+Deterministic given (matrix, manifest); content-digested.
+
+**CORRECTION 2026-08-24 — the overlay is NOT in S3-P2.** An earlier revision
+said this piece should "overlay intraday quotes via `realtime_data_plane`" AND
+emit a file conforming to `FeatureSnapshot.from_mapping`. Those two clauses
+cannot both hold, and the second is the one the code enforces:
+`FeatureSnapshot` is defined in `realtime_data_plane` as *"a materialized,
+cutoff-stamped **T-1** daily feature snapshot … the class-A **frozen** feature
+reference"*, whose whole purpose (Codex #221) is to pin immutable feature state
+so downstream **"can never be mistaken for a bare watchlist reference"** and is
+**"never silently mixed"**. Its fields are `cutoff / builder_version /
+features / digest` and `from_mapping` accepts no intraday field at all.
+
+The overlay is the join `build_realtime_snapshot(as_of, feature_snapshot,
+feed_source, staleness_sec) -> MarketSnapshot` — a DIFFERENT class — and it
+already exists and is already wired: `shadow_realtime_serving` (S3-P3) loads a
+`--feature-snapshot-json`, calls it, and owns same-session / causality /
+staleness behaviour with its own tests.
+
+So the ownership is: **S3-P2 materializes the frozen T-1 `FeatureSnapshot`;
+S3-P3 (and later S3-P4) passes it with ticks and `as_of` to the existing
+`build_realtime_snapshot` consumer.** The missing input was always the file,
+which is what unblocks the not-wired skip. Building an overlay here would emit
+a contract `shadow_realtime_serving` cannot consume and duplicate a seam that
+is already owned and tested elsewhere. HONEST CUTOFF SEMANTICS: the served matrix is built at the
 13:55 run with that day's partial bar, so `feature_cutoff` records the
 producing run's date and vintage rather than claiming an EOD freeze — the
 snapshot's provenance says what the features actually are.
@@ -89,7 +111,7 @@ named home. Verified against the running tree, not assumed.
 | piece | target repo / module | why there |
 |---|---|---|
 | **S3-P1** persist the feature panel | **renquant-pipeline** — `src/renquant_pipeline/kernel/panel_pipeline/` (`feature_matrix.py` / `alpha158_features.py` build the served vectors) | the feature vectors are produced there. The orchestrator has **no** feature-building code today [VERIFIED — no `build_feature*` / `feature_vector` definition anywhere in `renquant-orchestrator/src`], and adding one would be implementing pipeline internals in this repo. The orchestrator CONSUMES the artifact; it does not produce it. |
-| **S3-P2** snapshot producer | **renquant-orchestrator** — new module + `ops/renquant105/build_feature_snapshot.sh` | `realtime_data_plane.py` and `FeatureSnapshot` already live here [VERIFIED]. Assembling a T-1 panel with an intraday overlay is data-plane orchestration, not feature construction. |
+| **S3-P2** snapshot producer (frozen T-1 snapshot ONLY — the overlay is S3-P3's `build_realtime_snapshot` call, §4 correction) | **renquant-orchestrator** — new module + `ops/renquant105/build_feature_snapshot.sh` | `realtime_data_plane.py` and `FeatureSnapshot` already live here [VERIFIED]. Assembling a T-1 panel with an intraday overlay is data-plane orchestration, not feature construction. |
 | **S3-P3** wire the shadow lane | **renquant-orchestrator** — `run_shadow_serving.sh`, `shadow_realtime_serving.py` | existing orchestration surface; no new logic. |
 | **S3-P4** intraday entry loop | **renquant-orchestrator** entrypoint | orchestration. See the two reuse contracts below — both are constraints, not preferences. |
 
