@@ -27,12 +27,107 @@ bound.
 """
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import Any, Mapping
+from zoneinfo import ZoneInfo
 
 HALT_ENV = "RENQUANT_RQ105_HALT"
+
+#: The session clock. `now_et` is normalised INTO this zone rather than trusted
+#: to already be in it — see `_as_et`.
+ET = ZoneInfo("America/New_York")
+
+
+class InvalidDecisionInput(ValueError):
+    """Malformed PLUMBING: sizing, counters, guardrails, the clock.
+
+    Raised rather than turned into a rejection, and the distinction is the whole
+    input contract of this module. Two kinds of bad input arrive here and they
+    deserve opposite treatment:
+
+    * **market data** (a NaN intraday score, an unusable mid) is expected to be
+      bad sometimes. It rejects the NAME, with a reason, and the loop continues —
+      that is normal operation on a bad tick.
+    * **plumbing** (a NaN per-entry notional, a negative counter, incoherent
+      guardrails, a naive timestamp) is the caller violating the contract. There
+      is no correct plan to return: a NaN notional does not "reject one name", it
+      makes every budget comparison meaningless, because every comparison against
+      NaN is False. Silently proceeding would produce a plan that LOOKS guarded
+      and is not, which for a capital-adjacent core is the worst outcome
+      available.
+    """
+
+
+def _finite(x: Any) -> bool:
+    """True only for a real, finite number. `bool` is excluded deliberately —
+    `True` is an int in Python and must never pass as a notional or a count."""
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and math.isfinite(x))
+
+
+def _as_et(now: Any) -> datetime:
+    """Normalise to America/New_York, or refuse.
+
+    The parameter was named `now_et` and treated as ET BY NAME ONLY: an aware
+    UTC value was compared by wall clock with no conversion, so a 14:00 UTC tick
+    read as 14:00 ET — inside the entry window when the market had not opened.
+    A naive value was accepted with its zone simply unknowable.
+    """
+    if not isinstance(now, datetime):
+        raise InvalidDecisionInput(f"now_et must be a datetime, got {type(now).__name__}")
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise InvalidDecisionInput(
+            "now_et is naive — its timezone is unknowable, and this value gates "
+            "entries. Pass an aware timestamp (any zone; it is converted to ET).")
+    return now.astimezone(ET)
+
+
+def _validate_guardrails(g: "Guardrails") -> None:
+    if not (isinstance(g.max_entries_per_day, int) and not isinstance(g.max_entries_per_day, bool)
+            and g.max_entries_per_day >= 0):
+        raise InvalidDecisionInput(f"max_entries_per_day must be a non-negative int, got {g.max_entries_per_day!r}")
+    if not (isinstance(g.max_concurrent_positions, int) and not isinstance(g.max_concurrent_positions, bool)
+            and g.max_concurrent_positions >= 0):
+        raise InvalidDecisionInput(f"max_concurrent_positions must be a non-negative int, got {g.max_concurrent_positions!r}")
+    if not _finite(g.max_notional_per_day) or g.max_notional_per_day < 0:
+        raise InvalidDecisionInput(f"max_notional_per_day must be finite and non-negative, got {g.max_notional_per_day!r}")
+    for name in ("no_entry_first_minutes", "no_entry_last_minutes"):
+        v = getattr(g, name)
+        if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+            raise InvalidDecisionInput(f"{name} must be a non-negative int, got {v!r}")
+    if not (isinstance(g.session_open, time) and isinstance(g.session_close, time)):
+        raise InvalidDecisionInput("session_open/session_close must be datetime.time")
+    if g.session_open >= g.session_close:
+        raise InvalidDecisionInput(
+            f"session bounds are incoherent: open {g.session_open} >= close {g.session_close}")
+    # The edge exclusions must leave a window; otherwise every tick is
+    # "outside_entry_window" and the loop silently never enters — a guardrail
+    # that blocks everything is indistinguishable from a broken one.
+    span = ((g.session_close.hour * 60 + g.session_close.minute)
+            - (g.session_open.hour * 60 + g.session_open.minute))
+    if g.no_entry_first_minutes + g.no_entry_last_minutes >= span:
+        raise InvalidDecisionInput(
+            f"no-entry edges ({g.no_entry_first_minutes}+{g.no_entry_last_minutes} min) "
+            f"consume the whole {span}-minute session — no tick could ever enter")
+
+
+def _validate_state(*, entries_today: Any, notional_today: Any,
+                    held_plus_pending: Any, per_entry_notional: Any) -> None:
+    for name, v in (("entries_today", entries_today),
+                    ("held_plus_pending", held_plus_pending)):
+        if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0):
+            raise InvalidDecisionInput(f"{name} must be a non-negative int, got {v!r}")
+    if not _finite(notional_today) or notional_today < 0:
+        raise InvalidDecisionInput(
+            f"notional_today must be finite and non-negative, got {notional_today!r}")
+    if not _finite(per_entry_notional) or per_entry_notional <= 0:
+        raise InvalidDecisionInput(
+            f"per_entry_notional must be finite and strictly positive, got "
+            f"{per_entry_notional!r} — a non-positive or NaN size defeats the "
+            f"daily budget instead of consuming it")
 
 #: Fixed evaluation order — the FIRST failing check names the rejection.
 #: Session-level checks come before per-name checks so a halted or
@@ -119,6 +214,11 @@ def decide_entries(
     the budget by construction, rather than trusting the executor to stop.
     """
     g = guardrails or Guardrails()
+    _validate_guardrails(g)
+    _validate_state(entries_today=entries_today, notional_today=notional_today,
+                    held_plus_pending=held_plus_pending,
+                    per_entry_notional=per_entry_notional)
+    now_et = _as_et(now_et)
     e = env if env is not None else os.environ
     block = _session_block(now_et, g, entries_today=entries_today,
                            notional_today=notional_today,
@@ -129,15 +229,52 @@ def decide_entries(
 
     rejections: dict[str, str] = {}
     admitted: list[EntryCandidate] = []
+
+    # IDENTITY BEFORE ADMISSION. `rejections` is keyed by ticker and each intent
+    # names one, so the module's "exactly one outcome per name" contract is only
+    # true if names are unique. Two rows for the same ticker previously produced
+    # two intents — double-consuming the daily budget for one position — or
+    # silently overwrote one row's rejection with the other's.
+    #
+    # Every occurrence of a duplicated name is rejected, not deduplicated to the
+    # "best" one. Picking a winner would mean inventing a rule the design does
+    # not state, and doing it inside a capital-adjacent path; a caller handing
+    # this function two rows for one ticker has a bug upstream and should hear
+    # about it rather than get a plausible answer.
+    seen: dict[str, int] = {}
     for c in candidates:
-        if not c.batch_admitted:
+        key = c.ticker.strip() if isinstance(c.ticker, str) else ""
+        seen[key] = seen.get(key, 0) + 1
+
+    for c in candidates:
+        key = c.ticker.strip() if isinstance(c.ticker, str) else ""
+        if not key:
+            rejections[c.ticker if isinstance(c.ticker, str) else ""] = "blank_ticker"
+        elif seen[key] > 1:
+            rejections[c.ticker] = "duplicate_ticker"
+        elif not c.batch_admitted:
             rejections[c.ticker] = "not_batch_admitted"       # intraday can veto, never create
         elif c.quote_status != "fresh":
             rejections[c.ticker] = "intraday_quote_censored"  # stale tape = fail closed
-        elif c.intraday_score is None or c.intraday_score <= 0.0:
+        elif c.intraday_score is None:
             rejections[c.ticker] = "intraday_veto"
-        elif c.intraday_mid is None or c.intraday_mid <= 0:
+        elif not _finite(c.intraday_score):
+            # NaN/inf slipped through `<= 0.0`, which is False for NaN, so a
+            # NaN-scored name was ADMITTED and then sorted on.
+            rejections[c.ticker] = "intraday_score_not_finite"
+        elif c.intraday_score <= 0.0:
+            rejections[c.ticker] = "intraday_veto"
+        elif c.intraday_mid is None:
             rejections[c.ticker] = "no_usable_mid"
+        elif not _finite(c.intraday_mid):
+            # Same hole, and this one becomes the order's limit_price.
+            rejections[c.ticker] = "intraday_mid_not_finite"
+        elif c.intraday_mid <= 0:
+            rejections[c.ticker] = "no_usable_mid"
+        elif c.batch_expected_return is not None and not _finite(c.batch_expected_return):
+            # Carried verbatim into the intent; a NaN would travel downstream as
+            # if it were a measurement.
+            rejections[c.ticker] = "batch_expected_return_not_finite"
         else:
             admitted.append(c)
 
