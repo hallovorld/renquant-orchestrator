@@ -48,9 +48,18 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipelin
 # strategy_config_fingerprint will change on the first post-deploy session —
 # that discontinuity is the fix landing, and the §9.4 LIVE draft requires a
 # session under the NEW fingerprint before it can be signed.
-PINNED_STRATEGY_CONFIG="$RQ_ROOT/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json"
-if [ ! -f "$PINNED_STRATEGY_CONFIG" ]; then
-  echo "FATAL: pinned strategy config absent at $PINNED_STRATEGY_CONFIG — refusing to run on a fallback (orch#1041)" \
+# Existence is NOT pin verification [codex on the first draft]: the resolver
+# proves (1) subrepos.lock.json names renquant-strategy-104, (2) the runtime
+# checkout HEAD equals that pin, and (3) the config bytes equal the pinned
+# blob (a dirty file in a pinned checkout is exactly as unreviewed as a
+# sibling tree). ONE implementation shared with the renquant-common check
+# (#1037); the scheduler has NO fallback — refusal stops the job.
+PIN_PY="$RQ_ROOT/.venv/bin/python"; [ -x "$PIN_PY" ] || PIN_PY="python3"
+if ! PINNED_STRATEGY_CONFIG="$("$PIN_PY" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+      --rq-root "$RQ_ROOT" --subrepo renquant-strategy-104 \
+      --verify-file configs/strategy_config.json 2>> "$LOG_DIR/session_scheduler_$TS.log")" \
+   || [ -z "$PINNED_STRATEGY_CONFIG" ]; then
+  echo "FATAL: pinned strategy-config verification refused (orch#1041) — see above" \
     >> "$LOG_DIR/session_scheduler_$TS.log"
   exit 1
 fi

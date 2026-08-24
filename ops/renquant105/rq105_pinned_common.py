@@ -50,7 +50,9 @@ class PinRefusal(RuntimeError):
     """Resolution failed. Never means 'try another copy'."""
 
 
-def pinned_commit(rq_root: str) -> str:
+def pinned_commit_for(rq_root: str, subrepo: str) -> str:
+    """The lock's pinned commit for ``subrepo`` — orch#1041 generalization of
+    the renquant-common-only original, same refusal semantics."""
     lock_path = os.path.join(rq_root, LOCK_RELNAME)
     try:
         with open(lock_path, encoding="utf-8") as fh:
@@ -58,14 +60,65 @@ def pinned_commit(rq_root: str) -> str:
     except (OSError, ValueError) as exc:
         raise PinRefusal(f"cannot read the pin from {lock_path}: {exc}") from exc
     for entry in lock.get("subrepos") or []:
-        if entry.get("name") == SUBREPO_NAME:
+        if entry.get("name") == subrepo:
             commit = str(entry.get("commit") or "").strip()
             if not commit:
                 raise PinRefusal(
-                    f"{lock_path} has a {SUBREPO_NAME} entry with no commit — a pin "
+                    f"{lock_path} has a {subrepo} entry with no commit — a pin "
                     f"that names no revision pins nothing")
             return commit
-    raise PinRefusal(f"{lock_path} has no {SUBREPO_NAME} entry")
+    raise PinRefusal(f"{lock_path} has no {subrepo} entry")
+
+
+def pinned_commit(rq_root: str) -> str:
+    return pinned_commit_for(rq_root, SUBREPO_NAME)
+
+
+def verify_pinned_file(rq_root: str, subrepo: str, relpath: str) -> str:
+    """The absolute path of ``relpath`` inside ``subrepo``'s pinned checkout,
+    verified three ways or refused (orch#1041, the scheduler's LIVE
+    prerequisite):
+
+      1. the lock names ``subrepo`` and the checkout HEAD equals that pin;
+      2. the file exists in the working tree;
+      3. the working bytes equal ``git show HEAD:relpath`` — a DIRTY config in
+         a pinned checkout is exactly as unreviewed as a sibling working tree,
+         so existence and even a correct HEAD are not enough.
+
+    Never falls back. A scheduled job that cannot show it is running the
+    reviewed configuration must stop, not guess.
+    """
+    checkout = os.path.join(rq_root, ".subrepo_runtime", "repos", subrepo)
+    if not os.path.isdir(checkout):
+        raise PinRefusal(
+            f"pinned runtime checkout missing at {checkout} — refusing to fall "
+            f"back to a sibling working tree (orch#1016/#1041)")
+    want = pinned_commit_for(rq_root, subrepo)
+    have = checkout_head(checkout)
+    if have != want:
+        raise PinRefusal(
+            f"pinned {subrepo} checkout is at {have}, but {LOCK_RELNAME} pins "
+            f"{want} — a directory name is not a revision")
+    abspath = os.path.join(checkout, relpath)
+    if not os.path.isfile(abspath):
+        raise PinRefusal(f"{relpath} missing from the pinned {subrepo} checkout")
+    try:
+        pinned_bytes = subprocess.run(
+            ["git", "-C", checkout, "show", f"HEAD:{relpath}"],
+            capture_output=True, timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise PinRefusal(
+            f"cannot read HEAD:{relpath} from {checkout}: {exc} — an "
+            f"unverifiable file is not a verified one") from exc
+    with open(abspath, "rb") as fh:
+        working = fh.read()
+    if working != pinned_bytes:
+        raise PinRefusal(
+            f"{relpath} in the pinned {subrepo} checkout is DIRTY relative to "
+            f"the pinned commit — a hand-edited file in a pinned checkout is "
+            f"exactly as unreviewed as a sibling working tree; revert it or "
+            f"land a reviewed pin bump")
+    return abspath
 
 
 def checkout_head(checkout: str) -> str:
@@ -108,8 +161,20 @@ def main() -> int:
         "RQ_ROOT", "/Users/renhao/git/github/RenQuant"))
     ap.add_argument("--print-src", action="store_true",
                     help="print the verified src path, or exit non-zero")
+    ap.add_argument("--subrepo", default=None,
+                    help="with --verify-file: which pinned subrepo to verify")
+    ap.add_argument("--verify-file", default=None, metavar="RELPATH",
+                    help="verify RELPATH inside --subrepo's pinned checkout "
+                         "(lock entry + HEAD==pin + bytes==pinned blob) and "
+                         "print its absolute path, or exit non-zero")
     args = ap.parse_args()
     try:
+        if args.verify_file:
+            if not args.subrepo:
+                print("FATAL: --verify-file requires --subrepo", file=sys.stderr)
+                return 2
+            print(verify_pinned_file(args.rq_root, args.subrepo, args.verify_file))
+            return 0
         src = resolve_pinned_common_src(args.rq_root)
     except PinRefusal as exc:
         print(f"FATAL: {exc}", file=sys.stderr)

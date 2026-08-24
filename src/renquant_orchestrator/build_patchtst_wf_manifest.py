@@ -63,10 +63,14 @@ DEFAULT_DATA_ROOT = default_repo_root()
 DEFAULT_DATASET_REL = Path("data/transformer_v4_wl200_clean.parquet")
 DEFAULT_SPY_REL = Path("data/ohlcv/SPY/1d.parquet")
 DEFAULT_RAW_LABEL_PANEL_REL = Path("data/alpha158_291_fundamental_dataset_rawlabel.parquet")
-DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = default_strategy_config_candidates(
+_cands = default_strategy_config_candidates(
     repo_root=DEFAULT_DATA_ROOT,
     github_root=GITHUB,
 )
+# orch#1041: the candidate list grew (pinned runtime now leads); primary is
+# the first candidate and the umbrella legacy fallback is the LAST — unpacking
+# a fixed pair broke when the tuple grew, which CI caught.
+DEFAULT_STRATEGY_CONFIG, LEGACY_STRATEGY_CONFIG = _cands[0], _cands[-1]
 DEFAULT_LABEL = "fwd_60d_excess"
 
 
