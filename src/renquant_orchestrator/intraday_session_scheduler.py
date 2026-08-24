@@ -421,6 +421,18 @@ _ZERO_COUNTERS = {
 }
 
 
+def strip_noop_decision_trace(decisions: Mapping[str, Any]) -> dict[str, Any]:
+    """The recorder's log-lean rule, extracted so the replay audit applies the
+    SAME rule before comparing (orch#1039). On a no-intent tick the ~90KB
+    decision_trace is dropped and `decision_trace_stripped: True` is stamped;
+    any other payload passes through unchanged."""
+    d = dict(decisions)
+    if not (d.get("intents") or ()) and "decision_trace" in d:
+        d = {k: v for k, v in d.items() if k != "decision_trace"}
+        d["decision_trace_stripped"] = True
+    return d
+
+
 def normalize_tick_result(raw: Any) -> dict[str, Any]:
     """Canonical JSON-able decision payload from a tick-runner result.
 
@@ -842,12 +854,12 @@ class SessionScheduler:
         assert_shadow_never_submits(mode=mode, decisions=record["decisions"])
         # Strip the per-ticker decision_trace on no-trade ticks to keep
         # the shadow log lean (~3KB summary vs ~90KB full trace per tick).
-        intents = decisions.get("intents") or ()
-        if not intents and "decision_trace" in decisions:
-            record["decisions"] = {
-                k: v for k, v in decisions.items() if k != "decision_trace"
-            }
-            record["decisions"]["decision_trace_stripped"] = True
+        # ONE definition, shared with the replay audit: the audit compared the
+        # UNSTRIPPED replay against the stripped record and reported 31/32
+        # decision mismatches on every session — a contract drift between
+        # recorder and verifier, not non-reproducibility (with the same rule
+        # applied, all 3 audited sessions reproduce with 0 mismatches).
+        record["decisions"] = strip_noop_decision_trace(decisions)
         self.writer.append(record)
         if self.tick_observer is not None:
             try:
