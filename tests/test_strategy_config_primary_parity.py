@@ -580,26 +580,27 @@ def test_the_digest_survives_digit_normalisation(tmp_path, capsys):
 
 
 def test_two_surfaces_with_the_SAME_basename_do_not_collapse(tmp_path, capsys):
-    """[codex on orch#1058 r2] Both production subjects are named
+    """[codex on orch#1058 r2+r3] Both production subjects are named
     strategy_config.json; basename-keyed canonical state silently overwrote
-    one of them. Changes on EITHER side — beyond the preview bound or
-    duplicate-only — must change the fingerprinted line."""
+    one of them. The PATHS stay fixed across calls and only the CONTENT is
+    rewritten in place — a mutation that also moved the file would change the
+    canonical label and pass even if watchlist contents were omitted from the
+    digest (the vacuous-regression shape r3 caught)."""
     m = _load()
     d1 = tmp_path / "pinned" / "configs"
     d2 = tmp_path / "umbrella" / "renquant_104"
     d1.mkdir(parents=True); d2.mkdir(parents=True)
     many = [f"T{i:02d}" for i in range(12)]
     a = _cfg_wl(d1, "strategy_config.json", ["AAPL"] + many)
-    b1 = _cfg_wl(d2, "strategy_config.json", ["AAPL"])
-    l1 = _first_line(m, capsys, a, b1)
-    # duplicate-only change on the SECOND (previously-overwritten) surface
-    b2 = _cfg_wl(d2 / "v2", "strategy_config.json", ["AAPL", "AAPL"]) \
-        if (d2 / "v2").mkdir() or True else None
-    l2 = _first_line(m, capsys, a, b2)
+    b = _cfg_wl(d2, "strategy_config.json", ["AAPL"])
+    l1 = _first_line(m, capsys, a, b)
+    # duplicate-only change on the SECOND (previously-overwritten) surface,
+    # SAME path — rewrite in place
+    _cfg_wl(d2, "strategy_config.json", ["AAPL", "AAPL"])
+    l2 = _first_line(m, capsys, a, b)
     assert l1 != l2, "a change on the basename-colliding surface left the line intact"
-    # past-the-preview change on the FIRST surface, second held fixed
-    a2 = _cfg_wl(d1 / "v2", "strategy_config.json",
-                 ["AAPL"] + many[:-1] + ["ZZZZ"]) \
-        if (d1 / "v2").mkdir() or True else None
-    l3 = _first_line(m, capsys, a2, b1)
-    assert l1 != l3
+    # restore side B; past-the-preview change on the FIRST surface, same path
+    _cfg_wl(d2, "strategy_config.json", ["AAPL"])
+    _cfg_wl(d1, "strategy_config.json", ["AAPL"] + many[:-1] + ["ZZZZ"])
+    l3 = _first_line(m, capsys, a, b)
+    assert l1 != l3, "an 11th-ticker change on the first surface left the line intact"
