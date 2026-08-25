@@ -173,6 +173,14 @@ if ! VERIFY_OUT=$("$PY" "$RQ105_ORCH_ROOT/ops/renquant105/batch_scores_bundle.py
 fi
 RUN_ID=$(python3 -c "import json;print(json.load(open('$META'))['run_id'])")
 RC_TOTAL=0
+# --staleness-sec 150 (orch#1063): the collector's 15s default is REAL-TIME
+# freshness semantics. This wrapper is a post-close REPLAY at fixed :00
+# checkpoints against the #216 quote logger, whose cadence is ~60s (median
+# 60.3s measured 2026-08-25); nearest-prior-tick ages at the four checkpoints
+# measured 101/12/105/25s that day, so 15s censors ~everything and the first
+# scheduled serve crashed on the zero-fresh-rows refusal (working as designed
+# — the parameter was wrong, not the guard). 150s = 2.5x the logger cadence:
+# admits the last 1-2 logger cycles, still censors genuinely dead names.
 for T in 10:00 12:00 14:00 15:30; do
   AS_OF=$("$PY" -c "import datetime,zoneinfo; h,m='${T}'.split(':'); print(datetime.datetime.combine(datetime.date.today(), datetime.time(int(h),int(m)), tzinfo=zoneinfo.ZoneInfo('America/New_York')).isoformat())")
   # S3-b (orch#1052): the pinned wiring module builds the verified blend
@@ -186,6 +194,7 @@ for T in 10:00 12:00 14:00 15:30; do
     --batch-scores-json "$SCORES" \
     --batch-run-id "$RUN_ID" \
     --data-root "$RQ_ROOT" \
+    --staleness-sec 150 \
     >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1
   SERVING_RC=$?
   [ "$SERVING_RC" -eq 0 ] || RC_TOTAL=$SERVING_RC
