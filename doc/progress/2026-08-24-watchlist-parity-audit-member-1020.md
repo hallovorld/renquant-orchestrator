@@ -50,3 +50,20 @@ watchlists, and nothing RAN the detector. Deployed-but-dark, twice over.
 - Suites: parity + ops_audit + disposition = **95 passed** (py3.10);
   new tests include the ack-safety property (two different drift sets must
   produce different fingerprint subjects) and the $RQ_ROOT default mode.
+
+## r2 (codex round 1): the preview was lossy and the ack lied about its expiry
+
+Both accepted. (1) The bounded ticker preview stays for humans, but the
+fingerprinted line now ALSO carries a digest of the complete canonical
+state — all disagreement strings verbatim (identity VALUES included), every
+read surface's full watchlist (duplicates preserved, ABSENT explicit) —
+**letter-encoded**, because the disposition fingerprint substitutes digits
+with `<N>` and a raw hex digest would collide after substitution, silently
+re-opening the exact hole the digest closes. Four escape-regressions added:
+11th-ticker change, ABSENT↔list flip, duplicate-only change, identity
+VALUE change — each must change the fingerprinted line — plus a digit-free
+property test. (2) The ack's `expires_at` is now **2026-09-07** — equal to
+`acked_at + ACK_MAX_AGE_DAYS`, the effective bound `ack_expiry` computes —
+with the equality stated in `reason` instead of a later date that the age
+cap would silently override. 43 parity tests pass; audit shows the member
+`exit=1 ACKED` (INFO) under the recomputed fingerprint.

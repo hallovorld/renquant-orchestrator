@@ -517,3 +517,63 @@ def test_omitting_config_derives_both_surfaces_from_RQ_ROOT(tmp_path, capsys,
     out = capsys.readouterr().out
     assert rc == 1
     assert "CRWV" in out.splitlines()[0]
+
+
+# ── [codex on orch#1058] the preview is lossy; the DIGEST must not be ────────
+def _first_line(m, capsys, *cfgs):
+    m.main(["--config", cfgs[0], "--config", cfgs[1]])
+    return capsys.readouterr().out.splitlines()[0]
+
+
+def test_an_ELEVENTH_ticker_change_still_changes_the_line(tmp_path, capsys):
+    """The human preview truncates at 10; the digest must see member 11+."""
+    m = _load()
+    base = [f"T{i:02d}" for i in range(12)]          # 12 drifted names
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL"] + base)
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL"] + base[:-1] + ["ZZZZ"])
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "a drift change past the preview bound left the line intact"
+
+
+def test_ABSENT_to_list_flip_changes_the_line(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "CRWV"])
+    b_absent = _cfg_wl(tmp_path, "b0.json", None)
+    b_listed = _cfg_wl(tmp_path, "b1.json", ["CRWV"])
+    l1 = _first_line(m, capsys, a, b_absent)
+    l2 = _first_line(m, capsys, a, b_listed)
+    assert l1 != l2, "ABSENT-vs-list collapsed to the same fingerprint subject"
+
+
+def test_a_DUPLICATE_only_change_changes_the_line(tmp_path, capsys):
+    m = _load()
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL", "CRWV"])
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL", "CRWV", "CRWV"])
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "a duplicate-only change is a config defect and must re-fingerprint"
+
+
+def test_an_identity_VALUE_change_changes_the_line(tmp_path, capsys):
+    """The tag is the FIELD name; the digest must carry the VALUES."""
+    m = _load()
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"], kind="xgb")
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL"], kind="hf_patchtst")
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL"], kind="panel_lgbm")
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "an identity value change kept the same fingerprint subject"
+
+
+def test_the_digest_survives_digit_normalisation(tmp_path, capsys):
+    """The disposition fingerprint substitutes digits with <N>; a digest that
+    carries digits would collide after substitution. Ours must be digit-free."""
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "CRWV"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    line = _first_line(m, capsys, a, b)
+    digest = line.rsplit("id=", 1)[1]
+    assert digest and not any(ch.isdigit() for ch in digest)

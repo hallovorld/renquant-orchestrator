@@ -18,16 +18,16 @@
     "clears_when": "The served count leaves 0 - which moves a number IN the fingerprinted summary, so a config change alone reports ACKED_BUT_CHANGED even with every census count unchanged [codex on orch#829]. Same for any legacy-only artifact appearing, or the both-copy count moving. It also expires 2026-09-05 regardless.",
     "not_acked_note": "This acks ONLY the parity census. It does not ack booster-identity, whose COLLAPSE line (36 artifacts -> 15 distinct boosters under one identity sha256:cfdd6cb8e950da0f) is a REAL open defect - the WF gate admits on the recipe hash and never scores the candidate's booster. Acking that would be the failure this ledger exists to avoid."
   },
-  "a31becc0dc3fb5bb": {
+  "b14a0ace57c088b7": {
     "member": "strategy-config-parity",
     "acked_at": "2026-08-24",
-    "expires_at": "2026-09-24",
+    "expires_at": "2026-09-07",
     "acked_by": "claude",
     "numbers_when_acked": [
       "4"
     ],
-    "reason": "This acks the STANDING, registered divergences only, so the newly joined detector alarms on NEW drift instead of being red forever and ignored. (1) primary kind/artifact_path + shadow_models: the umbrella tournament surface declares hf_patchtst primary while the pinned serving surface declares the blend - the R5 twin-registry condition, recorded in doc/arch/twin-implementation-registry.md long before this member joined. (2) watchlist(CRWV,RKLB,SPCX): the 145-vs-142 universe drift orch#1020 exists for; which list is right is a reviewed config decision the issue tracks, not something this detector should decide.",
-    "clears_when": "Any change in the disagreement SET re-fingerprints (field names and drifted tickers are in the summary line the audit fingerprints): a new drifted ticker, a resolved one, or an identity change all report NEW. Expires 2026-09-24 regardless; R5 retirement or the #1020 reconciliation clears the respective half.",
+    "reason": "Acks the STANDING divergences only, so the newly joined detector alarms on NEW drift instead of being red forever and learned-ignored. (1) primary kind/artifact_path + shadow_models: the umbrella tournament surface declares hf_patchtst primary while the pinned serving surface declares the blend - the R5 twin-registry condition (doc/arch/twin-implementation-registry.md). (2) watchlist(CRWV,RKLB,SPCX): the 145-vs-142 universe drift orch#1020 tracks; the reconciliation is a reviewed config decision, not this detector's call. expires_at 2026-09-07 IS the effective bound: it equals acked_at + the global ACK_MAX_AGE_DAYS cap, stated here explicitly per codex on orch#1058 rather than pretending a later date.",
+    "clears_when": "Any semantic change re-fingerprints: the summary line carries a letter-encoded digest of the complete canonical state (all disagreement strings with values, every read surface's full watchlist with duplicates, ABSENT explicit), so an 11th drifted ticker, an ABSENT<->list flip, a duplicate-only change, or an identity value change all report NEW. R5 retirement or the #1020 reconciliation clears the respective half.",
     "not_acked_note": "Nothing here acks the RECONCILIATION: CRWV/RKLB/SPCX still cannot produce tournament artifacts while the drift stands (orch#1020 stays open for that decision)."
   }
 }

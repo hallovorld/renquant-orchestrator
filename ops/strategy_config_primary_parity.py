@@ -351,13 +351,36 @@ def main(argv: list[str] | None = None) -> int:
                 import re as _re
                 drift = sorted(set(_re.findall(r"[A-Z][A-Z0-9.]{0,9}",
                                                d.split("only=", 1)[1])))                     if "only=" in d else []
-                tags.append("watchlist(" + ",".join(drift) + ")")
+                tags.append("watchlist(" + ",".join(drift[:10])
+                            + ("…" if len(drift) > 10 else "") + ")")
             else:
                 tags.append(field)
         if rep["n_broken"]:
             tags.append(f"broken_surfaces={rep['n_broken']}")
+        # [codex on orch#1058] The tags above are a bounded human PREVIEW and
+        # deliberately lossy: an 11th drifted ticker, an ABSENT<->list flip, a
+        # duplicate-only change, or an identity VALUE change (field name
+        # unchanged) would all leave them identical — and since ops_audit
+        # fingerprints this line, an ack would silently cover the changed set.
+        # So the line also carries a digest of the COMPLETE canonical state:
+        # every disagreement string verbatim (identity values included), plus
+        # each read surface's full watchlist (duplicates preserved, ABSENT
+        # explicit). Letter-encoded (hex a-f + digits mapped g-p) because the
+        # disposition fingerprint normalises DIGITS away — a raw hex digest
+        # would collide after <N>-substitution, silently re-opening the hole.
+        canonical = json.dumps({
+            "disagreements": rep["disagreements"],
+            "watchlists": {os.path.basename(su["path"]): (
+                su.get("watchlist") if su.get("watchlist") is not None
+                else "ABSENT")
+                for su in surfaces if su["status"] == "read"},
+            "n_broken": rep["n_broken"],
+        }, sort_keys=True)
+        import hashlib as _hl
+        hexd = _hl.sha256(canonical.encode()).hexdigest()[:16]
+        letters = hexd.translate(str.maketrans("0123456789", "ghijklmnop"))
         return (f"PARITY: {len(rep['disagreements'])} disagreement(s) "
-                f"[{'; '.join(tags)}]")
+                f"[{'; '.join(tags)}] id={letters}")
 
     if a.json:
         rep["summary"] = _summary()
