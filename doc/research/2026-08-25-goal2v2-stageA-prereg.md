@@ -73,19 +73,32 @@ missing, and the meta is fitted with xgboost's native missing handling).
 
 xgboost `max_depth=3, n_estimators=200, learning_rate=0.05,
 min_child_weight=50`; inputs = the 4 base scores (cross-sectionally z-scored
-per day on OOF-fitted parameters) + macro/state features, all at T-1 close
-(PIT): VIXCLS level and 20d change; DGS10 20d change; T10Y2Y level;
-BAMLH0A0HYM2 20d change; sector breadth (share of sectors whose
-equal-weight index sits above its 50d MA); PIT regime label (one-hot);
-cross-sectional dispersion (std of day's demeaned 20d returns).
+per day on OOF-fitted parameters) + macro/state features.
+
+**Macro availability/vintage rule [codex r1 — latest-vintage history is not
+automatically PIT]:** only MARKET-QUOTE series are admissible (VIXCLS,
+DGS10, T10Y2Y, BAMLH0A0HYM2 — exchange/market quotes, not statistically
+revised releases; series like CPI/PAYEMS are inadmissible in Stage A
+precisely because their latest-vintage history embeds revisions). The
+frozen availability lag is **2 business days**: the feature at session T
+uses series values dated ≤ T−2, strictly more conservative than FRED's
+next-business-day posting for these series. The limitation is recorded:
+the local store is latest-vintage, and for quote series the revision risk
+is de minimis but not zero — if revision evidence for any chosen series
+surfaces, the K1 data-provenance kill fires for the affected feature set.
+Features: VIXCLS level and 20d change; DGS10 20d change; T10Y2Y level;
+BAMLH0A0HYM2 20d change (each under the T−2 rule); sector breadth (share
+of sectors whose equal-weight index sits above its 50d MA — computed from
+the OHLCV store, T−1); PIT regime label (one-hot, from SPY closes ≤ T−1);
+cross-sectional dispersion (std of day's demeaned 20d returns, T−1).
 
 ## 6. Hypothesis, metric, baselines, decision rule (frozen)
 
-* **Primary metric**: pooled Spearman IC of the score vs the 20td demeaned
-  forward return, computed per day and averaged within NON-OVERLAPPING
-  20-trading-day blocks (gap ≥ 20; [[block-length-equals-horizon-is-the-defect]]
-  satisfied by block starts spaced ≥ 40td apart: 20td of forward-return
-  overlap plus 20td gap).
+* **Primary statistic, one estimand [codex r1]**: the DAILY cross-sectional
+  Spearman IC of the score vs the 20td demeaned forward return, AVERAGED
+  within each frozen non-overlapping block; the block means are the unit of
+  inference. Block starts spaced ≥ 40td apart (20td label overlap + 20td
+  gap; [[block-length-equals-horizon-is-the-defect]]).
 * **Baselines, named before unblinding**: B1 = the single base with the
   highest pooled OOF IC (its identity is written into the run artifact at
   freeze time, from OOF only); B2 = equal-z sum of the four base scores.
@@ -93,9 +106,16 @@ cross-sectional dispersion (std of day's demeaned 20d returns).
   paired block-t, α=0.05 one-sided, critical value from the t distribution
   at (n_blocks − 1) df — never a borrowed 1.96
   ([[borrowed-critical-values-on-small-n]]).
-* **Sensitivity, ex-ante** (#1045 r4 semantics): at assembly (before any
-  outcome), n_eff and the MDE at α=0.05/power 0.80 are computed and
-  recorded. **Minimum effect of interest, frozen now: ΔIC = 0.010.**
+* **Sensitivity, ex-ante** (#1045 r4 semantics): BEFORE any evaluation
+  outcome is unblinded, n_eff (the count of assembled evaluation blocks)
+  and the MDE at α=0.05/power 0.80 are computed and recorded. **The MDE's
+  variance source is frozen [codex r1]:** s² = the sample variance of the
+  PAIRED per-block ΔIC (meta − the §6 baseline max) computed on the OOF
+  blocks only — training-side data; SE = √(s²/n_eff); MDE =
+  (t_{0.95} + t_{0.80}) · SE at (n_eff − 1) df. Conservative fallback: if
+  fewer than 6 OOF blocks exist, s is floored at 0.020 IC. Estimating the
+  threshold from unblinded evaluation differences is prohibited.
+  **Minimum effect of interest, frozen now: ΔIC = 0.010.**
   Nonsurvival with MDE ≤ 0.010 → NOT-DEMONSTRATED (terminal). Nonsurvival
   with MDE > 0.010 → UNDERPOWERED-NULL. NO-EFFECT is not an available
   label. Estimate + interval reported regardless.
@@ -106,21 +126,22 @@ cross-sectional dispersion (std of day's demeaned 20d returns).
 |---|---|
 | K1 coverage | universe rule yields < 80 tickers on either window, or feature coverage < 80% of name-days on either window |
 | K2 ESS | assembled evaluation panel n_eff < 12 non-overlapping blocks (the #1061 ceiling note: ~16 is the perfect-coverage ceiling; THIS check decides) |
-| K3 provenance | any base recipe found to violate the §4 channel it declares (0b-α-style review, run before evaluation) — the base is quarantined; if < 3 bases survive, the stage kills |
-| K4 outcome | meta beats neither baseline (per §6) → NOT-DEMONSTRATED, line closes at Stage A |
+| K3 provenance | any base recipe found to violate the §4 channel it declares (0b-α-style review, run before evaluation) — the base is quarantined, and the ENTIRE downstream is rebuilt from the surviving bases under the same frozen procedure: meta inputs shrink to the survivors, B1 is re-selected from the survivors' OOF ICs, B2 becomes the equal-z of the survivors; if < 3 bases survive, the stage kills |
+| K4 outcome | the §6 preregistered test — one-sided paired block-t of (meta − max(B1, B2)) at α=0.05, critical value from t(n_eff−1) — fails to reject → nonsurvival, labeled per §6 sensitivity (NOT-DEMONSTRATED or UNDERPOWERED-NULL); no point-estimate rule substitutes for the test |
 | K5 OOF screen | computed on OOF data ONLY, before the evaluation window is touched: if NO base achieves pooled OOF IC > 0 with block-t ≥ 1.0, the stage stops without spending the one-shot evaluation — a stack of bases showing no life on training-side data has no claim on the quarantined window ([[over-engineering-validation-before-alpha]]: the cheap screen precedes the expensive shot). The K5 reading is recorded either way. |
 
 ## 8. Artifacts and boundaries
 
-Runner + artifacts live in `renquant-orchestrator` experiment surfaces
-(`doc/research/data/goal2v2-stageA/…` for frozen digests and results; bulk
-intermediates under the operator data root `data/goal2v2/`, a NEW directory
-no production job reads). Nothing writes production paths; the committed
-OHLCV/FRED stores are read-only inputs. Base-model TRAINING CODE, if it
-grows beyond a self-contained runner script, moves to renquant-model per the
-design's repo split — Stage A's single-file runner with frozen constants is
-the orchestrator's prereg-execution instrument, mirroring the AC1 grid
-precedent.
+Ownership [codex r1 — the hard boundary admits no single-file exception]:
+the base and meta FIT/PREDICT implementations live in **renquant-model**
+(new module, its own PR + review). `renquant-orchestrator` keeps ONLY
+prereg enforcement, cross-repo invocation, artifact binding (digests of
+universe list, transforms, boosters, OOF matrix), and the evaluation
+orchestration. Frozen digests and result tables →
+`doc/research/data/goal2v2-stageA/…`; bulk intermediates → the operator
+data root `data/goal2v2/`, a NEW directory no production job reads.
+Nothing writes production paths; the committed OHLCV/FRED stores are
+read-only inputs.
 
 ## 9. What Stage A cannot claim
 
