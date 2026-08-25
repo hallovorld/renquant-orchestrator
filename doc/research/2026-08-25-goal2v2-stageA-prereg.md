@@ -1,4 +1,8 @@
-# GOAL-2v2 Stage-A preregistration — FROZEN before any fit
+# GOAL-2v2 Stage-A: TERMINAL RECORD — K5 failed on the OOF screen; the evaluation window was never touched
+
+(Originally proposed as "Stage-A preregistration — FROZEN before any fit";
+that provenance property was breached during review — see STATUS — and the
+title must not assert what is known to be false.)
 
 STATUS: **TERMINAL RECORD — K5 fired during review; Stage A stops here
 and 2020–2023 is NOT run under this document.** [codex r3] The K5 screen
