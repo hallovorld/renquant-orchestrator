@@ -333,3 +333,24 @@ def test_concurrent_retries_serialize_on_the_writer_lock(tmp_path, monkeypatch):
     on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
     assert len(on_disk) == 1, "concurrent retries must not append twins"
     assert sum(1 for r in results if r.get("duplicate_tick")) == 1
+
+
+def test_a_failed_serving_never_touches_the_other_loaders(tmp_path, monkeypatch):
+    """[codex on orch#1059 r2] The refusal must persist even when every other
+    input is poisoned — the gate fires before any producer/scheduler read."""
+    def boom(*a, **k):
+        raise RuntimeError("loader must not be called on serving failure")
+    monkeypatch.setattr(mod, "load_frozen_daily_signal", boom)
+    monkeypatch.setattr(mod, "load_shadow_rows", boom)
+    monkeypatch.setattr(mod, "held_plus_pending_from_scheduler_log", boom)
+    monkeypatch.setattr(mod, "session_totals_from_intents_log", boom)
+    intents = tmp_path / "intents.jsonl"
+    record = mod.run_entry_loop_tick(
+        session_date=SESSION, as_of=AS_OF, db_path=tmp_path / "absent.db",
+        calendar=_Cal(), shadow_log=tmp_path / "absent.jsonl",
+        scheduler_log=tmp_path / "absent2.jsonl",
+        pinned_config=_pinned_cfg(tmp_path),
+        intents_log=intents, serving_rc=7, env={})
+    assert "serving_failed rc=7" in record["session_block"]
+    on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
+    assert len(on_disk) == 1

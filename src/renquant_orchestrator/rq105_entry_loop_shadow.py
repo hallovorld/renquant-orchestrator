@@ -271,20 +271,33 @@ def run_entry_loop_tick(
     if existing is not None:
         return {**existing, "duplicate_tick": True}
 
+    # [codex on orch#1059 r2] The serving gate fires BEFORE any producer or
+    # scheduler read: a failed serving tick can coincide with malformed
+    # inputs, and crashing in a loader would leave NO record where the
+    # contract promises a persisted named refusal. Only the config (already
+    # read, for the record's guardrail provenance) and the idempotency check
+    # precede this branch.
     batch_refusal: str | None = None
     signal: Mapping[str, Any] | None = None
-    try:
-        signal = load_frozen_daily_signal(
-            db_path=db_path, session_date=session_date, calendar=calendar)
-    except (FrozenSignalError, SignalLeakError) as exc:
-        batch_refusal = f"{type(exc).__name__}: {exc}"
+    rows: list[dict] = []
+    held: int | None = None
+    held_why = "not_read: serving failed"
+    entries_today, notional_today = 0, 0.0
 
-    rows = load_shadow_rows(shadow_log, session_date=session_date, as_of=as_of)
-    held, held_why = held_plus_pending_from_scheduler_log(
-        scheduler_log, session_date=session_date, as_of_et=as_of_et,
-        max_age_min=live_state_max_age_min)
-    entries_today, notional_today = session_totals_from_intents_log(
-        intents_log, session_date=session_date)
+    if serving_rc == 0:
+        try:
+            signal = load_frozen_daily_signal(
+                db_path=db_path, session_date=session_date, calendar=calendar)
+        except (FrozenSignalError, SignalLeakError) as exc:
+            batch_refusal = f"{type(exc).__name__}: {exc}"
+
+        rows = load_shadow_rows(shadow_log, session_date=session_date,
+                                as_of=as_of)
+        held, held_why = held_plus_pending_from_scheduler_log(
+            scheduler_log, session_date=session_date, as_of_et=as_of_et,
+            max_age_min=live_state_max_age_min)
+        entries_today, notional_today = session_totals_from_intents_log(
+            intents_log, session_date=session_date)
 
     if serving_rc != 0:
         plan_payload: dict[str, Any] = {
