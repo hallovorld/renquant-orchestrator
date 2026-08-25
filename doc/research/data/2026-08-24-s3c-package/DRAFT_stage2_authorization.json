@@ -1,7 +1,7 @@
 {
-  "_DRAFT": "NOT READY TO SIGN. Hard prerequisite below is UNMET. Schema: Stage2Authorization in intraday_live_executor.py.",
+  "_DRAFT": "NOT READY TO SIGN. The pinned-config prerequisite is STARTUP-RESOLVED with completion pending (see _HARD_PREREQUISITES); once the 2026-08-25 session closes cleanly it becomes SATISFIED, after which this draft remains unsigned only because the operator identity/date/expiry/allowlist fields are pending. Schema: Stage2Authorization in intraday_live_executor.py.",
   "_HARD_PREREQUISITES": {
-    "pinned_config_resolution": "orch#1041 fix MERGED AND DEPLOYED, plus >=1 shadow session recorded under the PINNED config fingerprint. The 13-session evidence attaches to the SIBLING checkout's config (see evidence_bindings.shadow_evidence_config_fingerprint); live operation must run the pinned surface, so this draft is VOID until it can bind live_config_fingerprint below to a real post-fix session.",
+    "pinned_config_resolution": "STARTUP-RESOLVED 2026-08-25, completion pending: the 06:25 scheduler process (first after the orch#1041/#1044 deploy, orch-run aaf06a2d) recorded strategy_config_fingerprint sha256:af2344af61157cd48ed3b4e41a6090bc4ea19227b9969d3ee616f4bb28982800 at startup, consistent with the PINNED path. The durable proof of WHICH path was read is the deployed wrapper itself: run_session_scheduler.sh resolves the config via rq105_pinned_common --verify-file (lock+HEAD+bytes, fail-closed) and passes it explicitly — a mismatch would have refused to start, and the manifest shows errors=[] at startup. (The 2026-08-24 hash discrimination vs the sibling checkout is HISTORICAL only: the sibling has since been returned to main and now carries identical bytes; path identity today rests on the fail-closed wrapper, not on hash uniqueness.) This prerequisite becomes SATISFIED — and clean-session counting toward S3-c begins — only after the 2026-08-25 session CLOSES with complete, error-free session evidence; a same-day completion note will be appended then.",
     "regenerate_and_rereview_if": "any evidence_bindings value changes, or the pinned strategy-104 config fingerprint changes"
   },
   "authorized_by": "<OPERATOR: your identity>",
@@ -22,7 +22,7 @@
     },
     "entry_timing_report_sha256": "sha256:2fbd303ef3f5ee9e8d2fdcbf3d1e1d4af60b7bcf782f7f9e9f43ca8982758bc3"
   },
-  "live_config_fingerprint": "<POST-#1041: hash_jsonable of the PINNED strategy config a post-fix shadow session ran under \u2014 fill from its session manifest>",
+  "live_config_fingerprint": "sha256:af2344af61157cd48ed3b4e41a6090bc4ea19227b9969d3ee616f4bb28982800",
   "daily_entry_notional_cap": 1500.0,
   "canary_allowlist": [
     "<OPERATOR: 1-2 names; must be a subset of any pinned-config allowlist>"
