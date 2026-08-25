@@ -72,11 +72,14 @@ missing, and the meta is fitted with xgboost's native missing handling).
 ## 5. Meta layer (frozen)
 
 xgboost `max_depth=3, n_estimators=200, learning_rate=0.05,
-min_child_weight=50`; inputs = the 4 base scores (cross-sectionally z-scored
-per day on OOF-fitted parameters) + macro/state features.
+min_child_weight=50`; inputs = the base scores, each cross-sectionally z-scored PER DAY using
+only that day's contemporaneously available scores (a per-day
+transformation has no fitted parameters [codex r2]; winsorization
+thresholds and any other FITTED scaling constants come from training/OOF
+data only and are frozen before evaluation) + macro/state features.
 
-**Macro availability/vintage rule [codex r1 — latest-vintage history is not
-automatically PIT]:** only MARKET-QUOTE series are admissible (VIXCLS,
+**Macro availability/vintage rule [codex r1/r2 — these are LAGGED
+LATEST-VINTAGE inputs, not PIT-vintage-identified values]:** only MARKET-QUOTE series are admissible (VIXCLS,
 DGS10, T10Y2Y, BAMLH0A0HYM2 — exchange/market quotes, not statistically
 revised releases; series like CPI/PAYEMS are inadmissible in Stage A
 precisely because their latest-vintage history embeds revisions). The
@@ -100,21 +103,28 @@ cross-sectional dispersion (std of day's demeaned 20d returns, T−1).
   inference. Block starts spaced ≥ 40td apart (20td label overlap + 20td
   gap; [[block-length-equals-horizon-is-the-defect]]).
 * **Baselines, named before unblinding**: B1 = the single base with the
-  highest pooled OOF IC (its identity is written into the run artifact at
-  freeze time, from OOF only); B2 = equal-z sum of the four base scores.
-* **Claim tested**: meta IC − max(B1, B2) IC > 0 on the evaluation blocks,
-  paired block-t, α=0.05 one-sided, critical value from the t distribution
-  at (n_blocks − 1) df — never a borrowed 1.96
-  ([[borrowed-critical-values-on-small-n]]).
+  highest OOF BLOCK-MEAN IC (the same block statistic as the primary
+  estimand, computed on OOF; identity written into the run artifact at
+  freeze time); B2 = equal-z sum of the base scores.
+* **Claim tested — intersection-union rule [codex r2]:** TWO separate
+  one-sided paired block-t tests on the evaluation blocks — (meta − B1) and
+  (meta − B2) — and survival requires BOTH to reject at α=0.05, critical
+  values from t(n_eff − 1) ([[borrowed-critical-values-on-small-n]]).
+  No post-unblinding comparator selection exists: "max of the baselines"
+  is never computed, so the stated α is preserved (the IU construction is
+  conservative by design).
 * **Sensitivity, ex-ante** (#1045 r4 semantics): BEFORE any evaluation
   outcome is unblinded, n_eff (the count of assembled evaluation blocks)
   and the MDE at α=0.05/power 0.80 are computed and recorded. **The MDE's
-  variance source is frozen [codex r1]:** s² = the sample variance of the
-  PAIRED per-block ΔIC (meta − the §6 baseline max) computed on the OOF
-  blocks only — training-side data; SE = √(s²/n_eff); MDE =
-  (t_{0.95} + t_{0.80}) · SE at (n_eff − 1) df. Conservative fallback: if
-  fewer than 6 OOF blocks exist, s is floored at 0.020 IC. Estimating the
-  threshold from unblinded evaluation differences is prohibited.
+  variance source is frozen [codex r1/r2]:** for EACH of the two paired
+  series (meta − B1, meta − B2), s² = the sample variance of that paired
+  per-block ΔIC on the OOF blocks only — training-side data; SE =
+  √(s²/n_eff); per-series MDE = (t_{0.95} + t_{0.80}) · SE at (n_eff − 1)
+  df. **The recorded MDE for labeling is the LARGER of the two** (the IU
+  test passes only if both reject, so sensitivity is bounded by the worse
+  comparison). Conservative fallback: if fewer than 6 OOF blocks exist,
+  each s is floored at 0.020 IC. Estimating any threshold from unblinded
+  evaluation differences is prohibited.
   **Minimum effect of interest, frozen now: ΔIC = 0.010.**
   Nonsurvival with MDE ≤ 0.010 → NOT-DEMONSTRATED (terminal). Nonsurvival
   with MDE > 0.010 → UNDERPOWERED-NULL. NO-EFFECT is not an available
@@ -128,7 +138,7 @@ cross-sectional dispersion (std of day's demeaned 20d returns, T−1).
 | K2 ESS | assembled evaluation panel n_eff < 12 non-overlapping blocks (the #1061 ceiling note: ~16 is the perfect-coverage ceiling; THIS check decides) |
 | K3 provenance | any base recipe found to violate the §4 channel it declares (0b-α-style review, run before evaluation) — the base is quarantined, and the ENTIRE downstream is rebuilt from the surviving bases under the same frozen procedure: meta inputs shrink to the survivors, B1 is re-selected from the survivors' OOF ICs, B2 becomes the equal-z of the survivors; if < 3 bases survive, the stage kills |
 | K4 outcome | the §6 preregistered test — one-sided paired block-t of (meta − max(B1, B2)) at α=0.05, critical value from t(n_eff−1) — fails to reject → nonsurvival, labeled per §6 sensitivity (NOT-DEMONSTRATED or UNDERPOWERED-NULL); no point-estimate rule substitutes for the test |
-| K5 OOF screen | computed on OOF data ONLY, before the evaluation window is touched: if NO base achieves pooled OOF IC > 0 with block-t ≥ 1.0, the stage stops without spending the one-shot evaluation — a stack of bases showing no life on training-side data has no claim on the quarantined window ([[over-engineering-validation-before-alpha]]: the cheap screen precedes the expensive shot). The K5 reading is recorded either way. |
+| K5 OOF screen | computed on OOF data ONLY, before the evaluation window is touched: if NO base achieves an OOF BLOCK-MEAN IC > 0 with block-t ≥ 1.0 (the same block statistic as §6), the stage stops without spending the one-shot evaluation — a stack of bases showing no life on training-side data has no claim on the quarantined window ([[over-engineering-validation-before-alpha]]: the cheap screen precedes the expensive shot). The K5 reading is recorded either way. |
 
 ## 8. Artifacts and boundaries
 
