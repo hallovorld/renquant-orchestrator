@@ -67,3 +67,18 @@ property test. (2) The ack's `expires_at` is now **2026-09-07** — equal to
 with the equality stated in `reason` instead of a later date that the age
 cap would silently override. 43 parity tests pass; audit shows the member
 `exit=1 ACKED` (INFO) under the recomputed fingerprint.
+
+## r3 (codex round 2): the canonical map lost one LIVE surface
+
+Accepted: both production subjects are named `strategy_config.json`, and the
+canonical watchlist map keyed by basename silently overwrote one — reopening
+duplicate/absence/full-list collisions on the overwritten side. Keying is now
+**index + the last three path parts** (subject order preserved; portable
+across RQ_ROOTs; distinguishes `…/renquant-strategy-104/configs/…` from
+`…/renquant_104/…`). New regression with two same-basename surfaces asserts
+a past-the-preview change and a duplicate-only change on EITHER side alter
+the fingerprinted line. The CI red was `test_ops_audit_acks_ledger`'s pin
+that exactly one detector is ever acked — updated to enumerate two, with the
+rationale in place (widening that set stays a reviewed edit of the test).
+Ack re-keyed to the final fingerprint `1af4f5ed284b8ea0`. 104 passed across
+the parity/audit/ledger suites.

@@ -368,12 +368,22 @@ def main(argv: list[str] | None = None) -> int:
         # explicit). Letter-encoded (hex a-f + digits mapped g-p) because the
         # disposition fingerprint normalises DIGITS away — a raw hex digest
         # would collide after <N>-substitution, silently re-opening the hole.
+        # [codex on orch#1058 r2] keyed by INDEX + the last three path parts,
+        # never the basename: both production subjects are named
+        # strategy_config.json, and a basename-keyed dict silently overwrote
+        # one surface — reopening every collision the digest exists to close.
+        # The index preserves subject order; the 3-part tail is portable
+        # across RQ_ROOTs while still distinguishing the pinned subrepo
+        # surface from the umbrella tournament surface.
+        def _label(i: int, path: str) -> str:
+            parts = path.replace(os.sep, "/").split("/")
+            return f"{i}:" + "/".join(parts[-3:])
         canonical = json.dumps({
             "disagreements": rep["disagreements"],
-            "watchlists": {os.path.basename(su["path"]): (
+            "watchlists": {_label(i, su["path"]): (
                 su.get("watchlist") if su.get("watchlist") is not None
                 else "ABSENT")
-                for su in surfaces if su["status"] == "read"},
+                for i, su in enumerate(surfaces) if su["status"] == "read"},
             "n_broken": rep["n_broken"],
         }, sort_keys=True)
         import hashlib as _hl

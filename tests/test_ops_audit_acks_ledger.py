@@ -125,11 +125,17 @@ class TestWhatWasDELIBERATELYNotAcked:
         assert not any(a.get("member") == "booster-identity"
                        for a in ledger.values())
 
-    def test_only_ONE_detector_is_acked_at_all(self, ledger):
+    def test_only_the_ENUMERATED_detectors_are_acked_at_all(self, ledger):
         members = {a.get("member") for a in ledger.values()}
-        assert members == {"gate-stamp-parity"}, (
-            "eight other findings stay loud — this ledger's first entry is a "
-            "disposition, not a cleanup", members)
+        # strategy-config-parity joined 2026-08-24 (orch#1020/#1058): its ack
+        # covers the STANDING, registry-recorded divergences (R5 identity +
+        # the 3-ticker watchlist drift #1020 tracks) so a newly joined member
+        # alarms on change instead of being red forever and learned-ignored.
+        # Every other finding stays loud — this ledger records dispositions,
+        # not cleanups, and widening this set is a reviewed edit HERE.
+        assert members == {"gate-stamp-parity", "strategy-config-parity"}, (
+            "the other findings stay loud — this ledger records dispositions, "
+            "not cleanups", members)
 
     def test_the_ack_says_out_loud_what_it_does_not_cover(self, ledger):
         assert "booster-identity" in ledger[ACK_FP]["not_acked_note"]
