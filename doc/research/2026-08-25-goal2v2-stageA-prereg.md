@@ -108,6 +108,7 @@ cross-sectional dispersion (std of day's demeaned 20d returns).
 | K2 ESS | assembled evaluation panel n_eff < 12 non-overlapping blocks (the #1061 ceiling note: ~16 is the perfect-coverage ceiling; THIS check decides) |
 | K3 provenance | any base recipe found to violate the §4 channel it declares (0b-α-style review, run before evaluation) — the base is quarantined; if < 3 bases survive, the stage kills |
 | K4 outcome | meta beats neither baseline (per §6) → NOT-DEMONSTRATED, line closes at Stage A |
+| K5 OOF screen | computed on OOF data ONLY, before the evaluation window is touched: if NO base achieves pooled OOF IC > 0 with block-t ≥ 1.0, the stage stops without spending the one-shot evaluation — a stack of bases showing no life on training-side data has no claim on the quarantined window ([[over-engineering-validation-before-alpha]]: the cheap screen precedes the expensive shot). The K5 reading is recorded either way. |
 
 ## 8. Artifacts and boundaries
 
