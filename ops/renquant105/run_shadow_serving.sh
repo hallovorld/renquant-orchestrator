@@ -127,7 +127,21 @@ if ! RQ_PIPELINE_SRC=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
     >> "$LOG_DIR/shadow_serving_$TS.log"
   exit 1
 fi
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_PIPELINE_SRC"
+# orch#1059 r3: the entry loop binds its plan with renquant_artifacts'
+# canonical hash_jsonable — same loader-code-identity rule as pipeline
+# (#1053): verified checkout, never a bare pathname or whatever the venv
+# happens to carry.
+if ! RQ_ARTIFACTS_SRC=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+      --rq-root "$RQ_ROOT" --verify-subrepo renquant-artifacts \
+      2>> "$LOG_DIR/shadow_serving_$TS.log"); then
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving FAILED — pinned renquant-artifacts verification refused ($TS)" \
+    "rq105_pinned_common --verify-subrepo renquant-artifacts refused; see logs/rq105/shadow_serving_$TS.log" || true
+  echo "FATAL: pinned renquant-artifacts verification refused (orch#1059)" \
+    >> "$LOG_DIR/shadow_serving_$TS.log"
+  exit 1
+fi
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_PIPELINE_SRC:$RQ_ARTIFACTS_SRC"
 # S3-b: the scorer's config identity comes from the PINNED strategy-104
 # checkout, verified lock+HEAD+bytes — the same rq105_pinned_common contract
 # the session scheduler uses (orch#1041). Refusal = stop, page-free skip is

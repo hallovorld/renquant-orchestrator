@@ -73,3 +73,21 @@ and one `duplicate_tick`). The two pre-existing tests that reused one
 as_of across ticks began failing — the gate firing correctly — and now use
 distinct as_ofs with occupancy ticks that track them, matching the real
 four-checkpoint cadence. **20 passed.**
+
+## r4 (codex round 3): the plan binds its evidence by content, not by path
+
+Accepted. Every persisted record now carries an `evidence` block:
+`pinned_config_sha256` (the exact bytes read), `shadow_rows_sha256`
+(canonical `hash_jsonable` over the exact selected row set, ticker-sorted),
+`occupancy_tick_sha256` (the exact scheduler record used — the occupancy
+reader now returns it), and `batch_signal_version` (run_id + score sha, as
+before). A record WITH intents refuses to persist if any binding is
+missing/unhashable — an unprovable plan is not an evidence base. The
+canonical primitive is `renquant_artifacts.hash_jsonable`, and the wrapper
+resolves the artifacts checkout through the same `--verify-subrepo`
+loader-code-identity gate as pipeline (#1053) before it joins PYTHONPATH.
+Tests: bindings present on plans; each input change flips exactly its
+binding; unhashable provenance refuses with nothing persisted. **24
+passed**; real no-rows smoke shows config/occupancy/batch bound with
+`shadow_rows_sha256: null` on the refusal record (a refusal binds what it
+actually read).

@@ -106,16 +106,19 @@ def load_shadow_rows(shadow_log: Path, *, session_date: str, as_of: str) -> list
 def held_plus_pending_from_scheduler_log(
     log_path: Path, *, session_date: str, as_of_et: dt.datetime,
     max_age_min: float,
-) -> tuple[int | None, str]:
-    """(count, why). The book's occupancy from the scheduler's own shadow
-    ticks: latest tick at or before ``as_of`` within the staleness bound.
+) -> tuple[int | None, str, dict | None]:
+    """(count, why, tick_record). The book's occupancy from the scheduler's
+    own shadow ticks: latest tick at or before ``as_of`` within the staleness
+    bound. ``tick_record`` is the exact record used, returned so the caller
+    can BIND the plan to it by content hash (codex on orch#1059 r3).
 
-    None means REFUSED, and ``why`` names the reason — the caller records it
-    as a session_block instead of defaulting the occupancy to zero, which
-    would overstate free slots on exactly the days the evidence is missing.
+    None count means REFUSED, and ``why`` names the reason — the caller
+    records it as a session_block instead of defaulting the occupancy to
+    zero, which would overstate free slots on exactly the days the evidence
+    is missing.
     """
     if not log_path.exists():
-        return None, f"no scheduler shadow log at {log_path}"
+        return None, f"no scheduler shadow log at {log_path}", None
     best: dict | None = None
     best_at: dt.datetime | None = None
     with open(log_path, encoding="utf-8") as fh:
@@ -139,21 +142,21 @@ def held_plus_pending_from_scheduler_log(
             if best_at is None or tick_at > best_at:
                 best, best_at = r, tick_at
     if best is None or best_at is None:
-        return None, f"no scheduler tick at or before {as_of_et.isoformat()}"
+        return None, f"no scheduler tick at or before {as_of_et.isoformat()}", None
     age_min = (as_of_et - best_at).total_seconds() / 60.0
     if age_min > max_age_min:
         return None, (f"latest scheduler tick is {age_min:.1f} min before as_of "
-                      f"(bound {max_age_min:.0f}) — occupancy evidence stale")
+                      f"(bound {max_age_min:.0f}) — occupancy evidence stale"), None
     ls = (best.get("inputs") or {}).get("live_state") or {}
     positions = ls.get("positions")
     if not isinstance(positions, Mapping):
-        return None, "scheduler tick live_state carries no positions mapping"
+        return None, "scheduler tick live_state carries no positions mapping", None
     occupied = set(str(t).upper() for t in positions)
     for key in ("pending_broker_tickers", "open_buy_reservations"):
         extra = ls.get(key) or ()
         occupied |= {str(t).upper() for t in
                      (extra.keys() if isinstance(extra, Mapping) else extra)}
-    return len(occupied), f"tick_at={best_at.isoformat()} n={len(occupied)}"
+    return len(occupied), f"tick_at={best_at.isoformat()} n={len(occupied)}", best
 
 
 def session_totals_from_intents_log(
@@ -192,14 +195,29 @@ def session_totals_from_intents_log(
     return entries, notional
 
 
-def guardrails_from_pinned_config(config_path: Path) -> Guardrails:
-    """v1 guardrails with the SHARED position cap read from the pinned config.
+def _hash_jsonable(obj: Any) -> str:
+    """The repository's canonical jsonable hash (renquant_artifacts).
+
+    Lazy so unit tests need no artifacts checkout; REQUIRED at runtime —
+    an unhashable evidence input refuses rather than emitting an unbound
+    plan (codex on orch#1059 r3).
+    """
+    from renquant_artifacts import hash_jsonable  # noqa: PLC0415
+    return hash_jsonable(obj)
+
+
+def guardrails_from_pinned_config(config_path: Path) -> "tuple[Guardrails, str]":
+    """(guardrails, config_bytes_sha256) — the SHARED cap from the pinned
+    config, plus the content hash of the exact bytes read, so the persisted
+    plan binds to the CONFIG CONTENT rather than a mutable path (codex on
+    orch#1059 r3).
 
     orch#1050: the Guardrails dataclass default (8) must never be what a live
     surface relies on — the cap is policy, and policy lives in the reviewed
     config. Absent/malformed cap ⇒ raise, never default.
     """
-    cfg = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    raw = Path(config_path).read_bytes()
+    cfg = json.loads(raw.decode("utf-8"))
     cap = cfg.get("max_concurrent_positions")
     if not isinstance(cap, int) or isinstance(cap, bool) or cap < 0:
         raise ValueError(
@@ -207,7 +225,9 @@ def guardrails_from_pinned_config(config_path: Path) -> Guardrails:
             f"max_concurrent_positions (got {cap!r}) — the shared cap is "
             f"policy and must come from the reviewed config, never a code "
             f"default (orch#1050)")
-    return Guardrails(max_concurrent_positions=cap)
+    import hashlib  # noqa: PLC0415
+    return Guardrails(max_concurrent_positions=cap), \
+        "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +277,7 @@ def run_entry_loop_tick(
     no rows are read.
     """
     as_of_et = _as_aware_et(as_of)
-    g = guardrails_from_pinned_config(pinned_config)
+    g, config_sha = guardrails_from_pinned_config(pinned_config)
     per_entry_notional = g.max_notional_per_day / g.max_entries_per_day
     as_of_iso = as_of_et.isoformat()
 
@@ -282,6 +302,7 @@ def run_entry_loop_tick(
     rows: list[dict] = []
     held: int | None = None
     held_why = "not_read: serving failed"
+    held_tick: dict | None = None
     entries_today, notional_today = 0, 0.0
 
     if serving_rc == 0:
@@ -293,7 +314,7 @@ def run_entry_loop_tick(
 
         rows = load_shadow_rows(shadow_log, session_date=session_date,
                                 as_of=as_of)
-        held, held_why = held_plus_pending_from_scheduler_log(
+        held, held_why, held_tick = held_plus_pending_from_scheduler_log(
             scheduler_log, session_date=session_date, as_of_et=as_of_et,
             max_age_min=live_state_max_age_min)
         entries_today, notional_today = session_totals_from_intents_log(
@@ -353,6 +374,28 @@ def run_entry_loop_tick(
             "rejections": dict(plan.rejections),
         }
 
+    # Evidence bindings (codex on orch#1059 r3): the plan must PROVE which
+    # config bytes, which exact S3-b rows, and which occupancy record
+    # produced it — a path or a count is re-writable; a content hash is not.
+    # Bindings for inputs that were actually read; a PLAN (intents present)
+    # with any binding missing refuses below rather than persisting unbound.
+    evidence = {
+        "pinned_config_sha256": config_sha,
+        "shadow_rows_sha256": (
+            _hash_jsonable(sorted(rows, key=lambda r: str(r.get("ticker"))))
+            if rows else None),
+        "occupancy_tick_sha256": (
+            _hash_jsonable(held_tick) if held_tick is not None else None),
+        "batch_signal_version": (signal or {}).get("signal_version"),
+    }
+    if plan_payload.get("intents"):
+        unbound = [k for k, v in evidence.items() if not v]
+        if unbound:
+            raise AssertionError(
+                f"refusing to persist a plan with intents but unbound "
+                f"evidence: {unbound} — an unprovable plan is not an "
+                f"evidence base (orch#1059 r3)")
+
     record = {
         "schema_version": SCHEMA_VERSION,
         "kind": RECORD_KIND,
@@ -369,6 +412,7 @@ def run_entry_loop_tick(
             "cap_source": str(pinned_config),
             "per_entry_notional": per_entry_notional,
         },
+        "evidence": evidence,
         "inputs": {
             "batch_run": (signal or {}).get("signal_version"),
             "batch_refusal": batch_refusal,

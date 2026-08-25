@@ -102,8 +102,9 @@ def _run(tmp_path, monkeypatch, *, batch_scores=None, batch_exc=None,
 # guardrails come from the pinned config (orch#1050)
 # ---------------------------------------------------------------------------
 def test_cap_comes_from_the_pinned_config_never_the_dataclass_default(tmp_path):
-    g = mod.guardrails_from_pinned_config(_pinned_cfg(tmp_path, cap=10))
+    g, sha = mod.guardrails_from_pinned_config(_pinned_cfg(tmp_path, cap=10))
     assert g.max_concurrent_positions == 10
+    assert sha.startswith("sha256:") and len(sha) == 7 + 64
     assert g.max_entries_per_day == 2 and g.max_notional_per_day == 1500.0
 
 
@@ -119,25 +120,26 @@ def test_an_unusable_cap_refuses_instead_of_defaulting(tmp_path, cap):
 def test_occupancy_unions_positions_pending_and_reservations(tmp_path):
     log = _scheduler_log(tmp_path, positions=("AAPL", "MSFT"),
                          pending=("MSFT", "NVDA"), reservations=("TSLA",))
-    n, why = mod.held_plus_pending_from_scheduler_log(
+    n, why, tick = mod.held_plus_pending_from_scheduler_log(
         log, session_date=SESSION,
         as_of_et=dt.datetime(2026, 8, 24, 12, 0, tzinfo=ET), max_age_min=30)
     assert n == 4, why  # AAPL MSFT NVDA TSLA — MSFT deduped
+    assert isinstance(tick, dict), "the selected tick record must be returned for binding"
 
 
 def test_a_stale_tick_refuses_occupancy(tmp_path):
     log = _scheduler_log(tmp_path, tick_at="2026-08-24T10:00:00-04:00")
-    n, why = mod.held_plus_pending_from_scheduler_log(
+    n, why, tick = mod.held_plus_pending_from_scheduler_log(
         log, session_date=SESSION,
         as_of_et=dt.datetime(2026, 8, 24, 12, 0, tzinfo=ET), max_age_min=30)
-    assert n is None and "stale" in why
+    assert n is None and "stale" in why and tick is None
 
 
 def test_a_missing_log_refuses_occupancy(tmp_path):
-    n, why = mod.held_plus_pending_from_scheduler_log(
+    n, why, tick = mod.held_plus_pending_from_scheduler_log(
         tmp_path / "absent.jsonl", session_date=SESSION,
         as_of_et=dt.datetime(2026, 8, 24, 12, 0, tzinfo=ET), max_age_min=30)
-    assert n is None
+    assert n is None and tick is None
 
 
 def test_occupancy_refusal_becomes_a_session_block_not_zero_slots(
@@ -354,3 +356,47 @@ def test_a_failed_serving_never_touches_the_other_loaders(tmp_path, monkeypatch)
     assert "serving_failed rc=7" in record["session_block"]
     on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
     assert len(on_disk) == 1
+
+
+# ── [codex on orch#1059 r3] evidence bindings ────────────────────────────────
+def test_a_plan_binds_config_rows_and_occupancy_by_content(tmp_path, monkeypatch):
+    r, _ = _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
+                rows=[_shadow_row("AAPL", 1.0)])
+    ev = r["evidence"]
+    assert ev["pinned_config_sha256"].startswith("sha256:")
+    assert ev["shadow_rows_sha256"] and ev["occupancy_tick_sha256"]
+    assert ev["batch_signal_version"].startswith("2026-08-21-live")
+
+
+def test_changing_any_input_changes_its_binding(tmp_path, monkeypatch):
+    base, _ = _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
+                   rows=[_shadow_row("AAPL", 1.0)])
+    d2 = tmp_path / "v2"; d2.mkdir()
+    # a different ROW (score moved)
+    r2, _ = _run(d2, monkeypatch, batch_scores={"AAPL": 1.0},
+                 rows=[_shadow_row("AAPL", 1.5)])
+    assert r2["evidence"]["shadow_rows_sha256"] != \
+        base["evidence"]["shadow_rows_sha256"]
+    # a different CONFIG (cap moved)
+    d3 = tmp_path / "v3"; d3.mkdir()
+    r3, _ = _run(d3, monkeypatch, batch_scores={"AAPL": 1.0},
+                 rows=[_shadow_row("AAPL", 1.0)], cap=12)
+    assert r3["evidence"]["pinned_config_sha256"] != \
+        base["evidence"]["pinned_config_sha256"]
+    # a different OCCUPANCY tick (positions moved)
+    d4 = tmp_path / "v4"; d4.mkdir()
+    r4, _ = _run(d4, monkeypatch, batch_scores={"AAPL": 1.0},
+                 rows=[_shadow_row("AAPL", 1.0)], positions=("X", "Y"))
+    assert r4["evidence"]["occupancy_tick_sha256"] != \
+        base["evidence"]["occupancy_tick_sha256"]
+
+
+def test_a_plan_with_intents_but_unbound_evidence_refuses(tmp_path, monkeypatch):
+    """Unhashable provenance must refuse, never persist an unbound plan."""
+    monkeypatch.setattr(mod, "_hash_jsonable", lambda obj: None)
+    with pytest.raises(AssertionError, match="unbound"):
+        _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
+             rows=[_shadow_row("AAPL", 1.0)])
+    intents = tmp_path / "intents.jsonl"
+    assert not intents.exists() or not intents.read_text().strip(), \
+        "no record may persist for an unprovable plan"
