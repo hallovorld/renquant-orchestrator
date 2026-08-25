@@ -1,7 +1,12 @@
 # GOAL-2v2 Stage-A prereg PR
 
-STATUS: preregistration for codex review; freezes every constant before any
-training code exists. Implements the merged design's Stage A (#1061).
+STATUS: TERMINAL RECORD (r4). The K5 screen ran during review at the
+operator's request and returned its frozen result: no base passed. Under
+the document's own terms Stage A stops here; 2020–2023 is not run. This PR
+merges as the RECORD of that stop. The successor development-selection
+design (2016–2019 declared consumed, attempts enumerated, confirmatory
+prereg frozen after development) requires operator acknowledgement first,
+since it amends #1061's frozen-before-fit contract.
 
 §4(b) — everything below MEASURED before writing, not assumed:
 - OHLCV panel: 2,790 tickers, ~50% begin ≤2016-01, median ~2,604 rows

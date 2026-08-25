@@ -1,9 +1,26 @@
 # GOAL-2v2 Stage-A preregistration — FROZEN before any fit
 
-STATUS: preregistration for review. Once merged, every constant below is
-frozen; the runner may refuse but may not reinterpret
-([[runner-guards-are-prereg-content]]). No training code exists yet and none
-runs before this merges. Design: `2026-08-25-goal2v2-stacked-meta-model.md`
+STATUS: **TERMINAL RECORD — K5 fired during review; Stage A stops here
+and 2020–2023 is NOT run under this document.** [codex r3] The K5 screen
+was executed as an exploratory run during this PR's review, at the
+operator's direct request for backtest evidence, BEFORE the document
+merged — a breach of this document's own "no training before merge" line,
+recorded rather than reworded. Its result is therefore already known and
+frozen: on the 2016-07..2019-12 OOF folds, NO base achieved an OOF
+block-mean IC > 0 with block-t ≥ 1.0 (best: quality_fund +0.0096,
+t +0.73; the four §4 price-only bases: −0.007..+0.009, |t| ≤ 0.51). Under
+K5's own terms Stage A terminates without touching the evaluation window.
+The exploratory run's ancillary findings (all five bases positive in the
+approximate-BEAR state; a fifth quality base nearly orthogonal to the
+price bases) are DEVELOPMENT observations on 2016–2019 and cannot amend
+§4 of this document — using a run's results to rewrite the prereg that
+gated the run is adaptive selection. The successor is a
+DEVELOPMENT-SELECTION design: 2016–2019 is declared CONSUMED for
+development (every attempt enumerated), the confirmatory prereg freezes
+only after development concludes, and — because this amends merged
+#1061's frozen-before-fit provenance contract — it proceeds only after
+explicit operator acknowledgement. Original prospective text preserved
+below for the record. Design: `2026-08-25-goal2v2-stacked-meta-model.md`
 (#1061, merged).
 
 ## 1. Data substrate, measured not assumed
@@ -137,7 +154,7 @@ cross-sectional dispersion (std of day's demeaned 20d returns, T−1).
 | K1 coverage | universe rule yields < 80 tickers on either window, or feature coverage < 80% of name-days on either window |
 | K2 ESS | assembled evaluation panel n_eff < 12 non-overlapping blocks (the #1061 ceiling note: ~16 is the perfect-coverage ceiling; THIS check decides) |
 | K3 provenance | any base recipe found to violate the §4 channel it declares (0b-α-style review, run before evaluation) — the base is quarantined, and the ENTIRE downstream is rebuilt from the surviving bases under the same frozen procedure: meta inputs shrink to the survivors, B1 is re-selected from the survivors' OOF ICs, B2 becomes the equal-z of the survivors; if < 3 bases survive, the stage kills |
-| K4 outcome | the §6 preregistered test — one-sided paired block-t of (meta − max(B1, B2)) at α=0.05, critical value from t(n_eff−1) — fails to reject → nonsurvival, labeled per §6 sensitivity (NOT-DEMONSTRATED or UNDERPOWERED-NULL); no point-estimate rule substitutes for the test |
+| K4 outcome | the §6 intersection-union rule — BOTH one-sided paired block-t tests, (meta − B1) and (meta − B2), must reject at α=0.05 with critical values from t(n_eff−1) — otherwise nonsurvival, labeled per §6 sensitivity with the LARGER precomputed MDE governing (NOT-DEMONSTRATED or UNDERPOWERED-NULL); no point-estimate rule substitutes |
 | K5 OOF screen | computed on OOF data ONLY, before the evaluation window is touched: if NO base achieves an OOF BLOCK-MEAN IC > 0 with block-t ≥ 1.0 (the same block statistic as §6), the stage stops without spending the one-shot evaluation — a stack of bases showing no life on training-side data has no claim on the quarantined window ([[over-engineering-validation-before-alpha]]: the cheap screen precedes the expensive shot). The K5 reading is recorded either way. |
 
 ## 8. Artifacts and boundaries
