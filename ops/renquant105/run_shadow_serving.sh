@@ -127,7 +127,21 @@ if ! RQ_PIPELINE_SRC=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
     >> "$LOG_DIR/shadow_serving_$TS.log"
   exit 1
 fi
-export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_PIPELINE_SRC"
+# orch#1059 r3: the entry loop binds its plan with renquant_artifacts'
+# canonical hash_jsonable — same loader-code-identity rule as pipeline
+# (#1053): verified checkout, never a bare pathname or whatever the venv
+# happens to carry.
+if ! RQ_ARTIFACTS_SRC=$("$PYBIN" "$RQ105_OPS_DIR/rq105_pinned_common.py" \
+      --rq-root "$RQ_ROOT" --verify-subrepo renquant-artifacts \
+      2>> "$LOG_DIR/shadow_serving_$TS.log"); then
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 shadow serving FAILED — pinned renquant-artifacts verification refused ($TS)" \
+    "rq105_pinned_common --verify-subrepo renquant-artifacts refused; see logs/rq105/shadow_serving_$TS.log" || true
+  echo "FATAL: pinned renquant-artifacts verification refused (orch#1059)" \
+    >> "$LOG_DIR/shadow_serving_$TS.log"
+  exit 1
+fi
+export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$RQ_PIPELINE_SRC:$RQ_ARTIFACTS_SRC"
 # S3-b: the scorer's config identity comes from the PINNED strategy-104
 # checkout, verified lock+HEAD+bytes — the same rq105_pinned_common contract
 # the session scheduler uses (orch#1041). Refusal = stop, page-free skip is
@@ -171,6 +185,26 @@ for T in 10:00 12:00 14:00 15:30; do
     --feature-snapshot-json "$FEATURE_SNAPSHOT" \
     --batch-scores-json "$SCORES" \
     --batch-run-id "$RUN_ID" \
+    --data-root "$RQ_ROOT" \
+    >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1
+  SERVING_RC=$?
+  [ "$SERVING_RC" -eq 0 ] || RC_TOTAL=$SERVING_RC
+  # S3-P4 OBSERVE-ONLY (design §4/§4b/§5): the guarded entry loop's decision
+  # surface over this tick's rows — batch(T-1, leak-guarded) ∩ intraday, v1
+  # guardrails with the cap from the SAME pinned config verified above.
+  # Records intents; module contains no broker path (the live emission stage
+  # ships with the S3-c operator authorization, never before it).
+  # [codex on orch#1059 P1-1] the serving exit code travels WITH the tick: a
+  # failed serving can leave a partial row set for exactly this as_of, so the
+  # loop persists a NAMED refusal instead of deciding on subset evidence.
+  "$PY" -m renquant_orchestrator.rq105_entry_loop_shadow \
+    --session-date "$TS" \
+    --as-of "$AS_OF" \
+    --serving-rc "$SERVING_RC" \
+    --db-path "$RQ_ROOT/data/runs.alpaca.db" \
+    --shadow-log "$RQ_ROOT/logs/renquant105_pilot/shadow_realtime_serving.jsonl" \
+    --scheduler-log "$RQ_ROOT/logs/renquant105_pilot/intraday_decisions_shadow.jsonl" \
+    --pinned-strategy-config "$PINNED_STRATEGY_CONFIG" \
     --data-root "$RQ_ROOT" \
     >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1 || RC_TOTAL=$?
 done
