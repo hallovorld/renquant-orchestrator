@@ -32,13 +32,23 @@ operator's spec, and the second narrowing was caught only by the operator.
 All three kills traced to one root: the EXISTING legs' recipes were selected
 using outcomes from the very windows any historical validation needs
 (sighunt 2018–2026; C3 2017–2026; WF corpus 2024–2026). This design's base
-layer is NEW: every recipe is frozen in the Stage-A prereg BEFORE any fit,
-selected from literature-standard forms plus 2024–2026 experience only —
-which is exactly the "selection consumed 2024–2026 outcomes only" criterion
-the merged h=20 design froze as its pass bar. The quarantined evaluation
-window (2020–2023) therefore stays clean by construction, and its ESS was
-already computed: **~16 non-overlapping h=20 blocks ≥ the bar of 12**
-[VERIFIED — #1045 §3].
+layer is NEW: every recipe is frozen in the Stage-A prereg BEFORE any fit.
+**Admissible recipe provenance, defined precisely [codex r1]:** a base
+recipe is admissible iff every outcome-bearing source behind its form is
+either (a) literature published before 2020-01-01 (predating the entire
+evaluation window — the citation is recorded per recipe in the prereg), or
+(b) a generic default chosen with NO outcome-based evidence from 2016–2023
+in any market (hyperparameter defaults, standard feature constructions),
+or (c) this fleet's own 2024–2026 measurements. Post-2020 literature is
+NOT admissible even when convenient — a 2023 paper reporting results on
+2020–2023 is exactly the back-door the provenance kill exists to close.
+Any recipe influenced by 2020–2023 outcomes through any channel is
+quarantined from the base layer. The quarantined evaluation
+window (2020–2023) therefore stays clean by construction. Its ESS
+**ceiling** is ~16 non-overlapping h=20 blocks under perfect coverage
+[#1045 §3 — a CEILING, not a measured pass: the assembled panel's n_eff can
+only be lower, and the post-assembly kill below (`n_eff < 12`) is what
+decides feasibility, not this number].
 
 One-shot discipline throughout: one fit per base model, one OOF pass, one
 meta fit, one evaluation. No retries; a nonsurvival is NOT-DEMONSTRATED per
@@ -67,8 +77,14 @@ cannot be honestly selected at Stage A (statistical reality, recorded, not
 conservatism).
 
 **Protocol:** train base models on 2016-01..2019-12; generate OUT-OF-FOLD
-base scores inside that window (5 temporal folds, embargo ≥ h) to train the
-meta; freeze the full stack; evaluate ONCE on 2020-01..2023-12 against two
+base scores inside that window with **forward-chaining expanding-window
+folds ONLY** [codex r1]: every OOF prediction is produced by a base model
+trained strictly on data BEFORE that prediction interval, with embargo ≥ h
+at each boundary; ordinary blocked folds whose training set contains
+later observations are prohibited. ALL normalization (z-scores, clips)
+and feature transforms are fitted on training/OOF data only and frozen
+before the evaluation pass. The meta trains on the OOF matrix; freeze the
+full stack; evaluate ONCE on 2020-01..2023-12 against two
 preregistered baselines — (a) the best single base model, (b) the equal-z
 combination of the base scores. The claim tested: the LEARNED combiner beats
 both on h=20 forward DGTW-adjusted cross-sectional skill.
@@ -93,9 +109,17 @@ readied in parallel rather than gating Stage A or being gated by it.
 ## 4. Stage B — intraday variant, supporting 105
 
 On Stage-A survival: add 10-minute features (intraday momentum/reversal off
-the A′ bars, VWAP deviation, intraday vol) to the surviving stack and
-re-validate under the same one-shot discipline (historical 10-minute panel
-from A′). The serving integration point ALREADY EXISTS: S3-P4's
+the A′ bars, VWAP deviation, intraday vol) to the surviving stack.
+**Stage B is FORWARD-SHADOW-ONLY [codex r1]: no historical window remains
+clean for it.** Stage B is conditioned on Stage-A survival — a decision
+that consumed the 2020–2023 outcomes — so re-evaluating any B variant on
+2020–2023 (or any window that informed A) would invalidate the one-shot
+claim, and splitting the window would drop A below the ESS bar. B therefore
+validates exclusively on the FORWARD intraday shadow panel accrued through
+the serving seam below, under its own preregistered ESS clock; the A′
+historical bars serve feature ENGINEERING sanity (coverage, distribution
+checks) and never an outcome evaluation. The serving integration point
+ALREADY EXISTS: S3-P4's
 observe-only entry loop consumes an intraday scorer through the shadow
 serving lane — the surviving stack replaces/augments the current pinned
 blend re-score there, accrues its own shadow evidence, and reaches live
@@ -104,9 +128,11 @@ operator's explicit S3-c flip). No new pipeline is built for serving.
 
 ## 5. Stage C — transformer meta (on Stage-B survival)
 
-Preregistered swap of the meta layer only (base scores unchanged), evaluated
-on the accrued shadow panel plus the historical windows. Earlier is
-statistically dishonest at this panel size.
+Preregistered swap of the meta layer only (base scores unchanged). Its
+decisive evaluation uses ONLY newly accrued, untouched forward data
+[codex r1]: the historical windows selected A (and A selected B), so they
+can never adjudicate C. Earlier is statistically dishonest at this panel
+size.
 
 ## 6. Relationship to adjacent lines
 
