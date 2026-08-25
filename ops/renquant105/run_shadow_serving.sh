@@ -173,6 +173,20 @@ for T in 10:00 12:00 14:00 15:30; do
     --batch-run-id "$RUN_ID" \
     --data-root "$RQ_ROOT" \
     >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1 || RC_TOTAL=$?
+  # S3-P4 OBSERVE-ONLY (design §4/§4b/§5): the guarded entry loop's decision
+  # surface over this tick's rows — batch(T-1, leak-guarded) ∩ intraday, v1
+  # guardrails with the cap from the SAME pinned config verified above.
+  # Records intents; module contains no broker path (the live emission stage
+  # ships with the S3-c operator authorization, never before it).
+  "$PY" -m renquant_orchestrator.rq105_entry_loop_shadow \
+    --session-date "$TS" \
+    --as-of "$AS_OF" \
+    --db-path "$RQ_ROOT/data/runs.alpaca.db" \
+    --shadow-log "$RQ_ROOT/logs/renquant105_pilot/shadow_realtime_serving.jsonl" \
+    --scheduler-log "$RQ_ROOT/logs/renquant105_pilot/intraday_decisions_shadow.jsonl" \
+    --pinned-strategy-config "$PINNED_STRATEGY_CONFIG" \
+    --data-root "$RQ_ROOT" \
+    >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1 || RC_TOTAL=$?
 done
 if [ $RC_TOTAL -ne 0 ]; then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
