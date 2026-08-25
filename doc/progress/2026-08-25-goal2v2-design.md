@@ -16,8 +16,10 @@ WHY the three GOAL-2 kills do not bind (§1): all three traced to EXISTING
 legs' recipes being selected on the windows validation needs. This design's
 recipes are frozen at prereg from literature + 2024–26 experience only —
 exactly the merged h=20 design's own pass criterion — so 2016–19 train /
-2020–23 one-shot eval stays clean, with ESS already measured (~16 blocks ≥
-bar 12 [VERIFIED — #1045 §3]).
+2020–23 one-shot eval stays clean. The ~16-block figure is the
+perfect-coverage CEILING from #1045 §3, not a measured pass: assembled
+`n_eff ≥ 12` remains an UNRESOLVED Stage-A feasibility gate, decided by
+the post-assembly kill.
 
 STAGES: A daily stack (now) / A′ 10-min backfill parallel ($0, Alpaca
 aggregation; procures only, nothing consumes it before B) / B intraday
