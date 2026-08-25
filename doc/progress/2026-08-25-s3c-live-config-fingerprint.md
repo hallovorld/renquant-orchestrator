@@ -1,20 +1,25 @@
-# S3-c package: live_config_fingerprint bound to the first pinned session
+# S3-c package: live_config_fingerprint bound to the first pinned STARTUP (completion pending)
 
-STATUS: docs-only; fills the one factual field the #1042 drafts left open,
-per their own _HARD_PREREQUISITES.
+STATUS: docs-only, r2 after codex. Records STARTUP-RESOLUTION evidence; the
+prerequisite flips to SATISFIED only after today's session closes cleanly
+(same-day completion note to follow).
 
-§4(b): the 2026-08-25 06:25 scheduler session — the FIRST after the
-orch#1041/#1044 deploy (orch-run aaf06a2d, 2026-08-24 10:24 PT) — recorded
-`strategy_config_fingerprint =
-sha256:af2344af61157cd48ed3b4e41a6090bc4ea19227b9969d3ee616f4bb28982800`,
-which equals `hash_jsonable` of the PINNED
-`.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json`
-and matches NO other candidate surface (sibling and umbrella configs hash
-differently — measured 2026-08-24) [VERIFIED — manifest read + hash
-replication, byte-exact method proven against the 08-24 sibling binding].
-Session manifest shows mode=shadow, errors=[].
+§4(b), corrected per review:
 
-Operator identity/date/expiry placeholders remain the operator's act; the
-prerequisite note now records WHEN and HOW the pinned-resolution condition
-was satisfied, and that clean-session counting toward S3-c starts from this
-session.
+- The 2026-08-25 06:25 scheduler process — first after the orch#1041/#1044
+  deploy (orch-run aaf06a2d) — recorded `strategy_config_fingerprint =
+  sha256:af2344af…` AT STARTUP, with manifest errors=[] at read time
+  [VERIFIED — manifest read 06:36 PT]. The session was still in progress;
+  this is config-resolution evidence, not a completed clean session, and
+  clean-session counting toward S3-c does NOT start until close.
+- WHICH path was read is proven by the deployed wrapper, not by hash
+  uniqueness: `run_session_scheduler.sh` resolves the config via
+  `rq105_pinned_common --verify-file` (lock+HEAD+bytes, fail-closed) and
+  passes it explicitly — a mismatch refuses startup. The 08-24 hash
+  discrimination vs the sibling is HISTORICAL (sibling then at
+  feat/qp-reenable-min-invested, different bytes); the sibling has since
+  returned to main (8a395e4) and now carries identical bytes, so hash
+  uniqueness no longer holds and is no longer claimed.
+- The `_DRAFT` marker now states the two remaining gaps in order
+  (completion tonight; then operator identity/date/expiry/allowlist)
+  instead of contradicting the prerequisite note.
