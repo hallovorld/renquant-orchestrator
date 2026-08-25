@@ -279,6 +279,11 @@ def test_the_cited_contract_is_the_one_in_force():
         # config that could not be compared must land on HARNESS, never read as
         # "the pinned config matches the reviewed one".
         "pinned-config-drift": (1,),
+        # Added 2026-08-24 (orch#1020). `1` = surfaces disagree (identity,
+        # watchlist, shadows) or broken/unresolvable; `2` = no surface readable
+        # — deliberately NOT declared: "no subjects is not agreement" must land
+        # on HARNESS, never read as parity.
+        "strategy-config-parity": (1,),
     }
 
 
@@ -300,10 +305,11 @@ def test_the_2026_08_01_members_are_ARGUMENT_FREE_or_carry_only_portable_args():
 
 def test_the_detectors_that_CANNOT_join_are_recorded_not_silently_omitted():
     """'The audit covers the detectors' must not be readable off a list that quietly
-    excludes two of them."""
+    excludes one of them."""
+    # strategy_config_primary_parity.py left this list 2026-08-24 (orch#1020):
+    # its subjects derive from $RQ_ROOT by default now, so it is a MEMBER.
     assert set(oa.UNSCHEDULABLE_YET) == {
         "renquant104/wf_corpus_coverage.py",
-        "strategy_config_primary_parity.py",
     }
     listed = {rel for _n, rel, _t, _f in oa.MEMBERS}
     assert not (set(oa.UNSCHEDULABLE_YET) & listed), "a blocker cannot also be a member"

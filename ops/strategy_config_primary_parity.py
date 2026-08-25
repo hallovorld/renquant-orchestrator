@@ -193,9 +193,26 @@ def read_surface(path: str) -> dict:
         return {**row, "status": "incomplete_identity",
                 "why": f"missing identity field(s): {', '.join(missing)} — a surface "
                        f"that does not say who decides cannot agree with one that does"}
+    # orch#1020: the WATCHLIST is part of what a surface declares it trades.
+    # Two surfaces drifted to 145 vs 142 names (CRWV/RKLB/SPCX) and nothing
+    # reported it, because identity parity never looked at the universe.
+    # Malformed members fail closed (the #694 lesson, same as shadows above);
+    # an ABSENT watchlist is recorded as None and compared explicitly — a
+    # surface that does not say what it trades cannot agree with one that does.
+    wl = cfg.get("watchlist")
+    if wl is not None:
+        if not isinstance(wl, list):
+            return {**row, "status": "malformed_watchlist",
+                    "why": f"`watchlist` is {type(wl).__name__}, not a list"}
+        bad_wl = [f"entry {i} is {type(t).__name__}, not a string"
+                  for i, t in enumerate(wl) if not isinstance(t, str)]
+        if bad_wl:
+            return {**row, "status": "malformed_watchlist",
+                    "why": "; ".join(bad_wl)}
     names = sorted(m["name"] for m in (shadows or []))
     return {**row, "status": "read",
             "identity": {f: ps.get(f) for f in IDENTITY_FIELDS},
+            "watchlist": sorted(wl) if wl is not None else None,
             "shadow_models": names,
             "shadow_artifact_paths": [
                 (s.get("name"), s.get("artifact_path"))
@@ -215,6 +232,35 @@ def compare(surfaces: list[dict]) -> dict:
                 f"ranking.panel_scoring.{field}: " +
                 "; ".join(f"{os.path.basename(os.path.dirname(p))}/"
                           f"{os.path.basename(p)}={v!r}" for p, v in values.items()))
+
+    # orch#1020: universe drift. Symmetric difference of the declared
+    # watchlists, named ticker by ticker (bounded), so "adding a ticker to
+    # the served config can never produce an artifact" stops being invisible.
+    # None-vs-list is a disagreement too: a surface that does not declare a
+    # universe cannot agree with one that does.
+    wls = {s["path"]: s.get("watchlist") for s in read}
+    if len({json.dumps(w) for w in wls.values()}) > 1:
+        parts = []
+        as_sets = {p: set(w) for p, w in wls.items() if w is not None}
+        if len(as_sets) == len(wls) and len(as_sets) >= 2:
+            union_all = set.union(*as_sets.values())
+            common = set.intersection(*as_sets.values())
+            for p, names in as_sets.items():
+                extra = sorted(names - common)
+                label = (f"{os.path.basename(os.path.dirname(p))}/"
+                         f"{os.path.basename(p)}")
+                parts.append(f"{label} n={len(names)}"
+                             + (f" only={extra[:10]}"
+                                + ("…" if len(extra) > 10 else "")
+                                if extra else ""))
+            del union_all
+        else:
+            for p, w in wls.items():
+                label = (f"{os.path.basename(os.path.dirname(p))}/"
+                         f"{os.path.basename(p)}")
+                parts.append(f"{label} watchlist="
+                             + ("ABSENT" if w is None else f"n={len(w)}"))
+        disagreements.append("watchlist: " + "; ".join(parts))
 
     shadow_sets = {s["path"]: s["shadow_models"] for s in read}
     if len({json.dumps(v) for v in shadow_sets.values()}) > 1:
@@ -252,13 +298,32 @@ def compare(surfaces: list[dict]) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", action="append", required=True, dest="configs",
-                    help="a strategy_config.json surface; pass more than once")
+    ap.add_argument("--config", action="append", dest="configs", default=None,
+                    help="a strategy_config.json surface; pass more than once. "
+                         "Omit to compare the two surfaces the daily run "
+                         "actually stitches, derived from $RQ_ROOT (orch#1020) "
+                         "— the pinned subrepo config and the umbrella "
+                         "tournament config.")
     ap.add_argument("--base", action="append", dest="bases", default=None,
                     help="a directory artifact_path may be relative to; pass more "
                          "than once. Omit to skip path resolution entirely.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+
+    if not a.configs:
+        # orch#1020: the audit registry refused to bake machine paths into a
+        # reviewed tuple ("tests that measure the operator's disk"). The fleet
+        # answer to that is already established: every scheduled probe derives
+        # its subjects from $RQ_ROOT. Same convention here, so the detector can
+        # finally be RUN by the audit instead of existing next to it.
+        rq = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
+        a.configs = [
+            os.path.join(rq, ".subrepo_runtime", "repos",
+                         "renquant-strategy-104", "configs",
+                         "strategy_config.json"),
+            os.path.join(rq, "backtesting", "renquant_104",
+                         "strategy_config.json"),
+        ]
 
     surfaces = [read_surface(p) for p in a.configs]
     if a.bases:
@@ -270,9 +335,68 @@ def main(argv: list[str] | None = None) -> int:
               "subjects, which is not the same as agreement", file=sys.stderr)
         return 2
 
+    # The FIRST stdout line is what ops_audit fingerprints (run_member takes
+    # out[0]). It must therefore encode the disagreement STRUCTURE — field
+    # names and drifted tickers — so an ack binds to THIS drift and any new
+    # drift re-fingerprints as a NEW finding. Fingerprinting the surface
+    # listing (the old first line) would let one ack silently cover every
+    # future divergence: the wrong object, at the disposition layer.
+    def _summary() -> str:
+        if not (rep["disagreements"] or rep["n_broken"]):
+            return "PARITY: all readable surfaces agree"
+        tags = []
+        for d in rep["disagreements"]:
+            field = d.split(":", 1)[0]
+            if field == "watchlist":
+                import re as _re
+                drift = sorted(set(_re.findall(r"[A-Z][A-Z0-9.]{0,9}",
+                                               d.split("only=", 1)[1])))                     if "only=" in d else []
+                tags.append("watchlist(" + ",".join(drift[:10])
+                            + ("…" if len(drift) > 10 else "") + ")")
+            else:
+                tags.append(field)
+        if rep["n_broken"]:
+            tags.append(f"broken_surfaces={rep['n_broken']}")
+        # [codex on orch#1058] The tags above are a bounded human PREVIEW and
+        # deliberately lossy: an 11th drifted ticker, an ABSENT<->list flip, a
+        # duplicate-only change, or an identity VALUE change (field name
+        # unchanged) would all leave them identical — and since ops_audit
+        # fingerprints this line, an ack would silently cover the changed set.
+        # So the line also carries a digest of the COMPLETE canonical state:
+        # every disagreement string verbatim (identity values included), plus
+        # each read surface's full watchlist (duplicates preserved, ABSENT
+        # explicit). Letter-encoded (hex a-f + digits mapped g-p) because the
+        # disposition fingerprint normalises DIGITS away — a raw hex digest
+        # would collide after <N>-substitution, silently re-opening the hole.
+        # [codex on orch#1058 r2] keyed by INDEX + the last three path parts,
+        # never the basename: both production subjects are named
+        # strategy_config.json, and a basename-keyed dict silently overwrote
+        # one surface — reopening every collision the digest exists to close.
+        # The index preserves subject order; the 3-part tail is portable
+        # across RQ_ROOTs while still distinguishing the pinned subrepo
+        # surface from the umbrella tournament surface.
+        def _label(i: int, path: str) -> str:
+            parts = path.replace(os.sep, "/").split("/")
+            return f"{i}:" + "/".join(parts[-3:])
+        canonical = json.dumps({
+            "disagreements": rep["disagreements"],
+            "watchlists": {_label(i, su["path"]): (
+                su.get("watchlist") if su.get("watchlist") is not None
+                else "ABSENT")
+                for i, su in enumerate(surfaces) if su["status"] == "read"},
+            "n_broken": rep["n_broken"],
+        }, sort_keys=True)
+        import hashlib as _hl
+        hexd = _hl.sha256(canonical.encode()).hexdigest()[:16]
+        letters = hexd.translate(str.maketrans("0123456789", "ghijklmnop"))
+        return (f"PARITY: {len(rep['disagreements'])} disagreement(s) "
+                f"[{'; '.join(tags)}] id={letters}")
+
     if a.json:
+        rep["summary"] = _summary()
         print(json.dumps(rep, indent=2, sort_keys=True))
     else:
+        print(_summary())
         for s in surfaces:
             print(f"  {s['status']:22s} {s['path']}")
             if s["status"] == "read":

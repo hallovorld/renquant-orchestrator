@@ -255,6 +255,16 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     # is declared, so every refusal lands on HARNESS rather than reading as
     # "the pinned config matches".
     ("pinned-config-drift", "pinned_config_drift_probe.py", [], (1,)),
+    # orch#1020: the twin-surface parity detector, runnable at last. It existed
+    # next to this registry for weeks ("requires --config <path> --config
+    # <path>") while the two watchlists drifted 145 vs 142 and nothing said so.
+    # The machine-path objection is answered the same way every probe above
+    # answers it: subjects derive from $RQ_ROOT when --config is omitted.
+    # Exit contract read from source: 1 = surfaces disagree (identity,
+    # watchlist, shadows) or a surface is broken/unresolvable; 2 = no surface
+    # readable ("no subjects is not agreement") — only 1 is declared, so the
+    # no-subjects refusal lands on HARNESS rather than reading as parity.
+    ("strategy-config-parity", "strategy_config_primary_parity.py", [], (1,)),
 )
 
 #: Detectors that CANNOT join yet, and why — recorded rather than silently omitted, so
@@ -263,17 +273,17 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
 #:   wf_corpus_coverage.py            requires `--artifacts <path...>`: a per-artifact
 #:                                    census with no defensible repo-wide default. It is
 #:                                    invoked against a named artifact, not swept.
-#:   strategy_config_primary_parity.py requires `--config <path> --config <path>`: the
-#:                                    two surfaces are machine paths (one pinned subrepo,
-#:                                    one umbrella tree). Baking either into this
-#:                                    reviewed tuple is the "tests that measure the
-#:                                    operator's disk" failure.
+#:   (strategy_config_primary_parity.py JOINED 2026-08-24, orch#1020: its subjects now
+#:                                    derive from $RQ_ROOT by default, the same
+#:                                    convention every scheduled probe here uses, so
+#:                                    the machine-path objection no longer applies.)
 #:
 #: Both need a resolved default in the tool itself first — the same fix applied to
 #: gate_stamp_parity and booster_identity_census in this change.
 UNSCHEDULABLE_YET = (
     "renquant104/wf_corpus_coverage.py",
-    "strategy_config_primary_parity.py",
+    # strategy_config_primary_parity.py LEFT this list 2026-08-24 (orch#1020):
+    # its subjects now derive from $RQ_ROOT by default, so it joined MEMBERS.
 )
 
 #: A member may not run forever inside a scheduled job.

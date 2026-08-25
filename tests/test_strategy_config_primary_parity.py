@@ -423,3 +423,184 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
     # constructor): a pending-unresolvable path does not disqualify the base
     # that resolves everything actually published.
     assert pa["single_base_that_resolves_everything"] == [strategy_base]
+
+
+# ── orch#1020: watchlist drift is a disagreement, and the summary line the ──
+# ── audit fingerprints encodes the drift STRUCTURE (tickers, not counts) ────
+def _cfg_wl(tmp_path, name, watchlist, **kw):
+    body = {
+        "ranking": {"panel_scoring": {
+            "kind": kw.get("kind", "xgb"), "enabled": True,
+            "artifact_path": "a.json",
+            "shadow_models": [{"name": "s1"}]}},
+    }
+    if watchlist is not None:
+        body["watchlist"] = watchlist
+    p = tmp_path / name
+    p.write_text(json.dumps(body), encoding="utf-8")
+    return str(p)
+
+
+def test_watchlist_drift_is_a_disagreement_and_names_the_tickers(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "MSFT", "CRWV"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL", "MSFT"])
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert any(d.startswith("watchlist:") for d in
+               [l.split("DISAGREE  ", 1)[1] for l in out.splitlines()
+                if l.startswith("DISAGREE")])
+    # the FIRST line is what ops_audit fingerprints — it must carry the ticker
+    first = out.splitlines()[0]
+    assert first.startswith("PARITY:")
+    assert "CRWV" in first, "a drifted ticker missing from the fingerprinted line"
+
+
+def test_a_NEW_drifted_ticker_changes_the_fingerprinted_line(tmp_path, capsys):
+    """An ack covers THIS drift; new drift must re-fingerprint as NEW."""
+    m = _load()
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL", "CRWV"])
+    b1 = _cfg_wl(tmp_path, "b1.json", ["AAPL"])
+    m.main(["--config", a1, "--config", b1])
+    first1 = capsys.readouterr().out.splitlines()[0]
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL", "CRWV", "RKLB"])
+    m.main(["--config", a2, "--config", b1])
+    first2 = capsys.readouterr().out.splitlines()[0]
+    assert first1 != first2, (
+        "two different drift sets produced the same fingerprint subject — one "
+        "ack would silently cover future drift")
+
+
+def test_watchlist_ABSENT_on_one_side_is_a_disagreement(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL"])
+    b = _cfg_wl(tmp_path, "b.json", None)
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "ABSENT" in out
+
+
+def test_a_MALFORMED_watchlist_is_a_broken_surface_not_a_silent_pass(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", 7])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    rc = m.main(["--config", a, "--config", b])
+    assert rc == 1, "corruption must fail, not normalise into agreement"
+
+
+def test_identical_watchlists_do_not_disagree(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["MSFT", "AAPL"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL", "MSFT"])  # order-insensitive
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "watchlist:" not in out
+
+
+def test_omitting_config_derives_both_surfaces_from_RQ_ROOT(tmp_path, capsys,
+                                                           monkeypatch):
+    """orch#1020: the default subjects are the two surfaces the daily run
+    stitches, rooted at $RQ_ROOT — the convention that lets the audit run it."""
+    m = _load()
+    rq = tmp_path / "RQ"
+    pinned = rq / ".subrepo_runtime" / "repos" / "renquant-strategy-104" / "configs"
+    umbrella = rq / "backtesting" / "renquant_104"
+    pinned.mkdir(parents=True)
+    umbrella.mkdir(parents=True)
+    _cfg_wl(pinned, "strategy_config.json", ["AAPL", "CRWV"])
+    _cfg_wl(umbrella, "strategy_config.json", ["AAPL"])
+    monkeypatch.setenv("RQ_ROOT", str(rq))
+    rc = m.main([])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "CRWV" in out.splitlines()[0]
+
+
+# ── [codex on orch#1058] the preview is lossy; the DIGEST must not be ────────
+def _first_line(m, capsys, *cfgs):
+    m.main(["--config", cfgs[0], "--config", cfgs[1]])
+    return capsys.readouterr().out.splitlines()[0]
+
+
+def test_an_ELEVENTH_ticker_change_still_changes_the_line(tmp_path, capsys):
+    """The human preview truncates at 10; the digest must see member 11+."""
+    m = _load()
+    base = [f"T{i:02d}" for i in range(12)]          # 12 drifted names
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL"] + base)
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL"] + base[:-1] + ["ZZZZ"])
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "a drift change past the preview bound left the line intact"
+
+
+def test_ABSENT_to_list_flip_changes_the_line(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "CRWV"])
+    b_absent = _cfg_wl(tmp_path, "b0.json", None)
+    b_listed = _cfg_wl(tmp_path, "b1.json", ["CRWV"])
+    l1 = _first_line(m, capsys, a, b_absent)
+    l2 = _first_line(m, capsys, a, b_listed)
+    assert l1 != l2, "ABSENT-vs-list collapsed to the same fingerprint subject"
+
+
+def test_a_DUPLICATE_only_change_changes_the_line(tmp_path, capsys):
+    m = _load()
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL", "CRWV"])
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL", "CRWV", "CRWV"])
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "a duplicate-only change is a config defect and must re-fingerprint"
+
+
+def test_an_identity_VALUE_change_changes_the_line(tmp_path, capsys):
+    """The tag is the FIELD name; the digest must carry the VALUES."""
+    m = _load()
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"], kind="xgb")
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL"], kind="hf_patchtst")
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL"], kind="panel_lgbm")
+    l1 = _first_line(m, capsys, a1, b)
+    l2 = _first_line(m, capsys, a2, b)
+    assert l1 != l2, "an identity value change kept the same fingerprint subject"
+
+
+def test_the_digest_survives_digit_normalisation(tmp_path, capsys):
+    """The disposition fingerprint substitutes digits with <N>; a digest that
+    carries digits would collide after substitution. Ours must be digit-free."""
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "CRWV"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    line = _first_line(m, capsys, a, b)
+    digest = line.rsplit("id=", 1)[1]
+    assert digest and not any(ch.isdigit() for ch in digest)
+
+
+def test_two_surfaces_with_the_SAME_basename_do_not_collapse(tmp_path, capsys):
+    """[codex on orch#1058 r2+r3] Both production subjects are named
+    strategy_config.json; basename-keyed canonical state silently overwrote
+    one of them. The PATHS stay fixed across calls and only the CONTENT is
+    rewritten in place — a mutation that also moved the file would change the
+    canonical label and pass even if watchlist contents were omitted from the
+    digest (the vacuous-regression shape r3 caught)."""
+    m = _load()
+    d1 = tmp_path / "pinned" / "configs"
+    d2 = tmp_path / "umbrella" / "renquant_104"
+    d1.mkdir(parents=True); d2.mkdir(parents=True)
+    many = [f"T{i:02d}" for i in range(12)]
+    a = _cfg_wl(d1, "strategy_config.json", ["AAPL"] + many)
+    b = _cfg_wl(d2, "strategy_config.json", ["AAPL"])
+    l1 = _first_line(m, capsys, a, b)
+    # duplicate-only change on the SECOND (previously-overwritten) surface,
+    # SAME path — rewrite in place
+    _cfg_wl(d2, "strategy_config.json", ["AAPL", "AAPL"])
+    l2 = _first_line(m, capsys, a, b)
+    assert l1 != l2, "a change on the basename-colliding surface left the line intact"
+    # restore side B; past-the-preview change on the FIRST surface, same path
+    _cfg_wl(d2, "strategy_config.json", ["AAPL"])
+    _cfg_wl(d1, "strategy_config.json", ["AAPL"] + many[:-1] + ["ZZZZ"])
+    l3 = _first_line(m, capsys, a, b)
+    assert l1 != l3, "an 11th-ticker change on the first surface left the line intact"
