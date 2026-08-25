@@ -8,7 +8,9 @@
   "date": "<OPERATOR: YYYY-MM-DD>",
   "expiry": "<OPERATOR: YYYY-MM-DD, suggest date+14d>",
   "evidence": {
-    "shadow_sessions_clean": 13,
+    "shadow_sessions_clean": 0,
+    "_shadow_sessions_clean_note": "RESET 2026-08-25 (codex on orch#1064): the executable count is the QUALIFYING paired count under the pinned config + the #1063 150s serving constant — currently 0, bounded by the serving lane. This field and the corresponding config/evidence bindings must be regenerated and re-reviewed after >=10 qualifying paired sessions. The historical 13 (recorded in _shadow_sessions_clean_nonqualifying) bound to the SIBLING-config evidence and is explicitly NON-QUALIFYING context, never a floor-passing value.",
+    "_shadow_sessions_clean_nonqualifying": 13,
     "replay_audits_green": true,
     "entry_timing_report": "doc/research/data/2026-08-24-s3c-package/entry_timing_report.txt"
   },
