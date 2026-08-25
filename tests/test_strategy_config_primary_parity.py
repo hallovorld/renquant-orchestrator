@@ -423,3 +423,97 @@ def test_the_REAL_pinned_config_still_has_an_EMPTY_intersection():
     # constructor): a pending-unresolvable path does not disqualify the base
     # that resolves everything actually published.
     assert pa["single_base_that_resolves_everything"] == [strategy_base]
+
+
+# ── orch#1020: watchlist drift is a disagreement, and the summary line the ──
+# ── audit fingerprints encodes the drift STRUCTURE (tickers, not counts) ────
+def _cfg_wl(tmp_path, name, watchlist, **kw):
+    body = {
+        "ranking": {"panel_scoring": {
+            "kind": kw.get("kind", "xgb"), "enabled": True,
+            "artifact_path": "a.json",
+            "shadow_models": [{"name": "s1"}]}},
+    }
+    if watchlist is not None:
+        body["watchlist"] = watchlist
+    p = tmp_path / name
+    p.write_text(json.dumps(body), encoding="utf-8")
+    return str(p)
+
+
+def test_watchlist_drift_is_a_disagreement_and_names_the_tickers(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", "MSFT", "CRWV"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL", "MSFT"])
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert any(d.startswith("watchlist:") for d in
+               [l.split("DISAGREE  ", 1)[1] for l in out.splitlines()
+                if l.startswith("DISAGREE")])
+    # the FIRST line is what ops_audit fingerprints — it must carry the ticker
+    first = out.splitlines()[0]
+    assert first.startswith("PARITY:")
+    assert "CRWV" in first, "a drifted ticker missing from the fingerprinted line"
+
+
+def test_a_NEW_drifted_ticker_changes_the_fingerprinted_line(tmp_path, capsys):
+    """An ack covers THIS drift; new drift must re-fingerprint as NEW."""
+    m = _load()
+    a1 = _cfg_wl(tmp_path, "a1.json", ["AAPL", "CRWV"])
+    b1 = _cfg_wl(tmp_path, "b1.json", ["AAPL"])
+    m.main(["--config", a1, "--config", b1])
+    first1 = capsys.readouterr().out.splitlines()[0]
+    a2 = _cfg_wl(tmp_path, "a2.json", ["AAPL", "CRWV", "RKLB"])
+    m.main(["--config", a2, "--config", b1])
+    first2 = capsys.readouterr().out.splitlines()[0]
+    assert first1 != first2, (
+        "two different drift sets produced the same fingerprint subject — one "
+        "ack would silently cover future drift")
+
+
+def test_watchlist_ABSENT_on_one_side_is_a_disagreement(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL"])
+    b = _cfg_wl(tmp_path, "b.json", None)
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "ABSENT" in out
+
+
+def test_a_MALFORMED_watchlist_is_a_broken_surface_not_a_silent_pass(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["AAPL", 7])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL"])
+    rc = m.main(["--config", a, "--config", b])
+    assert rc == 1, "corruption must fail, not normalise into agreement"
+
+
+def test_identical_watchlists_do_not_disagree(tmp_path, capsys):
+    m = _load()
+    a = _cfg_wl(tmp_path, "a.json", ["MSFT", "AAPL"])
+    b = _cfg_wl(tmp_path, "b.json", ["AAPL", "MSFT"])  # order-insensitive
+    rc = m.main(["--config", a, "--config", b])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "watchlist:" not in out
+
+
+def test_omitting_config_derives_both_surfaces_from_RQ_ROOT(tmp_path, capsys,
+                                                           monkeypatch):
+    """orch#1020: the default subjects are the two surfaces the daily run
+    stitches, rooted at $RQ_ROOT — the convention that lets the audit run it."""
+    m = _load()
+    rq = tmp_path / "RQ"
+    pinned = rq / ".subrepo_runtime" / "repos" / "renquant-strategy-104" / "configs"
+    umbrella = rq / "backtesting" / "renquant_104"
+    pinned.mkdir(parents=True)
+    umbrella.mkdir(parents=True)
+    _cfg_wl(pinned, "strategy_config.json", ["AAPL", "CRWV"])
+    _cfg_wl(umbrella, "strategy_config.json", ["AAPL"])
+    monkeypatch.setenv("RQ_ROOT", str(rq))
+    rc = m.main([])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "CRWV" in out.splitlines()[0]
