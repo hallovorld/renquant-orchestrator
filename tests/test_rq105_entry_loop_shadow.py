@@ -70,7 +70,7 @@ class _Cal:  # the loader is monkeypatched; the calendar is never consulted
 
 def _run(tmp_path, monkeypatch, *, batch_scores=None, batch_exc=None,
          rows=(), positions=("HELD1",), cap=10, intents_log=None,
-         tick_at=None):
+         tick_at=None, as_of=AS_OF):
     if batch_exc is not None:
         def fake_loader(**kw):
             raise batch_exc
@@ -81,12 +81,16 @@ def _run(tmp_path, monkeypatch, *, batch_scores=None, batch_exc=None,
     intents = intents_log or (tmp_path / "intents.jsonl")
     record = mod.run_entry_loop_tick(
         session_date=SESSION,
-        as_of=AS_OF,
+        as_of=as_of,
         db_path=tmp_path / "runs.db",           # untouched: loader is faked
         calendar=_Cal(),
-        shadow_log=_shadow_log(tmp_path, list(rows)),
-        scheduler_log=_scheduler_log(tmp_path, positions=positions,
-                                     tick_at=tick_at),
+        shadow_log=_shadow_log(
+            tmp_path, [{**r, "as_of": as_of} for r in rows]),
+        scheduler_log=_scheduler_log(
+            tmp_path, positions=positions,
+            tick_at=tick_at or (
+                dt.datetime.fromisoformat(as_of) - dt.timedelta(minutes=5)
+            ).isoformat()),
         pinned_config=_pinned_cfg(tmp_path, cap=cap),
         intents_log=intents,
         env={},
@@ -186,14 +190,18 @@ def test_no_shadow_rows_is_a_named_block(tmp_path, monkeypatch):
 def test_session_totals_accumulate_across_ticks_and_exhaust_the_budget(
         tmp_path, monkeypatch):
     intents = tmp_path / "intents.jsonl"
-    for ticker in ("AAA", "BBB"):
+    # distinct as_of per tick — the idempotency gate (orch#1059 P1-2) is
+    # keyed on (session, as_of), so reusing one as_of would be a RETRY
+    for ticker, hour in (("AAA", "10:00"), ("BBB", "12:00")):
         _run(tmp_path, monkeypatch, batch_scores={ticker: 1.0},
-             rows=[_shadow_row(ticker, 1.0)], intents_log=intents)
+             rows=[_shadow_row(ticker, 1.0)], intents_log=intents,
+             as_of=f"2026-08-24T{hour}:00-04:00")
     entries, notional = mod.session_totals_from_intents_log(
         intents, session_date=SESSION)
     assert entries == 2 and notional == pytest.approx(1500.0)
     record, _ = _run(tmp_path, monkeypatch, batch_scores={"CCC": 1.0},
-                     rows=[_shadow_row("CCC", 1.0)], intents_log=intents)
+                     rows=[_shadow_row("CCC", 1.0)], intents_log=intents,
+                     as_of="2026-08-24T14:00:00-04:00")
     assert record["intents"] == []
     assert record["rejections"]["CCC"] == "daily_entry_budget_exhausted"
 
@@ -205,7 +213,8 @@ def test_position_cap_full_uses_the_CONFIG_cap(tmp_path, monkeypatch):
     assert record["rejections"]["AAPL"] == "position_cap_full"
     record2, _ = _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
                       rows=[_shadow_row("AAPL", 1.0)],
-                      positions=tuple(f"H{i}" for i in range(10)), cap=12)
+                      positions=tuple(f"H{i}" for i in range(10)), cap=12,
+                      as_of="2026-08-24T14:00:00-04:00")
     assert [i["ticker"] for i in record2["intents"]] == ["AAPL"]
 
 
@@ -233,3 +242,94 @@ def test_stale_quotes_fail_closed_per_name(tmp_path, monkeypatch):
                            _shadow_row("MSFT", 1.0)])
     assert record["rejections"]["AAPL"] == "intraday_quote_censored"
     assert [i["ticker"] for i in record["intents"]] == ["MSFT"]
+
+
+# ── [codex on orch#1059] P1-1: serving failure gates the decision ────────────
+def test_a_failed_serving_persists_a_named_refusal_not_a_plan(
+        tmp_path, monkeypatch):
+    def fake_loader(**kw):
+        return _fake_signal({"AAPL": 1.0})
+    monkeypatch.setattr(mod, "load_frozen_daily_signal", fake_loader)
+    intents = tmp_path / "intents.jsonl"
+    record = mod.run_entry_loop_tick(
+        session_date=SESSION, as_of=AS_OF, db_path=tmp_path / "runs.db",
+        calendar=_Cal(),
+        shadow_log=_shadow_log(tmp_path, [_shadow_row("AAPL", 1.0)]),
+        scheduler_log=_scheduler_log(tmp_path),
+        pinned_config=_pinned_cfg(tmp_path),
+        intents_log=intents, serving_rc=3, env={})
+    assert "serving_failed rc=3" in record["session_block"]
+    assert record["intents"] == []
+    on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
+    assert len(on_disk) == 1, "the refusal must be PERSISTED, not silent"
+
+
+# ── [codex on orch#1059] P1-2: one (session, as_of) decides exactly once ─────
+def test_a_retried_tick_returns_the_existing_record_and_appends_nothing(
+        tmp_path, monkeypatch):
+    intents = tmp_path / "intents.jsonl"
+    r1, _ = _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
+                 rows=[_shadow_row("AAPL", 1.0)], intents_log=intents)
+    assert [i["ticker"] for i in r1["intents"]] == ["AAPL"]
+    r2, _ = _run(tmp_path, monkeypatch, batch_scores={"AAPL": 1.0},
+                 rows=[_shadow_row("AAPL", 1.0)], intents_log=intents)
+    assert r2.get("duplicate_tick") is True
+    assert [i["ticker"] for i in r2["intents"]] == ["AAPL"]
+    on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
+    assert len(on_disk) == 1, "a retry must not append a twin record"
+    entries, notional = mod.session_totals_from_intents_log(
+        intents, session_date=SESSION)
+    assert entries == 1 and notional == pytest.approx(750.0)
+
+
+def test_totals_ignore_a_duplicate_record_even_if_one_slips_in(tmp_path):
+    """Defense in depth: if a twin record ever reaches the log (e.g. a
+    pre-fix log), the totals still count the tick once."""
+    intents = tmp_path / "intents.jsonl"
+    rec = {"kind": mod.RECORD_KIND, "session_date": SESSION,
+           "as_of": "2026-08-24T12:00:00-04:00",
+           "intents": [{"ticker": "AAPL", "notional_budget": 750.0}]}
+    intents.write_text(json.dumps(rec) + "\n" + json.dumps(rec) + "\n")
+    entries, notional = mod.session_totals_from_intents_log(
+        intents, session_date=SESSION)
+    assert entries == 1 and notional == pytest.approx(750.0)
+
+
+def test_concurrent_retries_serialize_on_the_writer_lock(tmp_path, monkeypatch):
+    """Two threads race the same tick: exactly one record lands; the loser
+    reports duplicate_tick. The lock's re-check is what makes this true —
+    both threads pass the pre-work idempotency gate before either writes."""
+    import threading
+
+    def fake_loader(**kw):
+        return _fake_signal({"AAPL": 1.0})
+    monkeypatch.setattr(mod, "load_frozen_daily_signal", fake_loader)
+    shadow = _shadow_log(tmp_path, [_shadow_row("AAPL", 1.0)])
+    sched = _scheduler_log(tmp_path)
+    cfg = _pinned_cfg(tmp_path)
+    intents = tmp_path / "intents.jsonl"
+    barrier = threading.Barrier(2)
+    results = []
+
+    real_existing = mod._existing_tick_record
+
+    def gated_existing(*a, **k):
+        out = real_existing(*a, **k)
+        barrier.wait(timeout=5)   # both threads pass the pre-gate together
+        return out
+    monkeypatch.setattr(mod, "_existing_tick_record", gated_existing)
+
+    def worker():
+        results.append(mod.run_entry_loop_tick(
+            session_date=SESSION, as_of=AS_OF, db_path=tmp_path / "runs.db",
+            calendar=_Cal(), shadow_log=shadow, scheduler_log=sched,
+            pinned_config=cfg, intents_log=intents, env={}))
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    on_disk = [json.loads(l) for l in intents.read_text().splitlines()]
+    assert len(on_disk) == 1, "concurrent retries must not append twins"
+    assert sum(1 for r in results if r.get("duplicate_tick")) == 1

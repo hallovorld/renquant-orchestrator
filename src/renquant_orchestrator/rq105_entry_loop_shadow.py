@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -160,6 +161,7 @@ def session_totals_from_intents_log(
 ) -> tuple[int, float]:
     """(entries_today, notional_today) recomputed from this log's own records."""
     entries, notional = 0, 0.0
+    seen_ticks: set[str] = set()
     if not log_path.exists():
         return entries, notional
     with open(log_path, encoding="utf-8") as fh:
@@ -173,6 +175,14 @@ def session_totals_from_intents_log(
                 continue
             if r.get("kind") != RECORD_KIND or r.get("session_date") != session_date:
                 continue
+            # [codex on orch#1059 P1-2] one tick = one (session, as_of); a
+            # retried tick's duplicate record must not consume the budget
+            # twice. First record per as_of wins; later ones are ignored here
+            # AND refused at write time (see the idempotency gate).
+            tick_key = str(r.get("as_of"))
+            if tick_key in seen_ticks:
+                continue
+            seen_ticks.add(tick_key)
             for intent in r.get("intents") or ():
                 entries += 1
                 try:
@@ -203,6 +213,27 @@ def guardrails_from_pinned_config(config_path: Path) -> Guardrails:
 # ---------------------------------------------------------------------------
 # The tick
 # ---------------------------------------------------------------------------
+def _existing_tick_record(intents_log: Path, *, session_date: str,
+                          as_of_iso: str) -> dict | None:
+    """The already-persisted record for this (session, as_of), if any."""
+    if not intents_log.exists():
+        return None
+    with open(intents_log, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if (r.get("kind") == RECORD_KIND
+                    and r.get("session_date") == session_date
+                    and r.get("as_of") == as_of_iso):
+                return r
+    return None
+
+
 def run_entry_loop_tick(
     *,
     session_date: str,
@@ -214,12 +245,31 @@ def run_entry_loop_tick(
     pinned_config: Path,
     intents_log: Path,
     live_state_max_age_min: float = 30.0,
+    serving_rc: int = 0,
     env: Mapping[str, str] | None = None,
 ) -> dict:
-    """One observe-only decision tick; returns the record it appended."""
+    """One observe-only decision tick; returns the record it appended.
+
+    ``serving_rc`` is the exit code of the serving step that produced this
+    tick's rows [codex on orch#1059 P1-1]: a failed serving can leave a
+    PARTIAL row set for exactly this as_of, and a plan built from a subset
+    reads as complete evidence. Nonzero ⇒ a named refusal is persisted and
+    no rows are read.
+    """
     as_of_et = _as_aware_et(as_of)
     g = guardrails_from_pinned_config(pinned_config)
     per_entry_notional = g.max_notional_per_day / g.max_entries_per_day
+    as_of_iso = as_of_et.isoformat()
+
+    # [codex on orch#1059 P1-2] IDEMPOTENCY, checked before any work: one
+    # (session, as_of) decides once. A scheduler retry returns the existing
+    # record instead of appending a twin that would consume the daily budget
+    # again and shift every later plan. Checked again under the writer lock
+    # before appending, so two concurrent retries cannot both pass this gate.
+    existing = _existing_tick_record(intents_log, session_date=session_date,
+                                     as_of_iso=as_of_iso)
+    if existing is not None:
+        return {**existing, "duplicate_tick": True}
 
     batch_refusal: str | None = None
     signal: Mapping[str, Any] | None = None
@@ -236,8 +286,16 @@ def run_entry_loop_tick(
     entries_today, notional_today = session_totals_from_intents_log(
         intents_log, session_date=session_date)
 
-    if batch_refusal is not None:
+    if serving_rc != 0:
         plan_payload: dict[str, Any] = {
+            "session_block": (f"serving_failed rc={serving_rc} — a failed "
+                              f"serving step can leave a partial row set for "
+                              f"this as_of; refusing to decide on possibly "
+                              f"incomplete evidence"),
+            "intents": [], "rejections": {},
+        }
+    elif batch_refusal is not None:
+        plan_payload = {
             "session_block": f"batch_side_refused: {batch_refusal}",
             "intents": [], "rejections": {},
         }
@@ -318,8 +376,31 @@ def run_entry_loop_tick(
                 f"refusing to persist")
 
     intents_log.parent.mkdir(parents=True, exist_ok=True)
-    with open(intents_log, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(record, sort_keys=True) + "\n")
+    # Exclusive writer lock around re-check + append: two concurrent retries
+    # of the same tick serialize here, and the loser sees the winner's record
+    # in the re-check instead of appending a twin. Single-host by design —
+    # the intents log has exactly one producing wrapper.
+    with open(intents_log, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            fh.seek(0)
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if (r.get("kind") == RECORD_KIND
+                        and r.get("session_date") == session_date
+                        and r.get("as_of") == as_of_iso):
+                    return {**r, "duplicate_tick": True}
+            fh.seek(0, os.SEEK_END)
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+            fh.flush()
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
     return record
 
 
@@ -336,6 +417,10 @@ def main(argv: Any | None = None) -> int:
     ap.add_argument("--intents-log", default=None)
     ap.add_argument("--data-root", default=None)
     ap.add_argument("--live-state-max-age-min", type=float, default=30.0)
+    ap.add_argument("--serving-rc", type=int, default=0,
+                    help="exit code of the serving step that produced this "
+                         "tick's rows; nonzero persists a named refusal "
+                         "instead of deciding on possibly-partial rows")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
@@ -356,6 +441,7 @@ def main(argv: Any | None = None) -> int:
         pinned_config=Path(args.pinned_strategy_config),
         intents_log=intents_log,
         live_state_max_age_min=args.live_state_max_age_min,
+        serving_rc=args.serving_rc,
     )
     if args.json:
         print(json.dumps(record, indent=2, sort_keys=True))

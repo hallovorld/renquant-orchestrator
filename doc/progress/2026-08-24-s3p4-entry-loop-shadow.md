@@ -48,3 +48,28 @@ No orders, no broker imports, no live mode. S3-c remains an explicit
 operator ask; the emission stage will be its own PR under that
 authorization, reusing `live.runner`'s broker path per the design's
 execution-interface contract.
+
+## r2 (codex round 1): two P1s — serving-failure gate, tick idempotency
+
+Both accepted.
+
+1. **Serving failure gates the decision.** The wrapper now captures the
+   serving step's exit code PER TICK and passes it as `--serving-rc`; nonzero
+   ⇒ the loop persists a NAMED refusal (`serving_failed rc=N`) without
+   reading rows — a failed serving can leave a partial row set for exactly
+   this as_of, and a plan from a subset reads as complete evidence. The
+   refusal is recorded, not silent (the evidence lane must show the gap).
+2. **One (session, as_of) decides exactly once.** Idempotency gate before
+   any work (a retry returns the existing record flagged `duplicate_tick`),
+   re-checked under an exclusive `flock` around the read+append critical
+   section so two concurrent retries serialize and the loser sees the
+   winner's record. `session_totals` additionally dedups by tick identity
+   (defense in depth for pre-fix logs).
+
+Tests: +4 (persisted refusal on serving_rc≠0; retry appends nothing and
+totals stay 1×; duplicate records in a pre-fix log count once; a
+two-thread race with a barrier past the pre-gate lands exactly one record
+and one `duplicate_tick`). The two pre-existing tests that reused one
+as_of across ticks began failing — the gate firing correctly — and now use
+distinct as_ofs with occupancy ticks that track them, matching the real
+four-checkpoint cadence. **20 passed.**

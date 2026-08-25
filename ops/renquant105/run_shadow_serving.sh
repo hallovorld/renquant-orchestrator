@@ -172,15 +172,21 @@ for T in 10:00 12:00 14:00 15:30; do
     --batch-scores-json "$SCORES" \
     --batch-run-id "$RUN_ID" \
     --data-root "$RQ_ROOT" \
-    >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1 || RC_TOTAL=$?
+    >> "$LOG_DIR/shadow_serving_$TS.log" 2>&1
+  SERVING_RC=$?
+  [ "$SERVING_RC" -eq 0 ] || RC_TOTAL=$SERVING_RC
   # S3-P4 OBSERVE-ONLY (design §4/§4b/§5): the guarded entry loop's decision
   # surface over this tick's rows — batch(T-1, leak-guarded) ∩ intraday, v1
   # guardrails with the cap from the SAME pinned config verified above.
   # Records intents; module contains no broker path (the live emission stage
   # ships with the S3-c operator authorization, never before it).
+  # [codex on orch#1059 P1-1] the serving exit code travels WITH the tick: a
+  # failed serving can leave a partial row set for exactly this as_of, so the
+  # loop persists a NAMED refusal instead of deciding on subset evidence.
   "$PY" -m renquant_orchestrator.rq105_entry_loop_shadow \
     --session-date "$TS" \
     --as-of "$AS_OF" \
+    --serving-rc "$SERVING_RC" \
     --db-path "$RQ_ROOT/data/runs.alpaca.db" \
     --shadow-log "$RQ_ROOT/logs/renquant105_pilot/shadow_realtime_serving.jsonl" \
     --scheduler-log "$RQ_ROOT/logs/renquant105_pilot/intraday_decisions_shadow.jsonl" \
