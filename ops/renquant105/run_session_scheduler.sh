@@ -36,7 +36,11 @@ SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
 # NOTE: RENQUANT_INTRADAY_DECISIONING is deliberately NOT exported here.
 # Activation (a recorded landing step) uncomments the next line:
-# export RENQUANT_INTRADAY_DECISIONING=1
+# ACTIVATED 2026-08-12 (G-H task#28, operator-authorized; shadow/never-submit
+# runtime-asserted; revert = re-comment). Re-applied 2026-08-24 after the #1044
+# ff-merge conflicted with the stashed copy (UU caught pre-schedule; resolution:
+# take main's verified block cleanly, then re-apply ONLY this line).
+export RENQUANT_INTRADAY_DECISIONING=1
 # orch#1041: pass the PINNED strategy config EXPLICITLY, fail closed if absent.
 # Without this flag, default_strategy_config_path() resolves the SIBLING dev
 # checkout (~/git/github/renquant-strategy-104) in preference to the pinned
