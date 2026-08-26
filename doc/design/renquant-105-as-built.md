@@ -26,6 +26,9 @@ rejected.
   ↓
 Session scheduler (Stage-1)
   → triple gate: config enabled + env flag + kill-switch absent
+    (env flag armed by the operator-owned runtime file
+    data/rq105/intraday_decisioning.armed.json, validated fail-closed by
+    renquant_orchestrator.rq105_arming — PR #1067; committed default stays OFF)
   → NYSE calendar session bounds (half-day aware)
   → 12-min tick cadence (720s default)
   → per-tick: capture class-C/D inputs → run_intraday_decision_tick (pipeline)

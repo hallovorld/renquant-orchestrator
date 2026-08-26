@@ -1,45 +1,67 @@
-# Legitimize the RENQUANT_INTRADAY_DECISIONING activation into the reviewed surface
+# Gate 2 arming moves to an operator-owned runtime file (r2 after codex review)
 
 Date: 2026-08-26
-Branch: `ops/legitimize-intraday-decisioning`
+Branch: `ops/legitimize-intraday-decisioning` (PR #1067)
 
-## What
+## r1 → r2
 
-Commit, byte-for-byte, the activation edit that has been living as an
-UNCOMMITTED modification in the `renquant-orchestrator-run` checkout since
-2026-08-12: `ops/renquant105/run_session_scheduler.sh` exports
-`RENQUANT_INTRADAY_DECISIONING=1` (G-H task#28, operator-authorized
-2026-08-12; shadow/never-submit is runtime-asserted; revert = re-comment the
-line).
+r1 committed the live dirty-tree export (`RENQUANT_INTRADAY_DECISIONING=1`)
+verbatim. Codex correctly refused: that silently converts the repository
+default from operator-armed to code-armed, contradicts the control-plane test
+`test_session_scheduler_wrapper_does_not_hard_export_activation_flag` and the
+documented triple-gate contract (wrapper header, ops README, 2026-07-03
+progress doc, as-built), and infers a persistent-default authority from a
+14-day-old dirty edit instead of a first-hand record.
 
-## Why now
+r2 keeps BOTH properties instead of trading one for the other:
 
-- CONTAINMENT PROTOCOL (c): a change meant to persist must land on the
-  reviewed surface. This one has persisted 14 days as a dirty working-tree
-  edit. The run-surface drift scan alarming on the dirty `-run` tree is the
-  designed reminder — this PR is the "legitimize" arm of that alarm.
-- The edit has ALREADY been lost-and-reapplied once: the 2026-08-24 #1044
-  ff-merge conflicted with the stashed copy (UU), and the resolution had to
-  re-apply the export by hand. [VERIFIED: the comment block in the live diff
-  records this.] A recovery checkout or clean-sync at any point would
-  silently DEACTIVATE the operator's authorized decision loop — the
-  `recovery-checkout-clobbers-code-hotfixes` failure shape, aimed at a live
-  activation.
-- Behavior change of this PR: NONE at merge time. The running launchd job
-  already executes with the flag active (the -run tree carries the identical
-  bytes); this moves the authority for those bytes from an uncommitted edit
-  to a reviewed commit.
+- **Committed default stays OFF.** The wrapper exports the flag ONLY when the
+  operator-owned arming file validates:
+  `data/rq105/intraday_decisioning.armed.json`
+  (`{"armed": true, "operator", "armed_at", "authority"}`), checked
+  fail-closed by the new `renquant_orchestrator.rq105_arming` module
+  (absent / malformed / `armed != true` / missing provenance ⇒ OFF, reason
+  logged). Mirrors the existing gate-3 kill-switch pattern — an operator-owned
+  runtime file outside git.
+- **An authorized activation survives checkout recovery.** The arming state no
+  longer lives in the working tree, so a `git checkout --` or sync conflict
+  (the 2026-08-24 #1044 near-loss) cannot silently disarm it.
+- **Authority is first-hand, not inferred.** Merging this PR arms NOTHING.
+  The operator arms by creating the file (a recorded landing step that
+  re-expresses the standing 2026-08-12 G-H authorization, or declines to).
+  Agents never write rq105 authorization files (LONG-ledger class).
 
-## Deploy note (the step that ENDS the alarm)
+## Surfaces updated coherently (codex point 2)
 
-After merge, the `-run` sync must reconcile the now-redundant local edit:
-`git -C renquant-orchestrator-run checkout -- ops/renquant105/run_session_scheduler.sh`
-(content becomes identical to the incoming commit) then the usual ff-only
-advance. File content before and after is byte-identical — the flag never
-blinks. This is a landing action; it rides the next authorized -run sync.
+- `ops/renquant105/run_session_scheduler.sh` — header gate-2 wording + the
+  arming block replacing the hard export.
+- `src/renquant_orchestrator/rq105_arming.py` — NEW, the fail-closed
+  validator (CLI: exit 0 armed / 1 not / 2 usage).
+- `tests/test_intraday_session_scheduler.py` — the control-plane test is
+  REPLACED (not weakened): the new test asserts exactly one activation export
+  and that it sits INSIDE the arming-file conditional; plus 8 fail-closed
+  unit tests for the module including the documented rollback
+  (`armed: false` disarms) and CLI exit codes.
+- `ops/renquant105/README.md` — triple-gate item 2 rewritten.
+- `doc/design/renquant-105-as-built.md` — Stage-1 gate line annotated.
+- `doc/progress/2026-07-03-stage1-session-scheduler.md` — dated amendment
+  (history preserved; step 3's "uncomment the wrapper line" superseded).
 
-## Revert
+## Deploy / transition (landing actions, operator-gated)
 
-Re-comment the `export RENQUANT_INTRADAY_DECISIONING=1` line in a reviewed
-commit (or, in an emergency, in the -run tree WITH a containment record per
-CLAUDE.md).
+1. Merge + `-run` sync: the local dirty edit CONFLICTS with this change by
+   design — resolution is `git checkout -- ops/renquant105/run_session_scheduler.sh`
+   (accept the reviewed arming block). At that instant gate 2 is DISARMED
+   (file does not exist yet).
+2. Operator creates the arming file (one recorded landing step) citing the
+   2026-08-12 authorization — decisioning resumes. Sequenced back-to-back,
+   the gap is zero scheduled sessions (sync + arming both outside RTH).
+3. Disarm forever after: delete the file or set `"armed": false`; kill-switch
+   unchanged for mid-session halts.
+
+## §4(b) evidence
+
+- Module + wrapper policy tests: 9 new tests green locally [VERIFIED below].
+- `bash -n` clean on the rewritten wrapper.
+- The wrapper's arming block logs provenance into the session log, so every
+  armed session records WHO/WHEN/UNDER-WHAT-AUTHORITY it ran armed.
