@@ -117,6 +117,33 @@ MEMBERS: tuple[tuple[str, str, list[str], tuple[int, ...]], ...] = (
     # be BOUND to the run it describes, which lands UNUSABLE here — correct,
     # because an unverifiable declaration is not an authorisation.
     ("watchlist-trainability", "watchlist_trainability_check.py", [], (1,)),
+    # rq105-arming-enactment, added 2026-08-26 (orch#1034 -> #1067). Registered in
+    # the SAME PR as the detector, for the reason recorded above.
+    #
+    # WHY IT EXISTS. #1067 moved rq105's gate 2 into an operator-owned file
+    # OUTSIDE git, which is what makes it survive a recovery checkout — and also
+    # what means merging #1067 cannot create it. Measured 2026-08-26: the file is
+    # absent, `-run` is 4 behind main and still hard-exports, so the loop is armed
+    # only until the sync. This member compares the pinned config's
+    # `intraday_decisioning.enabled` against gate 2 as the DEPLOYED wrapper reads
+    # it, so the mismatch is a finding on the first audit after the cutover
+    # instead of an absence nobody notices.
+    #
+    # Read-only: two file reads plus an importlib load of the deployed validator
+    # (by path — no sys.path mutation, no sys.modules aliasing). Write sweep per
+    # the membership rule: 0 matches for open(...,'w'/'a'), write_text, json.dump(,
+    # mkdir, shutil., os.remove, os.rename `[VERIFIED — sweep over the file,
+    # 2026-08-26]`, and `test_the_detector_writes_nothing` asserts it behaviourally.
+    #
+    # Exit contract read from source: `EXIT_OK, EXIT_FINDING, EXIT_UNVERIFIABLE =
+    # 0, 1, 2`. 1 = gate 1 declares enabled while gate 2 is not armed. 2 is
+    # deliberately NOT declared a finding: a wrapper that predates #1067 records
+    # gate 2's state on no reviewed surface at all, and today that is the live
+    # state — reporting it as a finding would be a guard judging a file the
+    # running system does not consult, and reporting it as OK would certify a gate
+    # nobody read. It lands UNUSABLE, and self-clears on the sync it warns about.
+    ("rq105-arming-enactment", "renquant105/rq105_arming_enactment_check.py",
+     [], (1,)),
     # ack-ledger, added 2026-08-01. MEASURED BEFORE ADDING, and it is the same finding
     # the five entries below were added for: `ack_ledger_audit.py` was merged, works, and
     # reports 11 findings against the live ledger today -- while being invoked by NOTHING
