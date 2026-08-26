@@ -840,28 +840,99 @@ def test_session_scheduler_wrapper_cli_args_are_valid():
     )
 
 
-def test_session_scheduler_wrapper_does_not_hard_export_activation_flag():
-    """Control-plane regression: the committed wrapper must never hard-export
-    RENQUANT_INTRADAY_DECISIONING=1 as a default. Per the documented triple
-    gate (this file's own header comment), that flag is activated ONLY by an
-    operator manually uncommenting the line as a recorded landing step — the
-    committed default must always require that explicit action.
+def test_wrapper_activation_export_is_conditional_on_the_arming_file():
+    """Control-plane policy (rev 2, PR #1067 review): the committed wrapper
+    must never export RENQUANT_INTRADAY_DECISIONING=1 UNCONDITIONALLY. Gate 2
+    is armed exclusively by the operator-owned runtime file
+    (data/rq105/intraday_decisioning.armed.json), validated fail-closed by
+    renquant_orchestrator.rq105_arming — the committed default stays OFF, and
+    a fresh/recovery checkout arms itself only if the operator's arming file
+    is present and valid on that machine.
 
-    Regression: a prior revision synced a live-tree operator hotfix that had
-    hard-exported the flag, silently flipping the default from operator-armed
-    to code-armed. That must never land in the committed repo default."""
+    History: rev 1 of this test forbade ANY active export after a live-tree
+    hotfix hard-exported the flag; the 2026-08-12 operator activation then
+    lived as a dirty working-tree edit for 14 days and nearly died in the
+    2026-08-24 #1044 sync conflict. The arming file keeps BOTH properties:
+    default-OFF in the committed repo AND an activation that survives
+    checkout recovery."""
     wrapper = (OPS_DIR / "run_session_scheduler.sh").read_text(encoding="utf-8")
-    for line in wrapper.splitlines():
-        stripped = line.strip()
-        assert stripped != "export RENQUANT_INTRADAY_DECISIONING=1", (
-            "run_session_scheduler.sh hard-exports RENQUANT_INTRADAY_DECISIONING=1 "
-            "as an active (uncommented) statement. This flips the documented "
-            "default-OFF triple gate to code-armed. Activation must remain an "
-            "explicit, commented-out operator landing step, never a committed "
-            "default."
-        )
-    # The documented deactivated form must still be present (commented out).
-    assert "# export RENQUANT_INTRADAY_DECISIONING=1" in wrapper, (
-        "expected the commented-out activation line documenting the "
-        "operator landing step to be present"
+    lines = wrapper.splitlines()
+    export_lines = [i for i, ln in enumerate(lines)
+                    if ln.strip() == "export RENQUANT_INTRADAY_DECISIONING=1"]
+    assert len(export_lines) == 1, (
+        f"expected exactly one conditional activation export, found "
+        f"{len(export_lines)}"
     )
+    guard_lines = [i for i, ln in enumerate(lines)
+                   if "rq105_arming" in ln and ln.strip().startswith("if ")]
+    assert len(guard_lines) == 1, "expected exactly one arming-file guard"
+    guard = guard_lines[0]
+    closing = next(i for i in range(guard, len(lines)) if lines[i].strip() == "fi")
+    assert guard < export_lines[0] < closing, (
+        "the activation export must sit INSIDE the arming-file conditional — "
+        "an export outside it is a committed code-armed default, which the "
+        "activation contract forbids"
+    )
+    assert 'ARMING_FILE="$RQ_ROOT/data/rq105/intraday_decisioning.armed.json"' in wrapper
+
+
+class TestArmingFileFailClosed:
+    """renquant_orchestrator.rq105_arming — every non-happy path stays OFF."""
+
+    def _valid(self):
+        return {"armed": True, "operator": "renhao",
+                "armed_at": "2026-08-12",
+                "authority": "G-H task#28 activation, re-expressed as arming file"}
+
+    def test_valid_file_arms_with_provenance(self, tmp_path):
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        f = tmp_path / "armed.json"
+        f.write_text(json.dumps(self._valid()))
+        armed, detail = evaluate_arming_file(f)
+        assert armed is True
+        assert "operator=renhao" in detail and "authority=" in detail
+
+    def test_absent_file_is_not_armed(self, tmp_path):
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        armed, detail = evaluate_arming_file(tmp_path / "nope.json")
+        assert armed is False and "absent" in detail
+
+    def test_malformed_json_is_not_armed(self, tmp_path):
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        f = tmp_path / "armed.json"
+        f.write_text("{not json")
+        armed, detail = evaluate_arming_file(f)
+        assert armed is False and "unreadable" in detail
+
+    def test_armed_false_disarms(self, tmp_path):
+        """The documented ROLLBACK: set armed=false (or delete the file)."""
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        payload = self._valid(); payload["armed"] = False
+        f = tmp_path / "armed.json"
+        f.write_text(json.dumps(payload))
+        armed, detail = evaluate_arming_file(f)
+        assert armed is False and "not literal true" in detail
+
+    def test_armed_truthy_but_not_literal_true_is_not_armed(self, tmp_path):
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        payload = self._valid(); payload["armed"] = 1
+        f = tmp_path / "armed.json"
+        f.write_text(json.dumps(payload))
+        assert evaluate_arming_file(f)[0] is False
+
+    @pytest.mark.parametrize("field", ["operator", "armed_at", "authority"])
+    def test_missing_provenance_field_is_not_armed(self, tmp_path, field):
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file
+        payload = self._valid(); payload[field] = "  "
+        f = tmp_path / "armed.json"
+        f.write_text(json.dumps(payload))
+        armed, detail = evaluate_arming_file(f)
+        assert armed is False and field in detail
+
+    def test_cli_exit_codes_match_the_wrapper_contract(self, tmp_path):
+        from renquant_orchestrator.rq105_arming import main
+        f = tmp_path / "armed.json"
+        f.write_text(json.dumps(self._valid()))
+        assert main([str(f)]) == 0
+        assert main([str(tmp_path / "absent.json")]) == 1
+        assert main([]) == 2

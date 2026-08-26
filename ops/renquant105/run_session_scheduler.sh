@@ -8,8 +8,9 @@
 #
 # TRIPLE GATE — nothing runs until ALL THREE hold:
 #   1. pinned strategy config: intraday_decisioning.enabled = true
-#   2. env flag RENQUANT_INTRADAY_DECISIONING=1 (set below ONLY by the
-#      operator editing this file at activation; default: NOT exported)
+#   2. env flag RENQUANT_INTRADAY_DECISIONING=1 — exported below ONLY when
+#      the operator-owned ARMING FILE validates (default: file absent, so
+#      NOT exported; see the arming block below)
 #   3. kill-switch file absent (data/rq105/intraday_decisioning.KILL —
 #      touch it to halt mid-session before the next tick)
 # Shadow mode is runtime-asserted in the module: it NEVER submits anything.
@@ -34,9 +35,21 @@ SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
 # AFTER a mutable sibling checkout, which shadowed the pinned copy that was
 # already on this line — the pin was present and losing.
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
-# NOTE: RENQUANT_INTRADAY_DECISIONING is deliberately NOT exported here.
-# Activation (a recorded landing step) uncomments the next line:
-# export RENQUANT_INTRADAY_DECISIONING=1
+# ARMING (gate 2). RENQUANT_INTRADAY_DECISIONING is NOT a committed default.
+# It is exported ONLY when the operator-owned runtime file (outside git, so a
+# recovery checkout or sync cannot silently extinguish an authorized
+# activation — the 2026-08-12..08-26 dirty-tree export nearly died exactly
+# that way on 08-24, #1044) validates fail-closed:
+#   $RQ_ROOT/data/rq105/intraday_decisioning.armed.json
+#   {"armed": true, "operator": "...", "armed_at": "...", "authority": "..."}
+# Creating/editing/removing that file is a recorded OPERATOR landing step;
+# agents never write it. Disarm = delete it or set "armed": false. The
+# kill-switch (gate 3) remains the mid-session halt, unchanged.
+ARMING_FILE="$RQ_ROOT/data/rq105/intraday_decisioning.armed.json"
+if ARMED_PROVENANCE=$(python3 -m renquant_orchestrator.rq105_arming "$ARMING_FILE" 2>>"$LOG_DIR/session_scheduler_$TS.log"); then
+  export RENQUANT_INTRADAY_DECISIONING=1
+  echo "[session-scheduler] intraday decisioning ARMED ($ARMED_PROVENANCE)" >> "$LOG_DIR/session_scheduler_$TS.log"
+fi
 # orch#1041: pass the PINNED strategy config EXPLICITLY, fail closed if absent.
 # Without this flag, default_strategy_config_path() resolves the SIBLING dev
 # checkout (~/git/github/renquant-strategy-104) in preference to the pinned

@@ -150,7 +150,12 @@ bound strategy/config/artifact fingerprint before it will export anything at all
 
 This job is **shadow-only and default-OFF behind a TRIPLE gate**: (1) the pinned strategy
 config must set `intraday_decisioning.enabled: true`, (2) the env flag
-`RENQUANT_INTRADAY_DECISIONING=1` must be set (the wrapper ships with it commented out),
+`RENQUANT_INTRADAY_DECISIONING=1` must be set — the wrapper exports it ONLY when the
+operator-owned arming file `data/rq105/intraday_decisioning.armed.json`
+(`{"armed": true, "operator", "armed_at", "authority"}`) validates fail-closed via
+`renquant_orchestrator.rq105_arming`; the file lives outside git so a recovery checkout
+cannot silently disarm an authorized activation, and creating/removing it is a recorded
+operator landing step (disarm = delete it or set `"armed": false`),
 (3) the kill-switch file `data/rq105/intraday_decisioning.KILL` must be absent — touching it
 mid-session halts the loop before the next tick. Shadow mode is RUNTIME-ASSERTED in the
 module (`assert_shadow_never_submits`): it logs decision intents to

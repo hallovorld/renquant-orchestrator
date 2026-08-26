@@ -122,3 +122,16 @@ without the pipeline binding, plist/wrapper conventions.
 
 Boundary compliance: no broker adapters, no decision/sizing internals, no model
 training here; run-bundle persisted per session; all broker/DB access read-only.
+
+
+---
+
+**Amendment 2026-08-26 (PR #1067):** activation step 3's "uncommenting
+`RENQUANT_INTRADAY_DECISIONING=1` in the wrapper" is superseded. Gate 2 is now
+armed by the operator-owned runtime file
+`data/rq105/intraday_decisioning.armed.json` (validated fail-closed by
+`renquant_orchestrator.rq105_arming`; absent/malformed = OFF). The committed
+default remains OFF; the arming state lives outside git so recovery checkouts
+and syncs cannot silently disarm an authorized activation — which the
+edit-the-wrapper form nearly suffered on 2026-08-24 (#1044 sync conflict).
+Disarm = delete the file or set `"armed": false`. The kill-switch is unchanged.

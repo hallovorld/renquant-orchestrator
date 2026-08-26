@@ -179,6 +179,7 @@
     "risk_budget.budget",
     "risk_budget.report",
     "roadmap_driver",
+    "rq105_arming",
     "rq105_entry_loop_shadow",
     "runtime_paths",
     "scheduled_health",
