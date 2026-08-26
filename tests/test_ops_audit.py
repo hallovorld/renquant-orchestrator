@@ -251,6 +251,14 @@ def test_the_cited_contract_is_the_one_in_force():
         # lands UNUSABLE, because an unverifiable declaration is not an
         # authorisation.
         "watchlist-trainability": (1,),
+        # Added 2026-08-26 (orch#1034/#1067). `EXIT_FINDING` (1) when the pinned
+        # config declares intraday_decisioning enabled while gate 2 is not armed;
+        # `EXIT_UNVERIFIABLE` (2) when the deployed wrapper predates the
+        # arming-file gate, when either input is unreadable, or when the
+        # wrapper's mechanism is unrecognised. 2 is deliberately NOT declared:
+        # "gate 2's state is recorded nowhere I can read" must land on HARNESS —
+        # it is the live state today, and it is neither a finding nor a pass.
+        "rq105-arming-enactment": (1,),
         # Added 2026-08-01; each cited to its return line in the MEMBERS comment block.
         "gate-stamp-parity": (1,), "booster-identity": (1,),
         "bundle-producer-keys": (1,),
