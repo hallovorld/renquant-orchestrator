@@ -52,17 +52,19 @@ A name/day exceeding the bound is excluded by RULE, not by hand.
 ## 3. Staged plan (each stage gates the next; kill criteria pre-declared)
 
 **Stage I-0 — substrate + ESS census (no modeling).**
-Universe by POINT-IN-TIME RULE, frozen now (review r1: "current watchlist +
-r2k names" is survivor-conditioned): the universe is **every name IEX
-carries with ≥60% session coverage inside the development window**,
-membership computed from development-window coverage alone; a name enters
-on the date its coverage begins (no back-inclusion, no forward knowledge).
-The current watchlist and r2k lists are used only as the FETCH ENUMERATION
-seed, and the residual survivorship in that seed (delisted names absent
-from today's lists) is a recorded limitation affecting absolute IC levels
-more than base-vs-base comparisons — the same caveat class as the r2k
-screen, carried forward explicitly. Fetch covers the development window
-only. Deliverables: coverage
+Universe by TRAILING ELIGIBILITY RULE, frozen now (review r2: a
+full-window coverage quota is forward-looking membership): a name is
+eligible on session t iff, **using only information available by t**, it
+has (a) ≥60 sessions of IEX history and (b) ≥80% coverage over the trailing
+60 sessions. Eligibility is re-evaluated each session; a name that decays
+below the bar exits the next session. No full-window quota, no
+back-inclusion, no forward knowledge. The CANDIDATE SEED is not "every name
+IEX carries" (no complete historical symbol master is available): it is the
+union of the current 145-name watchlist, the r2k dev-name list, and the
+fundamentals-panel universe — an ex-post enumeration whose survivorship
+residual (names delisted before today never enter the seed) is a recorded
+limitation affecting absolute IC levels more than base-vs-base comparisons.
+Fetch covers the development window only. Deliverables: coverage
 census; IEX-vs-daily-close drift validation; regime labeling at 10-min
 resolution (the 104 regime series upsampled + an intraday vol overlay,
 frozen definition in the Stage I-0 doc); and the ESS table.
@@ -78,12 +80,29 @@ construction, declared before any census data is observed:
   close is DROPPED (no overnight return leaks into an intraday label).
 - Non-overlapping blocks of length h with gap ≥ h between consecutive
   blocks, inside each contiguous regime episode.
+- The I-0 dependence measurement needs a score, and I-0 fits no model
+  (review r2: IC does not exist without predictions, and raw label
+  autocorrelation is NOT an IC dependence estimate). The proxy score is
+  therefore a FROZEN, parameter-free baseline declared here:
+  **s₀ = −(trailing 13-bar return)** (short-horizon cross-sectional
+  reversal — a fixed transformation of observed prices, not a fit).
+  Justification for the proxy: block-mean-IC dependence is driven by the
+  shared regime-episode clock and cross-sectional co-movement, which s₀'s
+  IC series experiences on exactly the same blocks as any later base; the
+  Stage I-1 report must re-estimate ρ̂₁ on each real base's own OOF IC and
+  re-verify the kill margin (a base whose own n_eff_adj falls below the bar
+  fails regardless of the I-0 proxy).
 - Dependence adjustment: per regime, estimate the lag-1 autocorrelation
-  ρ̂₁ of consecutive block-mean ICs (episode-internal pairs only) and set
-  **n_eff_adj = n_blocks · (1−ρ̂₁)/(1+ρ̂₁)**, ρ̂₁ floored at 0 (a negative
-  estimate never INFLATES the sample). This is the AR(1) effective-sample
-  correction, calibrated on the estimand's own dependence — the
-  [[calibrate-on-the-estimands-dependence]] lesson applied in advance.
+  ρ̂₁ of consecutive block-mean ICs of s₀ (episode-internal pairs only) and
+  set **n_eff_adj = n_blocks · (1−ρ̂₁)/(1+ρ̂₁)**, ρ̂₁ floored at 0 (a
+  negative estimate never INFLATES the sample) — the AR(1)
+  effective-sample correction, per [[calibrate-on-the-estimands-dependence]].
+  REPORTING CONTRACT (review r2 acceptance condition): every ESS table row
+  carries raw block count, episode count, usable episode-internal pair
+  count, ρ̂₁, and n_eff_adj; **if a regime has <8 episode-internal pairs,
+  the estimator FAILS CLOSED** — ρ̂₁ is treated as unestimable and that
+  regime's n_eff_adj is reported as "unestablished", which does NOT satisfy
+  the kill-gate's ≥30 requirement.
 
 **KILL: if BEAR-regime n_eff_adj < 30 at the primary horizon (h=13) in the
 development window, the route is recorded dead and we stop.** (The daily
