@@ -1,0 +1,17 @@
+{
+ "estimand": "K5 per-fold XGB quality base, widened universe",
+ "oof_days": 526,
+ "median_names_per_day": 1360,
+ "oof_ic": 0.01253,
+ "n_blocks": 13,
+ "block_t": 0.756,
+ "by_year": {
+  "2017": 0.05523,
+  "2018": -0.01771,
+  "2019": 0.02104
+ },
+ "k5_narrow_reference": {
+  "oof_ic": 0.0096,
+  "block_t": 0.73
+ }
+}

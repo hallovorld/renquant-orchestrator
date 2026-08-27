@@ -1,0 +1,30 @@
+{
+ "overall_ic": 0.01253,
+ "n_days": 526,
+ "by_regime": {
+  "BEAR": {
+   "ic": 0.02516,
+   "n_days": 74,
+   "n_blocks": 2,
+   "block_t": 0.093
+  },
+  "BULL_CALM": {
+   "ic": 0.01467,
+   "n_days": 267,
+   "n_blocks": 7,
+   "block_t": -0.055
+  },
+  "BULL_VOLATILE": {
+   "ic": 0.00421,
+   "n_days": 184,
+   "n_blocks": 5,
+   "block_t": -0.692
+  },
+  "CHOPPY": {
+   "ic": 0.04074,
+   "n_days": 1,
+   "n_blocks": 0,
+   "block_t": null
+  }
+ }
+}
