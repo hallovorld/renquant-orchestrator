@@ -17,22 +17,18 @@ COLS=["roe","gross_profitability","asset_growth"]
 
 # reuse the r1 combined panel construction (features T-1-shifted + fwd labels)
 import importlib.util
-BETA,ALPHA=2.288396,-2.326484
+import json as _json
+_val=_json.load(open(pathlib.Path(__file__).resolve().parents[2]/"doc/research/data/2026-08-27-g2v2-devday/roc20_inversion_validation.json"))
+BETA,ALPHA=float(_val["fit"]["beta"]),float(_val["fit"]["alpha"])
 r2k=pd.read_parquet("/Users/renhao/git/github/RenQuant/data/alpha158_r2k_dataset.parquet",
                     columns=["ticker","date","ROC20"])
 r2k["date"]=pd.to_datetime(r2k["date"]); r2k=r2k.sort_values(["ticker","date"])
 r2k["fwd"]=r2k.groupby("ticker",group_keys=False)["ROC20"].apply(
     lambda s: BETA/(s.shift(-H)-ALPHA)-1.0).values
 labels_r2k=r2k[["ticker","date","fwd"]]
-FIELD_MAP={"net_income":"NetIncomeLoss","total_assets":"Assets",
-           "stockholders_equity":"StockholdersEquity","gross_profit":"GrossProfit"}
-rows=[]
-for fn in ("g2v2_r2k_companyfacts.jsonl","g2v2_r2k_equity_shares.jsonl"):
-    for l in open(SP/fn):
-        r=json.loads(l); f=r.get("field")
-        if f not in FIELD_MAP or not r.get("filed_date") or r.get("value") is None: continue
-        rows.append((r["ticker"],FIELD_MAP[f],r["filed_date"],r.get("period_end") or "",float(r["value"])))
-facts=pd.DataFrame(rows,columns=["ticker","concept","filed","end","value"])
+# Immutable committed input (review r1): the normalized fact rows the raw
+# harvest reduces to; reproduces the reports exactly without the 420MB JSONL.
+facts=pd.read_parquet(pathlib.Path(__file__).resolve().parents[2]/"doc/research/data/2026-08-27-g2v2-devday/g2v2_facts_normalized.parquet")
 facts["filed"]=pd.to_datetime(facts["filed"])
 spy=pd.read_parquet("/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet")
 idx=pd.DatetimeIndex(pd.to_datetime(spy.index)); idx=idx[(idx>="2015-01-02")&(idx<="2019-12-31")]

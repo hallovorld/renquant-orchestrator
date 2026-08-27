@@ -20,10 +20,15 @@ the #1061 thread the same day.
   (`sec_edgar_companyfacts_harvester.py` + `harvest_equity_shares.py`
   supplement; 1,239/1,301 with equity+income facts; PIT `filed` dates;
   production overwrite-forward semantics).
-- **Labels without prices** [VERIFIED to machine precision on 4 ground-truth
-  tickers]: the dataset's `ROC20` is a GLOBAL affine transform of
-  close_{t−20}/close_t with **β=2.288396, α=−2.326484**, so exact 20d
-  forward returns are `β/(ROC20(t+20)−α) − 1`. Reconstruction error ≤1e−15.
+- **Labels without prices**: the dataset's `ROC20` is a GLOBAL affine
+  transform of close_{t−20}/close_t. Full-precision fitted constants
+  **β=2.28839584618019, α=−2.326483617174368** (cross-ticker spread
+  4.4e−15 / 8.9e−16 across the four ground-truth fits) are committed in
+  `roc20_inversion_validation.json` together with the per-ticker
+  reconstruction errors (≤1e−15 at full precision). The scripts load the
+  constants FROM that artifact. For reference, the 6-decimal rounded
+  constants induce max abs error 2.7e−7 on the VRRM ground truth —
+  quantified in the same artifact.
 - Combined development-window cross-section: **median 1,360 names/day**
   (~5.9× the K5 screen).
 
@@ -37,9 +42,14 @@ the #1061 thread the same day.
 
 Scripts: `scripts/experiments/g2v2_rescreen_quality{,_xgb,_regime_cut}.py`,
 `harvest_equity_shares.py`, `build_backfill_panel.py`. Reports + ticker
-lists: `doc/research/data/2026-08-27-g2v2-devday/`. The harvested JSONL
-(~420MB) is re-fetchable deterministically from SEC companyfacts using the
-committed ticker lists; it is not committed.
+lists + the **committed immutable normalized input**
+(`g2v2_facts_normalized.parquet`, 857,662 fact rows, 3.8MB zstd — exactly
+the rows the raw ~420MB harvest reduces to) live in
+`doc/research/data/2026-08-27-g2v2-devday/`. Attempts 2–3 were REGENERATED
+from the committed input and reproduce the reported statistics exactly
+(oof_ic 0.01253 / block_t 0.756 byte-for-byte). The raw JSONL is not
+committed; the harvest helpers remain for provenance, but reproduction does
+not depend on the mutable SEC endpoint.
 
 ## 2. The finding
 

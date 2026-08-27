@@ -18,13 +18,13 @@
    "ic": 0.00421,
    "n_days": 184,
    "n_blocks": 5,
-   "block_t": -0.691
+   "block_t": -0.692
   },
   "CHOPPY": {
    "ic": 0.04074,
    "n_days": 1,
    "n_blocks": 0,
-   "block_t": NaN
+   "block_t": null
   }
  }
 }

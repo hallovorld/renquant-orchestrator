@@ -35,8 +35,8 @@ for name,g in ic.groupby(r):
         if len(ch)>=8: blocks.append(ch.mean())
         i+=40
     blocks=np.array(blocks)
-    t=blocks.mean()/(blocks.std(ddof=1)/np.sqrt(len(blocks))) if len(blocks)>1 else float("nan")
+    t=blocks.mean()/(blocks.std(ddof=1)/np.sqrt(len(blocks))) if len(blocks)>1 else None
     out["by_regime"][name]={"ic":round(float(g.mean()),5),"n_days":int(len(g)),
-                            "n_blocks":len(blocks),"block_t":round(float(t),3)}
+                            "n_blocks":len(blocks),"block_t":(round(float(t),3) if t is not None else None)}
 json.dump(out,open(SP/"g2v2_rescreen_regime_report.json","w"),indent=1)
 print(json.dumps(out,indent=1))
