@@ -26,8 +26,12 @@ binding constraint directly; nothing else measured does.
 
 Data-quality caveat, named up front: IEX is a thin feed (single-exchange
 prints). Stage I-0 includes a mandatory validation: IEX 10-min session
-closes vs official daily closes over the full span; a name/day whose drift
-exceeds a pre-declared bound is excluded by RULE, not by hand.
+closes vs official daily closes **over the DEVELOPMENT window only** — the
+drift bound is calibrated, and the exclusion rule designed, on development
+data exclusively (review r1: running it "over the full span" would consume
+the sealed evaluation window). The resulting rule is FROZEN with the
+confirmatory prereg and only then applied, unchanged, to evaluation data.
+A name/day exceeding the bound is excluded by RULE, not by hand.
 
 ## 2. Window declarations (the part codex must hold us to)
 
@@ -48,22 +52,54 @@ exceeds a pre-declared bound is excluded by RULE, not by hand.
 ## 3. Staged plan (each stage gates the next; kill criteria pre-declared)
 
 **Stage I-0 — substrate + ESS census (no modeling).**
-Fetch 10-min bars for the current 145-name watchlist + the r2k dev names
-where IEX carries them, development window only. Deliverables: coverage
+Universe by POINT-IN-TIME RULE, frozen now (review r1: "current watchlist +
+r2k names" is survivor-conditioned): the universe is **every name IEX
+carries with ≥60% session coverage inside the development window**,
+membership computed from development-window coverage alone; a name enters
+on the date its coverage begins (no back-inclusion, no forward knowledge).
+The current watchlist and r2k lists are used only as the FETCH ENUMERATION
+seed, and the residual survivorship in that seed (delisted names absent
+from today's lists) is a recorded limitation affecting absolute IC levels
+more than base-vs-base comparisons — the same caveat class as the r2k
+screen, carried forward explicitly. Fetch covers the development window
+only. Deliverables: coverage
 census; IEX-vs-daily-close drift validation; regime labeling at 10-min
 resolution (the 104 regime series upsampled + an intraday vol overlay,
-frozen definition in the Stage I-0 doc); and the ESS table — non-overlapping
-within-regime block counts at h ∈ {1, 3, 13, 39} bars (10-min bars: 39/day).
-**KILL: if BEAR-regime n_eff < 30 blocks at h=13 in the development window,
-the route is recorded dead and we stop.** (The daily line died at 2 blocks;
-if 40× granularity cannot produce 30, conditioning is unfundable here too.)
+frozen definition in the Stage I-0 doc); and the ESS table.
+
+**ESS is dependence-adjusted, not a block count** (review r1: with the
+regime input largely an upsampled slow 104 state, adjacent intraday blocks
+inside one regime episode stay dependent — granularity does not
+automatically mint independent evidence). Frozen estimator and block
+construction, declared before any census data is observed:
+
+- Blocks are within-SESSION only: a block never spans an overnight; label
+  windows are within-session forward windows and a window truncated by the
+  close is DROPPED (no overnight return leaks into an intraday label).
+- Non-overlapping blocks of length h with gap ≥ h between consecutive
+  blocks, inside each contiguous regime episode.
+- Dependence adjustment: per regime, estimate the lag-1 autocorrelation
+  ρ̂₁ of consecutive block-mean ICs (episode-internal pairs only) and set
+  **n_eff_adj = n_blocks · (1−ρ̂₁)/(1+ρ̂₁)**, ρ̂₁ floored at 0 (a negative
+  estimate never INFLATES the sample). This is the AR(1) effective-sample
+  correction, calibrated on the estimand's own dependence — the
+  [[calibrate-on-the-estimands-dependence]] lesson applied in advance.
+
+**KILL: if BEAR-regime n_eff_adj < 30 at the primary horizon (h=13) in the
+development window, the route is recorded dead and we stop.** (The daily
+line died at 2 raw blocks; if 40× granularity cannot produce 30
+dependence-ADJUSTED units, conditioning is unfundable here too.)
 
 **Stage I-1 — base models, life screen.**
 Per the operator's spec: per-state base models (sector / regime / macro-trend
 conditioned) on 10-min features, forward-chaining OOF inside the development
-window only. Life-screen bar (frozen now): block-t ≥ 1.0 on the primary
-horizon for at least one base, with the block structure from the Stage I-0
-ESS table (gap ≥ h — block_length=h is the known defect). **No transformer
+window only. Life-screen bar (frozen now): block-t ≥ 1.0 at the **primary horizon,
+declared here before any census data exists: h = 13 bars (≈2.2h)** — the
+same horizon the kill criterion uses. Secondary horizons {1, 3, 39} are
+DIAGNOSTIC ONLY: reported in every attempt record, never gating, never
+promotable to primary after I-0 results are observed. Block structure from
+the Stage I-0 ESS table (gap ≥ h — block_length=h is the known defect; t
+computed on the dependence-adjusted units). **No transformer
 and no meta-learner before at least one base passes.**
 
 **Stage I-2 — the stacked meta-learner** (xgb first; anything heavier needs
