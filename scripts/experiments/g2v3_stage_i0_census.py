@@ -192,8 +192,15 @@ for rname in ("BEAR","BULL_CALM","BULL_VOLATILE","CHOPPY"):
     audit["block_series"][rname]={str(k.date()):round(float(v),6)
         for seg in segs for k,v in seg.items()}
 b=out["by_regime"]["BEAR"]
-out["KILL_GATE"]={"bar":"BEAR n_eff_adj >= 30 @ h=13",
-    "value":b["n_eff_adj"],"verdict":("PASS" if (b["n_eff_adj"] or 0)>=30 else "KILL")}
+GATE_RUN = "--gate-run" in sys.argv  # only a run from the A1-acknowledged frozen commit passes this flag
+out["gate_bar"]="BEAR n_eff_adj >= 30 @ h=13"
+if GATE_RUN:
+    out["run_status"]="GATE_RUN"
+    out["gate_verdict"]=("PASS" if (b["n_eff_adj"] or 0)>=30 else "KILL")
+else:
+    out["run_status"]="DEVELOPMENT_ONLY"
+    out["gate_verdict"]=None
+    out["indicative_bear_n_eff_adj"]=b["n_eff_adj"]
 DATA.mkdir(parents=True,exist_ok=True)
 json.dump(out,open(DATA/"g2v3_stage_i0_report.json","w"),indent=1)
 json.dump(audit,open(DATA/"g2v3_stage_i0_audit.json","w"))

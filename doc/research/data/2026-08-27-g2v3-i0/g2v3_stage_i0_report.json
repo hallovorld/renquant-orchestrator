@@ -45,9 +45,9 @@
    "mean_block_ic_s0": 0.03511
   }
  },
- "KILL_GATE": {
-  "bar": "BEAR n_eff_adj >= 30 @ h=13",
-  "value": 191.0,
-  "verdict": "PASS"
- }
+ "run_status": "DEVELOPMENT_ONLY",
+ "gate_verdict": null,
+ "indicative_bear_n_eff_adj": 191.0,
+ "gate_bar": "BEAR n_eff_adj >= 30 @ h=13",
+ "note": "Development run: drift thresholds first frozen in Amendment A1 (pending operator ack). The gate run re-executes from the frozen main commit; only that run may emit a gate verdict."
 }
