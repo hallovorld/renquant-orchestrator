@@ -147,3 +147,35 @@ Stage I-0 is deliberately front-loaded to be the kill point: if IEX coverage
 of the wide universe is too thin, or the drift validation guts the panel, or
 the ESS census misses the bar, the route dies for ~$0 and ~a day, recorded
 in the same attempt log — before any model exists to fall in love with.
+
+
+---
+
+## Amendment A1 (2026-08-27, from #1073 review r2) — PENDING OPERATOR ACK
+
+The original §1 deferred the drift bound to "a pre-declared bound" without
+freezing numbers, and §3's block text left bar-time alignment implicit. Both
+are frozen here; **the Stage I-0 GATE run is the rerun executed from the
+main commit containing this amendment** — the 2026-08-27 evening runs are
+recorded as development of the drift rule and the census mechanics, not as
+gate results.
+
+1. **Drift rule, frozen numerically**: layer 1 — a name-day is excluded
+   from all downstream use when |IEX last-bar close / official daily close
+   − 1| > **0.01**; layer 2 — a name is excluded entirely when its layer-1
+   breach rate over its ELIGIBLE days exceeds **0.05**. Declared order:
+   layer 1, then layer 2 (rate over eligible days only).
+2. **Canonical bar grid**: every session is reindexed to the 39 canonical
+   RTH 10-minute timestamps (09:30, 09:40, …, 15:50 ET); missing intervals
+   are NaN. A (name, t) observation exists only when close[t−13], close[t],
+   and close[t+13] are ALL present at canonical positions — array position
+   is never treated as time. A session's block requires all 13 bar-time ICs
+   (t=13..25) to exist, each from ≥100 names.
+3. **Sufficient-statistics artifact**: the census commits name-by-session
+   eligibility membership after BOTH drift layers, the layer-1 excluded
+   name-day set, and the 13 per-session bar-time IC values — enough to
+   regenerate the block series and the gate value without the mutable
+   vendor bar store.
+
+Operator acknowledgement: **[PENDING — to be quoted verbatim here with date
+before the gate rerun counts]**.

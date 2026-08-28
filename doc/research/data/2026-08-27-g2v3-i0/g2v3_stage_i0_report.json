@@ -8,41 +8,41 @@
    "n_blocks": 191,
    "n_episodes": 11,
    "pairs": 180,
-   "rho1_raw": -0.0513,
+   "rho1_raw": -0.0578,
    "rho1_used": 0.0,
    "n_eff_adj": 191.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.03148
+   "mean_block_ic_s0": 0.0211
   },
   "BULL_CALM": {
    "n_blocks": 520,
    "n_episodes": 16,
    "pairs": 504,
-   "rho1_raw": 0.0034,
-   "rho1_used": 0.0034,
-   "n_eff_adj": 516.4,
+   "rho1_raw": 0.0215,
+   "rho1_used": 0.0215,
+   "n_eff_adj": 498.1,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.02042
+   "mean_block_ic_s0": 0.01448
   },
   "BULL_VOLATILE": {
    "n_blocks": 159,
    "n_episodes": 16,
    "pairs": 143,
-   "rho1_raw": -0.0957,
+   "rho1_raw": -0.1,
    "rho1_used": 0.0,
    "n_eff_adj": 159.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.01645
+   "mean_block_ic_s0": 0.01128
   },
   "CHOPPY": {
    "n_blocks": 47,
    "n_episodes": 10,
    "pairs": 37,
-   "rho1_raw": -0.1192,
+   "rho1_raw": -0.1859,
    "rho1_used": 0.0,
    "n_eff_adj": 47.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.04755
+   "mean_block_ic_s0": 0.03511
   }
  },
  "KILL_GATE": {

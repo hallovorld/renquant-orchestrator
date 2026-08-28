@@ -58,7 +58,16 @@ for p in sorted(BARS.glob("*.parquet")):
     ts=pd.to_datetime(df["ts"]); et=ts.dt.tz_convert("America/New_York")
     df=df.assign(session=et.dt.date, bar_et=et)
     df=df[(et.dt.time>=pd.Timestamp("09:30").time())&(et.dt.time<pd.Timestamp("16:00").time())].sort_values("bar_et")
-    frames[t]={"by_sess":{k:v["close"].values for k,v in df.groupby("session")},
+    # Amendment A1: canonical 39-slot RTH grid; position IS time, NaN = missing
+    df=df.assign(slot=((df["bar_et"].dt.hour*60+df["bar_et"].dt.minute)-570)//10)
+    by={}
+    for k,v in df.groupby("session"):
+        arr=np.full(39,np.nan)
+        sl=v["slot"].values.astype(int); cl=v["close"].values
+        ok=(sl>=0)&(sl<39)
+        arr[sl[ok]]=cl[ok]
+        by[k]=arr
+    frames[t]={"by_sess":by,
                "last_by_sess":df.groupby("session")["close"].last()}
 print("names with bars:",len(frames),flush=True)
 
@@ -69,7 +78,7 @@ names=list(frames)
 # ---- coverage + trailing eligibility ----
 cov=pd.DataFrame(0,index=all_sessions,columns=names,dtype=int)
 for t,f in frames.items():
-    c=pd.Series({k:len(v) for k,v in f["by_sess"].items()})
+    c=pd.Series({k:int(np.isfinite(v).sum()) for k,v in f["by_sess"].items()})
     idx=c.index.intersection(cov.index)
     cov.loc[idx,t]=c.loc[idx].astype(int)
 present=(cov>=20)
@@ -103,6 +112,7 @@ print("drift: layer-2 excluded names:",len(excluded_names),flush=True)
 # ---- bar-level ICs; block = mean of 13 bar-time ICs per session ----
 block={}   # session -> block-mean IC
 percell={} # audit: session -> n names used
+bar_ics_audit={}  # A1: session -> 13 bar-time ICs
 for s in all_sessions:
     cols=[t for t in names
           if bool(elig.at[s,t]) and t not in excluded_names
@@ -111,19 +121,21 @@ for s in all_sessions:
     mats=[]
     for t in cols:
         c=frames[t]["by_sess"].get(s)
-        if c is None or len(c)<2*H+1: continue
+        if c is None: continue
         mats.append((t,c))
     if len(mats)<100: continue
     ics=[]
-    for tt in range(H,2*H):     # t = 13..25
+    for tt in range(H,2*H):     # t = 13..25 on the canonical grid
         ss=[]; ff=[]
         for _,c in mats:
-            if len(c)>tt+H:
-                ss.append(-(c[tt]/c[tt-H]-1.0)); ff.append(c[tt+H]/c[tt]-1.0)
+            a,b,d=c[tt-H],c[tt],c[tt+H]
+            if np.isfinite(a) and np.isfinite(b) and np.isfinite(d):
+                ss.append(-(b/a-1.0)); ff.append(d/b-1.0)
         if len(ss)>=100:
             ics.append(spearmanr(ss,ff).statistic)
-    if len(ics)==H:            # a full block only
+    if len(ics)==H:            # all 13 bar-time ICs must exist (A1)
         block[s]=float(np.mean(ics)); percell[s]=len(mats)
+        bar_ics_audit[str(s)]=[round(float(x),6) for x in ics]
 ic=pd.Series(block); ic.index=pd.to_datetime(ic.index); ic=ic.sort_index()
 reg=regime.reindex(ic.index).ffill()
 print("block sessions:",len(ic),flush=True)
@@ -141,6 +153,13 @@ out={"h":H,"n_block_sessions":len(ic),
      "drift_excluded_names":len(excluded_names),
      "by_regime":{}}
 audit={"block_series":{},"per_session_names":{str(k):v for k,v in percell.items()},
+       "bar_time_ics":bar_ics_audit,
+       "layer1_excluded_name_days":{t:[str(d) for d in sorted(ds)] for t,ds in bad_days.items() if ds},
+       "eligible_membership_post_drift":{
+           str(s):[t for t in names
+                   if bool(elig.at[s,t]) and t not in excluded_names
+                   and s not in bad_days.get(t,())]
+           for s in all_sessions},
        "eligibility_counts":{str(s):int(elig.loc[s].sum()) for s in all_sessions},
        "name_breach_rates":name_breach,
        "excluded_names":excluded_names,
