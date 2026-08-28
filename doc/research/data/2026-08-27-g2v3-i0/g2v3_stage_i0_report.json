@@ -1,0 +1,49 @@
+{
+ "h": 13,
+ "n_ic_days": 918,
+ "drift_excluded": 432,
+ "median_eligible": 1256,
+ "by_regime": {
+  "BEAR": {
+   "n_blocks": 191,
+   "n_episodes": 11,
+   "pairs": 180,
+   "rho1": 0.0,
+   "n_eff_adj": 191.0,
+   "estimator": "ok",
+   "mean_ic_s0": 0.036
+  },
+  "BULL_CALM": {
+   "n_blocks": 521,
+   "n_episodes": 16,
+   "pairs": 505,
+   "rho1": 0.0,
+   "n_eff_adj": 521.0,
+   "estimator": "ok",
+   "mean_ic_s0": 0.01686
+  },
+  "BULL_VOLATILE": {
+   "n_blocks": 159,
+   "n_episodes": 16,
+   "pairs": 143,
+   "rho1": 0.0,
+   "n_eff_adj": 159.0,
+   "estimator": "ok",
+   "mean_ic_s0": 0.01677
+  },
+  "CHOPPY": {
+   "n_blocks": 47,
+   "n_episodes": 10,
+   "pairs": 37,
+   "rho1": 0.0,
+   "n_eff_adj": 47.0,
+   "estimator": "ok",
+   "mean_ic_s0": 0.06289
+  }
+ },
+ "KILL_GATE": {
+  "bar": "BEAR n_eff_adj >= 30 @ h=13",
+  "value": 191.0,
+  "verdict": "PASS"
+ }
+}
