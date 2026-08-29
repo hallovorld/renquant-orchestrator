@@ -151,7 +151,7 @@ in the same attempt log — before any model exists to fall in love with.
 
 ---
 
-## Amendment A1 (2026-08-27, from #1073 review r2) — PENDING OPERATOR ACK
+## Amendment A1 (2026-08-27, from #1073 review r2) — ACKNOWLEDGED 2026-08-28
 
 The original §1 deferred the drift bound to "a pre-declared bound" without
 freezing numbers, and §3's block text left bar-time alignment implicit. Both
@@ -177,5 +177,11 @@ gate results.
    regenerate the block series and the gate value without the mutable
    vendor bar store.
 
-Operator acknowledgement: **[PENDING — to be quoted verbatim here with date
-before the gate rerun counts]**.
+Operator acknowledgement: **RECEIVED 2026-08-28 10:5x PDT, Claude operator
+session, verbatim 「go」** — given in direct response to the plain-language
+explanation of A1 (drift numbers 1% name-day / 5% eligible-day breach,
+canonical 39-slot grid, sufficient-statistics artifact) and the explicit
+ask 「回「确认修正案 A1」即可」; the operator answered 「go」, which in this
+session's established usage (2026-08-27 「go」 selected the granularity
+fork) is the operator's acceptance word. **The Stage I-0 gate run is the
+`--gate-run` executed from the main commit carrying this acknowledgement.**
