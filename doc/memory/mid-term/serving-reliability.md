@@ -68,3 +68,22 @@ orders, no state]`). **A model whose calibrated conviction sits at
 coin-flip correctly sizes to zero.** That is the funnel working; the
 earlier all-vetoed run was defect #3 impersonating the same answer
 `[VERIFIED — pipeline#219 / RenQuant#542]`.
+
+
+## Addendum 2026-08-29 — defect #5: the serving chain had no liveness (orch#1085)
+
+- 2026-08-28: host booted 10:38 local; launchd dropped the 06:15 batch-score
+  export and 06:25 scheduler `StartCalendarInterval` slots (never backfilled
+  across a boot); no bundle, shadow serving `SKIP upstream` on line 1, no
+  serving rows — and `rq105_liveness_check.py` printed OK because it watched
+  only the three tick collectors `[VERIFIED — progress doc
+  2026-08-29-rq105-liveness-serving-chain.md, incident table]`. Same class as
+  rows 1–4: a normal-looking verdict over a chain that did nothing.
+- Fix (PR for #1085): the check compares `meta.session_date == today` on the
+  bundle (`export_missing`), the serving log + `session_date` rows
+  (`serving_noop`), and the scheduler when armed (`scheduler_dark`) — a
+  DISARMED scheduler is named in the OK line, never silent. `RunAtLoad` +
+  `rq105_catchup_guard.sh` catch a boot-missed slot up to 13:00 local; the
+  drift scan compares declared `run_at_load`/`keep_alive` intents against the
+  installed plists. **Landing (bootout/bootstrap of the two plists + `-run`
+  sync) is an operator action — until then the running check is the old one.**

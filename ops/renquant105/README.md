@@ -11,7 +11,7 @@ canonical prod path. This package makes the merged Stage-1 collectors (#215 pair
 |---|---|---|
 | `run_quote_logger.sh` | session-long tick feed (`intraday_quote_logger`, self-loops with internal NYSE session gate) | 06:25 start |
 | `run_postclose_loggers.sh` | `intraday_pairing_logger` + `entry_timing_shadow` for today's session | 13:15 |
-| `rq105_liveness_check.py` | verifies today's outputs exist; **ntfy per missing item** (liveness ≠ freshness, #212) | 14:00 |
+| `rq105_liveness_check.py` | verifies today's outputs exist; **ntfy per missing item** (liveness ≠ freshness, #212). Since orch#1085 also the SERVING CHAIN: batch-score bundle (`export_missing`), shadow-serving log + rows (`serving_noop`), scheduler rows when armed (`scheduler_dark`) / `scheduler DISARMED` named in the OK line | 14:00 |
 | `com.renquant.rq105-{quote-logger,postclose,liveness}.plist` | launchd jobs for the above | as above |
 
 ## This package is split N1a / N1b — read before running anything
@@ -116,6 +116,7 @@ PYTHONPATH=/Users/renhao/git/github/renquant-orchestrator-run/src \
 | File | Role | Schedule (PT, weekdays) |
 |---|---|---|
 | `export_batch_scores.py` | export the FROZEN batch score vector (latest pre-session full run → `data/rq105/batch_scores_<date>.json` + meta) | 06:15 |
+| `rq105_catchup_guard.sh` | boot catch-up (orch#1085): sourced by `run_batch_scores_export.sh` / `run_session_scheduler.sh`; with `RunAtLoad=true` in their plists launchd also invokes the wrapper at every bootstrap, and the guard runs the job only Mon-Fri, only between the slot and 13:00 local, only when today's output is missing (skips stamp `logs/rq105/catchup_guard_<job>_<date>.log`, never the evidence log) | at load |
 | `run_shadow_serving.sh` | post-close replay of `shadow_realtime_serving` at 4 fixed ET checkpoints (10:00/12:00/14:00/15:30, DST-correct) against the frozen vector | 13:45 |
 | `com.renquant.rq105-{batch-scores-export,shadow-serving}.plist` | launchd jobs | as above |
 

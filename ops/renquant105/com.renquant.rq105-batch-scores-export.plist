@@ -12,6 +12,13 @@
     <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
     <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>15</integer></dict>
   </array>
+  <!-- orch#1085: a StartCalendarInterval slot missed across a BOOT is never
+       backfilled by launchd (2026-08-28: host up 10:38, the 06:15 slot was gone,
+       the rq105 serving chain no-op'd all day). RunAtLoad makes launchd also
+       invoke the wrapper once at every bootstrap; the wrapper's catch-up guard
+       (rq105_catchup_guard.sh) runs the job only on a weekday, only between the
+       slot and 13:00 local, and only when today's output is missing. -->
+  <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_batch-scores-export.out</string>
   <key>StandardErrorPath</key><string>/Users/renhao/git/github/RenQuant/logs/rq105/launchd_batch-scores-export.err</string>
 </dict>

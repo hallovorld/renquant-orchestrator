@@ -165,6 +165,26 @@ class TestManifestGeneration:
     #: a still-running fleet) and it removes the pending-install state with it.
     PENDING_INSTALL: set[str] = set()
 
+    #: Jobs whose manifest entry declares a launchd INTENT beyond
+    #: ProgramArguments (`run_at_load` / `keep_alive`, ops/run_surface_drift_check.py
+    #: INTENT_KEYS) that the INSTALLED plist does not yet carry. Third
+    #: presence-shaped relaxation, bounded exactly like the two above: the
+    #: scheduled drift scan does NOT read this set and keeps alarming
+    #: "<Key> intent NOT installed" until the operator bootouts/bootstraps the
+    #: reviewed plist (containment protocol c — the designed reminder), and
+    #: the exact-equality test below goes red the moment the install lands,
+    #: forcing this entry's deletion. Agreement between an installed plist and
+    #: its manifest entry is still never relaxed: a WRONG installed value (not
+    #: merely a missing one) is a residual problem.
+    #: 2026-08-29 (orch#1085): RunAtLoad=true declared for the two calendar-only
+    #: rq105 jobs whose 06:15/06:25 slots a 10:38 boot swallowed on 08-28.
+    #: Landing = operator `launchctl bootout` + `bootstrap` of the reviewed
+    #: plists (doc/progress/2026-08-29-rq105-liveness-serving-chain.md).
+    PENDING_INTENT_INSTALL: set[str] = {
+        "com.renquant.rq105-batch-scores-export",
+        "com.renquant.rq105-session-scheduler",
+    }
+
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
     #: the operator machine, pending the uninstall item of a tracked grant.
     #: Mirror of PENDING_INSTALL, equally bounded: each entry must name its
@@ -203,6 +223,7 @@ class TestManifestGeneration:
 
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
+    _INTENT_PATTERN = " intent NOT installed (manifest="
 
     @staticmethod
     def _surface_problems():
@@ -221,6 +242,7 @@ class TestManifestGeneration:
         PENDING_UNINSTALL falls through to residual and fails by default.
         """
         pending, retiring, residual = set(), set(), []
+        self._pending_intent: set[str] = set()
         for prob in self._surface_problems():
             if "missing from disk" in prob and "manifested job " in prob:
                 pending.add(prob.split("manifested job ")[1].split(" missing")[0])
@@ -229,6 +251,13 @@ class TestManifestGeneration:
                 label = prob.split(self._UNMANIFESTED_PATTERN)[1].split(" ")[0]
                 if label in self.PENDING_UNINSTALL:
                     retiring.add(label)
+                    continue
+            if self._INTENT_PATTERN in prob and "disk=None)" in prob:
+                # Declared intent, NOTHING installed for it yet (disk=None).
+                # A wrong installed value is not this shape and stays residual.
+                label = prob.split("launchd: ")[1].split(" ")[0]
+                if label in self.PENDING_INTENT_INSTALL:
+                    self._pending_intent.add(label)
                     continue
             residual.append(prob)
         return pending, retiring, residual
@@ -278,6 +307,17 @@ class TestManifestGeneration:
             f"declared-but-uninstalled set changed: "
             f"unexpected={sorted(pending - self.PENDING_INSTALL)} "
             f"resolved={sorted(self.PENDING_INSTALL - pending)}")
+
+    def test_declared_intents_not_yet_installed_are_exactly_the_named_set(self):
+        """Exact-equality bound for the third relaxation (orch#1085). Once the
+        operator bootstraps the reviewed RunAtLoad plists, `_pending_intent`
+        loses the labels and this goes red with resolved=[...]: the
+        PENDING_INTENT_INSTALL entries must then be deleted in a follow-up."""
+        self._partition()
+        assert self._pending_intent == self.PENDING_INTENT_INSTALL, (
+            f"declared-intent-not-installed set changed: "
+            f"unexpected={sorted(self._pending_intent - self.PENDING_INTENT_INSTALL)} "
+            f"resolved={sorted(self.PENDING_INTENT_INSTALL - self._pending_intent)}")
 
     def test_retired_but_still_installed_jobs_are_exactly_the_named_set(self):
         """Exact-equality mirror of the pending-install bound. Once the operator
@@ -592,3 +632,74 @@ class TestItIsWiredIntoTheSCAN:
         src = (REPO / "ops" / "run_surface_drift_check.py").read_text(encoding="utf-8")
         main_body = src[src.index("def main("):]
         assert "check_watchlist_trainability()" in main_body
+
+
+# --- launchd INTENTS beyond ProgramArguments are compared (orch#1085) --------
+class TestLaunchdIntents:
+    """A manifest entry that declares `run_at_load` / `keep_alive` is a claim
+    about the INSTALLED plist. Before orch#1085 nothing compared it: the quote
+    logger's keep_alive was recorded 2026-07-22 and never checked, and the two
+    RunAtLoad intents this PR adds would have been equally decorative."""
+
+    @staticmethod
+    def _plist(agents: Path, label: str, **extra) -> None:
+        import plistlib
+        with open(agents / f"{label}.plist", "wb") as fh:
+            plistlib.dump({"Label": label, "ProgramArguments": ["/x.sh"], **extra}, fh)
+
+    @staticmethod
+    def _manifest_with(agents: Path, path: Path, label: str, **intent) -> None:
+        m = {"jobs": drift.scan_launchd_plists(str(agents))}
+        m["jobs"][label].update(intent)
+        path.write_text(json.dumps(m))
+
+    def test_declared_run_at_load_missing_on_disk_is_a_problem(self, tmp_path):
+        agents = tmp_path / "agents"; agents.mkdir()
+        self._plist(agents, "com.renquant.x")
+        mpath = tmp_path / "m.json"
+        self._manifest_with(agents, mpath, "com.renquant.x", run_at_load=True)
+        problems = drift.check_launchd_surface(str(mpath), str(agents))
+        assert len(problems) == 1, problems
+        assert "com.renquant.x RunAtLoad intent NOT installed" in problems[0]
+        assert "manifest=True != disk=None" in problems[0]
+
+    def test_declared_run_at_load_present_on_disk_is_clean(self, tmp_path):
+        agents = tmp_path / "agents"; agents.mkdir()
+        self._plist(agents, "com.renquant.x", RunAtLoad=True)
+        mpath = tmp_path / "m.json"
+        self._manifest_with(agents, mpath, "com.renquant.x", run_at_load=True)
+        assert drift.check_launchd_surface(str(mpath), str(agents)) == []
+
+    def test_declared_keep_alive_dict_is_compared_structurally(self, tmp_path):
+        agents = tmp_path / "agents"; agents.mkdir()
+        self._plist(agents, "com.renquant.x", KeepAlive={"SuccessfulExit": True})
+        mpath = tmp_path / "m.json"
+        self._manifest_with(agents, mpath, "com.renquant.x",
+                            keep_alive={"SuccessfulExit": False})
+        problems = drift.check_launchd_surface(str(mpath), str(agents))
+        assert len(problems) == 1, problems
+        assert "KeepAlive intent NOT installed" in problems[0]
+        assert "disk={'SuccessfulExit': True}" in problems[0]
+
+    def test_an_entry_without_a_declared_intent_makes_no_claim(self, tmp_path):
+        """RunAtLoad on disk with nothing declared is not drift — the manifest
+        pins ProgramArguments for every job and intents only where declared."""
+        agents = tmp_path / "agents"; agents.mkdir()
+        self._plist(agents, "com.renquant.x", RunAtLoad=True)
+        mpath = tmp_path / "m.json"
+        self._manifest_with(agents, mpath, "com.renquant.x")
+        assert drift.check_launchd_surface(str(mpath), str(agents)) == []
+
+    def test_the_committed_manifest_declares_the_two_boot_catchup_intents(self):
+        """The reviewed intent for orch#1085: both calendar-only rq105 jobs
+        declare run_at_load=true, their committed plists carry RunAtLoad, and
+        ProgramArguments (the hashed surface) is unchanged."""
+        root = Path(__file__).resolve().parent.parent
+        jobs = json.loads((root / "ops/launchd_manifest.json").read_text())["jobs"]
+        for label in ("com.renquant.rq105-batch-scores-export",
+                      "com.renquant.rq105-session-scheduler"):
+            assert jobs[label].get("run_at_load") is True, label
+            plist = root / "ops/renquant105" / f"{label}.plist"
+            assert drift.read_plist_intents(str(plist))["run_at_load"] is True, label
+            assert drift.program_args_digest(drift.read_plist_program_args(str(plist))) \
+                == jobs[label]["program_args_sha256"], label

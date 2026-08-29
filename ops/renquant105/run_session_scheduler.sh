@@ -27,6 +27,24 @@ TS="$(date +%Y-%m-%d)"
 # orch#1016: renquant-common comes from the PINNED runtime, verified against
 # subrepos.lock.json before import. No fallback, no env override, fails closed.
 RQ105_OPS_DIR="$(dirname "$0")"
+# orch#1085: boot catch-up (same shape as run_batch_scores_export.sh). The
+# plist carries RunAtLoad=true; the guard makes every invocation idempotent:
+# run iff Mon-Fri AND 06:25 <= local time < 13:00 AND today's dated wrapper
+# log is absent (this wrapper writes session_scheduler_<date>.log on every
+# real run, armed or not — the arming verdict is its first line). A scheduler
+# started mid-session is the designed case: it self-gates on the NYSE
+# session and exits after the close. Skips stamp catchup_guard_session-
+# scheduler_<date>.log, never the evidence log.
+. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"
+rq105_catchup_guard session-scheduler "$(date +%u)" "$(date +%H%M)" 0625 1300 \
+  "$LOG_DIR/catchup_guard_session-scheduler_$TS.log" \
+  "$LOG_DIR/session_scheduler_$TS.log"
+GUARD_RC=$?
+case $GUARD_RC in
+  0) ;;
+  1) exit 0 ;;
+  *) echo "FATAL: catch-up guard error rc=$GUARD_RC" >> "$LOG_DIR/session_scheduler_$TS.log"; exit 1 ;;
+esac
 . "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
 SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
