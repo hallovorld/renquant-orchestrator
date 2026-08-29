@@ -44,8 +44,13 @@ such.
    base's feature set F).
 
 Binding: the I-2 harness binds to the I-1 bundle the way I-1 bound to I-0 —
-frozen `ACCEPTED_I1_BUNDLE` constants (run_id, source commit 666484a7,
-report/audit sha256, consumed-bar aggregate `4addcbe2…`), verified on disk
+frozen `ACCEPTED_I1_BUNDLE` constants — run_id
+`i1-dev-20260829T113813Z-666484a7`, source commit 666484a7, report.json
+sha256 `666d9c6a9a2286af4215399aebbd07a2fda8efafc6b5440d8d39ea6b9e1e1542`,
+audit gz sha256
+`d124d8f2a8766edf7d4a6f767206444467f05fa3bb8dec1818a76b01b2cd3082`,
+consumed-bar aggregate `4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883`
+(#1088, merged) — verified on disk
 before any bar is read; `--dev-run` refuses otherwise (exit 2), refuses a
 dirty tree, refuses an existing output bundle, and writes
 `doc/research/data/<date>-g2v3-i2/<run_id>/` with the same provenance block
