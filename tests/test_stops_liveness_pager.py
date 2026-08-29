@@ -253,20 +253,40 @@ def test_wrapper_and_installer_exist_and_are_executable():
         assert script.stat().st_mode & 0o111, f"{script} not executable"
 
 
-# ---------------------------------------- reviewed surface (2026-08-29)
+# ---------------------------------------- pinned-run plist (2026-08-29)
 #
-# Fractional dependency chain, step 5: the pager is SCHEDULED on the reviewed
-# launchd surface (ops/launchd_manifest.json) exactly like every other
-# com.renquant.* job, so the daily run-surface drift scan owns it from merge
-# onward. These pin (a) the plist executes the wrapper from the PINNED run
-# checkout, (b) the manifest entry is byte-for-byte what the drift scanner
-# itself computes from the committed plist, (c) before install the scan
-# reports the job MANIFESTED-but-missing — never "unmanifested" — and the
-# not-loaded report never files it under "retired", (d) the wrapper is
-# inspected by the pythonpath scan rather than reported as an unowned path.
+# Fractional dependency chain, step 5 PREPARATION (orch#1077): the plist runs
+# the wrapper from the PINNED run checkout, and the installer refuses a plist
+# that is unmanifested or disagrees with its manifest entry. The manifest
+# ENTRY itself is deliberately NOT in this change (Codex on #1077): a
+# manifested-but-uninstalled job makes the daily run-surface drift scan page
+# the ops topic every day until install — a standing false positive on the
+# channel that must carry real stop-liveness failures. The entry lands in the
+# LANDING PR that also installs and test-fires the job, in one controlled
+# window, after the registry writer exists and the -run checkout is synced.
+# Therefore no test below may pass BECAUSE the committed manifest carries the
+# entry; where a manifest is needed, the entry that PR will commit is produced
+# on the fly, the way that PR must produce it: by the scanner.
 
-def _manifest_jobs() -> dict:
-    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["jobs"]
+def _entry_for_committed_plist(tmp_path: Path) -> dict:
+    """run_surface_drift_check.scan_launchd_plists over a directory holding only
+    the committed plist — never a hand-typed digest."""
+    agents = tmp_path / "scan-agents"
+    agents.mkdir(exist_ok=True)
+    (agents / PLIST_PATH.name).write_bytes(PLIST_PATH.read_bytes())
+    scanned = drift.scan_launchd_plists(str(agents))
+    assert set(scanned) == {LABEL}, scanned
+    entry = scanned[LABEL]
+    assert entry["program_args_sha256"] == drift.program_args_digest(entry["program_args"])
+    assert set(entry) == {"program_args", "program_args_sha256"}
+    return entry
+
+
+def _write_manifest_for_committed_plist(tmp_path: Path) -> Path:
+    path = tmp_path / "manifest-for-committed-plist.json"
+    path.write_text(json.dumps({"jobs": {LABEL: _entry_for_committed_plist(tmp_path)}}),
+                    encoding="utf-8")
+    return path
 
 
 def test_plist_runs_the_wrapper_from_the_pinned_run_checkout():
@@ -280,76 +300,30 @@ def test_plist_runs_the_wrapper_from_the_pinned_run_checkout():
     assert "/renquant-orchestrator/scripts/" not in args[-1], "dev tree, not the pin"
 
 
-def test_manifest_entry_is_what_the_drift_scanner_computes_for_the_committed_plist(tmp_path):
-    """The manifest entry must be PRODUCED by the scanner, not hand-typed: scan a
-    directory holding only the committed plist and require equality with the
-    committed entry — program_args AND digest, via the scanner's own
-    program_args_digest (one implementation, GOAL-5 AC2)."""
-    agents = tmp_path / "agents"
-    agents.mkdir()
-    (agents / PLIST_PATH.name).write_bytes(PLIST_PATH.read_bytes())
-    scanned = drift.scan_launchd_plists(str(agents))
-    assert set(scanned) == {LABEL}
-    jobs = _manifest_jobs()
-    assert LABEL in jobs, sorted(jobs)
-    assert jobs[LABEL] == scanned[LABEL]
-    assert jobs[LABEL]["program_args_sha256"] == drift.program_args_digest(
-        jobs[LABEL]["program_args"])
-    assert set(jobs[LABEL]) == {"program_args", "program_args_sha256"}
-
-
-def test_drift_scan_reports_the_job_manifested_but_missing_before_install(tmp_path):
-    """Before `install --apply` the plist is not in ~/Library/LaunchAgents. The
-    scan must say MANIFESTED-but-missing (the designed reminder, CONTAINMENT
-    PROTOCOL c) and must NOT say "unmanifested" — that line is reserved for a
-    job that exists with no reviewed record, the 2026-07-15 shape."""
-    agents = tmp_path / "agents-empty"
-    agents.mkdir()
-    problems = drift.check_launchd_surface(str(MANIFEST_PATH), str(agents))
-    mine = [p for p in problems if LABEL in p]
-    assert mine == [f"launchd: manifested job {LABEL} missing from disk"], problems
-    assert not [p for p in problems if "unmanifested" in p and LABEL in p]
-
-
-def test_drift_scan_is_clean_for_the_job_once_the_committed_plist_is_on_disk(tmp_path):
-    """The converse: install copies the plist verbatim, after which the scan has
-    nothing to say about this label (other manifested jobs are absent from the
-    temp dir by construction and are filtered out)."""
-    agents = tmp_path / "agents"
-    agents.mkdir()
-    (agents / PLIST_PATH.name).write_bytes(PLIST_PATH.read_bytes())
-    problems = drift.check_launchd_surface(str(MANIFEST_PATH), str(agents))
-    assert not [p for p in problems if LABEL in p], problems
-
-
-def test_not_loaded_report_never_files_the_uninstalled_job_as_retired(tmp_path, monkeypatch):
-    """report_manifested_not_loaded classifies by plist + target presence. With
-    no plist on disk the job is never_installed (target present on the run
-    host) or run_checkout_unsynced (target absent, e.g. CI) — the kind depends
-    on the machine and is not asserted; what must hold everywhere is that it
-    is NOT "retired_or_silently_unloaded", which needs a plist on disk. launchd
-    is replaced by a lookup so no launchctl runs."""
-    agents = tmp_path / "agents-empty"
-    agents.mkdir()
-    monkeypatch.setattr(drift, "read_loaded_program_args",
-                        lambda label: (drift.LOADED_NOT_LOADED, None, ""))
-    problems, infos = drift.report_manifested_not_loaded(str(MANIFEST_PATH), str(agents))
-    assert problems == []
-    retired = [i for i in infos if "[retired_or_silently_unloaded]" in i]
-    assert not any(LABEL in i for i in retired), retired
-    listed = [i for i in infos if LABEL in i]
-    assert len(listed) == 1, infos
-    assert "[never_installed]" in listed[0] or "[run_checkout_unsynced]" in listed[0], listed
+def test_committed_manifest_does_not_declare_the_job_yet_so_install_is_refused(tmp_path):
+    """The deferral, pinned in both directions: the committed manifest carries
+    NO entry (so the drift scan has nothing to page about), and against the
+    committed files `install` — even its dry-run preview — refuses with
+    exit 4 "not declared". The landing PR that adds the entry DELETES this
+    test in the same change: it goes red the moment the entry lands."""
+    jobs = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["jobs"]
+    assert LABEL not in jobs, "entry landed — delete this test in the landing PR"
+    proc = _run_installer(tmp_path, "install")
+    assert proc.returncode == 4, (proc.stdout, proc.stderr)
+    assert "not declared" in proc.stderr
+    assert not (tmp_path / "LaunchAgents").exists()
+    assert not (tmp_path / "launchctl_calls.log").exists()
 
 
 def test_pythonpath_scan_inspects_the_pager_wrapper_in_this_checkout(tmp_path):
-    """Manifesting the job makes its wrapper a subject of
-    check_wrapper_pythonpath_roots. Measured 2026-08-29 before the fix: the
-    resolver mapped only `/ops/` paths into this checkout, so the manifested
-    `-run/scripts/...` path came back unresolvable and unowned — a PROBLEM
-    that would have turned the daily scan red on merge. It must resolve to
-    this repo's scripts/ copy and be read: no fallback idiom, one root."""
-    entry = _manifest_jobs()[LABEL]
+    """Once manifested, the wrapper becomes a subject of
+    check_wrapper_pythonpath_roots. Measured 2026-08-29 before the resolver
+    fix: only `/ops/` paths mapped into this checkout, so the `-run/scripts/`
+    path came back unresolvable and unowned — a PROBLEM that would turn the
+    daily scan red the day the landing PR merges. With the entry the scanner
+    produces for the committed plist, it must resolve to this repo's scripts/
+    copy and be read: no fallback idiom, one root."""
+    entry = _entry_for_committed_plist(tmp_path)
     mp = tmp_path / "m.json"
     mp.write_text(json.dumps({"jobs": {LABEL: entry}}), encoding="utf-8")
     inv = drift._scheduled_wrappers(str(mp), str(REPO_ROOT / "ops"))
@@ -863,10 +837,13 @@ def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> di
 
 
 def test_install_dry_run_echoes_and_changes_nothing(tmp_path):
-    """Runs against the COMMITTED plist + COMMITTED manifest (no overrides):
-    the dry-run preview must pass the manifest-agreement guard on any checkout
-    — it checks file agreement only, never this machine's disk."""
-    proc = _run_installer(tmp_path, "install")
+    """Committed plist + a manifest carrying the entry the landing PR will add
+    (scanner-produced, `_write_manifest_for_committed_plist` — the committed
+    manifest deliberately lacks it, see the deferral test above): the dry-run
+    preview passes the manifest-agreement guard on any checkout — file
+    agreement only, never this machine's disk — and changes nothing."""
+    env_extra = {"RENQUANT_STOPS_PAGER_MANIFEST": str(_write_manifest_for_committed_plist(tmp_path))}
+    proc = _run_installer(tmp_path, "install", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     assert "MANIFEST GUARD OK" in proc.stderr
     assert "DRY-RUN" in proc.stdout
@@ -1385,9 +1362,11 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malforme
 
 def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
     """install (no --apply) must stay a pure echo-only dry-run even with no
-    registry/inventory/env configured at all -- the guard only gates
-    --apply."""
-    proc = _run_installer(tmp_path, "install")
+    registry/inventory/env configured at all -- the registry guard only gates
+    --apply. (The manifest guard runs in both modes, so the subject here gets
+    the scanner-produced manifest; the committed one lacks the entry by design.)"""
+    env_extra = {"RENQUANT_STOPS_PAGER_MANIFEST": str(_write_manifest_for_committed_plist(tmp_path))}
+    proc = _run_installer(tmp_path, "install", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     assert "DRY-RUN" in proc.stdout
     assert not (tmp_path / "LaunchAgents").exists()

@@ -42,27 +42,39 @@
   Neither gap blocks MERGING this template (no umbrella dependency remains
   in committed configuration). Both block ARMING/INSTALLING.
 
-  2026-08-29 (fractional dependency chain, step 5 - scheduling surface):
+  2026-08-29 (fractional dependency chain, step 5 - PREPARATION, orch#1077):
   * ProgramArguments now runs the wrapper from the PINNED run checkout
-    (/Users/renhao/git/github/renquant-orchestrator-run/scripts/), the
-    same checkout every other manifested com.renquant.* job executes from
-    (ops/launchd_manifest.json) - never the dev working tree, whose branch
-    is whatever the operator last checked out.
-  * The job is declared in ops/launchd_manifest.json (entry
-    com.renquant.stops-liveness; digest produced by
-    run_surface_drift_check.scan_launchd_plists on this file). Until
-    `scripts/install_stops_pager.sh install` is applied, the daily
-    run-surface drift scan reports "manifested job ... missing from disk"
-    - that alarm is the designed reminder (CLAUDE.md CONTAINMENT
-    PROTOCOL c), not a defect. install_stops_pager.sh refuses to arm a
-    plist that disagrees with the manifest entry.
-  * StartInterval stays 600s (10 min): the checker self-gates to the NYSE
-    session (renquant_execution.software_stops_liveness.market_session_open),
-    returning OK off-session, so one all-day interval covers RTH and every
-    arming window without duplicating calendar logic here. 10 min is the
-    "I" term of the alert-latency envelope (page_time = T0 + (B - C) + I + D;
-    B = max_staleness_minutes 30, C = 12-min sell-only cadence) - shortening
-    it below the sell-only cadence is what keeps the envelope at ~18-28 min.
+    (/Users/renhao/git/github/renquant-orchestrator-run/scripts/), the same
+    checkout every other manifested com.renquant.* job executes from - never
+    the dev working tree, whose branch is whatever the operator last checked
+    out.
+  * NOT yet declared in ops/launchd_manifest.json, deliberately (Codex on
+    orch#1077): a manifested-but-uninstalled job makes the daily run-surface
+    drift scan page the ops topic every day until install - a standing false
+    positive on the channel that must carry real stop-liveness failures. The
+    manifest entry lands in the LANDING PR together with
+    `scripts/install_stops_pager.sh install [apply flag]` and the test-fire,
+    in one controlled window, gated on (1) the registry writer stamping the
+    neutral data root (orchestrator seeder PR in flight) and (2) the SLA
+    decision below. install_stops_pager.sh refuses (exit 4) to arm a plist
+    that is not manifested or disagrees with its manifest entry.
+  * SLA: NOT SATISFIED. Worst-case page latency after a sell-only pass missed
+    at T0 is  T0 + (B - C) + I + D  with B = 30 (pinned strategy-104
+    execution.software_stops.max_staleness_minutes), C = 12 (sell-only loop
+    cadence, com.renquant.intraday104), I = 10 (this StartInterval, 600 s),
+    D = page delivery (measured by the test-fire drill): STALE flips 18 min
+    after the first missed pass and the first page lands at ~18-28 min + D,
+    against the design's page within 15 min
+    (doc/design/2026-07-02-s-frac-fractional-v2.md, Alert-to-recovery SLA).
+    OPEN DECISION ITEM - two ways to comply, neither chosen here:
+      (a) lower max_staleness_minutes in the strategy-104 config (a
+          production-config write, so its own LONG-ledger row): B - C + I
+          within 15 gives B at most 17 at this 10-min interval, or B at most
+          22 with the interval shortened to 5 min (StartInterval 300); or
+      (b) an explicit operator exception accepting the measured envelope,
+          per the design's sign-off clause.
+    Until one of them lands this job is NOT eligible to install and does NOT
+    count as step-5 evidence for the software_stops config row.
 -->
 <plist version="1.0">
 <dict>

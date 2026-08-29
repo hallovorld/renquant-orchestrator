@@ -272,13 +272,6 @@
       ],
       "program_args_sha256": "204569ab913b37bf95d2a3e8870ad96a79f424ae6247b7888f8c9cb042165142"
     },
-    "com.renquant.stops-liveness": {
-      "program_args": [
-        "/bin/bash",
-        "/Users/renhao/git/github/renquant-orchestrator-run/scripts/stops_liveness_pager.sh"
-      ],
-      "program_args_sha256": "1baca611b7c69144afb5cb454817f13a306d4f51e693e3d900f310dcd0a079d3"
-    },
     "com.renquant.weekly-apy104": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
