@@ -15,3 +15,7 @@ EVIDENCE: [VERIFIED 2026-07-10] twin states pinned by
           byte-identical; broker/alpaca_broker/paper_broker/readonly_broker
           diverged (sha-pinned per side). Full audit evidence:
           `doc/research/evidence/arch_audit_2026_07/`.
+          [VERIFIED 2026-08-29] umbrella `live/broker.py` + `live/alpaca_broker.py`
+          re-pinned after RenQuant#610/#612 (live tree @ f9d696a); execution side
+          unchanged, so the broker-twin divergence WIDENED — reconciling it is a
+          renquant-execution PR (`doc/progress/2026-08-29-twin-parity-manifest-live-broker.md`).
