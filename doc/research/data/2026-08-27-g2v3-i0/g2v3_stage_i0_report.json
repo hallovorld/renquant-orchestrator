@@ -2,52 +2,50 @@
  "h": 13,
  "n_block_sessions": 917,
  "median_eligible": 1256,
- "drift_excluded_names": 99,
+ "drift_excluded_names": 102,
  "by_regime": {
   "BEAR": {
    "n_blocks": 191,
    "n_episodes": 11,
    "pairs": 180,
-   "rho1_raw": -0.0578,
+   "rho1_raw": -0.0573,
    "rho1_used": 0.0,
    "n_eff_adj": 191.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.0211
+   "mean_block_ic_s0": 0.02108
   },
   "BULL_CALM": {
    "n_blocks": 520,
    "n_episodes": 16,
    "pairs": 504,
-   "rho1_raw": 0.0215,
-   "rho1_used": 0.0215,
-   "n_eff_adj": 498.1,
+   "rho1_raw": 0.0222,
+   "rho1_used": 0.0222,
+   "n_eff_adj": 497.4,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.01448
+   "mean_block_ic_s0": 0.01445
   },
   "BULL_VOLATILE": {
    "n_blocks": 159,
    "n_episodes": 16,
    "pairs": 143,
-   "rho1_raw": -0.1,
+   "rho1_raw": -0.1002,
    "rho1_used": 0.0,
    "n_eff_adj": 159.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.01128
+   "mean_block_ic_s0": 0.0113
   },
   "CHOPPY": {
    "n_blocks": 47,
    "n_episodes": 10,
    "pairs": 37,
-   "rho1_raw": -0.1859,
+   "rho1_raw": -0.1844,
    "rho1_used": 0.0,
    "n_eff_adj": 47.0,
    "estimator": "ok",
-   "mean_block_ic_s0": 0.03511
+   "mean_block_ic_s0": 0.03523
   }
  },
- "run_status": "DEVELOPMENT_ONLY",
- "gate_verdict": null,
- "indicative_bear_n_eff_adj": 191.0,
  "gate_bar": "BEAR n_eff_adj >= 30 @ h=13",
- "note": "Development run: drift thresholds first frozen in Amendment A1 (pending operator ack). The gate run re-executes from the frozen main commit; only that run may emit a gate verdict."
+ "run_status": "GATE_RUN",
+ "gate_verdict": "PASS"
 }
