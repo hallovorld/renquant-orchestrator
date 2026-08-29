@@ -77,6 +77,7 @@ no plist copy, no launchctl call) are unchanged and re-verified below.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import plistlib
 import subprocess
@@ -436,7 +437,11 @@ from pathlib import Path
 def resolve_registry_path(*, registry=None, data_root=None, broker="alpaca"):
     if registry:
         return Path(registry)
-    return Path(data_root) / f"{broker}.json"
+    # Same composition as the real checker (deferred import of the pinned
+    # pipeline's PUBLIC names) so the exec stub and the orchestrator
+    # readiness classifier resolve ONE path.
+    from renquant_pipeline.software_stops import DEFAULT_REGISTRY_PATH, registry_path_for
+    return registry_path_for(Path(data_root) / DEFAULT_REGISTRY_PATH, broker)
 
 
 def _validate_snapshot(raw):
@@ -484,6 +489,93 @@ if __name__ == "__main__":
 """
 
 
+# 2026-08-29 (Codex on #1078): the installer's registry guard now also runs
+# THIS repo's readiness classifier, which imports the pipeline's PUBLIC
+# ``registry_path_for`` / ``validate_software_stop_snapshot`` /
+# ``compute_staleness``. The hermetic fake pinned renquant-pipeline checkout
+# therefore carries this stand-in: the REAL path layout
+# (``data/rq105/software_stops.<broker>.json``) and the real heartbeat
+# arithmetic, with the same fake schema check the exec stub uses.
+_STUB_PIPELINE_STOPS_MODULE = """\
+import datetime
+from pathlib import Path
+
+REGISTRY_CONTRACT = "software-stops-v1"
+REGISTRY_VERSION = 1
+DEFAULT_REGISTRY_PATH = "data/rq105/software_stops.json"
+DEFAULT_MAX_STALENESS_MINUTES = 30.0
+
+
+def registry_path_for(base_path, broker_name):
+    p = Path(base_path)
+    if not broker_name:
+        return p
+    safe = broker_name.replace("-", "_")
+    if p.stem.endswith(f".{safe}"):
+        return p
+    return p.with_stem(f"{p.stem}.{safe}")
+
+
+def validate_software_stop_snapshot(raw):
+    if not isinstance(raw, dict) or raw.get("version") != 1 or not isinstance(
+        raw.get("stops"), dict
+    ):
+        raise ValueError("fake registry schema violation")
+    return raw
+
+
+def compute_staleness(snapshot, *, now=None, corrupt=False):
+    now_dt = now or datetime.datetime.now().astimezone()
+    stops = snapshot.get("stops") or {}
+    budget = float(snapshot.get("max_staleness_minutes", DEFAULT_MAX_STALENESS_MINUTES))
+    hb = snapshot.get("last_evaluated_at")
+    age = None
+    if hb:
+        try:
+            hb_dt = datetime.datetime.fromisoformat(hb)
+            if hb_dt.tzinfo is None:
+                hb_dt = hb_dt.astimezone()
+            age = (now_dt - hb_dt).total_seconds() / 60.0
+        except ValueError:
+            age = None
+    return {
+        "exists": True, "corrupt": False, "n_stops": len(stops),
+        "last_evaluated_at": hb, "age_minutes": age,
+        "max_staleness_minutes": budget,
+        "stale": len(stops) > 0 and (age is None or age > budget),
+    }
+"""
+
+
+def _stub_registry_path(data_root: Path, broker: str = "alpaca") -> Path:
+    """Where the exec stub, the pipeline stub AND the real chain all resolve
+    the registry for ``--data-root data_root --broker broker``."""
+    return data_root / "data" / "rq105" / f"software_stops.{broker.replace('-', '_')}.json"
+
+
+def _registry_doc(*, heartbeat_minutes_ago: "float | None") -> dict:
+    """A schema-valid zero-stop registry. ``None`` = never evaluated (what a
+    seed looks like); a number = a writer heartbeat that many minutes old."""
+    hb = None
+    if heartbeat_minutes_ago is not None:
+        hb = (
+            datetime.datetime.now().astimezone()
+            - datetime.timedelta(minutes=heartbeat_minutes_ago)
+        ).isoformat()
+    return {
+        "version": 1, "contract": "software-stops-v1",
+        "max_staleness_minutes": 30.0, "last_evaluated_at": hb, "stops": {},
+    }
+
+
+def _write_registry(data_root: Path, doc_or_text, broker: str = "alpaca") -> Path:
+    path = _stub_registry_path(data_root, broker)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = doc_or_text if isinstance(doc_or_text, str) else json.dumps(doc_or_text)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def _fake_state_root(tmp_path: Path, *, exec_module_content: str = _STUB_CLI) -> Path:
     """A fake R-PIN state root whose runtime inventory (REAL schema v1,
     validated by the real reader) points at stub pinned checkouts. The stub
@@ -504,6 +596,12 @@ def _fake_state_root(tmp_path: Path, *, exec_module_content: str = _STUB_CLI) ->
     ):
         (tmp_path / name / "src").mkdir(parents=True)
         stub_repos[name] = {"path": str(tmp_path / name)}
+    # the stub pinned pipeline carries the PUBLIC registry names the exec
+    # stub and the orchestrator readiness classifier import (2026-08-29)
+    pipe_pkg = tmp_path / "renquant-pipeline" / "src" / "renquant_pipeline"
+    pipe_pkg.mkdir(parents=True)
+    (pipe_pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pipe_pkg / "software_stops.py").write_text(_STUB_PIPELINE_STOPS_MODULE, encoding="utf-8")
 
     state_root = tmp_path / "deploy-state"
     state_root.mkdir()
@@ -814,13 +912,13 @@ def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> di
     ``_fake_state_root`` above, reused rather than reinvented), a fake plist
     (round 6: the guard reads data root/interpreter from THIS file only —
     see ``_write_fake_plist``) declaring a VALID registry's data root, and
-    that VALID registry file actually present there."""
+    that registry file actually present there — VALID **and READY**
+    (2026-08-29: a fresh writer heartbeat; a heartbeat-less file is a seed
+    and the guard now refuses it, see the UNINITIALIZED test below)."""
     state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
     data_root = tmp_path / "registry-data-root"
     data_root.mkdir()
-    (data_root / f"{broker}.json").write_text(
-        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
-    )
+    _write_registry(data_root, _registry_doc(heartbeat_minutes_ago=1.0), broker)
     plist_path = _write_fake_plist(
         tmp_path,
         env_vars={
@@ -847,6 +945,9 @@ def test_install_dry_run_echoes_and_changes_nothing(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert "MANIFEST GUARD OK" in proc.stderr
     assert "DRY-RUN" in proc.stdout
+    assert "registry readiness (preview" in proc.stdout, (
+        "dry-run must print the readiness verdict --apply would enforce"
+    )
     assert "+ cp " in proc.stdout
     assert "bootstrap" in proc.stdout
     assert not (tmp_path / "LaunchAgents").exists(), "dry-run must not create files"
@@ -1013,7 +1114,7 @@ def test_install_apply_refuses_when_registry_corrupt(tmp_path):
     state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
     data_root = tmp_path / "registry-data-root"
     data_root.mkdir()
-    (data_root / "alpaca.json").write_text("not json{{{", encoding="utf-8")
+    _write_registry(data_root, "not json{{{")
     plist_path = _write_fake_plist(
         tmp_path,
         env_vars={
@@ -1052,9 +1153,7 @@ def test_install_apply_ignores_ambient_env_and_uses_plist_value_only(tmp_path):
     state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
     decoy_data_root = tmp_path / "decoy-ambient-data-root"
     decoy_data_root.mkdir()
-    (decoy_data_root / "alpaca.json").write_text(
-        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
-    )
+    _write_registry(decoy_data_root, _registry_doc(heartbeat_minutes_ago=1.0))  # VALID and READY decoy
     plist_data_root = tmp_path / "plist-data-root-no-writer-yet"
     plist_path = _write_fake_plist(
         tmp_path,
@@ -1087,15 +1186,49 @@ def test_install_apply_ignores_ambient_env_and_uses_plist_value_only(tmp_path):
     )
 
 
-def test_install_apply_passes_with_zero_armed_stops(tmp_path):
-    """A registry that exists and parses cleanly but has zero armed stops
-    is a legitimate empty-but-valid state (nothing has ever armed yet) and
-    must PASS the guard -- the guard checks validity, not emptiness."""
+def test_install_apply_passes_with_zero_armed_stops_and_a_fresh_heartbeat(tmp_path):
+    """A registry with zero armed stops but a FRESH writer heartbeat is a
+    legitimate state (writer alive, nothing unprotected) and must PASS --
+    the guard checks validity + readiness, never emptiness."""
     env_extra = _valid_registry_install_env(tmp_path)
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     assert "GUARD OK" in proc.stderr
+    assert "READY" in proc.stderr
     assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
+
+
+def _registry_install_env_with(tmp_path: Path, doc: dict) -> dict:
+    """``_valid_registry_install_env`` with a caller-chosen registry document."""
+    env_extra = _valid_registry_install_env(tmp_path)
+    _write_registry(tmp_path / "registry-data-root", doc)
+    return env_extra
+
+
+def test_install_apply_refuses_when_registry_is_seeded_but_uninitialized(tmp_path):
+    """Codex CHANGES_REQUESTED on #1078 (2026-08-29T07:54:11Z): a seeded
+    registry is schema-VALID with ``last_evaluated_at: null`` -- the sell
+    loop has never evaluated it. VALID alone must NOT arm the pager: the
+    guard requires READY and refuses with the distinct UNINITIALIZED verdict,
+    before any mkdir/cp/bootstrap."""
+    env_extra = _registry_install_env_with(tmp_path, _registry_doc(heartbeat_minutes_ago=None))
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "VALID" in proc.stderr, "the VALID step must still run and pass first"
+    assert "NOT_READY_UNINITIALIZED" in proc.stderr
+    assert "GUARD FAIL" in proc.stderr
+    _assert_nothing_armed(tmp_path)
+
+
+def test_install_apply_refuses_when_registry_heartbeat_is_stale(tmp_path):
+    """A heartbeat older than the staleness budget means the writer is not
+    evaluating THIS path now -- same refusal, distinct STALE verdict."""
+    env_extra = _registry_install_env_with(tmp_path, _registry_doc(heartbeat_minutes_ago=45.0))
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "NOT_READY_STALE" in proc.stderr
+    assert "GUARD FAIL" in proc.stderr
+    _assert_nothing_armed(tmp_path)
 
 
 # ------------------------------- real-sibling integration (round 8, Part C)
@@ -1264,8 +1397,10 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline(tmp_path
         valid_data_root / DEFAULT_REGISTRY_PATH, "alpaca"
     )
     valid_registry_path.parent.mkdir(parents=True)
+    # VALID and READY: a fresh writer heartbeat (2026-08-29; a heartbeat-less
+    # file is refused as UNINITIALIZED -- see the real-chain test below)
     valid_registry_path.write_text(
-        json.dumps({"version": 1, "stops": {}}), encoding="utf-8"
+        json.dumps(_registry_doc(heartbeat_minutes_ago=1.0)), encoding="utf-8"
     )
 
     plist_path = _write_fake_plist(
@@ -1285,6 +1420,7 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline(tmp_path
     assert proc.returncode == 0, proc.stderr
     assert "GUARD OK" in proc.stderr
     assert "VALID" in proc.stderr
+    assert "READY" in proc.stderr
     assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
 
 
@@ -1360,6 +1496,82 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malforme
     )
 
 
+def test_install_apply_real_chain_seed_alone_refused_then_one_writer_pass_passes(tmp_path):
+    """End-to-end on the REAL chain (Codex CHANGES_REQUESTED on #1078,
+    2026-08-29T07:54:11Z): orchestrator seeder -> installer guard -> real
+    renquant_execution --validate-registry -> real renquant_pipeline schema
+    -> orchestrator readiness classifier.
+
+    (a) a seed ALONE is schema-VALID but NOT_READY_UNINITIALIZED and
+        ``install --apply`` refuses, arming nothing;
+    (b) ONE real writer pass -- the pipeline's ``SoftwareStopRegistry``
+        constructed the way the umbrella runner will
+        (``from_config(..., repo_root=<data root>)``) and one ``evaluate()``
+        -- stamps the heartbeat at the SAME canonical path, and the very
+        same ``install --apply`` now passes with READY.
+    Skip rationale identical to the two real-pinned tests above."""
+    pytest.importorskip("renquant_pipeline")
+    pytest.importorskip("renquant_execution")
+    try:
+        from renquant_execution.software_stops_liveness import (  # noqa: F401
+            validate_registry,
+        )
+    except ImportError:
+        pytest.skip("renquant_execution.software_stops_liveness.validate_registry not on the pinned sibling")
+    paths = _real_sibling_repo_paths()
+    if paths is None:
+        pytest.skip(
+            f"real sibling checkouts not found under {_real_siblings_root()} "
+            "-- expected in an isolated worktree; runs for real in the "
+            "'Full multirepo test' CI job and at .../git/github/"
+        )
+    from renquant_pipeline.software_stops import SoftwareStopRegistry
+    from renquant_orchestrator.software_stops_registry_contract import (
+        NOT_READY_UNINITIALIZED, READY, ensure_registry_seeded, registry_readiness,
+    )
+
+    state_root = _real_sibling_state_root(tmp_path, paths)
+    data_root = tmp_path / "real-chain-data-root"
+    seeded = ensure_registry_seeded(data_root, "alpaca")
+    assert registry_readiness(seeded).verdict == NOT_READY_UNINITIALIZED
+
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+        name="fake-plist-real-chain.plist",
+    )
+    env_extra = {
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
+    }
+    # (a) seed alone: VALID passes, READY refuses
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode != 0
+    assert "VALID" in proc.stderr
+    assert "NOT_READY_UNINITIALIZED" in proc.stderr
+    assert "GUARD FAIL" in proc.stderr
+    _assert_nothing_armed(tmp_path)
+
+    # (b) one real writer pass at the same root the pager reads
+    registry = SoftwareStopRegistry.from_config(
+        {"execution": {"software_stops": {"enabled": True, "max_staleness_minutes": 30}}},
+        broker_name="alpaca", repo_root=data_root,
+    )
+    assert registry is not None and registry.is_armed()
+    assert registry.evaluate({}) == []
+    assert registry_readiness(seeded).verdict == READY
+
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 0, proc.stderr
+    assert "GUARD OK" in proc.stderr
+    assert "READY" in proc.stderr
+    assert (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists()
+
+
 def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
     """install (no --apply) must stay a pure echo-only dry-run even with no
     registry/inventory/env configured at all -- the registry guard only gates
@@ -1369,6 +1581,10 @@ def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
     proc = _run_installer(tmp_path, "install", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     assert "DRY-RUN" in proc.stdout
+    assert "registry readiness (preview" in proc.stdout
+    assert "could not be evaluated" in proc.stdout, (
+        "with no inventory on this machine the preview must say so, not hide it"
+    )
     assert not (tmp_path / "LaunchAgents").exists()
     assert not (tmp_path / "launchctl_calls.log").exists()
 

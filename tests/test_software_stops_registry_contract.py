@@ -21,8 +21,13 @@ neutral runtime-state root) and the NEUTRAL-vs-LEGACY path classifier.
 See ``doc/progress/2026-07-11-stops-liveness-pager-package.md`` for the
 full round history.
 
-Writer-migration step 1 (2026-08-29): the registry SEEDER
-(``ensure_registry_seeded`` + the ``seed`` CLI). Everything under
+Bootstrap step (2026-08-29): the registry SEEDER (``ensure_registry_seeded``
++ the ``seed`` CLI) and, after Codex CHANGES_REQUESTED on #1078
+(2026-08-29T07:54:11Z), the READINESS classifier (``registry_readiness`` +
+the ``readiness`` CLI): a seed is LOCATABLE and schema-VALID but explicitly
+NOT READY; READY needs a real writer heartbeat at the canonical path within
+budget. The "readiness" tests below drive the pipeline's own
+``SoftwareStopRegistry`` for that heartbeat — never a hand-written stamp. Everything under
 "registry seeder" below runs against ``tmp_path`` only — the neutral root
 env var is pinned to a throwaway dir in every seeder test so nothing can
 reach ``~/.renquant``. Tagging and schema are the pipeline's: tests that
@@ -32,6 +37,7 @@ import-failure test proves the seeder fails closed in exactly that case.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import plistlib
@@ -46,6 +52,12 @@ from renquant_orchestrator.software_stops_registry_contract import (
     DEFAULT_REGISTRY_REL,
     DEFAULT_RUNTIME_STATE_ROOT,
     DEFAULT_SEED_MAX_STALENESS_MINUTES,
+    NOT_READY_CORRUPT,
+    NOT_READY_STALE,
+    NOT_READY_UNINITIALIZED,
+    NOT_READY_UNSEEDED,
+    READINESS_EXIT,
+    READY,
     SEED_EXIT_CORRUPT,
     SEED_EXIT_IMPORT,
     SEED_EXIT_OK,
@@ -54,6 +66,7 @@ from renquant_orchestrator.software_stops_registry_contract import (
     classify_data_root,
     describe_data_root,
     ensure_registry_seeded,
+    registry_readiness,
     runtime_state_root,
     seeded_registry_path,
     software_stops_registry_path,
@@ -295,9 +308,11 @@ def test_seed_path_equals_execution_checker_resolution(pipeline_stops, tmp_path:
         assert ensure_registry_seeded(tmp_path, broker) == checker_path
 
 
-def test_seed_is_valid_and_ok_for_the_execution_checker(pipeline_stops, tmp_path: Path) -> None:
-    """The seed flips the installer guard's verdict MISSING -> VALID and the
-    liveness check reads it as OK with 0 armed stops (nothing unprotected)."""
+def test_seed_is_schema_valid_bootstrap_but_NOT_ready(pipeline_stops, tmp_path: Path) -> None:
+    """A seed flips the execution checker's structural verdict MISSING ->
+    VALID (the registry is now LOCATABLE). That is ALL it does: it is
+    NOT_READY_UNINITIALIZED for arming, because no writer has evaluated it
+    (Codex on #1078: VALID is bootstrap, never readiness evidence)."""
     liveness = pytest.importorskip(
         "renquant_execution.software_stops_liveness",
         reason="sibling renquant-execution src not on the path",
@@ -305,9 +320,159 @@ def test_seed_is_valid_and_ok_for_the_execution_checker(pipeline_stops, tmp_path
     path = ensure_registry_seeded(tmp_path, "alpaca")
     code, msg = liveness.validate_registry(path)
     assert code == liveness.REGISTRY_VALID, msg
-    code, msg = liveness.check(path, force_session=True)
-    assert code == liveness.OK, msg
-    assert "0 armed stops" in msg
+    verdict = registry_readiness(path)
+    assert verdict.verdict == NOT_READY_UNINITIALIZED
+    assert verdict.ready is False
+    assert verdict.n_stops == 0 and verdict.last_evaluated_at is None
+
+
+# --- readiness classification (the landing gate) ------------------------------------
+
+
+def _writer_pass(pipeline_stops, data_root: Path, *, now: datetime.datetime, broker: str = "alpaca"):
+    """ONE real sell-only-loop pass, constructed the way the umbrella runner
+    will (``from_config`` + ``repo_root=<the pager's data root>``)."""
+    registry = pipeline_stops.SoftwareStopRegistry.from_config(
+        {"execution": {"software_stops": {"enabled": True, "max_staleness_minutes": 30}}},
+        broker_name=broker, repo_root=data_root,
+    )
+    assert registry is not None and registry.is_armed()
+    assert registry.evaluate({}, now=now) == []
+    return registry
+
+
+_NOW = datetime.datetime(2026, 8, 29, 10, 0, tzinfo=datetime.timezone.utc)
+
+
+def test_readiness_unseeded_when_no_file(pipeline_stops, tmp_path: Path) -> None:
+    v = registry_readiness(seeded_registry_path(tmp_path, "alpaca"))
+    assert v.verdict == NOT_READY_UNSEEDED and not v.ready
+    assert v.exit_code == READINESS_EXIT[NOT_READY_UNSEEDED] != 0
+
+
+def test_readiness_ready_after_one_real_writer_pass_on_the_seeded_path(
+    pipeline_stops, tmp_path: Path
+) -> None:
+    """Seed -> UNINITIALIZED; one real ``SoftwareStopRegistry.evaluate()``
+    on the SAME root (resolved via ``from_config``) -> READY at the very
+    path the seeder created."""
+    seeded = ensure_registry_seeded(tmp_path, "alpaca")
+    assert registry_readiness(seeded, now=_NOW).verdict == NOT_READY_UNINITIALIZED
+    registry = _writer_pass(pipeline_stops, tmp_path, now=_NOW)
+    assert Path(registry._path) == seeded, "writer and seeder must agree on the canonical path"
+    v = registry_readiness(seeded, max_staleness_minutes=30, now=_NOW + datetime.timedelta(minutes=5))
+    assert v.verdict == READY and v.ready and v.exit_code == 0
+    assert v.n_stops == 0 and 4.9 < v.age_minutes < 5.1 and v.budget_minutes == 30.0
+    # the seed did NOT survive as-is: the writer's heartbeat is on disk
+    assert json.loads(seeded.read_text())["last_evaluated_at"] is not None
+
+
+def test_readiness_stale_when_heartbeat_older_than_budget(pipeline_stops, tmp_path: Path) -> None:
+    seeded = ensure_registry_seeded(tmp_path, "alpaca")
+    _writer_pass(pipeline_stops, tmp_path, now=_NOW)
+    v = registry_readiness(seeded, max_staleness_minutes=30, now=_NOW + datetime.timedelta(minutes=31))
+    assert v.verdict == NOT_READY_STALE and not v.ready
+    assert v.exit_code == READINESS_EXIT[NOT_READY_STALE]
+    assert 30.9 < v.age_minutes < 31.1
+
+
+def test_readiness_budget_is_the_tighter_of_caller_and_file(pipeline_stops, tmp_path: Path) -> None:
+    """The file's own max_staleness_minutes (30) cannot LOOSEN a stricter
+    caller bar (10); a looser caller bar (60) is tightened to the file's."""
+    seeded = ensure_registry_seeded(tmp_path, "alpaca")
+    _writer_pass(pipeline_stops, tmp_path, now=_NOW)
+    later = _NOW + datetime.timedelta(minutes=20)
+    assert registry_readiness(seeded, max_staleness_minutes=10, now=later).verdict == NOT_READY_STALE
+    v = registry_readiness(seeded, max_staleness_minutes=60, now=later)
+    assert v.verdict == READY and v.budget_minutes == 30.0
+
+
+def test_readiness_corrupt_file_is_reported_and_untouched(pipeline_stops, tmp_path: Path) -> None:
+    path = seeded_registry_path(tmp_path, "alpaca")
+    path.parent.mkdir(parents=True)
+    for text in ("{not json", json.dumps({"version": 99, "stops": {}})):
+        path.write_text(text)
+        v = registry_readiness(path)
+        assert v.verdict == NOT_READY_CORRUPT and not v.ready
+        assert v.exit_code == READINESS_EXIT[NOT_READY_CORRUPT]
+        assert path.read_text() == text
+
+
+def test_readiness_unparseable_or_future_heartbeat_is_corrupt(pipeline_stops, tmp_path: Path) -> None:
+    """A non-null heartbeat the pipeline validator does not police is still
+    not a heartbeat: unparseable, or further in the future than the budget,
+    is classified CORRUPT (fail closed), never READY."""
+    seeded = ensure_registry_seeded(tmp_path, "alpaca")
+    doc = json.loads(seeded.read_text())
+    doc["last_evaluated_at"] = "yesterday-ish"
+    seeded.write_text(json.dumps(doc))
+    assert registry_readiness(seeded, now=_NOW).verdict == NOT_READY_CORRUPT
+    doc["last_evaluated_at"] = (_NOW + datetime.timedelta(minutes=31)).isoformat()
+    seeded.write_text(json.dumps(doc))
+    assert registry_readiness(seeded, max_staleness_minutes=30, now=_NOW).verdict == NOT_READY_CORRUPT
+    doc["last_evaluated_at"] = (_NOW + datetime.timedelta(minutes=2)).isoformat()
+    seeded.write_text(json.dumps(doc))
+    assert registry_readiness(seeded, max_staleness_minutes=30, now=_NOW).verdict == READY, (
+        "small clock skew within the budget is not a failure"
+    )
+
+
+def test_readiness_wrong_root_fails_closed_at_the_canonical_path(pipeline_stops, tmp_path: Path) -> None:
+    """A VALID and READY registry under a DIFFERENT data root is worth
+    nothing: readiness is a property of the canonical path the pager reads."""
+    other_root = tmp_path / "other-root"
+    ensure_registry_seeded(other_root, "alpaca")
+    _writer_pass(pipeline_stops, other_root, now=_NOW)
+    assert registry_readiness(seeded_registry_path(other_root, "alpaca"), now=_NOW).verdict == READY
+    canonical = seeded_registry_path(tmp_path / "canonical-root", "alpaca")
+    v = registry_readiness(canonical, now=_NOW)
+    assert v.verdict == NOT_READY_UNSEEDED and not v.ready
+
+
+def test_readiness_never_depends_on_stop_count(pipeline_stops, tmp_path: Path) -> None:
+    """A populated registry with NO heartbeat is NOT ready; an empty one
+    WITH a fresh heartbeat IS. n_stops is reported, never decisive."""
+    path = seeded_registry_path(tmp_path, "alpaca")
+    path.parent.mkdir(parents=True)
+    populated = {
+        "version": pipeline_stops.REGISTRY_VERSION, "contract": pipeline_stops.REGISTRY_CONTRACT,
+        "max_staleness_minutes": 30.0, "last_evaluated_at": None,
+        "stops": {"BLK": {"symbol": "BLK", "qty": 0.34, "stop_price": 760.0, "source": "z9"}},
+    }
+    path.write_text(json.dumps(populated))
+    v = registry_readiness(path, now=_NOW)
+    assert v.verdict == NOT_READY_UNINITIALIZED and v.n_stops == 1
+
+
+def test_readiness_cli_exit_codes_are_distinct_and_zero_only_on_ready(
+    pipeline_stops, neutral_root: Path, tmp_path: Path, capsys
+) -> None:
+    root = tmp_path / "root"
+    now = _NOW.isoformat()
+
+    def run(*extra):
+        return contract.main(["readiness", "--broker", "alpaca", "--data-root", str(root), "--now", now, *extra])
+
+    assert run() == READINESS_EXIT[NOT_READY_UNSEEDED] == 10
+    assert capsys.readouterr().out.startswith("NOT_READY_UNSEEDED: ")
+    ensure_registry_seeded(root, "alpaca")
+    assert run() == READINESS_EXIT[NOT_READY_UNINITIALIZED] == 11
+    assert capsys.readouterr().out.startswith("NOT_READY_UNINITIALIZED: ")
+    _writer_pass(pipeline_stops, root, now=_NOW - datetime.timedelta(minutes=5))
+    assert run() == 0
+    assert capsys.readouterr().out.startswith("READY: ")
+    assert run("--max-staleness-minutes", "4") == READINESS_EXIT[NOT_READY_STALE] == 12
+    assert capsys.readouterr().out.startswith("NOT_READY_STALE: ")
+    seeded_registry_path(root, "alpaca").write_text("garbage")
+    assert run() == READINESS_EXIT[NOT_READY_CORRUPT] == 13
+    assert capsys.readouterr().out.startswith("NOT_READY_CORRUPT: ")
+    assert contract.main(["readiness", "--broker", "bogus", "--data-root", str(root)]) == SEED_EXIT_USAGE
+    assert len(set(READINESS_EXIT.values())) == len(READINESS_EXIT)
+
+
+def test_readiness_cli_fails_closed_without_the_pipeline_module(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setitem(sys.modules, "renquant_pipeline.software_stops", None)
+    assert contract.main(["readiness", "--broker", "alpaca", "--data-root", str(tmp_path)]) == SEED_EXIT_IMPORT
 
 
 # --- seed CLI ------------------------------------------------------------------------

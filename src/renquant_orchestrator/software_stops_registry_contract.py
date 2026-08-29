@@ -49,26 +49,36 @@ NEUTRAL-vs-LEGACY path classifier below) — it never owns or re-derives
 content schema. See ``scripts/install_stops_pager.sh`` for where that real
 validator is now invoked as a fail-closed pre-install guard.
 
-Writer-migration step 1 (2026-08-29, :func:`ensure_registry_seeded`): the
-registry SEEDER. The pipeline registry treats a MISSING file as "armed,
-empty — created on first write" (``software_stops.py`` ``_load``), and the
+Bootstrap step (2026-08-29, :func:`ensure_registry_seeded`): the registry
+SEEDER. The pipeline registry treats a MISSING file as "armed, empty —
+created on first write" (``software_stops.py`` ``_load``), and the
 execution checker's ``check()`` returns OK on a missing file, so a writer
 that is running against the WRONG root (or not running at all) is
 indistinguishable from "nothing armed". The seeder creates — once, only if
 absent — an EMPTY, schema-valid registry at EXACTLY the path the checker
-resolves, so the file's presence becomes a fact the pager can see and the
-installer guard (``--validate-registry`` requires VALID, not MISSING) can
-pass. It never overwrites: a corrupt existing file is reported, not
-repaired — repairing is a human decision. Path tagging and schema
-validation are IMPORTED from ``renquant_pipeline.software_stops``; if that
-module is not importable the seeder fails closed (ImportError) rather than
-re-implementing either. The seeder still owns no content schema — the
-seed's shape is validated by the pipeline's own public validator before it
-is published.
+resolves, so the registry becomes LOCATABLE. It never overwrites: a corrupt
+existing file is reported, not repaired — repairing is a human decision.
+Path tagging and schema validation are IMPORTED from
+``renquant_pipeline.software_stops``; if that module is not importable the
+seeder fails closed (ImportError) rather than re-implementing either.
+
+A seed is NOT readiness. Its ``last_evaluated_at`` is ``null``, and the
+execution checker's ``check()`` reports a valid registry with zero stops as
+OK whether or not a writer has ever touched it (Codex review on #1078,
+2026-08-29T07:54:11Z) — so "the file exists and is VALID" cannot be the
+arming evidence. :func:`registry_readiness` is the orchestrator-side
+classification that closes that: READY requires a schema-valid file at the
+canonical path whose heartbeat is non-null, parseable, and within the
+staleness budget — i.e. a REAL writer pass has landed there. Everything
+else is a distinct NOT_READY_* verdict (UNSEEDED / UNINITIALIZED / STALE /
+CORRUPT). The installer's registry guard (``scripts/install_stops_pager.sh``)
+requires READY for ``install --apply``; any software-stops enablement
+evidence must cite READY, never VALID.
 """
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib
 import json
 import logging
@@ -236,6 +246,7 @@ def _pipeline_stops_module():
     for name in (
         "registry_path_for",
         "validate_software_stop_snapshot",
+        "compute_staleness",
         "REGISTRY_VERSION",
         "REGISTRY_CONTRACT",
     ):
@@ -320,13 +331,14 @@ def ensure_registry_seeded(
     * ``renquant_pipeline.software_stops`` not importable -> ImportError,
       nothing written (the tagging and schema are never re-implemented).
 
-    Why the seed is inert: it is exactly what the pipeline registry would
-    persist on its own first write with no stops registered — the
-    registry's ``_load`` reads it as "armed, empty", ``compute_staleness``
-    reports ``n_stops=0 / stale=False``, and the checker's ``check()`` says
-    OK. The only thing that changes is that the file EXISTS, so
-    ``--validate-registry`` reports VALID instead of MISSING and a
-    heartbeat that never arrives becomes observable.
+    What a seed IS and IS NOT: it is exactly what the pipeline registry
+    would persist on its own first write with no stops registered, so the
+    registry's ``_load`` reads it as "armed, empty" and the file becomes
+    LOCATABLE (``--validate-registry`` reports VALID instead of MISSING).
+    It is NOT readiness: ``last_evaluated_at`` is ``null`` until a real
+    writer pass stamps it, and :func:`registry_readiness` classifies a
+    seed as ``NOT_READY_UNINITIALIZED``. Nothing that arms the pager or
+    enables software stops may treat a seed as evidence.
     """
     mod = _pipeline_stops_module()
     if not isinstance(max_staleness_minutes, (int, float)) or not max_staleness_minutes > 0:
@@ -369,6 +381,142 @@ def ensure_registry_seeded(
     return path
 
 
+# --- readiness classification (orchestrator-side; the landing gate) ------------------
+#     VALID (schema) is bootstrap. READY is a real writer heartbeat at the
+#     canonical path within budget. The installer requires READY.
+
+READY = "READY"
+NOT_READY_UNSEEDED = "NOT_READY_UNSEEDED"            # no file at the canonical path
+NOT_READY_UNINITIALIZED = "NOT_READY_UNINITIALIZED"  # valid file, last_evaluated_at is null
+NOT_READY_STALE = "NOT_READY_STALE"                  # heartbeat older than the budget
+NOT_READY_CORRUPT = "NOT_READY_CORRUPT"              # unreadable / fails the pipeline validator /
+                                                     # heartbeat present but unparseable or in the future
+
+#: Exit codes for ``... readiness``. 0 ONLY on READY; each NOT_READY_* is distinct.
+READINESS_EXIT: dict[str, int] = {
+    READY: 0,
+    NOT_READY_UNSEEDED: 10,
+    NOT_READY_UNINITIALIZED: 11,
+    NOT_READY_STALE: 12,
+    NOT_READY_CORRUPT: 13,
+}
+
+
+@dataclass(frozen=True)
+class RegistryReadiness:
+    verdict: str
+    path: Path
+    message: str
+    n_stops: "int | None" = None
+    last_evaluated_at: "str | None" = None
+    age_minutes: "float | None" = None
+    budget_minutes: "float | None" = None
+
+    @property
+    def ready(self) -> bool:
+        return self.verdict == READY
+
+    @property
+    def exit_code(self) -> int:
+        return READINESS_EXIT[self.verdict]
+
+
+def registry_readiness(
+    path: "str | Path",
+    *,
+    max_staleness_minutes: float = DEFAULT_SEED_MAX_STALENESS_MINUTES,
+    now: "datetime.datetime | None" = None,
+) -> RegistryReadiness:
+    """Classify the registry file at ``path`` for ARMING purposes.
+
+    Verdicts (exactly one):
+
+    * ``NOT_READY_UNSEEDED`` — no file at ``path``. A valid, even READY,
+      file anywhere else does not count: readiness is a property of the
+      canonical path the pager will read (fail closed on a wrong root).
+    * ``NOT_READY_CORRUPT`` — unreadable, or fails the pipeline's PUBLIC
+      ``validate_software_stop_snapshot``; ALSO a heartbeat that is present
+      but not an ISO-8601 string, or that lies more than the budget in the
+      future (clock skew beyond the budget cannot be told from a bad stamp).
+    * ``NOT_READY_UNINITIALIZED`` — schema-valid, ``last_evaluated_at`` is
+      null: a seed, or a registry the writer has never evaluated. This is
+      the verdict a bare :func:`ensure_registry_seeded` produces.
+    * ``NOT_READY_STALE`` — heartbeat older than the effective budget.
+    * ``READY`` — schema-valid, heartbeat non-null, parseable, within budget.
+
+    Age arithmetic is the pipeline's own ``compute_staleness`` (never
+    re-derived). The effective budget is ``min(max_staleness_minutes, the
+    file's own max_staleness_minutes)`` — the tighter of the caller's and
+    the writer's — so a file cannot loosen the caller's bar.
+
+    ``n_stops`` is reported but never decides the verdict: an empty
+    registry with a live heartbeat IS ready (nothing unprotected, writer
+    alive); a populated one with no heartbeat is NOT.
+    """
+    mod = _pipeline_stops_module()
+    p = Path(path)
+    if not p.exists():
+        return RegistryReadiness(
+            NOT_READY_UNSEEDED, p,
+            f"NOT_READY_UNSEEDED: no software-stop registry at {p} — nothing has "
+            "seeded or written the canonical path (a file elsewhere does not count)",
+        )
+    try:
+        raw = mod.validate_software_stop_snapshot(json.loads(p.read_text()))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return RegistryReadiness(
+            NOT_READY_CORRUPT, p,
+            f"NOT_READY_CORRUPT: {p} unreadable or fails the pipeline schema "
+            f"validator ({type(exc).__name__}: {exc}); left untouched",
+        )
+    now_dt = now or datetime.datetime.now().astimezone()
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.astimezone()
+    state = mod.compute_staleness(raw, now=now_dt)
+    n = int(state["n_stops"] or 0)
+    hb = raw.get("last_evaluated_at")
+    file_budget = state.get("max_staleness_minutes")
+    budget = float(max_staleness_minutes)
+    if isinstance(file_budget, (int, float)) and file_budget > 0:
+        budget = min(budget, float(file_budget))
+    if hb is None:
+        return RegistryReadiness(
+            NOT_READY_UNINITIALIZED, p,
+            f"NOT_READY_UNINITIALIZED: {p} is schema-valid ({n} stop(s)) but "
+            "last_evaluated_at is null — no writer pass has ever evaluated it "
+            "(a seed, or a writer stamping a different root)",
+            n_stops=n, budget_minutes=budget,
+        )
+    age = state.get("age_minutes")
+    if not isinstance(hb, str) or age is None:
+        return RegistryReadiness(
+            NOT_READY_CORRUPT, p,
+            f"NOT_READY_CORRUPT: {p} carries a heartbeat that is not a parseable "
+            f"ISO-8601 timestamp ({hb!r}); left untouched",
+            n_stops=n, last_evaluated_at=str(hb), budget_minutes=budget,
+        )
+    if age < -budget:
+        return RegistryReadiness(
+            NOT_READY_CORRUPT, p,
+            f"NOT_READY_CORRUPT: {p} heartbeat {hb} is {-age:.1f} min in the future "
+            f"(budget {budget:.0f} min) — bad stamp or clock skew; left untouched",
+            n_stops=n, last_evaluated_at=hb, age_minutes=age, budget_minutes=budget,
+        )
+    if age > budget:
+        return RegistryReadiness(
+            NOT_READY_STALE, p,
+            f"NOT_READY_STALE: {p} heartbeat {hb} is {age:.1f} min old, over the "
+            f"{budget:.0f} min budget — the writer is not evaluating this path",
+            n_stops=n, last_evaluated_at=hb, age_minutes=age, budget_minutes=budget,
+        )
+    return RegistryReadiness(
+        READY, p,
+        f"READY: {p} heartbeat {hb} is {age:.1f} min old (budget {budget:.0f} min), "
+        f"{n} armed stop(s) — a real writer pass has landed at the canonical path",
+        n_stops=n, last_evaluated_at=hb, age_minutes=age, budget_minutes=budget,
+    )
+
+
 # --- CLI ------------------------------------------------------------------------------
 
 
@@ -381,44 +529,58 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = ap.add_subparsers(dest="command", required=True)
+
+    def _common(sp: argparse.ArgumentParser) -> None:
+        sp.add_argument(
+            "--broker", required=True,
+            help="broker name for the file tag (must be on the pipeline's allow-list), e.g. alpaca",
+        )
+        sp.add_argument(
+            "--data-root", default=None,
+            help="the checker's --data-root. Default: the neutral runtime-state root's "
+                 f"'{SOFTWARE_STOPS_REGISTRY_DIRNAME}' dir "
+                 f"(RENQUANT_RUNTIME_STATE_ROOT or {DEFAULT_RUNTIME_STATE_ROOT}/"
+                 f"{SOFTWARE_STOPS_REGISTRY_DIRNAME}) — the value "
+                 "deploy/com.renquant.stops-liveness.plist arms the pager with",
+        )
+        sp.add_argument(
+            "--registry-rel", default=DEFAULT_REGISTRY_REL,
+            help="relative registry path composed under --data-root (default: the "
+                 "pipeline's DEFAULT_REGISTRY_PATH, %(default)s)",
+        )
+
     seed = sub.add_parser(
         "seed",
-        help="create an empty, schema-valid registry if (and only if) none exists",
+        help="BOOTSTRAP: create an empty, schema-valid registry if (and only if) none "
+             "exists — makes the registry locatable; does NOT make it READY",
     )
-    seed.add_argument(
-        "--broker", required=True,
-        help="broker name for the file tag (must be on the pipeline's allow-list), e.g. alpaca",
-    )
+    _common(seed)
     seed.add_argument(
         "--max-staleness-minutes", type=float, default=DEFAULT_SEED_MAX_STALENESS_MINUTES,
         help="heartbeat budget written into a NEW seed only (default %(default)s); "
              "an existing file is never modified",
     )
-    seed.add_argument(
-        "--data-root", default=None,
-        help="the checker's --data-root. Default: the neutral runtime-state root's "
-             f"'{SOFTWARE_STOPS_REGISTRY_DIRNAME}' dir "
-             f"(RENQUANT_RUNTIME_STATE_ROOT or {DEFAULT_RUNTIME_STATE_ROOT}/"
-             f"{SOFTWARE_STOPS_REGISTRY_DIRNAME}) — the value "
-             "deploy/com.renquant.stops-liveness.plist arms the pager with",
+
+    ready = sub.add_parser(
+        "readiness",
+        help="classify the registry at the canonical path for ARMING: exit 0 only on "
+             "READY (valid + real writer heartbeat within budget); 10 UNSEEDED, "
+             "11 UNINITIALIZED (seed / never evaluated), 12 STALE, 13 CORRUPT",
     )
-    seed.add_argument(
-        "--registry-rel", default=DEFAULT_REGISTRY_REL,
-        help="relative registry path composed under --data-root (default: the "
-             "pipeline's DEFAULT_REGISTRY_PATH, %(default)s)",
+    _common(ready)
+    ready.add_argument(
+        "--max-staleness-minutes", type=float, default=DEFAULT_SEED_MAX_STALENESS_MINUTES,
+        help="readiness budget; the effective budget is min(this, the file's own) "
+             "(default %(default)s)",
+    )
+    ready.add_argument(
+        "--now", default=None,
+        help="ISO-8601 override for the current time (tests)",
     )
     return ap
 
 
-def main(argv: "list[str] | None" = None) -> int:
-    args = _build_parser().parse_args(argv)
-    if args.command != "seed":  # pragma: no cover - argparse enforces the choice
-        return SEED_EXIT_USAGE
-    data_root = (
-        Path(args.data_root).expanduser()
-        if args.data_root
-        else software_stops_registry_root(runtime_state_root())
-    )
+def _cli_seed(args: argparse.Namespace, data_root: Path) -> int:
     try:
         # Compute the path first so the verdict line can name it even on failure.
         path = seeded_registry_path(data_root, args.broker, registry_rel=args.registry_rel)
@@ -438,8 +600,39 @@ def main(argv: "list[str] | None" = None) -> int:
         print(f"SEED USAGE-ERROR: {exc}", file=sys.stderr)
         return SEED_EXIT_USAGE
     verdict = "EXISTS" if existed else "SEEDED"
-    print(f"{verdict}: {path} (broker={args.broker})")
+    print(f"{verdict}: {path} (broker={args.broker}) — bootstrap only; run `readiness` for the arming verdict")
     return SEED_EXIT_OK
+
+
+def _cli_readiness(args: argparse.Namespace, data_root: Path) -> int:
+    try:
+        now = datetime.datetime.fromisoformat(args.now) if args.now else None
+        path = seeded_registry_path(data_root, args.broker, registry_rel=args.registry_rel)
+        verdict = registry_readiness(
+            path, max_staleness_minutes=args.max_staleness_minutes, now=now,
+        )
+    except ImportError as exc:
+        print(f"READINESS IMPORT-FAIL: {exc}", file=sys.stderr)
+        return SEED_EXIT_IMPORT
+    except ValueError as exc:
+        print(f"READINESS USAGE-ERROR: {exc}", file=sys.stderr)
+        return SEED_EXIT_USAGE
+    print(f"{verdict.message} (broker={args.broker})")
+    return verdict.exit_code
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    args = _build_parser().parse_args(argv)
+    data_root = (
+        Path(args.data_root).expanduser()
+        if args.data_root
+        else software_stops_registry_root(runtime_state_root())
+    )
+    if args.command == "seed":
+        return _cli_seed(args, data_root)
+    if args.command == "readiness":
+        return _cli_readiness(args, data_root)
+    return SEED_EXIT_USAGE  # pragma: no cover - argparse enforces the choice
 
 
 if __name__ == "__main__":  # pragma: no cover
