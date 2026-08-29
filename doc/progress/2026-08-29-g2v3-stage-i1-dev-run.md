@@ -1,4 +1,63 @@
-# Progress: GOAL-2v3 Stage I-1 DEV RUN — all four bases pass the life screen; the I-2 trigger fires by 0.087
+# Progress: GOAL-2v3 Stage I-1 DEV RUN — all four bases pass the life screen; the I-2 trigger fires by 0.087   (PR #1088)
+
+STATUS:    delivered. Descriptive record of one preregistered `--dev-run`; the
+           bundle is committed unchanged; nothing rerun, nothing recommended,
+           no production path written (two docs + the bundle directory only).
+
+WHAT:      Commits the Stage I-1 development-run bundle (`report.json` +
+           `g2v3_stage_i1_audit.json.gz`) and records what it says against the
+           prereg text as written: all four bases clear the life bar (block-t
+           ≥ 1.0 overall @ h=13); B2 beats B0 by 0.0873 block-t units;
+           `stage_i2_trigger.fired: true` by the literal rule.
+
+WHY/DIR:   GOAL-2v3 intraday-granularity line: prereg #1076 → Stage I-0 gate
+           #1083 → I-1 harness #1084 → this run. The prereg's I-2 trigger is
+           what decides whether the line proceeds to the stacked meta-learner;
+           this record states the trigger's literal outcome AND its margin so
+           the operator sees both before any I-2 design is frozen.
+
+EVIDENCE:  §4(b) block — this PR makes a model/data claim.
+           artifact:      `doc/research/data/2026-08-29-g2v3-i1/i1-dev-20260829T113813Z-666484a7/report.json`
+                          (sha256 `666d9c6a…`, 28,451 B) + `g2v3_stage_i1_audit.json.gz`
+                          (sha256 `d124d8f2…`, 271,331 B) — run_id
+                          `i1-dev-20260829T113813Z-666484a7`, commit 666484a7, `clean_tree: true`.
+           prod or exp:   experiment — `run_status: DEV_RUN`, development window
+                          2020-08-01..2024-06-30 only (`frozen.dev_window`); the
+                          evaluation window 2024-07..2026-06 stays sealed; no live
+                          path read or written, no artifact promoted.
+           existing data: no prior Stage I-1 number exists — this is the first and
+                          only `--dev-run`. #1084 ran a synthetic smoke only (planted
+                          signal, B0 block-t 10.12, not comparable). Upstream gate:
+                          I-0 GATE_RUN `i0-gate-20260829-f3d5bf7b` PASS, BEAR
+                          n_eff_adj 191 vs bar 30 (#1083).
+           best-known?:   the only variant of Stage I-1. Among the four learned bases
+                          B2 (3.5915) is the highest; the naive reference s₀ = −r13
+                          scores higher (4.1861) but is not a base, is not gated, and
+                          the prereg compares it to nothing (descriptive only).
+           scope:         "this is the Stage I-1 dev-run bundle, experiment,
+                          development window; block-t @ h=13 B0 3.5042 / B1 3.1837 /
+                          B2 3.5915 / B3 3.2394, s₀ 4.1861; B2 − B0 = 0.0873; vs
+                          existing best: none (first run)"
+                          `[VERIFIED — report.json bases.*.overall.block_t,
+                          s0_reference.overall.block_t, base_vs_b0, stage_i2_trigger,
+                          provenance.source; re-read 2026-08-29]`.
+           Re-verified for r2 (2026-08-29, review r1 by codex): provenance /
+           gate-binding / gate-bundle tests + `test_require_progress_doc.py`
+           → 55 passed `[VERIFIED — pytest, 2026-08-29]`;
+           `validate_i1_provenance(report, audit, run_root)` → `[]` when the
+           validator is imported from the run's own checkout (its `GATE_AUDIT`
+           path constant is checkout-bound; from any other checkout the only
+           message is that path-string line, every hash check passes)
+           `[VERIFIED — in-session re-run, 2026-08-29]`.
+           The claim "the trigger fires" is the prereg's strict inequality on two
+           point estimates (no margin, no significance requirement); it is a
+           preregistered-rule outcome, not a conclusion that B2 is better than B0.
+
+NEXT:      a Stage I-2 preregistration frozen BEFORE any I-2 fit (agent-authored,
+           codex-reviewed, like #1076). The 0.087 margin is surfaced for the
+           operator's information, not applied as a gate. Nothing else is
+           unblocked; no rerun is planned.
+
 
 2026-08-29. Bottom line: the preregistered Stage I-1 development run
 (`--dev-run`, clean main commit 666484a7, authorized by the I-0 GATE_RUN bundle
