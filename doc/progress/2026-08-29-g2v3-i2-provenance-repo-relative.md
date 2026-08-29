@@ -106,5 +106,17 @@ validators; a malformed `source.repo_root`; a symlink inside the checkout to an
 outside copy with the right bytes. Artifacts still byte-identical
 `[VERIFIED shasum -a 256 -c]`.
 
+Follow-up on r2 (same session, second Claude session verifying at 78735625):
+a refused `inputs.strategy_config` record (symlink leaving the checkout) was
+still opened by the sector-map rebuild after the "resolves outside repo_root"
+line was recorded `[VERIFIED — read_text probe at 78735625: the refused
+link path was read]`. `_input_file_problems` now returns no path for a refused
+or malformed record and the rebuild is guarded on it, so nothing is read for a
+refused record; pinned by
+`test_refused_strategy_config_is_not_parsed_for_the_sector_map_rebuild`
+(outside file with a DIFFERENT sector_map behind the link: refusal line
+present, no sector_map / sha256 line). Four test files → 133 passed
+`[VERIFIED pytest, 2026-08-29]`.
+
 Memory tier touched: none (no new agreement; the lesson "tests that measure the
 operator's disk" already exists). Not self-merged; Codex approval is the gate.

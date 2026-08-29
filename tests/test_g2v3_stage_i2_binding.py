@@ -712,3 +712,24 @@ def test_symlink_escaping_repo_root_is_a_problem(tmp_path):
         r["provenance"]["inputs"][key].update(path=f"{run_root}/doc/{key}.link", path_relative=f"doc/{key}.link")
         problems = M.validate_i2_provenance(r, aud2, other)
         assert any(f"inputs.{key}.path resolves outside repo_root" in p for p in problems), (key, problems)
+
+
+def test_refused_strategy_config_is_not_parsed_for_the_sector_map_rebuild(tmp_path):
+    """After `inputs.strategy_config.path` is refused (symlink leaving the checkout), the sector-map rebuild must not
+    open it either: the outside file carries a DIFFERENT sector_map, so any read would add a sector_map_sha256 line."""
+    other = _checkout_elsewhere(tmp_path / "checkout")
+    rep, aud = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    sc = rep["provenance"]["inputs"]["strategy_config"]
+    cfg = json.loads(pathlib.Path(sc["path"]).read_text(encoding="utf-8"))
+    cfg["sector_map"] = dict(cfg["sector_map"], ZZZZ="Tampered")
+    outside = tmp_path / "outside" / "strategy_config.json"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps(cfg), encoding="utf-8")
+    (other / "doc" / "cfg_link.json").symlink_to(outside)
+    sc.update(path=rep["provenance"]["source"]["repo_root"] + "/doc/cfg_link.json", path_relative="doc/cfg_link.json",
+              sha256=M.sha256_file(outside))
+    problems = M.validate_i2_provenance(rep, aud, other)
+    assert any(p.startswith("inputs.strategy_config.path resolves outside repo_root") for p in problems), problems
+    assert not any("sector_map_sha256" in p or "strategy config unreadable" in p or "strategy_config.sha256" in p
+                   for p in problems), problems
+

@@ -946,13 +946,14 @@ def _bundle_dir_problems(block: dict, label: str, bound_dir: str, run_root: Opti
 
 
 def _input_file_problems(entry: dict, key: str, run_root: Optional[str],
-                         repo_root: pathlib.Path) -> Tuple[List[str], Optional[str], pathlib.Path]:
+                         repo_root: pathlib.Path) -> Tuple[List[str], Optional[str], Optional[pathlib.Path]]:
     """Check one `inputs.<key>` = {path, sha256[, path_relative]} record. A path under the run's repo root is
     checked at <repo_root>/<relative>; a path outside it (the umbrella's SPY parquet, the pinned strategy config)
-    can only be checked where it was recorded. Returns (problems, relative-or-None, the path checked)."""
+    can only be checked where it was recorded. Returns (problems, relative-or-None, the path checked — None when
+    the record was refused unread, so no caller opens a refused path either)."""
     problems = path_form_problems(f"inputs.{key}.path", entry.get("path"))
     if problems:
-        return problems, None, pathlib.Path(str(entry.get("path")))       # malformed: nothing is read for it
+        return problems, None, None                                       # malformed: nothing is read for it
     rel = repo_relative(entry.get("path"), run_root)
     if "path_relative" in entry:
         pr = entry.get("path_relative")
@@ -964,7 +965,7 @@ def _input_file_problems(entry: dict, key: str, run_root: Optional[str],
     p = (repo_root / rel) if rel is not None else pathlib.Path(str(entry.get("path")))
     if rel is not None and not confined(p, repo_root):
         problems.append(f"inputs.{key}.path resolves outside repo_root (symlink or traversal): {p}")
-        return problems, rel, p
+        return problems, rel, None                                        # refused: nothing is read for it
     if not p.is_file():
         problems.append(f"inputs.{key}.path missing on disk: {p}")
     elif sha256_file(p) != entry.get("sha256"):
@@ -1168,7 +1169,7 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
     if isinstance(sc, dict):
         more, _rel, p = _input_file_problems(sc, "strategy_config", run_root, repo_root)
         problems += more
-        if p.is_file():
+        if p is not None and p.is_file():                          # a refused record is not parsed either
             try:
                 cfgj = json.loads(p.read_text(encoding="utf-8"))
                 if sha256_json(dict(cfgj["sector_map"])) != _dig(prov, "inputs", "sector_map_sha256"):
