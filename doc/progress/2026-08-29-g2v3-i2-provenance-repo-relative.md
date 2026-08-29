@@ -91,5 +91,20 @@ Reproduction from any checkout (`<root>` = a fresh `git worktree add <root> <thi
                                     json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # []
     PY
 
+Review r2 (codex, MED): `repo_relative` used `PurePath.relative_to`, which keeps `..`,
+so `<recorded repo_root>/../outside/x` became the relative path `../outside/x` and
+`repo_root / rel` was read directly — a tampered `inputs.spy_daily` / `strategy_config`
+pointing at an outside file with a matching sha validated `[]` `[VERIFIED — reproduced]`.
+Fix: `_abs_segments` / `path_form_problems` — a recorded path (and `source.repo_root`)
+must be absolute with no '', '.' or '..' segment, else a problem in its own right, never
+"outside the repository"; `repo_relative` is a lexical strict-descendant test on those
+segments (its result can never carry a dot segment); `confined()` requires
+`(repo_root / rel).resolve()` inside `repo_root.resolve()` (symlinks resolved) before any
+read; `path_relative` must itself be relative and dot-free. Tests: the exact r2 repro for
+`spy_daily`, `strategy_config` and the census audit across six traversal forms, on both
+validators; a malformed `source.repo_root`; a symlink inside the checkout to an
+outside copy with the right bytes. Artifacts still byte-identical
+`[VERIFIED shasum -a 256 -c]`.
+
 Memory tier touched: none (no new agreement; the lesson "tests that measure the
 operator's disk" already exists). Not self-merged; Codex approval is the gate.

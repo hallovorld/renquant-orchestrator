@@ -889,15 +889,45 @@ def recorded_repo_root(prov: dict) -> Optional[str]:
     return str(root) if root else None
 
 
+_BAD_SEGMENTS = ("", ".", "..")
+
+
+def _abs_segments(path) -> Optional[List[str]]:
+    """Segments of an ABSOLUTE POSIX path that contains no '', '.' or '..' segment; None for anything else.
+    Lexical only — the form is judged on the recorded text, not on what a filesystem would do with it."""
+    s = str(path)
+    if not s.startswith("/"):
+        return None
+    segs = s[1:].split("/") if len(s) > 1 else []
+    return None if any(seg in _BAD_SEGMENTS for seg in segs) else segs
+
+
+def path_form_problems(label: str, path) -> List[str]:
+    """A recorded path that is not absolute, or carries a '', '.' or '..' segment, is a problem in its own right —
+    never silently 'outside the repository' (codex r2 on #1092: `<repo_root>/../outside/x` must not validate)."""
+    if path is not None and _abs_segments(path) is None:
+        return [f"{label} {str(path)!r} is not an absolute path free of '', '.' and '..' segments"]
+    return []
+
+
 def repo_relative(path, root) -> Optional[str]:
-    """`path` relative to `root` as POSIX text; None when either is missing or `path` is not under `root`.
-    Pure path arithmetic — nothing on disk is consulted."""
+    """`path` relative to `root` as POSIX text when both are well-formed absolute paths (see `_abs_segments`)
+    and `path` is lexically a strict descendant of `root`; None otherwise (missing, malformed, or not under
+    `root`). The result never contains a '', '.' or '..' segment. Pure path arithmetic."""
     if not path or not root:
         return None
-    try:
-        return pathlib.PurePath(str(path)).relative_to(pathlib.PurePath(str(root))).as_posix()
-    except ValueError:
+    ps, rs = _abs_segments(path), _abs_segments(root)
+    if ps is None or rs is None or len(ps) <= len(rs) or ps[:len(rs)] != rs:
         return None
+    return "/".join(ps[len(rs):])
+
+
+def confined(p: pathlib.Path, repo_root: pathlib.Path) -> bool:
+    """True iff `p`, with every symlink resolved, lies inside the resolved `repo_root`."""
+    try:
+        return p.resolve().is_relative_to(repo_root.resolve())
+    except (OSError, RuntimeError):
+        return False
 
 
 def _input_record(p) -> dict:
@@ -920,12 +950,21 @@ def _input_file_problems(entry: dict, key: str, run_root: Optional[str],
     """Check one `inputs.<key>` = {path, sha256[, path_relative]} record. A path under the run's repo root is
     checked at <repo_root>/<relative>; a path outside it (the umbrella's SPY parquet, the pinned strategy config)
     can only be checked where it was recorded. Returns (problems, relative-or-None, the path checked)."""
-    problems: List[str] = []
+    problems = path_form_problems(f"inputs.{key}.path", entry.get("path"))
+    if problems:
+        return problems, None, pathlib.Path(str(entry.get("path")))       # malformed: nothing is read for it
     rel = repo_relative(entry.get("path"), run_root)
-    if "path_relative" in entry and entry.get("path_relative") != rel:
-        problems.append(f"inputs.{key}.path_relative {entry.get('path_relative')!r} != {rel!r} "
-                        f"(path relative to the recorded repo root {run_root!r})")
+    if "path_relative" in entry:
+        pr = entry.get("path_relative")
+        if pr is not None and (str(pr).startswith("/") or any(seg in _BAD_SEGMENTS for seg in str(pr).split("/"))):
+            problems.append(f"inputs.{key}.path_relative {pr!r} is not a relative path free of '', '.' and '..' segments")
+        if pr != rel:
+            problems.append(f"inputs.{key}.path_relative {pr!r} != {rel!r} "
+                            f"(path relative to the recorded repo root {run_root!r})")
     p = (repo_root / rel) if rel is not None else pathlib.Path(str(entry.get("path")))
+    if rel is not None and not confined(p, repo_root):
+        problems.append(f"inputs.{key}.path resolves outside repo_root (symlink or traversal): {p}")
+        return problems, rel, p
     if not p.is_file():
         problems.append(f"inputs.{key}.path missing on disk: {p}")
     elif sha256_file(p) != entry.get("sha256"):
@@ -980,6 +1019,7 @@ def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
     run_root = recorded_repo_root(prov)
     if run_root is None:
         problems.append("provenance records neither source.repo_root nor invocation.cwd")
+    problems += path_form_problems("source.repo_root", run_root)
     entry = _dig(prov, "inputs", "census_audit")
     census_rel, census_on_disk = None, None
     if isinstance(entry, dict):
@@ -1045,6 +1085,7 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
     run_root = recorded_repo_root(prov)         # the run's OWN checkout root: recorded paths resolve against it
     if run_root is None:
         problems.append("provenance records neither source.repo_root nor invocation.cwd")
+    problems += path_form_problems("source.repo_root", run_root)
     # --- invocation + clock
     argv = need("invocation", "argv")
     if not (isinstance(argv, list) and argv):
