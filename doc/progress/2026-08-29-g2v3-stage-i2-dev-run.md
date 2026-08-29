@@ -63,8 +63,12 @@ EVIDENCE:  §4(b) block — this PR makes a model/data claim.
                           series.*.overall.block_t, common_sample,
                           base_refit.determinism_guard; re-read 2026-08-29]`.
            checks:        `validate_i2_provenance(report, audit, repo_root)` → `[]`
-                          from ANY checkout (review r1 below; reproduced from a
-                          fresh `git worktree add` at another absolute path);
+                          from ANY checkout holding the two umbrella inputs the
+                          bundle records — without them exactly their two
+                          `missing on disk` lines (review r1 below; reproduced
+                          from a fresh `git worktree add` at another absolute
+                          path; the condition: #1092 progress doc, "CI at
+                          9be7cdd4");
                           `tests/test_g2v3_stage_i2_binding.py` +
                           `tests/test_g2v3_stage_i2_harness.py` → 99 passed
                           `[VERIFIED — pytest, 2026-08-29]`. The audit's block series
@@ -114,7 +118,9 @@ I-1 record: `doc/research/2026-08-29-g2v3-stage-i1-dev-run.md` (#1088).
 `doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593/`:
 `report.json` (sha256 `8a2804fd…`, 66,036 B) + `g2v3_stage_i2_audit.json.gz`
 (sha256 `6629d29a…`, 529,055 B; uncompressed sha256 `ca3e6dc3…`, 1,529,481 B).
-`validate_i2_provenance` → no problems from any checkout (review r1 below);
+`validate_i2_provenance` → no problems from any checkout holding the two umbrella
+inputs the bundle records, exactly their `missing on disk` lines elsewhere (review
+r1 below; condition: `doc/progress/2026-08-29-g2v3-i2-provenance-repo-relative.md`);
 I-2 binding + harness tests → 99 passed `[VERIFIED 2026-08-29]`. Commit 5269e593, `clean_tree: true`, UTC
 13:25:28–13:33:39, store manifest 1,508 hashed == gate audit, consumed-bar
 aggregate `4addcbe2…` (1,508 files) == the I-1 bundle's, I-1 harness sha256
@@ -178,7 +184,8 @@ bytes before and after `[VERIFIED — shasum -a 256 before/after]`.
   re-bound with the rule inside.
 - Tests (17 new, `tests/test_g2v3_stage_i2_binding.py`): a shared clone of
   HEAD at another absolute path holding the committed gate / I-1 / I-2 bundles
-  and the I-1 harness → both validators return `[]`; a tampered relative path,
+  and the I-1 harness → both validators return `[]` where the umbrella inputs
+  live and exactly their `missing on disk` lines elsewhere (CI); a tampered relative path,
   a path outside the recorded root, a changed `source.repo_root`, a tampered
   sha256 or `path_relative`, a foreign `gate_bundle.dir` / `i1_bundle.dir`, a
   tampered or deleted gate audit in that checkout → each still fails with its
@@ -193,11 +200,15 @@ Reproduction from any checkout (`<root>` = that checkout, e.g. a fresh
     root = pathlib.Path(".").resolve()
     b = root / "doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593"
     print(I2.validate_i2_provenance(json.load(open(b / "report.json")),
-                                    json.load(gzip.open(b / "g2v3_stage_i2_audit.json.gz")), root))   # []
+                                    json.load(gzip.open(b / "g2v3_stage_i2_audit.json.gz")), root))   # [] *
     b1 = root / I2.ACCEPTED_I1_BUNDLE["dir"]
     print(I2.validate_i1_provenance(json.load(open(b1 / "report.json")),
-                                    json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # []
+                                    json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # [] *
     EOF
+
+    * given the umbrella inputs each bundle records (`data/ohlcv/SPY/1d.parquet`, the pinned
+      `strategy_config.json`) on disk where recorded; without them, exactly their two
+      `inputs.<x>.path missing on disk` lines and nothing else.
 
 ## Next decision and whose it is
 

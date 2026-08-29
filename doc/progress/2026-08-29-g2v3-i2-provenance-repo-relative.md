@@ -85,11 +85,15 @@ Reproduction from any checkout (`<root>` = a fresh `git worktree add <root> <thi
     root = pathlib.Path(".").resolve()
     b = root / "doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593"
     print(I2.validate_i2_provenance(json.load(open(b / "report.json")),
-                                    json.load(gzip.open(b / "g2v3_stage_i2_audit.json.gz")), root))   # []
+                                    json.load(gzip.open(b / "g2v3_stage_i2_audit.json.gz")), root))   # [] *
     b1 = root / I2.ACCEPTED_I1_BUNDLE["dir"]
     print(I2.validate_i1_provenance(json.load(open(b1 / "report.json")),
-                                    json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # []
+                                    json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # [] *
     PY
+
+    * given the two umbrella inputs each bundle records (`data/ohlcv/SPY/1d.parquet`, the
+      pinned `strategy_config.json`) on disk where recorded; without them, exactly their two
+      `inputs.<x>.path missing on disk` lines and nothing else — see "CI at 9be7cdd4" below.
 
 Review r2 (codex, MED): `repo_relative` used `PurePath.relative_to`, which keeps `..`,
 so `<recorded repo_root>/../outside/x` became the relative path `../outside/x` and
@@ -117,6 +121,43 @@ refused record; pinned by
 (outside file with a DIFFERENT sector_map behind the link: refusal line
 present, no sector_map / sha256 line). Four test files → 133 passed
 `[VERIFIED pytest, 2026-08-29]`.
+
+CI at 9be7cdd4 (both `test` jobs red — 5 failed / 7000 passed / 74 skipped
+`[VERIFIED — gh run view 33257622787 / 33257625808 --log-failed]`): five of the new
+tests measured the operator's disk — the very defect this PR names. The two
+"committed bundle validates from a checkout at another path" tests asserted `== []`,
+but each committed bundle records two inputs OUTSIDE this repository (the umbrella's
+`data/ohlcv/SPY/1d.parquet`, the pinned `strategy_config.json`) that the validator can
+only check where they were recorded, and the frozen I-1 harness also reads the census
+audit at the run's scratchpad-worktree path; the r2-repro cases for `spy_daily` /
+`strategy_config` and the sector-map guard test copied those umbrella files' bytes. The
+runner clones no umbrella, so: `inputs.spy_daily.path missing on disk` +
+`inputs.strategy_config.path missing on disk` from both portable validators, those plus
+the census line from the frozen harness (4 lines, not 1), and `FileNotFoundError` in the
+other three `[VERIFIED — the same two-line / four-line verdicts reproduced locally with
+the recorded outside paths re-pointed at nonexistent ones]`.
+
+Fix (tests only; validator and bundles untouched): `_recorded_inputs_absent_here(rep)`
+derives the validators' exact verdict on THIS machine — one `missing on disk` line per
+recorded input it does not hold (outside-the-repo inputs for the portable validators;
+every input for the frozen harness) — and the two bundle tests assert equality with it:
+`[]` where the umbrella inputs live, exactly those lines and nothing else elsewhere, so a
+checkout at another path still pins that the repo-relative census / gate / I-1 identity
+is clean (a skip would not). The r2 repro for the umbrella inputs writes synthetic bytes
+and re-points the record's sha256 at them (the r2 move itself; the refusal is lexical,
+before any byte is read) — the census case stays a byte copy of the checkout's audit. The
+sector-map guard test uses a minimal config with a foreign `sector_map` and a positive
+control (the same bytes at a confined path DO add the `inputs.sector_map_sha256` line),
+so its "not parsed" assertion is not vacuous. The `-> []` claim here and in the #1091
+record docs is stated with its condition (footnote above).
+
+Four test files → 133 passed `[VERIFIED pytest, 2026-08-29]`. The binding file under a
+CI-condition shim (a `pathlib.Path.is_file` override reporting every umbrella and
+scratchpad-worktree path absent, as on the runner) → 88 passed; the same shim on the
+pre-fix tests → 2 failed / 86 passed, the two verdict failures CI showed (the three
+`FileNotFoundError` cases are the umbrella reads themselves, which the fix removes)
+`[VERIFIED pytest -p ci_sim, 2026-08-29]`. The CI result itself is read off the PR checks
+after the push, not asserted here.
 
 Memory tier touched: none (no new agreement; the lesson "tests that measure the
 operator's disk" already exists). Not self-merged; Codex approval is the gate.
