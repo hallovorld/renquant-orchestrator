@@ -508,3 +508,117 @@ def test_dev_run_claims_are_held_to_the_frozen_folds_guard_and_bundles(prov_run)
     assert "DEV_RUN store_manifest_check.strict is not True" in joined
     assert "DEV_RUN census audit is not the gate bundle's audit" in joined
     assert "DEV_RUN outputs.bundle_dir" in joined
+
+
+# --------------------------------------------------------------------------- #
+# path identity is REPO-RELATIVE: the committed bundles validate from a checkout at ANY absolute path
+# (codex r1 on #1091: the recorded absolute prefix is the run's scratchpad worktree, not the reviewer's checkout)
+# --------------------------------------------------------------------------- #
+I2_BUNDLE_DIR = "doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593"
+GATE_AUDIT_REL = f"{M.ACCEPTED_GATE_BUNDLE['dir']}/{M.ACCEPTED_GATE_BUNDLE['audit_file']}"
+_CHECKOUT_PATHS = [M.ACCEPTED_GATE_BUNDLE["dir"], B["dir"], I2_BUNDLE_DIR, M.I1_HARNESS_PATH]
+
+
+def _checkout_elsewhere(dst: pathlib.Path) -> pathlib.Path:
+    """A git checkout of this repository's HEAD at another absolute path, holding the gate / I-1 / I-2 bundles and
+    the I-1 harness exactly as COMMITTED (a shared clone: no object copy, nothing written to the source repo)."""
+    subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(REPO), str(dst)], check=True)
+    subprocess.run(["git", "-C", str(dst), "checkout", "-q", "HEAD", "--", *_CHECKOUT_PATHS], check=True)
+    assert dst.resolve() != REPO.resolve()
+    return dst
+
+
+def _bundle(root: pathlib.Path, rel: str, audit_name: str):
+    d = root / rel
+    return json.load(open(d / "report.json")), json.load(gzip.open(d / audit_name))
+
+
+@pytest.fixture(scope="module")
+def elsewhere(tmp_path_factory):
+    return _checkout_elsewhere(tmp_path_factory.mktemp("elsewhere") / "checkout")
+
+
+def test_repo_relative_is_pure_path_arithmetic():
+    assert M.repo_relative("/a/b/repo/doc/x.json", "/a/b/repo") == "doc/x.json"
+    assert M.repo_relative("/a/b/repo/doc/x.json", "/a/b/other") is None
+    assert M.repo_relative("/a/b/repo-2/doc/x.json", "/a/b/repo") is None       # prefix, not a parent
+    assert M.repo_relative(None, "/a/b/repo") is None and M.repo_relative("/a/b/repo/x", None) is None
+
+
+def test_committed_i2_bundle_validates_from_a_checkout_at_another_path(elsewhere):
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    recorded = rep["provenance"]["inputs"]["census_audit"]["path"]
+    assert not recorded.startswith(str(elsewhere)) and not pathlib.Path(recorded).is_relative_to(elsewhere)
+    assert M.validate_i2_provenance(rep, aud, elsewhere) == []
+    assert M.validate_i2_provenance(rep, aud, REPO) == []
+
+
+def test_committed_i1_bundle_validates_from_a_checkout_at_another_path_via_the_portable_entry_point(elsewhere):
+    """The I-1 harness is frozen by I1_HARNESS_SHA256, so its validator keeps comparing the recorded ABSOLUTE
+    census-audit path with the reviewer's GATE_AUDIT; `M.validate_i1_provenance` substitutes the repo-relative
+    rule for exactly that verdict. When the I-1 harness is ever re-bound with the rule inside, the first
+    assertion flips and this wrapper can go."""
+    rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
+    raw = I1.validate_i1_provenance(rep, aud, elsewhere)
+    assert len(raw) == 1 and raw[0].startswith("DEV_RUN census audit is not the gate bundle's audit"), raw
+    assert M.validate_i1_provenance(rep, aud, elsewhere) == []
+    assert M.validate_i1_provenance(rep, aud, REPO) == []
+
+
+def _census(rep):
+    return rep["provenance"]["inputs"]["census_audit"]
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: _census(r).update(path=r["provenance"]["source"]["repo_root"] + "/" + M.ACCEPTED_GATE_BUNDLE["dir"]
+                                 + "/report.json"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(path="/elsewhere/" + GATE_AUDIT_REL), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: r["provenance"]["source"].update(repo_root="/elsewhere"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(sha256="0" * 64), "inputs.census_audit.sha256"),
+    (lambda r: _census(r).update(path_relative="doc/other.json.gz"), "inputs.census_audit.path_relative"),
+    (lambda r: r["provenance"]["gate_bundle"].update(dir="/elsewhere/" + M.ACCEPTED_GATE_BUNDLE["dir"]), "gate_bundle.dir"),
+    (lambda r: r["provenance"]["i1_bundle"].update(dir=r["provenance"]["source"]["repo_root"] + "/doc/other"), "i1_bundle.dir"),
+    (lambda r: (r["provenance"]["source"].pop("repo_root"), r["provenance"]["invocation"].pop("cwd")),
+     "neither source.repo_root nor invocation.cwd"),
+])
+def test_i2_path_identity_tampers_are_caught_from_another_checkout(elsewhere, mutate, expect):
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    mutate(rep)
+    problems = M.validate_i2_provenance(rep, aud, elsewhere)
+    assert any(expect in p for p in problems), (expect, problems)
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: _census(r).update(path="/elsewhere/" + GATE_AUDIT_REL), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(path=r["provenance"]["source"]["repo_root"] + "/" + M.ACCEPTED_GATE_BUNDLE["dir"]
+                                 + "/report.json"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(sha256="0" * 64), "inputs.census_audit.sha256"),
+    (lambda r: r["provenance"]["gate_bundle"].update(dir="/elsewhere/" + M.ACCEPTED_GATE_BUNDLE["dir"]), "gate_bundle.dir"),
+])
+def test_i1_path_identity_tampers_are_caught_from_another_checkout(elsewhere, mutate, expect):
+    rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
+    mutate(rep)
+    problems = M.validate_i1_provenance(rep, aud, elsewhere)
+    assert any(expect in p for p in problems), (expect, problems)
+
+
+def test_tampered_gate_audit_in_the_other_checkout_fails_both_validators(tmp_path):
+    other = _checkout_elsewhere(tmp_path / "checkout")
+    rep2, aud2 = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    rep1, aud1 = _bundle(other, B["dir"], B["audit_file"])
+    (other / GATE_AUDIT_REL).write_bytes(b"not the audit")
+    for problems in (M.validate_i2_provenance(rep2, aud2, other), M.validate_i1_provenance(rep1, aud1, other)):
+        joined = "\n".join(problems)
+        assert "inputs.census_audit.sha256 != file on disk" in joined, problems
+        assert "gate_bundle.audit_sha256 != sha256 of" in joined, problems
+    (other / GATE_AUDIT_REL).unlink()
+    assert any("inputs.census_audit.path missing on disk" in p for p in M.validate_i2_provenance(rep2, aud2, other))
+    assert any("inputs.census_audit.path missing on disk" in p for p in M.validate_i1_provenance(rep1, aud1, other))
+
+
+def test_future_runs_record_path_relative(prov_run):
+    """The harness now records `path_relative` (None for inputs outside the repo) and the validator checks it."""
+    inp = prov_run["report"]["provenance"]["inputs"]
+    for key in ("census_audit", "spy_daily", "strategy_config"):
+        assert "path_relative" in inp[key]
+        assert inp[key]["path_relative"] == M.repo_relative(inp[key]["path"], prov_run["report"]["provenance"]["source"]["repo_root"])
