@@ -25,9 +25,11 @@ LEDGER = REPO / "ops" / "ops_audit_acks.json"
 ACK_FP = "e3ecdd6587cdaf4e"
 
 
-#: The exact line the live detector emits — reachability included.
-LIVE_TEXT = ("gate-stamp parity: 36 artifact(s) scanned — 16 carry BOTH copies "
-             "(0 of them SERVED by a pinned config), 20 canonical-only, "
+#: The exact line the live detector emits — reachability included. Re-read
+#: 2026-08-29 (ack renewal): 36->46 scanned / 20->30 canonical-only since the
+#: 2026-08-05 line; the 10 new artifacts are canonical-only (one stamp each).
+LIVE_TEXT = ("gate-stamp parity: 46 artifact(s) scanned — 16 carry BOTH copies "
+             "(0 of them SERVED by a pinned config), 30 canonical-only, "
              "0 legacy-only, 0 no stamp, 0 malformed, 0 unreadable")
 
 
@@ -70,12 +72,12 @@ class TestTheAckIsBoundToARealFinding:
         assert numbers(text) == ack["numbers_when_acked"]
 
     def test_it_classifies_as_ACKED_today(self, ledger):
-        d = classify("gate-stamp-parity", LIVE_TEXT, ledger, dt.date(2026, 8, 5))
+        d = classify("gate-stamp-parity", LIVE_TEXT, ledger, dt.date(2026, 8, 29))
         assert d["state"] == ACKED, d
 
 
 class TestTheAckCoversASituationNotAMagnitude:
-    def _classify(self, ledger, text, day=dt.date(2026, 8, 5)):
+    def _classify(self, ledger, text, day=dt.date(2026, 8, 29)):
         return classify("gate-stamp-parity", text, ledger, day)["state"]
 
     def test_a_CONFIG_CHANGE_ALONE_breaks_the_ack(self, ledger):
@@ -101,17 +103,21 @@ class TestTheAckCoversASituationNotAMagnitude:
         """A legacy-only stamp means a reader can get a verdict the canonical
         copy never gave."""
         s = self._classify(ledger, LIVE_TEXT.replace(
-            "20 canonical-only, 0 legacy-only", "19 canonical-only, 1 legacy-only"))
+            "30 canonical-only, 0 legacy-only", "29 canonical-only, 1 legacy-only"))
         assert s == CHANGED, s
 
     def test_MORE_both_copy_artifacts_breaks_the_ack(self, ledger):
         s = self._classify(ledger, LIVE_TEXT.replace(
-            "36 artifact(s) scanned — 16 carry", "40 artifact(s) scanned — 20 carry"))
+            "46 artifact(s) scanned — 16 carry", "50 artifact(s) scanned — 20 carry"))
         assert s == CHANGED, s
 
     def test_it_EXPIRES_on_its_own(self, ledger):
-        """'No config points at it' is a fact about today's configs."""
-        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 6)) == EXPIRED
+        """'No config points at it' is a fact about today's configs. The
+        binding date is acked_at + ACK_MAX_AGE_DAYS (14) — the 2026-08-05 ack
+        wrote 2026-09-05 and actually expired 2026-08-19; the renewal states
+        the effective bound (2026-09-12) as its expires_at."""
+        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 11)) == ACKED
+        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 12)) == EXPIRED
 
 
 class TestWhatWasDELIBERATELYNotAcked:
