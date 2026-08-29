@@ -163,7 +163,18 @@ class TestManifestGeneration:
     #: legs it inspects. That removes the cadence guess entirely (codex: a
     #: 15:30 slot chosen from a manual run's clock would have paged MISSING on
     #: a still-running fleet) and it removes the pending-install state with it.
-    PENDING_INSTALL: set[str] = set()
+    #: 2026-08-29 (fractional dependency chain, step 5): the software-stop
+    #: liveness pager `com.renquant.stops-liveness` is DECLARED on the reviewed
+    #: surface (deploy/com.renquant.stops-liveness.plist now executes the
+    #: wrapper from the PINNED run checkout; manifest entry produced by
+    #: scan_launchd_plists) but NOT installed: `scripts/install_stops_pager.sh
+    #: install --apply` is an ask-first landing step and is refused by its own
+    #: registry guard until the sell-only loop stamps the registry at the
+    #: neutral root (doc/progress/2026-08-29-stops-liveness-pager-manifest.md).
+    #: The scheduled drift scan keeps alarming "manifested job ... missing from
+    #: disk" until then — the designed reminder. The exact-equality test below
+    #: goes red the moment the plist IS installed, forcing this entry out.
+    PENDING_INSTALL: set[str] = {"com.renquant.stops-liveness"}
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
     #: the operator machine, pending the uninstall item of a tracked grant.

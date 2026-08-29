@@ -974,8 +974,17 @@ def _scheduled_wrappers(manifest_path: str, ops_dir: str) -> list[tuple[str, str
         for a in args:
             if not str(a).endswith(".sh"):
                 continue
-            local = os.path.join(ops_dir, *str(a).split("/ops/")[-1].split("/")) \
-                if "/ops/" in str(a) else None
+            if "/ops/" in str(a):
+                local = os.path.join(ops_dir, *str(a).split("/ops/")[-1].split("/"))
+            elif "/scripts/" in str(a):
+                # Same rule for a wrapper this repo ships under scripts/ next to
+                # ops/ (scripts/stops_liveness_pager.sh, manifested 2026-08-29):
+                # a manifested wrapper of THIS repo must be inspected here, not
+                # reported as an unowned foreign path.
+                local = os.path.join(os.path.dirname(ops_dir), "scripts",
+                                     *str(a).split("/scripts/")[-1].split("/"))
+            else:
+                local = None
             if local and os.path.exists(local):
                 out.append((job, str(a), local))
             else:                       # wrapper lives outside this repo's ops/

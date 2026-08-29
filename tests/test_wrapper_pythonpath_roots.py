@@ -219,6 +219,31 @@ def test_a_declared_boundary_cannot_hide_a_wrapper_that_IS_present(tmp_path):
     assert any("by FALLBACK" in p for p in problems), problems
 
 
+def test_a_wrapper_under_this_repos_scripts_dir_resolves_like_ops(tmp_path):
+    """2026-08-29: com.renquant.stops-liveness is the first manifested job whose
+    wrapper ships under this repo's scripts/ rather than ops/. The resolver
+    mapped only `/ops/` paths into the checkout, so that entry read as an
+    unowned foreign path — a PROBLEM on a fleet with nothing wrong. Same rule
+    for `/scripts/`: resolve against the sibling of ops_dir, then READ it."""
+    (tmp_path / "ops").mkdir()
+    (tmp_path / "scripts").mkdir()
+    wrapper = tmp_path / "scripts" / "pager.sh"
+    wrapper.write_text('export PYTHONPATH="/one/reviewed/root"\n', encoding="utf-8")
+    declared = "/some/run/checkout/scripts/pager.sh"
+    mp = _manifest(tmp_path, {"com.renquant.pager": {"program_args": ["/bin/bash", declared]}})
+    inv = D._scheduled_wrappers(mp, str(tmp_path / "ops"))
+    assert inv == [("com.renquant.pager", declared, str(wrapper))], inv
+    problems, infos = D.check_wrapper_pythonpath_roots(
+        str(tmp_path / "ops"), "/nonexistent-repos-root", mp)
+    assert problems == [], problems
+    assert any("com.renquant.pager" in i and "deterministic root" in i for i in infos), infos
+    # absent locally -> still unresolvable, still the inverted default
+    mp2 = _manifest(tmp_path, {"com.renquant.ghost": {"program_args": ["/x/scripts/ghost.sh"]}})
+    problems, _ = D.check_wrapper_pythonpath_roots(
+        str(tmp_path / "ops"), "/nonexistent-repos-root", mp2)
+    assert any("ghost.sh" in p and "not covered by any declared" in p for p in problems), problems
+
+
 def test_the_longest_matching_boundary_root_wins(tmp_path):
     """A nested owner must not be absorbed by the tree containing it."""
     mp = _manifest(

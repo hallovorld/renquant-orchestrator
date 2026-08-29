@@ -41,6 +41,28 @@
 
   Neither gap blocks MERGING this template (no umbrella dependency remains
   in committed configuration). Both block ARMING/INSTALLING.
+
+  2026-08-29 (fractional dependency chain, step 5 - scheduling surface):
+  * ProgramArguments now runs the wrapper from the PINNED run checkout
+    (/Users/renhao/git/github/renquant-orchestrator-run/scripts/), the
+    same checkout every other manifested com.renquant.* job executes from
+    (ops/launchd_manifest.json) - never the dev working tree, whose branch
+    is whatever the operator last checked out.
+  * The job is declared in ops/launchd_manifest.json (entry
+    com.renquant.stops-liveness; digest produced by
+    run_surface_drift_check.scan_launchd_plists on this file). Until
+    `scripts/install_stops_pager.sh install` is applied, the daily
+    run-surface drift scan reports "manifested job ... missing from disk"
+    - that alarm is the designed reminder (CLAUDE.md CONTAINMENT
+    PROTOCOL c), not a defect. install_stops_pager.sh refuses to arm a
+    plist that disagrees with the manifest entry.
+  * StartInterval stays 600s (10 min): the checker self-gates to the NYSE
+    session (renquant_execution.software_stops_liveness.market_session_open),
+    returning OK off-session, so one all-day interval covers RTH and every
+    arming window without duplicating calendar logic here. 10 min is the
+    "I" term of the alert-latency envelope (page_time = T0 + (B - C) + I + D;
+    B = max_staleness_minutes 30, C = 12-min sell-only cadence) - shortening
+    it below the sell-only cadence is what keeps the envelope at ~18-28 min.
 -->
 <plist version="1.0">
 <dict>
@@ -49,7 +71,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/renhao/git/github/renquant-orchestrator/scripts/stops_liveness_pager.sh</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/scripts/stops_liveness_pager.sh</string>
     </array>
     <key>StartInterval</key>
     <integer>600</integer>
