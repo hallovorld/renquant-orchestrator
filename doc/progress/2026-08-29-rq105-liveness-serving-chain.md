@@ -28,8 +28,10 @@ in §Landing.
   absent (...)]`, `rc=0` `[VERIFIED — same run]`.
 - **Boot catch-up:** `RunAtLoad=true` in the two reviewed plists +
   `ops/renquant105/rq105_catchup_guard.sh` sourced by both wrappers (run iff
-  Mon–Fri, slot ≤ local time < 13:00, today's output missing; otherwise one
-  stamped line in a guard log that lies OUTSIDE the manifest's evidence globs).
+  the date is an NYSE session, slot ≤ local time < that session's ACTUAL local
+  close from `rq105_catchup_cutoff.py` — r2 —, today's output missing;
+  otherwise one stamped line in a guard log that lies OUTSIDE the manifest's
+  evidence globs).
 - **Drift scan now compares declared launchd intents** (`run_at_load`,
   `keep_alive`) against the installed plists. After this PR reaches the `-run`
   checkout the daily scan WILL alarm `RunAtLoad intent NOT installed` on both
@@ -79,18 +81,23 @@ reconstructed in `tmp_path`.
 
 ## Boot catch-up (`rq105_catchup_guard.sh`, wrappers, plists, manifest)
 
-- Rule, applied to EVERY invocation (calendar or load): RUN iff weekday AND
-  `slot <= HHMM < 1300` AND at least one named output is missing; else exit 0
-  after exactly one stamped line. Export: slot 0615, outputs = the bundle pair.
-  Scheduler: slot 0625, output = `session_scheduler_<d>.log` (written on every
-  real run, armed or not; a mid-session start is the scheduler's designed
-  self-gated case). 13:00 = NYSE close in local PT: a "pre-market frozen"
-  vector exported after the session would be a post-hoc artifact.
+- Rule, applied to EVERY invocation (calendar or load): RUN iff `<date>` is
+  an NYSE session AND `slot <= HHMM < <that session's local close>` AND at
+  least one named output is missing; else exit 0 after exactly one stamped
+  line. Export: slot 0615, outputs = the bundle pair. Scheduler: slot 0625,
+  output = `session_scheduler_<d>.log` (written on every real run, armed or
+  not; a mid-session start is the scheduler's designed self-gated case). The
+  close comes from `rq105_catchup_cutoff.py` (§r2): 13:00 PT on a normal
+  session, 10:00 PT on an early-close session, REFUSED on a weekend/holiday.
+  A "pre-market frozen" vector exported after the session would be a
+  post-hoc artifact.
 - The guard log is `logs/rq105/catchup_guard_<job>_<d>.log`, never the
   wrapper's evidence log; `test_guard_logs_never_match_the_manifest_evidence_globs`
   proves a load-time skip cannot read as "the job fired today".
-- Guard return 2 (usage) is FATAL in the wrappers, never a silent skip. The
-  guard runs BEFORE the pinned-common resolver so a skip needs no pin.
+- Guard return 2 (usage / missing wrapper environment) is FATAL in the
+  wrappers, never a silent skip. The guard runs AFTER the pinned-common
+  resolver and the `PYTHONPATH` export (r2; r1 had it before, "a skip needs
+  no pin" — a skip that needs no pin cannot know the session's close).
 - Plists: `RunAtLoad=true` added; `ProgramArguments` unchanged, so
   `program_args_sha256` in `ops/launchd_manifest.json` is unchanged; the
   manifest entries record `run_at_load: true` + why.
@@ -100,9 +107,94 @@ reconstructed in `tmp_path`.
   `keep_alive` (declared 2026-07-22) compared equal on this machine
   `[VERIFIED — tests/test_run_surface_drift_check.py::TestManifestGeneration::test_NO_residual_problem_of_any_other_kind, residual == []]`.
 
+## r2 — codex round 1 (2026-08-29): catch-up eligibility bound to the exchange calendar
+
+Codex, verbatim: "the catch-up window is not session-calendar aware. Both
+wrappers pass a fixed `1300` PT cutoff and the guard only distinguishes
+weekdays. On NYSE early-close sessions, the market closes at 10:00 PT, so a
+boot/bootstrap between 10:00 and 13:00 will create the supposedly frozen
+batch export after the session has ended and can start the scheduler after
+there is no session left."
+
+Correct. Measured against the primitive itself `[VERIFIED — this session,
+`renquant_common.market_calendar.default_session_calendar().session_bounds`
+under `TZ=America/Los_Angeles`]`: 2026-11-27 and 2026-12-24 close 13:00 ET =
+**1000** PT; 2026-09-07 (Labor Day, a Monday) and 2026-07-03 (a Friday) are
+**not sessions**; a normal session closes 1300 PT. Under r1 a boot at 10:38 on
+2026-11-27 would have exported a "pre-session" bundle 38 minutes after the
+close, and a boot at 09:00 on 2026-09-07 would have started the scheduler for
+a session that does not exist.
+
+- **`ops/renquant105/rq105_catchup_cutoff.py` (new, fail-closed).** `--date
+  YYYY-MM-DD` → stdout `HHMM` of that date's ACTUAL close in the process-local
+  clock (the same clock as the wrapper's `$(date +%H%M)`), rc 0; a non-session
+  date → the reason, rc 1; a bad date / calendar import or backend failure / a
+  close that does not fall on the requested local date → the reason, rc 2.
+  The calendar is `renquant_orchestrator.intraday_quote_logger.
+  default_session_calendar` — the exact re-export that
+  `rq105_liveness_check._session_calendar` and the scheduler's own gate
+  resolve (`renquant_common.market_calendar`, `pandas_market_calendars` NYSE).
+  NO `sys.path` bootstrap, NO fallback: it imports whatever `PYTHONPATH`
+  names, and refuses when that fails.
+- **`rq105_catchup_guard.sh`.** Signature is now `<job> <date> <now HHMM>
+  <slot> <guard_log> <output>...` — the weekday number and the cutoff
+  argument are gone. It runs the helper as `$RQ_ROOT/.venv/bin/python` under
+  the wrapper's `PYTHONPATH`; the helper's stderr appends to the guard log.
+  Any answer other than "rc 0 and four digits" is a REFUSAL: one stamped
+  `SKIP calendar refused catch-up for <date> (helper rc=N: <reason>)` line,
+  the same line on stderr, return 1 → the wrapper exits 0. A missing
+  `RQ105_OPS_DIR` / `RQ_ROOT` / `PYTHONPATH` is return 2 → FATAL, never a
+  skip. The guard log is still `catchup_guard_<job>_<date>.log`, outside the
+  evidence globs; the idempotency rule (run only when a named output is
+  missing) is unchanged.
+- **Both wrappers.** The guard block moved to just AFTER
+  `rq105_resolve_common_src` and `export PYTHONPATH=…`, so the cutoff helper
+  imports the calendar from exactly the pinned code the job runs. Consequence:
+  a pin mismatch at load is FATAL (exit 1) on any day instead of a silent
+  skip — the same verdict the calendar fire would get. `1300` and
+  `$(date +%u)` no longer appear in either wrapper; `"$TS"` is the date.
+- **Cutoff = the session's actual close, not close-minus-margin.** The
+  boundary the guard enforces is "the session is still open" — a frozen
+  pre-session vector stamped with a session that has ended is a post-hoc
+  artifact — not "enough session left to be useful". Neither consumer needs
+  lead time from the guard: shadow serving reads the bundle at 13:45 local,
+  after every close, and the scheduler self-gates on this same calendar and
+  exits at the close, so a start at close-minus-one-minute writes its
+  manifest stamp and no ticks (its designed self-gated case) and still
+  leaves the wrapper-log line liveness looks for. A finer usefulness
+  threshold would be the consumer's rule, not the guard's.
+- **Untouched:** plists, `program_args_sha256`, the drift scan; the two
+  manifest `_run_at_load_comment` strings now describe the session-calendar
+  bound. **No live installation is needed for this correction** (codex): the
+  wrappers and the helper run from the `-run` checkout once synced; §Landing
+  is unchanged.
+
+Tests (`tests/test_rq105_liveness_serving_chain.py` §6, 46 tests, all under
+`bash` / `subprocess`): **6a** the shell guard with a STUBBED helper — RUN on
+a session day / at the slot (and the helper was called with `--date <date>`
+under the wrapper's `PYTHONPATH`); before-slot and at/after-cutoff skips;
+early-close stub `1000`: 0930 runs, 1000 / 1038 / 1259 refuse (1259 would
+have RUN under r1); six non-answers (non-session rc 1, weekend rc 1, calendar
+error rc 2, traceback-only rc 2, `13:00`, empty) all refuse with the reason
+stamped and the traceback in the guard log; idempotent pair; usage rc 2
+including the r1 weekday number; a missing `PYTHONPATH` / `RQ105_OPS_DIR` /
+`RQ_ROOT` → rc 2. **6b** the real helper against the real NYSE calendar:
+2026-08-31 / 08-28 → `1300`; 11-27 / 12-24 → `1000`; 09-07 / 07-03 / 08-29 /
+08-30 → rc 1 `non-session`; `TZ=America/New_York` → `1600`, `UTC` → `2000`;
+bad date rc 2; a raising stub package first on `PYTHONPATH` → rc 2
+`calendar error … calendar backend down`; `local_close_hhmm` raises on a
+close off the requested local date. **6c** guard + real helper + real
+calendar end to end: normal session before/at its close, early close before /
+at / after its 10:00 PT close (the 10:38 boot hour is REFUSED on 11-27),
+Christmas Eve mid-morning refused, Labor Day refused, Saturday / Sunday
+refused, idempotency preserved. Wrapper text: `"$TS"` + reviewed slots, no
+`1300`, no `date +%u`, guard AFTER the resolver and the `PYTHONPATH` export;
+the helper's import bound (AST) to the liveness check's primitive with no
+`sys.path` edit and no direct calendar-backend import.
+
 ## Tests
 
-`tests/test_rq105_liveness_serving_chain.py` (29 tests): the 08-28 filesystem
+`tests/test_rq105_liveness_serving_chain.py` (64 tests after r2): the 08-28 filesystem
 reconstruction → `export_missing` + `serving_noop`, urgent alert, DISARMED
 named in the body; stale-stamped bundle → `export_missing`; green day → OK
 line with `[scheduler DISARMED: arming file absent …]`; explicit
@@ -111,10 +203,9 @@ line with `[scheduler DISARMED: arming file absent …]`; explicit
 armed + ticking → OK `[scheduler ARMED: operator=… ; N tick record(s)]`;
 manifest-kind record counts, foreign kinds do not; 3 invalid arming payloads →
 `arming_invalid`; non-session day unchanged; literals bound to wrappers +
-resolvers; record kinds bound to the scheduler module; the shell guard under
-`bash` (run / exact slot / 6 skip shapes / idempotent pair / usage rc=2);
-wrappers call the guard with the reviewed slots before the pin resolver;
-guard logs outside evidence globs; plists carry `RunAtLoad` and stay Mon–Fri.
+resolvers; record kinds bound to the scheduler module; the shell guard and
+its calendar helper (§r2, 46 tests); guard logs outside evidence globs;
+plists carry `RunAtLoad` and stay Mon–Fri.
 `tests/test_run_surface_drift_check.py`: 5 intent tests + the bounded
 `PENDING_INTENT_INSTALL` relaxation with its exact-equality test.
 `tests/test_rq105_liveness.py`: the existing alert-shape test stubs
@@ -145,9 +236,9 @@ rq105 liveness OK 2026-08-27 [scheduler DISARMED: arming file absent (…)]
 Preconditions: this PR merged; `renquant-orchestrator-run` ff-synced to that
 main (merged ≠ deployed — the 14:00 liveness job and the drift scan both run
 from `-run`, so until the sync the OLD check runs). `bootstrap` fires
-`RunAtLoad` immediately: on a weekday between the slot and 13:00 with today's
-output missing the guard WILL run the job right then (designed catch-up);
-land outside that window, or accept it.
+`RunAtLoad` immediately: on an NYSE session day between the slot and that
+session's local close with today's output missing the guard WILL run the job
+right then (designed catch-up); land outside that window, or accept it.
 
 ```bash
 UID_NUM="$(id -u)"

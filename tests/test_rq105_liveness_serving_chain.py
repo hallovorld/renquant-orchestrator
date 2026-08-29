@@ -332,68 +332,301 @@ def test_scheduler_record_kinds_are_the_scheduler_modules_own():
 
 # ---------------------------------------------------------------------------
 # 6. shell catch-up guard (bash: the CI runner has no zsh)
+#
+# r2 (codex on the first draft): the cutoff is no longer a fixed 1300 and the
+# day test is no longer "weekday". The guard asks ops/renquant105/
+# rq105_catchup_cutoff.py for the date's ACTUAL local close, running it under
+# the wrapper's own PYTHONPATH (pinned orch src + pin-verified common) and
+# treating any non-zero / non-HHMM answer as a refusal. 6a drives the shell
+# guard with a STUBBED helper (the calendar answer is the test's input); 6b
+# runs the real helper against the real NYSE calendar; 6c runs guard + real
+# helper + real calendar end to end for the shapes codex named.
 # ---------------------------------------------------------------------------
-def _guard(tmp_path: Path, dow: int, now: str, *outputs: str, slot="0615", cutoff="1300"):
+HELPER = OPS / "rq105_catchup_cutoff.py"
+LA = "America/Los_Angeles"
+
+
+def _venv_root(tmp_path: Path) -> Path:
+    """An RQ_ROOT whose .venv/bin/python is THIS interpreter (the guard prefers
+    $RQ_ROOT/.venv/bin/python, as rq105_common_src.sh does)."""
+    rq = tmp_path / "rq"
+    (rq / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
+    py = rq / ".venv" / "bin" / "python"
+    if not py.exists():
+        # an exec shim, NOT a symlink: a python started through a symlink outside
+        # its venv does not find pyvenv.cfg and loses the venv's site-packages
+        py.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        py.chmod(0o755)
+    return rq
+
+
+def _stub_env(tmp_path: Path, stdout: str, rc: int, stderr: str = "") -> dict:
+    """An RQ105_OPS_DIR whose rq105_catchup_cutoff.py prints `stdout`, writes
+    `stderr`, exits `rc`, and records its argv + PYTHONPATH in helper_called.txt."""
+    ops = tmp_path / "ops"
+    ops.mkdir(exist_ok=True)
+    called = tmp_path / "helper_called.txt"
+    (ops / "rq105_catchup_cutoff.py").write_text(
+        "import os, sys, pathlib\n"
+        f"pathlib.Path({str(called)!r}).write_text(' '.join(sys.argv[1:]) + chr(10) + os.environ.get('PYTHONPATH', ''))\n"
+        f"sys.stderr.write({stderr!r})\n"
+        f"print({stdout!r})\n"
+        f"sys.exit({rc})\n"
+    )
+    return {"RQ105_OPS_DIR": str(ops), "RQ_ROOT": str(_venv_root(tmp_path)),
+            "PYTHONPATH": str(tmp_path / "pinned-src")}
+
+
+def _guard(tmp_path: Path, day: str, now: str, *outputs: str, slot="0615", env=None,
+           drop=(), job="batch-scores-export"):
     log = tmp_path / "guard.log"
-    cmd = (f'. "{OPS / "rq105_catchup_guard.sh"}"; rq105_catchup_guard batch-scores-export '
-           f'{dow} {now} {slot} {cutoff} "{log}" ' + " ".join(f'"{o}"' for o in outputs))
-    res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+    cmd = (f'. "{OPS / "rq105_catchup_guard.sh"}"; rq105_catchup_guard {job} '
+           f'{day} {now} {slot} "{log}" ' + " ".join(f'"{o}"' for o in outputs))
+    full_env = {**os.environ, **(env if env is not None else _stub_env(tmp_path, "1300", 0))}
+    for k in drop:
+        full_env.pop(k, None)
+    res = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=full_env)
     lines = log.read_text().splitlines() if log.exists() else []
     return res.returncode, lines, res.stderr
 
 
-def test_guard_runs_on_a_weekday_after_the_slot_when_output_is_missing(tmp_path):
-    rc, lines, _ = _guard(tmp_path, 5, "1038", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
+# --- 6a: the shell guard, helper stubbed -----------------------------------
+def test_guard_runs_on_a_session_day_after_the_slot_when_output_is_missing(tmp_path):
+    rc, lines, _ = _guard(tmp_path, "2026-08-28", "1038", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
     assert rc == 0
     assert len(lines) == 1 and " RUN " in lines[0] and "missing output" in lines[0]
+    assert "session close 1300" in lines[0]
+    # the helper was asked for THIS date, under the wrapper's PYTHONPATH
+    argv, pythonpath = (tmp_path / "helper_called.txt").read_text().split("\n")
+    assert argv == "--date 2026-08-28"
+    assert pythonpath == str(tmp_path / "pinned-src")
 
 
 def test_guard_runs_at_exactly_the_slot(tmp_path):
-    rc, lines, _ = _guard(tmp_path, 1, "0615", str(tmp_path / "b.json"))
+    rc, lines, _ = _guard(tmp_path, "2026-08-31", "0615", str(tmp_path / "b.json"))
     assert rc == 0 and " RUN " in lines[0]
 
 
-@pytest.mark.parametrize("dow,now,why", [
-    (6, "1038", "weekend"), (7, "0700", "weekend"),
-    (3, "0614", "before the 0615 slot"), (3, "0000", "before the 0615 slot"),
-    (3, "1300", "at/after the 1300 cutoff"), (3, "2359", "at/after the 1300 cutoff"),
+@pytest.mark.parametrize("now,why", [
+    ("0614", "before the 0615 slot"), ("0000", "before the 0615 slot"),
+    ("1300", "at/after the 1300 cutoff"), ("2359", "at/after the 1300 cutoff"),
 ])
-def test_guard_skips_outside_the_window(tmp_path, dow, now, why):
-    rc, lines, _ = _guard(tmp_path, dow, now, str(tmp_path / "b.json"))
+def test_guard_skips_outside_the_window(tmp_path, now, why):
+    rc, lines, _ = _guard(tmp_path, "2026-08-31", now, str(tmp_path / "b.json"))
     assert rc == 1
     assert len(lines) == 1 and " SKIP " in lines[0] and why in lines[0]
 
 
+@pytest.mark.parametrize("now,expect_rc,mark", [
+    ("0930", 0, " RUN "),                    # before a 10:00 PT early close
+    ("1000", 1, "at/after the 1000 cutoff"),  # AT the early close
+    ("1038", 1, "at/after the 1000 cutoff"),  # the 08-28 boot hour: refused on an early-close day
+    ("1259", 1, "at/after the 1000 cutoff"),  # the old fixed 1300 would have RUN here
+])
+def test_guard_honours_an_early_close_cutoff_from_the_helper(tmp_path, now, expect_rc, mark):
+    env = _stub_env(tmp_path, "1000", 0)
+    rc, lines, _ = _guard(tmp_path, "2026-11-27", now, str(tmp_path / "b.json"), env=env)
+    assert rc == expect_rc and len(lines) == 1 and mark in lines[0]
+
+
+@pytest.mark.parametrize("stdout,rc,stderr,why", [
+    ("non-session: 2026-09-07 is not an NYSE session (weekend/holiday)", 1, "", "non-session"),
+    ("non-session: 2026-08-29 is not an NYSE session (weekend/holiday)", 1, "", "weekend"),
+    ("calendar error for 2026-08-31: CalendarUnavailableError: pandas_market_calendars unavailable", 2, "", "CalendarUnavailableError"),
+    ("", 2, "Traceback (most recent call last):\n  boom\n", "no output"),
+    ("13:00", 0, "", "13:00"),   # rc 0 but not HHMM: still a refusal
+    ("", 0, "", "no output"),    # rc 0 and empty: still a refusal
+])
+def test_guard_refuses_when_the_helper_does_not_answer_a_session_close(tmp_path, stdout, rc, stderr, why):
+    """Every non-(0, HHMM) helper answer is a refusal: return 1 (the wrapper
+    exits 0), exactly one stamped SKIP line naming the helper's reason, never a
+    run — a missing session or a broken calendar can never become a run."""
+    env = _stub_env(tmp_path, stdout, rc, stderr)
+    grc, lines, err = _guard(tmp_path, "2026-09-07", "0900", str(tmp_path / "b.json"), env=env)
+    assert grc == 1
+    stamped = [l for l in lines if "[catch-up guard batch-scores-export]" in l]
+    assert len(stamped) == 1 and " SKIP " in stamped[0] and "calendar refused" in stamped[0]
+    assert f"helper rc={rc}" in stamped[0] and why in stamped[0]
+    assert "refused for 2026-09-07" in err
+    if stderr:
+        # the helper's stderr (a traceback) lands in the guard log, above the stamp
+        assert "boom" in "\n".join(lines)
+
+
 def test_guard_is_idempotent_when_every_output_exists(tmp_path):
     (tmp_path / "b.json").write_text("{}"); (tmp_path / "b.meta.json").write_text("{}")
-    rc, lines, _ = _guard(tmp_path, 2, "0900", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
+    rc, lines, _ = _guard(tmp_path, "2026-08-31", "0900", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
     assert rc == 1 and "already present" in lines[0]
     # one of two outputs missing -> run (the bundle is a PAIR)
     (tmp_path / "b.meta.json").unlink()
-    rc, lines, _ = _guard(tmp_path, 2, "0900", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
+    rc, lines, _ = _guard(tmp_path, "2026-08-31", "0900", str(tmp_path / "b.json"), str(tmp_path / "b.meta.json"))
     assert rc == 0 and len(lines) == 2
 
 
 def test_guard_usage_error_is_2_not_a_silent_skip(tmp_path):
-    rc, lines, err = _guard(tmp_path, 2, "0900")  # no outputs named
+    rc, lines, err = _guard(tmp_path, "2026-08-31", "0900")  # no outputs named
     assert rc == 2 and lines == [] and "usage" in err
-    rc, _, err = _guard(tmp_path, 2, "09x0", str(tmp_path / "b"))
+    rc, _, err = _guard(tmp_path, "2026-08-31", "09x0", str(tmp_path / "b"))
     assert rc == 2 and "non-numeric" in err
+    rc, _, err = _guard(tmp_path, "2026/08/31", "0900", str(tmp_path / "b"))
+    assert rc == 2 and "YYYY-MM-DD" in err
+    rc, _, err = _guard(tmp_path, "5", "0900", str(tmp_path / "b"))  # the r1 weekday number
+    assert rc == 2 and "YYYY-MM-DD" in err
 
 
-def test_wrappers_call_the_guard_with_the_reviewed_slots_and_treat_errors_as_fatal():
+@pytest.mark.parametrize("missing", ["PYTHONPATH", "RQ105_OPS_DIR", "RQ_ROOT"])
+def test_guard_requires_the_wrappers_environment_or_is_fatal(tmp_path, missing):
+    """The cutoff must come from the pinned calendar: without the wrapper's
+    PYTHONPATH / ops dir / root the guard cannot know which calendar it would
+    read, so it returns 2 (FATAL in the wrappers), never a skip and never a run."""
+    env = _stub_env(tmp_path, "1300", 0)
+    env.pop(missing)
+    rc, lines, err = _guard(tmp_path, "2026-08-31", "0900", str(tmp_path / "b.json"), env=env, drop=(missing,))
+    assert rc == 2 and lines == [] and missing in err
+
+
+# --- 6b: the real helper against the real NYSE calendar ----------------------
+def _src_pythonpath() -> str:
+    """This checkout's src first, then whatever the test run already had on
+    PYTHONPATH (CI puts the sibling renquant-common checkout there)."""
+    ambient = os.environ.get("PYTHONPATH", "")
+    return str(ROOT / "src") + (os.pathsep + ambient if ambient else "")
+
+
+def _cutoff(day: str, tz: str = LA, pythonpath: str | None = None):
+    env = {**os.environ, "TZ": tz, "PYTHONPATH": pythonpath if pythonpath is not None else _src_pythonpath()}
+    res = subprocess.run([sys.executable, str(HELPER), "--date", day], capture_output=True, text=True, env=env)
+    return res.returncode, res.stdout.strip(), res.stderr
+
+
+@pytest.mark.parametrize("day,rc,answer", [
+    ("2026-08-31", 0, "1300"),        # normal Monday: 16:00 ET = 13:00 PT
+    ("2026-08-28", 0, "1300"),        # the incident Friday
+    ("2026-11-27", 0, "1000"),        # day after Thanksgiving: 13:00 ET = 10:00 PT
+    ("2026-12-24", 0, "1000"),        # Christmas Eve early close
+    ("2026-09-07", 1, "non-session"), # Labor Day (Monday)
+    ("2026-07-03", 1, "non-session"), # Independence Day observed (Friday)
+    ("2026-08-29", 1, "non-session"), # Saturday
+    ("2026-08-30", 1, "non-session"), # Sunday
+])
+def test_cutoff_helper_answers_from_the_real_nyse_calendar(day, rc, answer):
+    got_rc, out, err = _cutoff(day)
+    assert got_rc == rc, (day, out, err)
+    assert out.startswith(answer), (day, out)
+    if rc == 1:
+        assert day in out and "weekend/holiday" in out
+
+
+def test_cutoff_helper_tracks_the_process_local_clock():
+    # the guard compares against $(date +%H%M): the helper answers in that same clock
+    assert _cutoff("2026-08-31", tz="America/New_York")[1] == "1600"
+    assert _cutoff("2026-11-27", tz="America/New_York")[1] == "1300"
+    assert _cutoff("2026-08-31", tz="UTC")[1] == "2000"
+
+
+def test_cutoff_helper_refuses_a_bad_date_with_rc_2():
+    rc, out, _ = _cutoff("2026-13-01")
+    assert rc == 2 and out.startswith("bad date")
+    rc, out, _ = _cutoff("5")
+    assert rc == 2 and out.startswith("bad date")
+
+
+def test_cutoff_helper_fails_closed_when_the_calendar_cannot_be_imported(tmp_path):
+    """No sys.path bootstrap, no fallback: the calendar comes from PYTHONPATH
+    or the helper refuses (rc 2). A stub package that raises stands in for a
+    broken pinned checkout / missing pandas_market_calendars."""
+    pkg = tmp_path / "renquant_orchestrator"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "intraday_quote_logger.py").write_text("raise RuntimeError('calendar backend down')\n")
+    rc, out, _ = _cutoff("2026-08-31", pythonpath=str(tmp_path))
+    assert rc == 2 and out.startswith("calendar error for 2026-08-31") and "calendar backend down" in out
+    rc, out, _ = _cutoff("2026-08-31", pythonpath=str(tmp_path / "nowhere"))
+    assert rc == 2 and out.startswith("calendar error for 2026-08-31")
+
+
+def test_cutoff_helper_refuses_a_close_that_is_not_on_the_requested_local_date():
+    import rq105_catchup_cutoff as cutoff
+
+    class _Cal:
+        def session_bounds(self, day):
+            close = dt.datetime(2026, 9, 1, 10, 0, tzinfo=dt.timezone.utc)  # 09-01 in every western tz
+            return types.SimpleNamespace(open=close - dt.timedelta(hours=6), close=close)
+
+    with pytest.raises(RuntimeError, match="not 2026-08-31"):
+        cutoff.local_close_hhmm(dt.date(2026, 8, 31), calendar=_Cal())
+
+    class _Closed:
+        def session_bounds(self, day):
+            return None
+
+    assert cutoff.local_close_hhmm(dt.date(2026, 9, 7), calendar=_Closed()) is None
+
+
+# --- 6c: guard + real helper + real calendar, end to end ---------------------
+def _real_env(tmp_path: Path) -> dict:
+    return {"RQ105_OPS_DIR": str(OPS), "RQ_ROOT": str(_venv_root(tmp_path)),
+            "PYTHONPATH": _src_pythonpath(), "TZ": LA}
+
+
+@pytest.mark.parametrize("day,now,expect_rc,mark", [
+    ("2026-08-28", "1038", 0, " RUN "),                       # the incident boot hour, normal Friday
+    ("2026-08-31", "1259", 0, " RUN "),                       # normal session, before its 13:00 PT close
+    ("2026-08-31", "1300", 1, "at/after the 1300 cutoff"),    # normal session, at its close
+    ("2026-11-27", "0930", 0, " RUN "),                       # early close, before its 10:00 PT close
+    ("2026-11-27", "1000", 1, "at/after the 1000 cutoff"),    # early close, at its close
+    ("2026-11-27", "1038", 1, "at/after the 1000 cutoff"),    # early close, the boot hour: REFUSED (r1 would have run)
+    ("2026-12-24", "1130", 1, "at/after the 1000 cutoff"),    # Christmas Eve, mid-morning: REFUSED
+    ("2026-09-07", "0900", 1, "non-session"),                 # Labor Day, a weekday: REFUSED (r1 would have run)
+    ("2026-08-29", "1038", 1, "non-session"),                 # Saturday
+    ("2026-08-30", "0700", 1, "non-session"),                 # Sunday
+])
+def test_guard_with_the_real_calendar(tmp_path, day, now, expect_rc, mark):
+    rc, lines, _ = _guard(tmp_path, day, now, str(tmp_path / "b.json"), env=_real_env(tmp_path))
+    assert rc == expect_rc, lines
+    assert len(lines) == 1 and mark in lines[0], lines
+
+
+def test_guard_with_the_real_calendar_stays_idempotent(tmp_path):
+    (tmp_path / "b.json").write_text("{}")
+    rc, lines, _ = _guard(tmp_path, "2026-11-27", "0930", str(tmp_path / "b.json"), env=_real_env(tmp_path))
+    assert rc == 1 and "already present" in lines[0]
+
+
+def test_wrappers_call_the_guard_after_the_pin_resolver_with_the_reviewed_slots_and_no_fixed_cutoff():
     exp = (OPS / "run_batch_scores_export.sh").read_text()
     sch = (OPS / "run_session_scheduler.sh").read_text()
     assert '. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"' in exp and '. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"' in sch
-    assert 'rq105_catchup_guard batch-scores-export "$(date +%u)" "$(date +%H%M)" 0615 1300' in exp
-    assert 'rq105_catchup_guard session-scheduler "$(date +%u)" "$(date +%H%M)" 0625 1300' in sch
+    assert 'rq105_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 \\' in exp
+    assert 'rq105_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 \\' in sch
     assert '"$RQ_ROOT/data/rq105/batch_scores_$TS.json"' in exp and '"$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"' in exp
     assert '"$LOG_DIR/session_scheduler_$TS.log"' in sch
     for text in (exp, sch):
+        # r2: no fixed cutoff, no weekday-number day test — the calendar decides both
+        assert "1300" not in text and "date +%u" not in text
         assert "1) exit 0 ;;" in text and "*) echo \"FATAL: catch-up guard error" in text
-    # The guard must run BEFORE the pinned-common resolver: a skip needs no pin.
-    assert exp.index("rq105_catchup_guard ") < exp.index("rq105_common_src.sh")
-    assert sch.index("rq105_catchup_guard ") < sch.index("rq105_common_src.sh")
+        # r2: the guard runs AFTER the pinned-common resolver and the PYTHONPATH
+        # export: the cutoff helper imports the calendar from the pinned code the
+        # job itself runs (a skip that needed no pin was a skip that could not
+        # know the session's close).
+        assert text.index("rq105_common_src.sh") < text.index("export PYTHONPATH=") < text.index("rq105_catchup_guard ")
+
+
+def test_helper_is_the_liveness_checks_calendar_and_has_no_path_fallback():
+    """Bound to the same primitive rq105_liveness_check._session_calendar
+    resolves, and to nothing else: no sys.path edits, no second calendar."""
+    import ast
+    tree = ast.parse(HELPER.read_text())
+    imports_from = [(n.module, [a.name for a in n.names]) for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)]
+    assert ("renquant_orchestrator.intraday_quote_logger", ["default_session_calendar"]) in imports_from
+    imported = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+        a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    assert not any(m and m.startswith(("pandas_market_calendars", "renquant_common")) for m in imported), imported
+    sys_path_edits = [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "path"
+                      and isinstance(n.value, ast.Name) and n.value.id == "sys"]
+    assert sys_path_edits == []
+    liveness_src = (OPS / "rq105_liveness_check.py").read_text()
+    assert "from renquant_orchestrator.intraday_quote_logger import default_session_calendar" in liveness_src
 
 
 def test_guard_logs_never_match_the_manifest_evidence_globs():

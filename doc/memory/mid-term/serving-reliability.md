@@ -83,7 +83,10 @@ earlier all-vetoed run was defect #3 impersonating the same answer
   bundle (`export_missing`), the serving log + `session_date` rows
   (`serving_noop`), and the scheduler when armed (`scheduler_dark`) — a
   DISARMED scheduler is named in the OK line, never silent. `RunAtLoad` +
-  `rq105_catchup_guard.sh` catch a boot-missed slot up to 13:00 local; the
+  `rq105_catchup_guard.sh` catch a boot-missed slot on an NYSE session day up
+  to that session's ACTUAL local close (r2, codex: `rq105_catchup_cutoff.py`
+  — 10:00 PT on an early-close day, refused on a weekday holiday; the r1
+  fixed 13:00 would have exported after an early close); the
   drift scan compares declared `run_at_load`/`keep_alive` intents against the
   installed plists. **Landing (bootout/bootstrap of the two plists + `-run`
   sync) is an operator action — until then the running check is the old one.**
