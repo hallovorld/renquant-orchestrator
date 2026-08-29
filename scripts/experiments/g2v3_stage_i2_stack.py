@@ -797,11 +797,10 @@ def run_stage_i2(cfg: I2Config, log=print) -> dict:
         gate_bundle=(base.gate.as_record() if base.gate is not None else None),
         i1_bundle=(cfg.i1.as_record() if cfg.i1 is not None else None),
         inputs=dict(
-            census_audit=dict(path=str(base.census_audit), sha256=sha256_file(base.census_audit)),
-            strategy_config=(dict(path=str(base.strategy_config), sha256=sha256_file(base.strategy_config))
-                             if base.strategy_config else None),
+            census_audit=_input_record(base.census_audit),
+            strategy_config=(_input_record(base.strategy_config) if base.strategy_config else None),
             sector_map_sha256=sha256_json(base.sector_map), sector_etf_map_sha256=sha256_json(base.sector_etf_map),
-            spy_daily=dict(path=str(base.spy_daily), sha256=sha256_file(base.spy_daily)),
+            spy_daily=_input_record(base.spy_daily),
             bar_store=str(base.bar_store)),
         store_manifest_check=dict(
             strict=dev, n_needed=len(manifest["needed"]), n_required_in_audit=len(manifest["required"]),
@@ -878,10 +877,170 @@ _DEV_ONLY_FROZEN = dict(meta_folds=[dict(m) for m in META_FOLDS], meta_oof_perio
                         meta_row_cap=META_ROW_CAP)
 
 
+# --------------------------------------------------------------------------
+# path identity is REPO-RELATIVE (codex r1 on #1091). A run records absolute paths; the prefix above its own
+# repo root is that run's environment (a scratchpad worktree that need not exist where the review happens).
+# What identifies a committed file is (its path relative to the run's repo root, its sha256): the validator
+# resolves the recorded path against the recorded root and checks the file at <this checkout>/<relative>.
+# --------------------------------------------------------------------------
+def recorded_repo_root(prov: dict) -> Optional[str]:
+    """The run's own checkout root as its report recorded it: `source.repo_root`, else `invocation.cwd`."""
+    root = _dig(prov, "source", "repo_root") or _dig(prov, "invocation", "cwd")
+    return str(root) if root else None
+
+
+_BAD_SEGMENTS = ("", ".", "..")
+
+
+def _abs_segments(path) -> Optional[List[str]]:
+    """Segments of an ABSOLUTE POSIX path that contains no '', '.' or '..' segment; None for anything else.
+    Lexical only — the form is judged on the recorded text, not on what a filesystem would do with it."""
+    s = str(path)
+    if not s.startswith("/"):
+        return None
+    segs = s[1:].split("/") if len(s) > 1 else []
+    return None if any(seg in _BAD_SEGMENTS for seg in segs) else segs
+
+
+def path_form_problems(label: str, path) -> List[str]:
+    """A recorded path that is not absolute, or carries a '', '.' or '..' segment, is a problem in its own right —
+    never silently 'outside the repository' (codex r2 on #1092: `<repo_root>/../outside/x` must not validate)."""
+    if path is not None and _abs_segments(path) is None:
+        return [f"{label} {str(path)!r} is not an absolute path free of '', '.' and '..' segments"]
+    return []
+
+
+def repo_relative(path, root) -> Optional[str]:
+    """`path` relative to `root` as POSIX text when both are well-formed absolute paths (see `_abs_segments`)
+    and `path` is lexically a strict descendant of `root`; None otherwise (missing, malformed, or not under
+    `root`). The result never contains a '', '.' or '..' segment. Pure path arithmetic."""
+    if not path or not root:
+        return None
+    ps, rs = _abs_segments(path), _abs_segments(root)
+    if ps is None or rs is None or len(ps) <= len(rs) or ps[:len(rs)] != rs:
+        return None
+    return "/".join(ps[len(rs):])
+
+
+def confined(p: pathlib.Path, repo_root: pathlib.Path) -> bool:
+    """True iff `p`, with every symlink resolved, lies inside the resolved `repo_root`."""
+    try:
+        return p.resolve().is_relative_to(repo_root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
+def _input_record(p) -> dict:
+    """{path, path_relative, sha256} for a run input. `path_relative` is the path relative to this checkout's
+    REPO (the `source.repo_root` the same report records; None for an input outside it) — the same arithmetic
+    the validator performs, recorded so a reader sees the checkout-independent identity without doing it."""
+    return dict(path=str(p), path_relative=repo_relative(str(p), str(REPO)), sha256=sha256_file(p))
+
+
+def _bundle_dir_problems(block: dict, label: str, bound_dir: str, run_root: Optional[str]) -> List[str]:
+    """`<label>.dir` as recorded must be `bound_dir` relative to the run's own repo root."""
+    rel = repo_relative(block.get("dir"), run_root)
+    if rel != bound_dir:
+        return [f"{label}.dir {block.get('dir')!r} is not {bound_dir!r} relative to the recorded repo root {run_root!r}"]
+    return []
+
+
+def _input_file_problems(entry: dict, key: str, run_root: Optional[str],
+                         repo_root: pathlib.Path) -> Tuple[List[str], Optional[str], Optional[pathlib.Path]]:
+    """Check one `inputs.<key>` = {path, sha256[, path_relative]} record. A path under the run's repo root is
+    checked at <repo_root>/<relative>; a path outside it (the umbrella's SPY parquet, the pinned strategy config)
+    can only be checked where it was recorded. Returns (problems, relative-or-None, the path checked — None when
+    the record was refused unread, so no caller opens a refused path either)."""
+    problems = path_form_problems(f"inputs.{key}.path", entry.get("path"))
+    if problems:
+        return problems, None, None                                       # malformed: nothing is read for it
+    rel = repo_relative(entry.get("path"), run_root)
+    if "path_relative" in entry:
+        pr = entry.get("path_relative")
+        if pr is not None and (str(pr).startswith("/") or any(seg in _BAD_SEGMENTS for seg in str(pr).split("/"))):
+            problems.append(f"inputs.{key}.path_relative {pr!r} is not a relative path free of '', '.' and '..' segments")
+        if pr != rel:
+            problems.append(f"inputs.{key}.path_relative {pr!r} != {rel!r} "
+                            f"(path relative to the recorded repo root {run_root!r})")
+    p = (repo_root / rel) if rel is not None else pathlib.Path(str(entry.get("path")))
+    if rel is not None and not confined(p, repo_root):
+        problems.append(f"inputs.{key}.path resolves outside repo_root (symlink or traversal): {p}")
+        return problems, rel, None                                        # refused: nothing is read for it
+    if not p.is_file():
+        problems.append(f"inputs.{key}.path missing on disk: {p}")
+    elif sha256_file(p) != entry.get("sha256"):
+        problems.append(f"inputs.{key}.sha256 != file on disk ({p})")
+    return problems, rel, p
+
+
+def _dev_census_audit_problems(prov: dict, run_root: Optional[str], census_rel: Optional[str]) -> List[str]:
+    """DEV_RUN: the census audit must be the gate bundle's audit — same repo-relative path AND the bound sha256."""
+    g = ACCEPTED_GATE_BUNDLE
+    want = f"{g['dir']}/{g['audit_file']}"
+    if census_rel != want:
+        return [f"DEV_RUN census audit is not the gate bundle's audit {want} (recorded path "
+                f"{_dig(prov, 'inputs', 'census_audit', 'path')!r} resolves to {census_rel!r} relative to the "
+                f"recorded repo root {run_root!r})"]
+    if _dig(prov, "inputs", "census_audit", "sha256") != g["audit_sha256"]:
+        return ["DEV_RUN inputs.census_audit.sha256 != the bound gate audit sha256"]
+    return []
+
+
+def _census_cross_check_problems(consumed: dict, census_on_disk: Optional[pathlib.Path]) -> List[str]:
+    """Every consumed bar file must be the census-audited file (same sha256 in the census audit's map)."""
+    if census_on_disk is None or not census_on_disk.is_file():
+        return []                                   # its absence is already a problem on its own line
+    try:
+        census_hashes = I1.load_census_audit(census_on_disk).get("bar_store_sha256") or {}
+    except (OSError, ValueError):
+        census_hashes = {}
+    bad = [t for t, h in consumed.items() if census_hashes.get(t) != h]
+    return [f"{len(bad)} consumed files are not the census-audited files (e.g. {bad[:5]})"] if bad else []
+
+
+def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = None) -> List[str]:
+    """`I1.validate_i1_provenance` with the census audit's identity checked REPO-RELATIVELY (the rule above).
+
+    The I-1 harness compares the recorded absolute `inputs.census_audit.path` with THIS checkout's GATE_AUDIT —
+    the reviewer's environment — so the committed I-1 bundle (recorded from a scratchpad worktree) fails from
+    every other checkout with "DEV_RUN census audit is not the gate bundle's audit". That harness file is frozen
+    by the §1 binding (I1_HARNESS_SHA256: the module imported above IS the code the accepted bundle was fitted
+    with; editing it would un-bind this line), so the correction lives here: for a DEV_RUN report the I-1
+    verdicts about the census audit's absolute path are replaced by the repo-relative rule and the consumed-bar
+    cross-check is re-run against the file at <repo_root>/<relative>. Every other I-1 check is I-1's own."""
+    repo_root = pathlib.Path(repo_root if repo_root is not None else REPO)
+    problems = I1.validate_i1_provenance(report, audit, repo_root)
+    prov = report.get("provenance")
+    if not isinstance(prov, dict) or report.get("run_status") != "DEV_RUN":
+        return problems         # a SMOKE census audit lives outside any repo: I-1's absolute-path checks are the rule
+    environment_only = ("DEV_RUN census audit is not the gate bundle's audit",
+                        "inputs.census_audit.path missing on disk", "inputs.census_audit.sha256 != file on disk")
+    problems = [p for p in problems
+                if not p.startswith(environment_only) and "consumed files are not the census-audited files" not in p]
+    run_root = recorded_repo_root(prov)
+    if run_root is None:
+        problems.append("provenance records neither source.repo_root nor invocation.cwd")
+    problems += path_form_problems("source.repo_root", run_root)
+    entry = _dig(prov, "inputs", "census_audit")
+    census_rel, census_on_disk = None, None
+    if isinstance(entry, dict):
+        more, census_rel, census_on_disk = _input_file_problems(entry, "census_audit", run_root, repo_root)
+        problems += more
+    problems += _dev_census_audit_problems(prov, run_root, census_rel)
+    gate = prov.get("gate_bundle")
+    if isinstance(gate, dict):
+        problems += _bundle_dir_problems(gate, "gate_bundle", ACCEPTED_GATE_BUNDLE["dir"], run_root)
+    consumed = audit.get("consumed_sha256") if isinstance(audit, dict) else None
+    if isinstance(consumed, dict) and consumed:
+        problems += _census_cross_check_problems(consumed, census_on_disk)
+    return problems
+
+
 def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = None) -> List[str]:
     """Return every disagreement between a Stage I-2 report's `provenance` block and (a) the report itself,
     (b) the audit's consumed-bar hashes, (c) the files on disk it names, (d) this module's frozen constants,
-    (e) the gate + I-1 bundles under `repo_root`. Empty list == the provenance is complete and verifiable."""
+    (e) the gate + I-1 bundles under `repo_root`. Empty list == the provenance is complete and verifiable.
+    Paths are compared REPO-RELATIVELY (see `repo_relative`): the same verdict from a checkout at any path."""
     repo_root = pathlib.Path(repo_root if repo_root is not None else REPO)
     problems: List[str] = []
     prov = report.get("provenance")
@@ -924,6 +1083,10 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
         problems.append("source.clean_tree must be a bool")
     elif dev and clean is not True:
         problems.append("DEV_RUN source.clean_tree is not True (a dev run from a dirty tree is not reproducible)")
+    run_root = recorded_repo_root(prov)         # the run's OWN checkout root: recorded paths resolve against it
+    if run_root is None:
+        problems.append("provenance records neither source.repo_root nor invocation.cwd")
+    problems += path_form_problems("source.repo_root", run_root)
     # --- invocation + clock
     argv = need("invocation", "argv")
     if not (isinstance(argv, list) and argv):
@@ -955,6 +1118,7 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
                           ("input_manifest_count", g["input_manifest_count"])):
             if gate.get(key) != want:
                 problems.append(f"gate_bundle.{key} = {gate.get(key)!r} != bound {want!r}")
+        problems += _bundle_dir_problems(gate, "gate_bundle", g["dir"], run_root)
         gb = repo_root / g["dir"]
         for key, fname in (("report_sha256", g["report_file"]), ("audit_sha256", g["audit_file"]),
                            ("provenance_sha256", g["provenance_file"])):
@@ -977,6 +1141,7 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
                           ("surviving_bases", list(SURVIVING_BASES))):
             if i1.get(key) != want:
                 problems.append(f"i1_bundle.{key} = {i1.get(key)!r} != bound {want!r}")
+        problems += _bundle_dir_problems(i1, "i1_bundle", b["dir"], run_root)
         ib = repo_root / b["dir"]
         for key, fname in (("report_sha256", b["report_file"]), ("audit_sha256", b["audit_file"])):
             p = ib / fname
@@ -989,25 +1154,22 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
             problems.append(f"I-1 harness missing under repo_root: {hp}")
         elif sha256_file(hp) != i1.get("harness_sha256"):
             problems.append("i1_bundle.harness_sha256 != sha256 of the I-1 harness on disk")
-    # --- inputs on disk
+    # --- inputs on disk (repo-relative where the recorded path is under the run's repo root)
+    census_rel, census_on_disk = None, None
     for key in ("census_audit", "spy_daily"):
         entry = need("inputs", key)
         if isinstance(entry, dict):
-            p = pathlib.Path(str(entry.get("path")))
-            if not p.is_file():
-                problems.append(f"inputs.{key}.path missing on disk: {p}")
-            elif sha256_file(p) != entry.get("sha256"):
-                problems.append(f"inputs.{key}.sha256 != file on disk")
+            more, rel, p = _input_file_problems(entry, key, run_root, repo_root)
+            problems += more
+            if key == "census_audit":
+                census_rel, census_on_disk = rel, p
     sc = _dig(prov, "inputs", "strategy_config")
     if dev and not isinstance(sc, dict):
         problems.append("DEV_RUN provenance has no inputs.strategy_config")
     if isinstance(sc, dict):
-        p = pathlib.Path(str(sc.get("path")))
-        if not p.is_file():
-            problems.append(f"inputs.strategy_config.path missing on disk: {p}")
-        else:
-            if sha256_file(p) != sc.get("sha256"):
-                problems.append("inputs.strategy_config.sha256 != file on disk")
+        more, _rel, p = _input_file_problems(sc, "strategy_config", run_root, repo_root)
+        problems += more
+        if p is not None and p.is_file():                          # a refused record is not parsed either
             try:
                 cfgj = json.loads(p.read_text(encoding="utf-8"))
                 if sha256_json(dict(cfgj["sector_map"])) != _dig(prov, "inputs", "sector_map_sha256"):
@@ -1016,8 +1178,8 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
                     problems.append("inputs.sector_etf_map_sha256 != sector_etf_map rebuilt from the strategy config")
             except (ValueError, KeyError, TypeError) as exc:
                 problems.append(f"strategy config unreadable for the sector-map rebuild ({exc})")
-    if dev and str(_dig(prov, "inputs", "census_audit", "path") or "") != str(GATE_AUDIT):
-        problems.append(f"DEV_RUN census audit is not the gate bundle's audit {GATE_AUDIT}")
+    if dev:
+        problems += _dev_census_audit_problems(prov, run_root, census_rel)
     # --- store manifest check
     smc = need("store_manifest_check")
     if isinstance(smc, dict):
@@ -1065,15 +1227,7 @@ def validate_i2_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
             problems.append("consumed_bar_manifest.aggregate_sha256 != aggregate rebuilt from audit.consumed_sha256")
         if dev and (agg != ACCEPTED_I1_BUNDLE["consumed_bar_aggregate_sha256"] or man.get("matches_i1_bundle") is not True):
             problems.append("DEV_RUN consumed-bar aggregate != the I-1 bundle's (the re-fit did not read the same bars)")
-        census_p = pathlib.Path(str(_dig(prov, "inputs", "census_audit", "path") or ""))
-        if census_p.is_file():
-            try:
-                census_hashes = I1.load_census_audit(census_p).get("bar_store_sha256") or {}
-            except (OSError, ValueError):
-                census_hashes = {}
-            bad = [t for t, h in consumed.items() if census_hashes.get(t) != h]
-            if bad:
-                problems.append(f"{len(bad)} consumed files are not the census-audited files (e.g. {bad[:5]})")
+        problems += _census_cross_check_problems(consumed, census_on_disk)
     # --- determinism guard: a DEV_RUN report exists only if the guard passed on the frozen targets
     dg = need("determinism_guard")
     if isinstance(dg, dict):

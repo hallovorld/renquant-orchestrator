@@ -63,26 +63,10 @@ EVIDENCE:  §4(b) block — this PR makes a model/data claim.
                           series.*.overall.block_t, common_sample,
                           base_refit.determinism_guard; re-read 2026-08-29]`.
            checks:        `validate_i2_provenance(report, audit, repo_root)` → `[]`
-                          from the run's own checkout; from ANY OTHER checkout it
-                          returns exactly one line — "DEV_RUN census audit is not
-                          the gate bundle's audit <that checkout>/…/
-                          g2v3_stage_i0_audit.json.gz" — because the harness
-                          compares the recorded `inputs.census_audit.path` STRING
-                          (the run worktree's absolute path) against the importing
-                          checkout's `GATE_AUDIT`
-                          (`scripts/experiments/g2v3_stage_i2_stack.py:1019`); the
-                          recorded sha256 `dd5127d7…` equals the committed gate
-                          audit under `repo_root` and the bound
-                          `gate_bundle.audit_sha256`, so the content identity is
-                          verified from every checkout and every other check (gate
-                          + I-1 bundle hashes, I-1 harness sha, consumed-bar
-                          manifest, frozen block) passes `[VERIFIED — re-run from a
-                          detached checkout of ec9fe909, 2026-08-29: 1 problem,
-                          that path line; the same checkout-bound note #1088
-                          records for the I-1 validator]`. Claim corrected after
-                          review r1 (was stated as an unconditional `[]`).
+                          from ANY checkout (review r1 below; reproduced from a
+                          fresh `git worktree add` at another absolute path);
                           `tests/test_g2v3_stage_i2_binding.py` +
-                          `tests/test_g2v3_stage_i2_harness.py` → 82 passed
+                          `tests/test_g2v3_stage_i2_harness.py` → 99 passed
                           `[VERIFIED — pytest, 2026-08-29]`. The audit's block series
                           for all 8 series, re-run through the I-1 harness's own
                           `episodes_of` + `ess_stats`, reproduce every overall and
@@ -130,8 +114,8 @@ I-1 record: `doc/research/2026-08-29-g2v3-stage-i1-dev-run.md` (#1088).
 `doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593/`:
 `report.json` (sha256 `8a2804fd…`, 66,036 B) + `g2v3_stage_i2_audit.json.gz`
 (sha256 `6629d29a…`, 529,055 B; uncompressed sha256 `ca3e6dc3…`, 1,529,481 B).
-`validate_i2_provenance` → no problems; I-2 binding + harness tests → 82 passed
-`[VERIFIED 2026-08-29]`. Commit 5269e593, `clean_tree: true`, UTC
+`validate_i2_provenance` → no problems from any checkout (review r1 below);
+I-2 binding + harness tests → 99 passed `[VERIFIED 2026-08-29]`. Commit 5269e593, `clean_tree: true`, UTC
 13:25:28–13:33:39, store manifest 1,508 hashed == gate audit, consumed-bar
 aggregate `4addcbe2…` (1,508 files) == the I-1 bundle's, I-1 harness sha256
 `13c31d12…` == the blob at 666484a7.
@@ -152,6 +136,68 @@ aggregate `4addcbe2…` (1,508 files) == the I-1 bundle's, I-1 harness sha256
 - The 26 sessions the common sample drops relative to the full meta-OOF set
   (498 → 472) are all I-1 abstain / zero-OOF sessions (23 in B0 − B1, 3 in
   B0 − B3), 20 of them CHOPPY by the census mapping.
+
+## Review r1 (codex, 2026-08-29): the validator measured the reviewer's disk
+
+Finding (MED): from the committed PR worktree,
+`validate_i2_provenance(report, audit, root)` returned
+`["DEV_RUN census audit is not the gate bundle's audit <review-checkout>/doc/…/g2v3_stage_i0_audit.json.gz"]`.
+The report records `inputs.census_audit.path` as the absolute path inside the
+scratchpad worktree the run was made in; the validator compared that string with
+`GATE_AUDIT` = `<this checkout>/doc/…` — the reviewer's environment — so the
+committed bundle verified only from the one worktree that produced it
+`[VERIFIED — reproduced at ec9fe909 from a fresh git worktree add …/wt-1091-check]`.
+
+Fix = validator + harness; the bundle is untouched: `report.json` sha256
+`8a2804fd…` and `g2v3_stage_i2_audit.json.gz` sha256 `6629d29a…` are the same
+bytes before and after `[VERIFIED — shasum -a 256 before/after]`.
+
+- `scripts/experiments/g2v3_stage_i2_stack.py`: path identity is REPO-RELATIVE.
+  `repo_relative(path, root)` resolves a recorded absolute path against the
+  recorded `provenance.source.repo_root` (fallback `invocation.cwd`);
+  `validate_i2_provenance` requires the census audit's relative path to equal
+  the gate bundle's `<dir>/<audit_file>`, the file at `<repo_root>/<relative>`
+  to hash to the recorded sha256, and that sha256 to be the bound
+  `audit_sha256`; the consumed-bar cross-check reads that same file.
+  `gate_bundle.dir` and `i1_bundle.dir` get the same rule. Inputs outside the
+  repository (the umbrella's SPY parquet, the pinned strategy config) are
+  unchanged — they can only be checked where they were recorded. Future runs
+  record `inputs.<x>.path_relative` (None outside the repository), which the
+  validator checks whenever present.
+- `validate_i1_provenance` in `scripts/experiments/g2v3_stage_i1_bases.py` has
+  the same defect: the merged I-1 bundle (#1088) fails the same way from any
+  other checkout `[VERIFIED — same worktree]`. That file is FROZEN by the §1
+  binding (`I1_HARNESS_SHA256` = the imported module is the code the accepted
+  I-1 bundle was fitted with; editing it un-binds this line and every I-2 test
+  on the harness hash), so the correction is
+  `g2v3_stage_i2_stack.validate_i1_provenance`: I-1's own checks with its
+  absolute-path census-audit verdicts replaced by the repo-relative rule and
+  the consumed-bar cross-check re-run on `<repo_root>/<relative>`.
+  `tests/test_g2v3_stage_i2_binding.py` pins the raw I-1 validator's single
+  environmental failure, so the wrapper is retired the day the I-1 harness is
+  re-bound with the rule inside.
+- Tests (17 new, `tests/test_g2v3_stage_i2_binding.py`): a shared clone of
+  HEAD at another absolute path holding the committed gate / I-1 / I-2 bundles
+  and the I-1 harness → both validators return `[]`; a tampered relative path,
+  a path outside the recorded root, a changed `source.repo_root`, a tampered
+  sha256 or `path_relative`, a foreign `gate_bundle.dir` / `i1_bundle.dir`, a
+  tampered or deleted gate audit in that checkout → each still fails with its
+  named problem.
+
+Reproduction from any checkout (`<root>` = that checkout, e.g. a fresh
+`git worktree add <root> research/g2v3-stage-i2-dev-run`):
+
+    cd <root> && PYTHONPATH=src python - <<'EOF'
+    import gzip, json, pathlib, sys; sys.path.insert(0, "scripts/experiments")
+    import g2v3_stage_i2_stack as I2
+    root = pathlib.Path(".").resolve()
+    b = root / "doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593"
+    print(I2.validate_i2_provenance(json.load(open(b / "report.json")),
+                                    json.load(gzip.open(b / "g2v3_stage_i2_audit.json.gz")), root))   # []
+    b1 = root / I2.ACCEPTED_I1_BUNDLE["dir"]
+    print(I2.validate_i1_provenance(json.load(open(b1 / "report.json")),
+                                    json.load(gzip.open(b1 / "g2v3_stage_i1_audit.json.gz")), root))  # []
+    EOF
 
 ## Next decision and whose it is
 

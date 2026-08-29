@@ -9,12 +9,11 @@ the bundle says, evaluated against the prereg text as written. It recommends not
 
 **Run ID `i2-dev-20260829T132528Z-5269e593`.** Bundle:
 `doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593/` (`report.json` +
-`g2v3_stage_i2_audit.json.gz`). Provenance validates with zero problems from the run's own
-checkout `[VERIFIED — validate_i2_provenance(report, audit, repo_root) == []]`; from any other
-checkout the validator returns exactly one line, the checkout-bound census-audit path string,
-with every hash check passing (§7 "validation" row; corrected after review r1 — see
-Corrections); the two I-2 test files
-pass `[VERIFIED — pytest tests/test_g2v3_stage_i2_binding.py tests/test_g2v3_stage_i2_harness.py: 82 passed]`.
+`g2v3_stage_i2_audit.json.gz`). Provenance validates with zero problems
+`[VERIFIED — validate_i2_provenance(report, audit, repo_root) == []` from this worktree AND from a
+fresh `git worktree add` at another absolute path: path identity is checked repo-relatively after
+codex r1 — command in the progress doc, "Review r1"]`; the two I-2 test files pass
+`[VERIFIED — pytest tests/test_g2v3_stage_i2_binding.py tests/test_g2v3_stage_i2_harness.py: 99 passed]`.
 
 Tag convention: `[VERIFIED report <key>]` = read from `report.json`; `[VERIFIED audit <key>]` =
 read from the gz audit; `[DERIVED …]` = recomputed here from the audit with the harness's own
@@ -253,7 +252,7 @@ secondary block from every other series `[VERIFIED report: only series.M_xgb car
 | panel | 983 sessions (2020-08-03..2024-06-28), 1,508 names, 10,487,004 observations, 7,097,590 base-OOF, 5,578,562 meta-OOF `[VERIFIED report inputs]` |
 | `report.json` | 66,036 bytes, sha256 `8a2804fd0df7de3665c6f568b6dfe9ff3db91b5643096ddedc4addfcb8ac0a87` `[VERIFIED shasum -a 256]` |
 | `g2v3_stage_i2_audit.json.gz` | 529,055 bytes, sha256 `6629d29a7b071342a20b188e15cf40c9c6c219ebabb4a4eafbd85921ecd9d128`; uncompressed 1,529,481 bytes, sha256 `ca3e6dc3d1333c3cd8b3f41b72bb785fb72fb72637da6328b107f8ae325b14be` `[VERIFIED shasum -a 256]` (the harness writes the audit gzipped; nothing in the bundle exceeds 5 MB, so no file was re-packed — the I-0/I-1 convention) |
-| validation | `validate_i2_provenance(report, audit, repo_root)` → `[]` from the run's own checkout; from any other checkout it returns exactly ONE line — `DEV_RUN census audit is not the gate bundle's audit <that checkout>/doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz` — because the harness compares the recorded `inputs.census_audit.path` STRING (the run worktree's absolute path, `…/scratchpad/wt-i2run/…`) against the importing checkout's `GATE_AUDIT` (`scripts/experiments/g2v3_stage_i2_stack.py:1019`). The recorded sha256 `dd5127d7…` equals the committed gate audit under `repo_root` and the bound `gate_bundle.audit_sha256`, so the content identity is verified from every checkout; every other check (gate + I-1 bundle hashes, I-1 harness sha, consumed-bar manifest, frozen block, interpretations) passes `[VERIFIED — re-run from a detached checkout of ec9fe909, 2026-08-29: 1 problem, that path line; the same checkout-bound note #1088 records for the I-1 validator]`; `tests/test_g2v3_stage_i2_binding.py` + `tests/test_g2v3_stage_i2_harness.py` → 82 passed `[VERIFIED pytest, 2026-08-29]` |
+| validation | `validate_i2_provenance(report, audit, repo_root)` → `[]` from any checkout: reproduced from this worktree and from a fresh `git worktree add <tmp> research/g2v3-stage-i2-dev-run` at another absolute path (command in the progress doc, "Review r1"); `tests/test_g2v3_stage_i2_binding.py` + `tests/test_g2v3_stage_i2_harness.py` → 99 passed `[VERIFIED pytest, 2026-08-29]` |
 
 Frozen block as run `[VERIFIED report frozen]`: the I-1 block verbatim (h=13, 39 slots, screen
 slots 13..25, dev window 2020-08-01..2024-06-30, seed base 20260828, I-1 XGB params, row cap
@@ -325,6 +324,17 @@ Whichever the operator chooses, the S3-c live flip remains an explicit operator 
   check passes — the recorded sha256 `dd5127d7…` is the committed gate audit's. The claim is
   now stated with that condition in the header, in §7 "validation", and in the progress doc.
   No number in the bundle changed; `report.json` and the audit are untouched (sha256 as in §7).
-  The harness is the preregistered #1090 module at the run's source commit `5269e593` and is
-  deliberately not edited in this record PR; a checkout-independent census-audit check
-  (compare by sha256 / repo-relative path) is a harness change for a later PR.
+  The harness is the preregistered #1090 module at the run's source commit `5269e593`; the
+  bundle was produced by that commit and is untouched.
+- **2026-08-29, review r1 fix (same PR, next commit).** The checkout-independent check landed:
+  `validate_i2_provenance` now resolves the recorded `inputs.census_audit.path` against the
+  recorded `provenance.source.repo_root` and requires the repo-relative path to be the gate
+  bundle's `<dir>/<audit_file>` and the file at `<repo_root>/<relative>` to hash to the recorded
+  and bound sha256 (`gate_bundle.dir` / `i1_bundle.dir` likewise; future runs also record
+  `inputs.<x>.path_relative`). The claim in the header and in §7 "validation" is unconditional
+  again — `[]` from this worktree and from a fresh `git worktree add` at another absolute path
+  `[VERIFIED 2026-08-29]` — with the command in the progress doc, "Review r1". The same defect in
+  `validate_i1_provenance` (the merged I-1 bundle, #1088) is corrected by
+  `g2v3_stage_i2_stack.validate_i1_provenance`, because the I-1 harness file is frozen by the §1
+  binding `I1_HARNESS_SHA256` and cannot be edited without un-binding this line. The validator
+  is not fit code: no number in the bundle changed (sha256 as in §7).
