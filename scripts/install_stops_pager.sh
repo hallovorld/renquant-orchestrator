@@ -110,6 +110,22 @@ require_sources() {
 # (0=REGISTRY_VALID / 1=REGISTRY_MISSING / 2=REGISTRY_CORRUPT) and combined
 # stdout+stderr message — no in-process import of execution/pipeline
 # internals anywhere in guard_registry_before_apply().
+#
+# 2026-08-29 READINESS (Codex CHANGES_REQUESTED on PR #1078,
+# 2026-08-29T07:54:11Z): VALID is bootstrap, not evidence. A seeded registry
+# (orchestrator `... software_stops_registry_contract seed`) is schema-VALID
+# with `last_evaluated_at: null`, and the execution checker reports a valid
+# zero-stop registry as OK whether or not a writer ever touched it — so a
+# guard that stops at VALID would arm the pager against a file the sell-only
+# loop has never evaluated. The guard now additionally requires READY from
+# the orchestrator-owned classifier
+# (`python -m renquant_orchestrator.software_stops_registry_contract readiness`,
+# which imports ONLY the pipeline's PUBLIC registry_path_for /
+# validate_software_stop_snapshot / compute_staleness): a non-null, parseable
+# heartbeat within the staleness budget at the SAME data root + broker the
+# plist arms. Distinct non-zero exits (10 UNSEEDED / 11 UNINITIALIZED /
+# 12 STALE / 13 CORRUPT / 3 pipeline-import failure) are all refusals.
+# `install` (dry-run) prints the same verdict as a preview without enforcing.
 
 plist_env_var() {
     # $1 = env var name. Parses it out of $PLIST_SRC's EnvironmentVariables
@@ -210,15 +226,52 @@ print(":".join(str(Path(repos[name]["path"]) / "src") for name in needed))
 PY
 }
 
+registry_readiness_probe() {
+    # $1 = python_bin, $2 = pinned src PYTHONPATH, $3 = data_root, $4 = broker.
+    # Plain subprocess invocation of THIS repo's readiness classifier (see the
+    # 2026-08-29 READINESS note above). Prints its one-line verdict; returns
+    # its exit code: 0 READY / 10 UNSEEDED / 11 UNINITIALIZED / 12 STALE /
+    # 13 CORRUPT / 3 pipeline-import failure / 1 usage.
+    PYTHONPATH="$2:$REPO_ROOT/src:${PYTHONPATH:-}" \
+        "$1" -m renquant_orchestrator.software_stops_registry_contract \
+        readiness --data-root "$3" --broker "$4" 2>&1
+}
+
+preview_registry_readiness() {
+    # Dry-run companion of guard_registry_before_apply: prints (stdout) the
+    # readiness verdict --apply WOULD enforce and never fails — dry-run is
+    # echo-only by contract. A verdict that cannot be computed on this
+    # machine is reported as such with the reason, never hidden.
+    local data_root python_bin broker pinned_src_paths out rc
+    data_root="$(plist_env_var RENQUANT_STOPS_PAGER_DATA_ROOT || true)"
+    python_bin="$(plist_env_var RENQUANT_STOPS_PAGER_PYTHON || true)"
+    broker="$(plist_env_var RENQUANT_STOPS_PAGER_BROKER || true)"
+    broker="${broker:-alpaca}"
+    if [ -z "$data_root" ] || [ -z "$python_bin" ]; then
+        echo "registry readiness (preview; --apply requires READY): could not be evaluated -- $PLIST_SRC lacks RENQUANT_STOPS_PAGER_DATA_ROOT and/or RENQUANT_STOPS_PAGER_PYTHON"
+        return 0
+    fi
+    if ! pinned_src_paths="$(resolve_pinned_pythonpath "$python_bin" 2>/dev/null)"; then
+        echo "registry readiness (preview; --apply requires READY): could not be evaluated -- pinned checkouts not resolvable from the R-PIN runtime inventory on this machine (data_root=$data_root broker=$broker)"
+        return 0
+    fi
+    out="$(registry_readiness_probe "$python_bin" "$pinned_src_paths" "$data_root" "$broker")"
+    rc=$?
+    echo "registry readiness (preview; --apply requires READY): $out [exit $rc]"
+    return 0
+}
+
 guard_registry_before_apply() {
     # Resolve the SAME interpreter + data root the plist is about to arm,
     # resolve the pinned checkouts' PYTHONPATH (resolve_pinned_pythonpath,
     # above — no execution/pipeline imports), then shell out to the pinned
     # renquant-execution's PUBLIC `--validate-registry` CLI mode
     # (renquant-execution#30) and refuse to proceed unless it reports
-    # REGISTRY_VALID (exit 0). Returns nonzero (never raises) on any
-    # failure — missing registry, corrupt registry, or a resolution/CLI
-    # crash are all treated as fail-closed; all diagnostics go to stderr.
+    # REGISTRY_VALID (exit 0); THEN require READY from this repo's own
+    # readiness classifier (registry_readiness_probe, 2026-08-29 note above).
+    # Returns nonzero (never raises) on any failure — missing, corrupt,
+    # unseeded, uninitialized (seed-only), stale, or a resolution/CLI crash
+    # are all treated as fail-closed; all diagnostics go to stderr.
     local data_root python_bin broker
     if ! data_root="$(plist_env_var RENQUANT_STOPS_PAGER_DATA_ROOT)"; then
         echo "GUARD FAIL: cannot resolve RENQUANT_STOPS_PAGER_DATA_ROOT from $PLIST_SRC EnvironmentVariables (ambient env is deliberately ignored here — see round-6 correction above)" >&2
@@ -237,7 +290,7 @@ guard_registry_before_apply() {
     broker="$(plist_env_var RENQUANT_STOPS_PAGER_BROKER || true)"
     broker="${broker:-alpaca}"
 
-    echo "guard: verifying a valid software-stop registry exists at data_root=$data_root broker=$broker before arming..." >&2
+    echo "guard: verifying a VALID and READY software-stop registry exists at data_root=$data_root broker=$broker before arming..." >&2
 
     # (a) PYTHONPATH resolution — see resolve_pinned_pythonpath() above.
     local pinned_src_paths resolve_rc
@@ -258,8 +311,16 @@ guard_registry_before_apply() {
 
     case "$validate_rc" in
         0)
-            echo "GUARD OK: $validate_out (broker=$broker)" >&2
-            return 0
+            echo "guard: registry VALID ($validate_out) -- now requiring READY: a real writer heartbeat at this exact path within the staleness budget..." >&2
+            local ready_out ready_rc
+            ready_out="$(registry_readiness_probe "$python_bin" "$pinned_src_paths" "$data_root" "$broker")"
+            ready_rc=$?
+            if [ "$ready_rc" -eq 0 ]; then
+                echo "GUARD OK: $ready_out -- registry VALID and READY (broker=$broker)" >&2
+                return 0
+            fi
+            echo "GUARD FAIL: $ready_out -- registry is schema-VALID but NOT READY (readiness exit $ready_rc). A seeded or never-evaluated file is bootstrap, not arming evidence: installing requires a real sell-only-loop heartbeat at this exact path (Codex review on #1078, 2026-08-29T07:54:11Z). Refusing to install." >&2
+            return 1
             ;;
         1)
             echo "GUARD FAIL: $validate_out -- no writer has migrated to stamp this path yet. Installing now would arm a pager against unverified state and could produce a false critical alarm once the checker runs (Codex review, 2026-07-12T04:32:57Z). Refusing to install." >&2
@@ -352,7 +413,8 @@ case "$CMD" in
                 exit 3
             fi
         else
-            echo "(registry validity guard runs at --apply time only; dry-run does not execute it)"
+            echo "(registry VALID+READY guard is enforced at --apply time only; dry-run previews the readiness verdict below without enforcing it)"
+            preview_registry_readiness
         fi
         run mkdir -p "$LOG_DIR"
         run mkdir -p "$AGENT_DIR"
