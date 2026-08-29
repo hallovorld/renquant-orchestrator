@@ -70,7 +70,7 @@ G2V3_BAR_STORE=/path/to/the/audited/g2v3_bars \
   ../RenQuant/.venv/bin/python scripts/experiments/g2v3_stage_i1_bases.py --dev-run
 ```
 
-Reads: the bar store (sha256 of every consumed file must equal the GATE audit's, else it refuses), `doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz` (the gate bundle's audit — the ONLY census audit the dev run may consume; the 2026-08-27 DEVELOPMENT_ONLY audit is no longer read), `/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet`, and `sector_map` / `sector_etf_map` from the pinned `renquant-strategy-104/configs/strategy_config.json`. Writes: `doc/research/data/2026-08-29-g2v3-i1/report.json` + `g2v3_stage_i1_audit.json.gz` only. Sector ETFs present in the audited store: SPY, XLE, XLF, XLI, XLK, XLU, XLY `[VERIFIED — audit bar_store_sha256 keys]`; XLV/GLD/TLT/XLRE/XLC are absent, so healthcare / commodity / bond / defensive_bonds / real_estate / telecom get sec13 = NaN by the spec's NaN rule (recorded in `report.inputs.sec13_etf_available_by_sector`).
+Reads: the bar store (sha256 of every consumed file must equal the GATE audit's, else it refuses), `doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz` (the gate bundle's audit — the ONLY census audit the dev run may consume; the 2026-08-27 DEVELOPMENT_ONLY audit is no longer read), `/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet`, and `sector_map` / `sector_etf_map` from the pinned `renquant-strategy-104/configs/strategy_config.json`. Writes: `doc/research/data/2026-08-29-g2v3-i1/report.json` + `g2v3_stage_i1_audit.json.gz` only. Sector ETFs present in the audited store: SPY, GLD, XLE, XLF, XLI, XLK, XLU, XLY `[VERIFIED — gate audit bar_store_sha256 keys, re-read 2026-08-29 for r3; the r2 text wrongly listed GLD as absent]`; XLV/TLT/XLRE/XLC are absent (`EXPECTED_ABSENT_FROM_AUDIT`), so healthcare / bond / defensive_bonds / real_estate / telecom get sec13 = NaN by the spec's NaN rule (commodity gets sec13 from GLD); recorded in `report.inputs.sec13_etf_available_by_sector`. With r3 the dev run writes `doc/research/data/2026-08-29-g2v3-i1/<run_id>/` (`report.json` + `g2v3_stage_i1_audit.json.gz`), one directory per run.
 
 ## Gate binding + provenance (r2, 2026-08-29 — PR #1084 review r1 by codex)
 
@@ -127,3 +127,66 @@ in-memory; consumed-manifest tamper; strategy-config / sector-map / SPY / census
 frozen-block and interpretation tamper; identity / clock / argv checks; DEV_RUN claims held to the gate + frozen folds.
 Default CLI smoke re-run: B0/B1/B2 block-t 10.117, B3 9.909, s0 10.830, unchanged from r1; `run_id
 i1-smoke-20260829-62145271`, 33 consumed files, provenance validates `[VERIFIED — run 2026-08-29]`.
+
+## Complete-store manifest + DEV_RUN identity (r3, 2026-08-29 — PR #1084 review r2 by codex)
+
+Bottom line: a DEV_RUN now refuses BEFORE any bar is read unless the store carries, hash-matching, every file the gate
+audit has for the eligible names + sector ETFs + SPY; the only tolerated absence is the frozen set of sector ETFs the
+gate census never fetched (`EXPECTED_ABSENT_FROM_AUDIT = {TLT, XLC, XLRE, XLV}`), and the computed absent set must equal
+it exactly. A DEV_RUN also refuses a source tree that is not clean outside the declared bar store and output root, mints
+`i1-dev-<UTC YYYYMMDDTHHMMSSZ>-<shortsha>` and writes its own `<out_root>/<run_id>/`, refusing if that directory already
+exists. Smoke keeps its fixed directory, overwrite and dirty-tree tolerance and records `run_status = SMOKE`. No
+`--dev-run` was executed; the 12-entry `INTERPRETATIONS` list is byte-identical to r1/r2 `[VERIFIED — git show
+674511c9 block == working copy]`.
+
+**Ask 1 — store manifest before any load** (`scripts/experiments/g2v3_stage_i1_bases.py`):
+
+- `check_store_manifest(store, audit, sessions, sector_etf_map, strict, expected_absent)` runs in `run_stage_i1` right after
+  the session list and before `build_rows`; it opens no parquet (existence + whole-file sha256 only). `needed` = eligible
+  names over the window + `sector_etf_map` values + SPY; `required` = needed ∩ the audit's `bar_store_sha256` keys.
+  Strict (DEV_RUN): an eligible name or SPY outside the audit's file set → refused; audit-absent set ≠
+  `EXPECTED_ABSENT_FROM_AUDIT` → refused ("a re-binding, not a run"); any `required` file missing from the store → refused
+  naming the first 10; then every present file is hashed and a mismatch or an unaudited file → refused. Non-strict (SMOKE)
+  keeps the old ergonomics (missing recorded, SPY missing refused, mismatch/unaudited refused). All refusals are
+  `StoreNotAudited` (a `DevRunRefused`; CLI exit 2).
+- `build_rows` takes the manifest and opens only the files it hashed; under DEV_RUN it re-checks that nothing is missing
+  (`incomplete store manifest`, unreachable by design). The `missing.append; continue` path is gone: an ETF not in the
+  manifest is either in the bound absent set (DEV_RUN) or a recorded smoke omission; an eligible name not in the manifest
+  can only occur in SMOKE.
+- The bound absent set was computed, not asserted: the gate audit's 2124 files vs the pinned config's 17-entry
+  `sector_etf_map` → present GLD/SPY/XLE/XLF/XLI/XLK/XLU/XLY, absent TLT/XLC/XLRE/XLV; all 1,508 in-window eligible names
+  are in the audit `[VERIFIED — python over the gate audit + pinned strategy_config.json, 2026-08-29]`.
+  `test_bound_absent_set_is_exactly_the_gate_audits_missing_sector_etfs` recomputes it from the committed audit.
+- Provenance gains `store_manifest_check` (strict, n_needed, n_required_in_audit, n_hashed, missing_files,
+  absent_from_audit, expected_absent_from_audit, rule); `validate_i1_provenance` requires a DEV_RUN report to show
+  strict=True, no missing files and absent_from_audit == the constant.
+
+**Ask 2 — clean tree, unique identity, own bundle** (`dev_run_identity`, `run_stage_i1`):
+
+- `source_state(REPO, ignore=[bar_store, out_root])` is computed right after `_bind_dev_run`; for DEV_RUN
+  `dev_run_identity` refuses (`DevRunRefused`) when `clean_tree` is not True (git `status --porcelain --untracked-files=all`
+  minus entries under the two declared paths, listing the first 10) or when no commit resolves; run_id =
+  `i1-dev-<UTC YYYYMMDDTHHMMSSZ>-<shortsha>` from the process's own clock; bundle = `<out_root>/<run_id>/`, refused if it
+  exists; the directory is created with `exist_ok=False` at write time (a race to the same id fails there). Smoke:
+  `i1-smoke-<same stamp>-<shortsha|nogit>`, bundle = the fixed out dir, `exist_ok=True`.
+- Provenance gains `outputs` (root, bundle_dir, file names, policy); the validator requires a DEV_RUN's `bundle_dir` to be
+  `<root>/<run_id>/`, its `source.clean_tree` True, its run_id to carry a real sha, and the run_id's instant to equal
+  `timestamps_utc.start` (the r2 date-only run_id form is rejected).
+- CLI: `--dev-run` catches `DevRunRefused` (gate / tree / bundle / store) → `REFUSED --dev-run (fail closed): …`, exit 2.
+
+**Evidence** `[VERIFIED — pytest, 2026-08-29]`: the four r2 files + new `tests/test_g2v3_stage_i1_dev_run_preflight.py`:
+**75 passed** (58 r2 + 17 new). New cases — ask 1: bound set == the committed audit's real absent ETFs; complete synthetic
+store passes strict and hashes every required file; missing eligible name → refused (and recorded, not refused, in
+SMOKE); missing audited sector ETF → refused; missing SPY → refused; hash-mismatched file → refused; absent set ≠ bound
+constant → refused (both an empty binding and the real constant against the synthetic store); eligible name / SPY absent
+from the audit's file set → refused; an unaudited present file refused in both modes; `build_rows` refuses an incomplete
+manifest under DEV_RUN. Every one runs with `pd.read_parquet` monkeypatched to raise, proving nothing is read before the
+check. Ask 2, on a real tmp git repository with a DEV_RUN configuration that passes `_bind_dev_run` (real gate
+authorization, the gate audit) and is refused at the store manifest, never past it: an untracked file → refused (tree
+not clean, entry named), a staged file → refused; untracked files under the output root and the declared bar store are
+not dirt while the same tree without the exclusions is dirty; a pre-existing `<root>/<run_id>/` → refused, its contents
+untouched; clean + fresh → `dev_run_identity` returns the expected id/path and the run proceeds to the store check with
+nothing written; no commit → refused; CLI `--dev-run` on a dirty tree → exit 2 with the reason; smoke runs twice into the
+same fixed dir, `run_status = SMOKE`, strict=False, absent {XLV}, provenance validates. Default CLI smoke: B0/B1/B2
+block-t 10.117, B3 9.909, s0 10.830 — unchanged from r1/r2; `run_id i1-smoke-20260829T111827Z-674511c9`
+`[VERIFIED — run 2026-08-29]`.

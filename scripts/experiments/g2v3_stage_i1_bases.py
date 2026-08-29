@@ -22,6 +22,13 @@ DEVELOPMENT_ONLY audit is NOT accepted as authorization and is no longer read.
 The `--dev-run` configuration is built ONLY from the frozen constants plus the
 authorization object (dev_run_config); the private `_smoke_config` hook (tiny
 folds / lower IC name floor / synthetic paths) is never reachable from `--dev-run`.
+A DEV_RUN further refuses (r3, review r2): a source tree that is not clean apart
+from the declared bar store and output root; an output bundle that already exists
+(each run writes its own `<out_root>/<run_id>/`, run_id = i1-dev-<UTC
+YYYYMMDDTHHMMSSZ>-<shortsha>); and a bar store that is not the COMPLETE audited
+store — every eligible name / sector ETF / SPY file the gate audit carries must be
+present and hash-matching BEFORE any bar is read, and the set of sector ETFs the
+audit never fetched must equal EXPECTED_ABSENT_FROM_AUDIT exactly.
 
 Every report carries a `provenance` block (source commit + clean-tree status,
 run_id, exact invocation, UTC start/end from this process's clock, gate-bundle
@@ -163,12 +170,32 @@ MANIFEST_METHOD = ("sha256 of the UTF-8 text formed by joining, with '\\n' and n
                    "'<ticker> <sha256>' for tickers in sorted() order")
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_RUN_ID = re.compile(r"^i1-(dev|smoke)-\d{8}-([0-9a-f]{8}|nogit)$")
+_RUN_ID = re.compile(r"^i1-(dev|smoke)-(\d{8}T\d{6}Z)-([0-9a-f]{8}|nogit)$")
 _TS = "%Y-%m-%dT%H:%M:%SZ"
+_RUN_TS = "%Y%m%dT%H%M%SZ"                 # the run_id's UTC instant (second resolution => unique per run)
+REFUSE_LIST_N = 10                          # how many offending files a refusal names
+
+# Sector ETFs named by the pinned strategy config's `sector_etf_map` that the gate census NEVER fetched: they
+# are absent from the gate audit's `bar_store_sha256` map, so no hash can vouch for them and the spec's NaN
+# rule applies (sec13 = NaN for bond / defensive_bonds / telecom / real_estate / healthcare). This is the
+# exact, frozen exception: --dev-run computes the absent set (needed files minus the audit's file set) and
+# refuses unless it equals this constant. GLD IS in the audit (commodity gets sec13). An eligible name or
+# SPY absent from the audit, an audited file absent from the store, or a different ETF absent set is a
+# refusal — a re-binding needs its own review, it is never a run.
+# [VERIFIED 2026-08-29 — gate audit bar_store_sha256 keys vs the pinned config's sector_etf_map values]
+EXPECTED_ABSENT_FROM_AUDIT = frozenset({"TLT", "XLC", "XLRE", "XLV"})
 
 
-class GateNotAuthorized(RuntimeError):
+class DevRunRefused(RuntimeError):
+    """A --dev-run preflight refusal (CLI exit 2): gate, source tree, output bundle or bar-store manifest."""
+
+
+class GateNotAuthorized(DevRunRefused):
     """The Stage I-0 gate bundle is missing, tampered, not GATE_RUN/PASS, or not the bundle this harness is bound to."""
+
+
+class StoreNotAudited(DevRunRefused):
+    """The bar store is not (or, for DEV_RUN, not completely) the store the gate census audited."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -573,21 +600,53 @@ def name_features(panel: Dict[str, np.ndarray], ctx: dict, sec13_grid: Optional[
                 m13=m13, sec13=sec13, rel13=rel13, y13=y13, y1=y1, y3=y3)
 
 
-def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> dict:
-    """Assemble the (name, session, slot) observation table over eligible names; t in 13..25 only (A1 rule)."""
-    store = cfg.bar_store
-    audited = audit["bar_store_sha256"]
+def store_needed(audit: dict, sessions: Sequence[str], sector_etf_map: Dict[str, str]) -> Tuple[List[str], List[str]]:
+    """(eligible names over `sessions`, every store file the run needs = eligible names + sector ETFs + SPY)."""
     names_eligible = sorted({n for s in sessions for n in audit["eligible_membership_post_drift"].get(s, ())})
-    etfs = sorted({v for v in cfg.sector_etf_map.values()})
-    needed = sorted(set(names_eligible) | set(etfs) | {SPY})
-    # --- store identity: every consumed file must be the file the gate census audited (fail closed).
-    # The consumed-bar manifest is the store itself hashed NOW; a file absent from the audit or hashing
-    # differently from the audit's per-file value is refused — the dev run must consume the audited store.
-    mismatched, unaudited, missing, actual = [], [], [], {}
+    etfs = sorted({v for v in sector_etf_map.values()})
+    return names_eligible, sorted(set(names_eligible) | set(etfs) | {SPY})
+
+
+def check_store_manifest(store: pathlib.Path, audit: dict, sessions: Sequence[str], sector_etf_map: Dict[str, str],
+                         strict: bool, expected_absent: frozenset = EXPECTED_ABSENT_FROM_AUDIT) -> dict:
+    """Verify the bar store against the gate audit's `bar_store_sha256` BEFORE any bar is read (no parquet
+    is opened here; only existence + sha256 of whole files).
+
+    Both modes refuse (StoreNotAudited) a needed file that hashes differently from the audit or that the
+    audit never saw. `strict` (DEV_RUN) additionally refuses: an eligible name or SPY absent from the audit's
+    file set; a set of audit-absent sector ETFs different from `expected_absent`; and ANY needed file the
+    audit carries that is missing from the store (there is no "skip it" path). Non-strict (SMOKE) records
+    missing files and continues, refusing only when SPY is missing.
+
+    Returns dict(names_eligible, needed, required, actual, missing, absent_from_audit) — `actual` is the
+    run-time sha256 of every needed file present in the store, the only files build_rows may open.
+    """
+    store = pathlib.Path(store)
+    audited = audit["bar_store_sha256"]
+    names_eligible, needed = store_needed(audit, sessions, sector_etf_map)
+    absent_from_audit = sorted(n for n in needed if n not in audited)
+    required = [n for n in needed if n in audited]
+    if strict:
+        anchor = set(names_eligible) | {SPY}
+        bad = [n for n in absent_from_audit if n in anchor]
+        if bad:
+            raise StoreNotAudited(f"{len(bad)} eligible names / SPY are absent from the gate audit's file set "
+                                  f"(e.g. {bad[:REFUSE_LIST_N]}); the audit cannot vouch for them")
+        if set(absent_from_audit) != set(expected_absent):
+            raise StoreNotAudited(f"sector ETFs absent from the gate audit = {absent_from_audit}, this harness is "
+                                  f"bound to {sorted(expected_absent)} (EXPECTED_ABSENT_FROM_AUDIT); a different "
+                                  f"absent set is a re-binding, not a run")
+    missing = [n for n in required if not (store / f"{n}.parquet").exists()]
+    if strict and missing:
+        raise StoreNotAudited(f"{len(missing)} of the {len(required)} audited files this run needs are missing from "
+                              f"the bar store (e.g. {missing[:REFUSE_LIST_N]}); the dev run must consume the "
+                              f"complete audited store")
+    if SPY in missing:
+        raise StoreNotAudited("SPY 10-min bars missing from the bar store")
+    mismatched, unaudited, actual = [], [], {}
     for n in needed:
         p = store / f"{n}.parquet"
         if not p.exists():
-            missing.append(n)
             continue
         actual[n] = sha256_file(p)
         if n not in audited:
@@ -595,11 +654,20 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
         elif actual[n] != audited[n]:
             mismatched.append(n)
     if mismatched or unaudited:
-        sys.exit(f"bar store differs from the gate census's audited store: {len(mismatched)} hash mismatches "
-                 f"(e.g. {mismatched[:5]}), {len(unaudited)} files absent from the audit (e.g. {unaudited[:5]}); "
-                 f"refusing to run on an unaudited store")
-    if SPY in missing:
-        sys.exit("SPY 10-min bars missing from the bar store")
+        raise StoreNotAudited(f"bar store differs from the gate census's audited store: {len(mismatched)} hash "
+                              f"mismatches (e.g. {mismatched[:REFUSE_LIST_N]}), {len(unaudited)} files absent from "
+                              f"the audit (e.g. {unaudited[:REFUSE_LIST_N]}); refusing to run on an unaudited store")
+    return dict(names_eligible=names_eligible, needed=needed, required=required, actual=actual, missing=missing,
+                absent_from_audit=absent_from_audit)
+
+
+def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], manifest: dict, log=print) -> dict:
+    """Assemble the (name, session, slot) observation table over eligible names; t in 13..25 only (A1 rule).
+    `manifest` is `check_store_manifest`'s result: the only files opened are the ones it hashed."""
+    store = cfg.bar_store
+    names_eligible, actual, missing = manifest["names_eligible"], manifest["actual"], manifest["missing"]
+    if cfg.run_status == "DEV_RUN" and (missing or not set(manifest["required"]) <= set(actual)):
+        raise StoreNotAudited("DEV_RUN reached build_rows with an incomplete store manifest")   # unreachable by design
     consumed = {SPY: actual[SPY]}                       # every file this run READS, hashed at run time
     # --- market context
     spy_daily = pd.read_parquet(cfg.spy_daily, columns=["close"])["close"]
@@ -616,11 +684,10 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
     )
     sec13_by_sector: Dict[str, Optional[np.ndarray]] = {}
     for sector, etf in cfg.sector_etf_map.items():
-        p = store / f"{etf}.parquet"
-        if etf in missing or not p.exists():
-            sec13_by_sector[sector] = None                     # ETF absent => sec13 NaN for that sector
+        if etf not in actual:                                  # absent from the audit (bound set) or, in SMOKE, from the store
+            sec13_by_sector[sector] = None                     # => sec13 NaN for that sector (the spec's NaN rule)
             continue
-        panel = load_panel(p, sessions)
+        panel = load_panel(store / f"{etf}.parquet", sessions)
         consumed[etf] = actual[etf]
         sec13_by_sector[sector] = trailing_log_return(panel["close"], H) if panel else None
     # --- per-name rows
@@ -631,11 +698,10 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
     feats, labels, states = [], [], {"b1": [], "b2": [], "b3": []}
     tslice = np.array(SCREEN_SLOTS)
     for j, n in enumerate(names_eligible):
-        p = store / f"{n}.parquet"
-        if not p.exists():
+        if n not in actual:                                    # SMOKE only: DEV_RUN has every eligible file (checked above)
             continue
         consumed[n] = actual[n]
-        panel = load_panel(p, sessions)
+        panel = load_panel(store / f"{n}.parquet", sessions)
         if panel is None:
             continue
         sector = cfg.sector_map.get(n)
@@ -669,7 +735,7 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
         b1=np.concatenate(states["b1"]), b2=np.concatenate(states["b2"]), b3=np.concatenate(states["b3"]),
         state_labels={"B0": ["ALL"], "B1": list(K5_REGIMES), "B2": b2_labels, "B3": list(B3_LABELS)},
         names=names_eligible, sessions=sessions, regime_episode=ctx["regime_episode"],
-        consumed_sha256=consumed, missing_files=missing,
+        consumed_sha256=consumed, missing_files=missing, absent_from_audit=manifest["absent_from_audit"],
         sec13_available={s: (g is not None) for s, g in sec13_by_sector.items()},
     )
     rows["s0"] = -rows["X"][:, FEATURE_NAMES.index("r13")]          # the A1 proxy, naive reference
@@ -871,8 +937,31 @@ def screen_base(rows: dict, pred: np.ndarray, oof_mask: np.ndarray, cfg: RunConf
 # --------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------
+def _now_utc() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
 def _utcnow() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime(_TS)
+    return _now_utc().strftime(_TS)
+
+
+def dev_run_identity(cfg: RunConfig, src: dict, started: _dt.datetime) -> Tuple[str, pathlib.Path]:
+    """DEV_RUN only. Refuses (DevRunRefused) a source tree that is not clean outside the declared bar store
+    and output root, or one without a resolvable commit; mints the unique run_id
+    i1-dev-<UTC YYYYMMDDTHHMMSSZ>-<shortsha>; and refuses if `<out_root>/<run_id>/` already exists (no overwrite)."""
+    if not isinstance(src.get("commit"), str) or not _HEX40.match(src["commit"]):
+        raise DevRunRefused(f"cannot establish the source commit of the harness checkout ({src.get('error')})")
+    if src.get("clean_tree") is not True:
+        dirty = src.get("dirty_entries") or []
+        raise DevRunRefused(f"source tree is not clean: {src.get('n_dirty')} entries outside the declared bar store / "
+                            f"output root (e.g. {dirty[:REFUSE_LIST_N]}); commit or remove them — a DEV_RUN must be "
+                            f"reproducible from its recorded commit")
+    run_id = f"i1-dev-{started.strftime(_RUN_TS)}-{src['commit'][:8]}"
+    bundle_dir = pathlib.Path(cfg.out_dir) / run_id
+    if bundle_dir.exists():
+        raise DevRunRefused(f"output bundle {bundle_dir} already exists; refusing to overwrite (every DEV_RUN "
+                            f"writes its own bundle directory)")
+    return run_id, bundle_dir
 
 
 def source_state(repo_root: pathlib.Path, ignore: Sequence[pathlib.Path] = ()) -> dict:
@@ -929,17 +1018,28 @@ def _bind_dev_run(cfg: RunConfig) -> None:
 
 def run_stage_i1(cfg: RunConfig, log=print) -> dict:
     import xgboost
-    started = _utcnow()
+    started_dt = _now_utc()
+    started = started_dt.strftime(_TS)
+    dev = cfg.run_status == "DEV_RUN"
     _bind_dev_run(cfg)
+    # the output ROOT and the bar store are the only paths excluded from the cleanliness check
     src = source_state(REPO, ignore=[cfg.bar_store, cfg.out_dir])
-    kind = "dev" if cfg.run_status == "DEV_RUN" else "smoke"
-    run_id = f"i1-{kind}-{started[:10].replace('-', '')}-{(src['commit'] or 'nogit')[:8]}"
+    if dev:
+        run_id, bundle_dir = dev_run_identity(cfg, src, started_dt)     # refuses dirty tree / existing bundle
+    else:
+        run_id = f"i1-smoke-{started_dt.strftime(_RUN_TS)}-{(src['commit'] or 'nogit')[:8]}"
+        bundle_dir = pathlib.Path(cfg.out_dir)                          # smoke: fixed dir, overwrite allowed
+    log(f"run {run_id} -> {bundle_dir}", flush=True)
     audit_in = load_census_audit(cfg.census_audit)
     sessions = session_list(audit_in, cfg.dev_start, cfg.dev_end)
     log(f"sessions in window: {len(sessions)} ({sessions[0]}..{sessions[-1]})" if sessions else "no sessions", flush=True)
     if not sessions:
         sys.exit("census audit carries no sessions inside the development window")
-    rows = build_rows(cfg, audit_in, sessions, log=log)
+    # store manifest BEFORE any bar is read: DEV_RUN needs the complete audited store, hash-matching
+    manifest = check_store_manifest(cfg.bar_store, audit_in, sessions, cfg.sector_etf_map, strict=dev)
+    log(f"store manifest: {len(manifest['actual'])} files hashed == gate audit; {len(manifest['missing'])} missing; "
+        f"absent from the audit: {manifest['absent_from_audit']}", flush=True)
+    rows = build_rows(cfg, audit_in, sessions, manifest, log=log)
     log(f"observations: {len(rows['name'])} over {len(rows['names'])} names", flush=True)
     preds, fits, fold_counts = run_bases(rows, cfg, log=log)
     oof_all = np.zeros(len(rows["name"]), dtype=bool)
@@ -964,6 +1064,10 @@ def run_stage_i1(cfg: RunConfig, log=print) -> dict:
     ended = _utcnow()
     provenance = dict(
         run_id=run_id, run_status=cfg.run_status,
+        outputs=dict(root=str(cfg.out_dir), bundle_dir=str(bundle_dir), report="report.json",
+                     audit="g2v3_stage_i1_audit.json.gz",
+                     policy=("DEV_RUN: bundle_dir = <root>/<run_id>/, refused if it already exists; "
+                             "SMOKE: bundle_dir = root, overwritten")),
         source=dict(repo_root=str(REPO), **src),
         invocation=dict(argv=list(sys.argv), cwd=os.getcwd(), python=sys.executable,
                         env={"G2V3_BAR_STORE": os.environ.get("G2V3_BAR_STORE")}),
@@ -978,6 +1082,13 @@ def run_stage_i1(cfg: RunConfig, log=print) -> dict:
             sector_map_sha256=sha256_json(cfg.sector_map), sector_etf_map_sha256=sha256_json(cfg.sector_etf_map),
             spy_daily=dict(path=str(cfg.spy_daily), sha256=sha256_file(cfg.spy_daily)),
             bar_store=str(cfg.bar_store)),
+        store_manifest_check=dict(
+            strict=dev, n_needed=len(manifest["needed"]), n_required_in_audit=len(manifest["required"]),
+            n_hashed=len(manifest["actual"]), missing_files=manifest["missing"],
+            absent_from_audit=manifest["absent_from_audit"], expected_absent_from_audit=sorted(EXPECTED_ABSENT_FROM_AUDIT),
+            rule=("every needed file the gate audit carries must exist and hash-match before any bar is read; "
+                  "DEV_RUN refuses on any missing/mismatched/unaudited file or on an absent-ETF set != "
+                  "EXPECTED_ABSENT_FROM_AUDIT")),
         frozen_parameters=dict(frozen, interpretations=list(INTERPRETATIONS)),
         consumed_bar_manifest=dict(count=len(consumed), aggregate_sha256=manifest_aggregate(consumed),
                                    aggregate_method=MANIFEST_METHOD,
@@ -994,9 +1105,11 @@ def run_stage_i1(cfg: RunConfig, log=print) -> dict:
                     gate_run_id=(cfg.gate.run_id if cfg.gate is not None else None),
                     n_sessions=len(sessions), n_names=len(rows["names"]), n_observations=int(len(rows["name"])),
                     n_oof_observations=int(oof_all.sum()), missing_store_files=rows["missing_files"],
+                    absent_from_audit=rows["absent_from_audit"],
                     sec13_etf_available_by_sector=rows["sec13_available"],
-                    store_hash_check="every consumed file hashed at run time == the gate audit's per-file "
-                                     "sha256 (fail-closed on mismatch or on files absent from the audit)"),
+                    store_hash_check="every needed file hashed BEFORE any bar is read == the gate audit's per-file "
+                                     "sha256 (fail-closed on mismatch / unaudited; DEV_RUN also on any missing "
+                                     "audited file or an absent-ETF set != EXPECTED_ABSENT_FROM_AUDIT)"),
         fold_row_counts=fold_counts,
         bases=results, s0_reference=s0_res, base_vs_b0=comparison,
         stage_i2_trigger=dict(rule="at least one of B1/B2/B3 passes the life bar AND beats B0's block-t",
@@ -1006,10 +1119,13 @@ def run_stage_i1(cfg: RunConfig, log=print) -> dict:
     )
     if cfg.run_status != "DEV_RUN":
         report["note"] = "SMOKE run on synthetic data: no development-window evidence; no verdict."
-    cfg.out_dir.mkdir(parents=True, exist_ok=True)
-    (cfg.out_dir / "report.json").write_text(json.dumps(report, indent=1, default=_json_default))
+    if dev:
+        bundle_dir.mkdir(parents=True, exist_ok=False)          # its own bundle; a race to the same id fails here
+    else:
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "report.json").write_text(json.dumps(report, indent=1, default=_json_default))
     audit_out["consumed_sha256"] = consumed
-    with gzip.open(cfg.out_dir / "g2v3_stage_i1_audit.json.gz", "wt") as fh:
+    with gzip.open(bundle_dir / "g2v3_stage_i1_audit.json.gz", "wt") as fh:
         json.dump(audit_out, fh, default=_json_default)
     return report
 
@@ -1049,21 +1165,33 @@ def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
     run_id = need("run_id")
     if isinstance(run_id, str):
         if not _RUN_ID.match(run_id):
-            problems.append(f"run_id {run_id!r} does not match i1-(dev|smoke)-<UTCdate>-<shortsha>")
+            problems.append(f"run_id {run_id!r} does not match i1-(dev|smoke)-<UTC YYYYMMDDTHHMMSSZ>-<shortsha>")
         elif run_id.split("-")[1] != ("dev" if dev else "smoke"):
             problems.append(f"run_id {run_id!r} kind disagrees with run_status {report.get('run_status')!r}")
+        elif dev and run_id.endswith("-nogit"):
+            problems.append("DEV_RUN run_id carries no source commit")
         if report.get("run_id") != run_id:
             problems.append("report.run_id != provenance.run_id")
     if prov.get("run_status") != report.get("run_status"):
         problems.append("provenance.run_status != report.run_status")
+    # --- output bundle: DEV_RUN writes <root>/<run_id>/, never a shared directory
+    bundle_dir = need("outputs", "bundle_dir")
+    root = need("outputs", "root")
+    if isinstance(bundle_dir, str) and isinstance(root, str) and isinstance(run_id, str):
+        bp = pathlib.Path(bundle_dir)
+        if dev and (bp.name != run_id or bp.parent != pathlib.Path(root)):
+            problems.append(f"DEV_RUN outputs.bundle_dir {bundle_dir!r} is not <outputs.root>/<run_id>/")
     # --- source
     commit = need("source", "commit")
     if not (isinstance(commit, str) and _HEX40.match(commit)):
         problems.append(f"source.commit is not a 40-hex sha: {commit!r}")
     elif isinstance(run_id, str) and _RUN_ID.match(run_id) and not run_id.endswith(commit[:8]):
         problems.append("run_id short sha != source.commit")
-    if not isinstance(need("source", "clean_tree"), bool):
+    clean = need("source", "clean_tree")
+    if not isinstance(clean, bool):
         problems.append("source.clean_tree must be a bool")
+    elif dev and clean is not True:
+        problems.append("DEV_RUN source.clean_tree is not True (a dev run from a dirty tree is not reproducible)")
     # --- invocation + clock
     argv = need("invocation", "argv")
     if not (isinstance(argv, list) and argv):
@@ -1079,8 +1207,8 @@ def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
         t1 = _dt.datetime.strptime(end, _TS)
         if t1 < t0:
             problems.append(f"timestamps_utc end {end} precedes start {start}")
-        if isinstance(run_id, str) and _RUN_ID.match(run_id) and run_id.split("-")[2] != t0.strftime("%Y%m%d"):
-            problems.append("run_id date != timestamps_utc.start date")
+        if isinstance(run_id, str) and _RUN_ID.match(run_id) and run_id.split("-")[2] != t0.strftime(_RUN_TS):
+            problems.append("run_id UTC instant != timestamps_utc.start")
     except (TypeError, ValueError):
         problems.append(f"timestamps_utc start/end must be {_TS}: {start!r} / {end!r}")
     # --- gate bundle
@@ -1133,6 +1261,18 @@ def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = 
                 problems.append(f"strategy config unreadable for the sector-map rebuild ({exc})")
     if dev and str(_dig(prov, "inputs", "census_audit", "path") or "") != str(GATE_AUDIT):
         problems.append(f"DEV_RUN census audit is not the gate bundle's audit {GATE_AUDIT}")
+    # --- store manifest check: a DEV_RUN must have run strict, with nothing missing and the bound absent set
+    smc = need("store_manifest_check")
+    if isinstance(smc, dict):
+        if dev and smc.get("strict") is not True:
+            problems.append("DEV_RUN store_manifest_check.strict is not True")
+        if dev and smc.get("missing_files"):
+            problems.append(f"DEV_RUN store_manifest_check.missing_files is not empty: {smc.get('missing_files')[:5]}")
+        if dev and sorted(smc.get("absent_from_audit") or []) != sorted(EXPECTED_ABSENT_FROM_AUDIT):
+            problems.append(f"DEV_RUN store_manifest_check.absent_from_audit {smc.get('absent_from_audit')!r} != "
+                            f"EXPECTED_ABSENT_FROM_AUDIT {sorted(EXPECTED_ABSENT_FROM_AUDIT)}")
+        if smc.get("expected_absent_from_audit") != sorted(EXPECTED_ABSENT_FROM_AUDIT):
+            problems.append("store_manifest_check.expected_absent_from_audit != module EXPECTED_ABSENT_FROM_AUDIT")
     # --- frozen block: internal consistency + module constants + the 11 interpretations byte-identical
     fp = need("frozen_parameters")
     if isinstance(fp, dict):
@@ -1266,7 +1406,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dev-run", action="store_true",
                     help="run on the REAL development bar store (G2V3_BAR_STORE); refuses (exit 2) unless the "
-                         "Stage I-0 GATE_RUN bundle verifies against ACCEPTED_GATE_BUNDLE")
+                         "Stage I-0 GATE_RUN bundle verifies against ACCEPTED_GATE_BUNDLE, the source tree is "
+                         "clean, <out_root>/<run_id>/ does not exist and the store is the complete audited store")
     ap.add_argument("--smoke-out", default=None, help="synthetic smoke output dir (default: a temp dir)")
     args = ap.parse_args(argv)
     if args.dev_run:
@@ -1276,7 +1417,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                   f"report={auth.report_sha256[:12]}.. audit={auth.audit_sha256[:12]}..", flush=True)
             cfg = dev_run_config(auth)
             report = run_stage_i1(cfg)
-        except GateNotAuthorized as exc:
+        except DevRunRefused as exc:                     # gate / dirty tree / existing bundle / store manifest
             print(f"REFUSED --dev-run (fail closed): {exc}", file=sys.stderr, flush=True)
             return 2
     else:

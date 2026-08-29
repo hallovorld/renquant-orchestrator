@@ -35,8 +35,8 @@ def _load():
 M = _load()
 G = M.ACCEPTED_GATE_BUNDLE
 
-PROVENANCE_KEYS = {"run_id", "run_status", "source", "invocation", "timestamps_utc", "gate_bundle", "inputs",
-                   "frozen_parameters", "consumed_bar_manifest"}
+PROVENANCE_KEYS = {"run_id", "run_status", "outputs", "source", "invocation", "timestamps_utc", "gate_bundle", "inputs",
+                   "store_manifest_check", "frozen_parameters", "consumed_bar_manifest"}
 
 
 @pytest.fixture(scope="module")
@@ -64,13 +64,14 @@ def test_provenance_block_is_complete(smoke_run):
     rep, aud = smoke_run["report"], smoke_run["audit"]
     prov = rep["provenance"]
     assert PROVENANCE_KEYS <= set(prov)
-    assert re.match(r"^i1-smoke-\d{8}-[0-9a-f]{8}$", prov["run_id"]) and rep["run_id"] == prov["run_id"]
+    assert re.match(r"^i1-smoke-\d{8}T\d{6}Z-[0-9a-f]{8}$", prov["run_id"]) and rep["run_id"] == prov["run_id"]
+    assert prov["outputs"]["bundle_dir"] == str(smoke_run["tmp"] / "out") and prov["run_status"] == "SMOKE"
     assert re.match(r"^[0-9a-f]{40}$", prov["source"]["commit"]) and isinstance(prov["source"]["clean_tree"], bool)
     assert prov["source"]["repo_root"] == str(M.REPO)
     assert prov["invocation"]["argv"] and "G2V3_BAR_STORE" in prov["invocation"]["env"]
     ts = prov["timestamps_utc"]
     assert ts["start"] <= ts["end"] and ts["start"].endswith("Z") and "own clock" in ts["derivation"]
-    assert prov["run_id"].split("-")[2] == ts["start"][:10].replace("-", "")
+    assert prov["run_id"].split("-")[2] == ts["start"].replace("-", "").replace(":", "")
     gate = prov["gate_bundle"]
     assert gate["run_id"] == G["run_id"] and gate["frozen_source_commit"] == G["frozen_source_commit"]
     assert gate["report_sha256"] == G["report_sha256"] and gate["audit_sha256"] == G["audit_sha256"]
@@ -191,9 +192,15 @@ def test_identity_and_clock_are_checked(smoke_run):
     rep["provenance"]["source"]["clean_tree"] = "yes"
     assert any("clean_tree must be a bool" in x for x in _problems(rep, aud))
     rep, aud = _fresh(smoke_run)
-    rep["provenance"]["run_id"] = "i1-dev-20260829-" + rep["provenance"]["source"]["commit"][:8]
+    rep["provenance"]["run_id"] = "i1-dev-" + rep["run_id"].split("-")[2] + "-" + rep["provenance"]["source"]["commit"][:8]
     p = _problems(rep, aud)
     assert any("kind disagrees" in x for x in p) and any("report.run_id != provenance.run_id" in x for x in p)
+    rep, aud = _fresh(smoke_run)
+    rep["provenance"]["run_id"] = rep["run_id"] = "i1-smoke-20260829-" + rep["provenance"]["source"]["commit"][:8]
+    assert any("does not match" in x for x in _problems(rep, aud))          # the old date-only form is rejected
+    rep, aud = _fresh(smoke_run)
+    rep["provenance"]["run_id"] = rep["run_id"] = "i1-smoke-20260829T000000Z-" + rep["provenance"]["source"]["commit"][:8]
+    assert any("run_id UTC instant != timestamps_utc.start" in x for x in _problems(rep, aud))
     rep, aud = _fresh(smoke_run)
     rep["provenance"]["invocation"]["argv"] = []
     assert any("invocation.argv" in x for x in _problems(rep, aud))
@@ -212,6 +219,15 @@ def test_dev_run_provenance_demands_the_gate_and_the_frozen_folds(smoke_run):
     assert any("not the gate bundle's audit" in x for x in p), p
     assert any("DEV_RUN frozen_parameters.folds" in x for x in p), p            # the smoke's tiny folds
     assert any("DEV_RUN frozen_parameters.min_names_per_ic" in x for x in p), p
+    # r3: a DEV_RUN claim is also held to a strict, complete store manifest, the bound absent set and its own bundle
+    assert any("store_manifest_check.strict is not True" in x for x in p), p
+    assert any("absent_from_audit ['XLV'] != EXPECTED_ABSENT_FROM_AUDIT" in x for x in p), p
+    assert any("outputs.bundle_dir" in x and "not <outputs.root>/<run_id>/" in x for x in p), p
+    rep, aud = _fresh(smoke_run)
+    rep["run_status"] = rep["provenance"]["run_status"] = "DEV_RUN"
+    rep["run_id"] = rep["provenance"]["run_id"] = rep["run_id"].replace("smoke", "dev")
+    rep["provenance"]["source"]["clean_tree"] = False
+    assert any("DEV_RUN source.clean_tree is not True" in x for x in _problems(rep, aud))
 
 
 def test_smoke_report_on_disk_carries_the_same_provenance(smoke_run):

@@ -171,7 +171,8 @@ def test_smoke_planted_signal_is_detected_and_schema_holds(tmp_path):
         assert f["capped"] is False and f["n_train_used"] == f["n_train_raw"]
     # sec13: the healthcare ETF (XLV) is absent from the store -> recorded, not fatal
     assert rep["inputs"]["sec13_etf_available_by_sector"] == {"tech": True, "finance": True, "healthcare": False}
-    assert rep["inputs"]["missing_store_files"] == ["XLV"]
+    assert rep["inputs"]["missing_store_files"] == []                  # XLV is absent from the AUDIT, not "missing"
+    assert rep["inputs"]["absent_from_audit"] == ["XLV"]
     assert rep["frozen"]["folds"] != [list(f) for f in M.FOLDS]        # the smoke used the private tiny folds
     assert rep["provenance"]["run_status"] == "SMOKE" and rep["provenance"]["gate_bundle"] is None
     assert M.validate_i1_provenance(rep, aud, M.REPO) == []             # the provenance rebuilds from disk
@@ -201,10 +202,10 @@ def test_smoke_honours_census_eligibility_and_refuses_a_changed_store(tmp_path):
     cfg = M._smoke_config(syn["bar_store"], syn["census_audit"], syn["spy_daily"], syn["sector_map"],
                           syn["sector_etf_map"], tmp_path / "out2", M._smoke_folds(s), min_names=20,
                           dev_start=s[0], dev_end=s[-1], strategy_config=syn["strategy_config"])
-    with pytest.raises(SystemExit, match="1 hash mismatches.*unaudited store"):
+    with pytest.raises(M.StoreNotAudited, match="1 hash mismatches.*unaudited store"):
         M.run_stage_i1(cfg, log=lambda *a, **k: None)
     # a file the audit never saw is refused as well (the dev run must consume the AUDITED store, nothing more)
     df.to_parquet(syn["bar_store"] / "XLV.parquet")                    # XLV was absent; now present but unaudited
-    with pytest.raises(SystemExit, match="1 files absent from the audit.*unaudited store"):
+    with pytest.raises(M.StoreNotAudited, match="1 files absent from the audit.*unaudited store"):
         M.run_stage_i1(cfg, log=lambda *a, **k: None)
     assert not (tmp_path / "out2").exists()
