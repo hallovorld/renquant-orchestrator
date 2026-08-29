@@ -91,6 +91,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PLIST_PATH = REPO_ROOT / "deploy" / "com.renquant.stops-liveness.plist"
 WRAPPER = REPO_ROOT / "scripts" / "stops_liveness_pager.sh"
 INSTALLER = REPO_ROOT / "scripts" / "install_stops_pager.sh"
+MANIFEST_PATH = REPO_ROOT / "ops" / "launchd_manifest.json"
+LABEL = "com.renquant.stops-liveness"
+#: Every manifested com.renquant.* job executes from the PINNED run checkout
+#: (ops/launchd_manifest.json), never the dev working tree.
+RUN_CHECKOUT = "/Users/renhao/git/github/renquant-orchestrator-run"
+
+# The drift scan is the authority on manifest shape + digest (GOAL-5 AC2);
+# import it rather than re-deriving sha256(json.dumps(args)) here.
+sys.path.insert(0, str(REPO_ROOT / "ops"))
+import run_surface_drift_check as drift  # noqa: E402
 
 LIVE_OPS_TOPIC = "renquant"  # the live sell-only loop's alert channel
 
@@ -241,6 +251,87 @@ def test_wrapper_and_installer_exist_and_are_executable():
     for script in (WRAPPER, INSTALLER):
         assert script.exists(), f"{script} missing"
         assert script.stat().st_mode & 0o111, f"{script} not executable"
+
+
+# ---------------------------------------- pinned-run plist (2026-08-29)
+#
+# Fractional dependency chain, step 5 PREPARATION (orch#1077): the plist runs
+# the wrapper from the PINNED run checkout, and the installer refuses a plist
+# that is unmanifested or disagrees with its manifest entry. The manifest
+# ENTRY itself is deliberately NOT in this change (Codex on #1077): a
+# manifested-but-uninstalled job makes the daily run-surface drift scan page
+# the ops topic every day until install — a standing false positive on the
+# channel that must carry real stop-liveness failures. The entry lands in the
+# LANDING PR that also installs and test-fires the job, in one controlled
+# window, after the registry writer exists and the -run checkout is synced.
+# Therefore no test below may pass BECAUSE the committed manifest carries the
+# entry; where a manifest is needed, the entry that PR will commit is produced
+# on the fly, the way that PR must produce it: by the scanner.
+
+def _entry_for_committed_plist(tmp_path: Path) -> dict:
+    """run_surface_drift_check.scan_launchd_plists over a directory holding only
+    the committed plist — never a hand-typed digest."""
+    agents = tmp_path / "scan-agents"
+    agents.mkdir(exist_ok=True)
+    (agents / PLIST_PATH.name).write_bytes(PLIST_PATH.read_bytes())
+    scanned = drift.scan_launchd_plists(str(agents))
+    assert set(scanned) == {LABEL}, scanned
+    entry = scanned[LABEL]
+    assert entry["program_args_sha256"] == drift.program_args_digest(entry["program_args"])
+    assert set(entry) == {"program_args", "program_args_sha256"}
+    return entry
+
+
+def _write_manifest_for_committed_plist(tmp_path: Path) -> Path:
+    path = tmp_path / "manifest-for-committed-plist.json"
+    path.write_text(json.dumps({"jobs": {LABEL: _entry_for_committed_plist(tmp_path)}}),
+                    encoding="utf-8")
+    return path
+
+
+def test_plist_runs_the_wrapper_from_the_pinned_run_checkout():
+    """`merged is not deployed`: the daily jobs execute local run checkouts.
+    The 2026-07-11 template pointed at the DEV working tree
+    (.../renquant-orchestrator/scripts/), whose branch is whatever the operator
+    last checked out; every other manifested job runs from the -run checkout."""
+    with open(PLIST_PATH, "rb") as fh:
+        args = plistlib.load(fh)["ProgramArguments"]
+    assert args[-1] == f"{RUN_CHECKOUT}/scripts/stops_liveness_pager.sh", args
+    assert "/renquant-orchestrator/scripts/" not in args[-1], "dev tree, not the pin"
+
+
+def test_committed_manifest_does_not_declare_the_job_yet_so_install_is_refused(tmp_path):
+    """The deferral, pinned in both directions: the committed manifest carries
+    NO entry (so the drift scan has nothing to page about), and against the
+    committed files `install` — even its dry-run preview — refuses with
+    exit 4 "not declared". The landing PR that adds the entry DELETES this
+    test in the same change: it goes red the moment the entry lands."""
+    jobs = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["jobs"]
+    assert LABEL not in jobs, "entry landed — delete this test in the landing PR"
+    proc = _run_installer(tmp_path, "install")
+    assert proc.returncode == 4, (proc.stdout, proc.stderr)
+    assert "not declared" in proc.stderr
+    assert not (tmp_path / "LaunchAgents").exists()
+    assert not (tmp_path / "launchctl_calls.log").exists()
+
+
+def test_pythonpath_scan_inspects_the_pager_wrapper_in_this_checkout(tmp_path):
+    """Once manifested, the wrapper becomes a subject of
+    check_wrapper_pythonpath_roots. Measured 2026-08-29 before the resolver
+    fix: only `/ops/` paths mapped into this checkout, so the `-run/scripts/`
+    path came back unresolvable and unowned — a PROBLEM that would turn the
+    daily scan red the day the landing PR merges. With the entry the scanner
+    produces for the committed plist, it must resolve to this repo's scripts/
+    copy and be read: no fallback idiom, one root."""
+    entry = _entry_for_committed_plist(tmp_path)
+    mp = tmp_path / "m.json"
+    mp.write_text(json.dumps({"jobs": {LABEL: entry}}), encoding="utf-8")
+    inv = drift._scheduled_wrappers(str(mp), str(REPO_ROOT / "ops"))
+    assert inv == [(LABEL, entry["program_args"][-1], str(WRAPPER))], inv
+    problems, infos = drift.check_wrapper_pythonpath_roots(
+        str(REPO_ROOT / "ops"), "/nonexistent-repos-root", str(mp))
+    assert problems == [], problems
+    assert any(LABEL in i and "deterministic root" in i for i in infos), infos
 
 
 # ----------------------------------------------------- wrapper page logic
@@ -659,7 +750,8 @@ def _run_installer(
     )
 
 
-def _write_fake_plist(tmp_path: Path, *, env_vars: dict, name: str = "fake-stops-liveness.plist") -> Path:
+def _write_fake_plist(tmp_path: Path, *, env_vars: dict, name: str = "fake-stops-liveness.plist",
+                      program_args: "list[str] | None" = None) -> Path:
     """A throwaway plist for the install --apply registry guard tests.
 
     Round 6 (Codex CHANGES_REQUESTED, 2026-07-12T10:57:11Z): the guard now
@@ -671,8 +763,47 @@ def _write_fake_plist(tmp_path: Path, *, env_vars: dict, name: str = "fake-stops
     absolute path tests must not write into)."""
     plist_path = tmp_path / name
     with open(plist_path, "wb") as fh:
-        plistlib.dump({"EnvironmentVariables": env_vars}, fh)
+        plistlib.dump(
+            {
+                "Label": LABEL,
+                # 2026-08-29: the installer's manifest-agreement guard reads
+                # ProgramArguments off THIS file too (same round-6 rule), so
+                # the fake plist carries a fake wrapper and, by default, an
+                # AGREEING fake manifest (`_write_fake_manifest`) that the
+                # caller points RENQUANT_STOPS_PAGER_MANIFEST at.
+                "ProgramArguments": program_args or _fake_program_args(tmp_path),
+                "EnvironmentVariables": env_vars,
+            },
+            fh,
+        )
+    if program_args is None:
+        _write_fake_manifest(tmp_path, _fake_program_args(tmp_path))
     return plist_path
+
+
+def _fake_program_args(tmp_path: Path) -> list[str]:
+    """ProgramArguments for the fake plist: a throwaway executable wrapper."""
+    wrapper = tmp_path / "fake_stops_wrapper.sh"
+    if not wrapper.exists():
+        wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        wrapper.chmod(0o755)
+    return ["/bin/bash", str(wrapper)]
+
+
+def _fake_manifest_path(tmp_path: Path) -> Path:
+    return tmp_path / "fake-launchd-manifest.json"
+
+
+def _write_fake_manifest(tmp_path: Path, program_args: list[str], *,
+                         label: str = LABEL, digest: "str | None" = None) -> Path:
+    """A one-job launchd manifest in the committed file's shape, digest by the
+    drift scanner's own function unless a deliberately wrong one is given."""
+    path = _fake_manifest_path(tmp_path)
+    path.write_text(json.dumps({"jobs": {label: {
+        "program_args": program_args,
+        "program_args_sha256": digest or drift.program_args_digest(program_args),
+    }}}), encoding="utf-8")
+    return path
 
 
 def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> dict:
@@ -701,17 +832,117 @@ def _valid_registry_install_env(tmp_path: Path, *, broker: str = "alpaca") -> di
     return {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
     }
 
 
 def test_install_dry_run_echoes_and_changes_nothing(tmp_path):
-    proc = _run_installer(tmp_path, "install")
+    """Committed plist + a manifest carrying the entry the landing PR will add
+    (scanner-produced, `_write_manifest_for_committed_plist` — the committed
+    manifest deliberately lacks it, see the deferral test above): the dry-run
+    preview passes the manifest-agreement guard on any checkout — file
+    agreement only, never this machine's disk — and changes nothing."""
+    env_extra = {"RENQUANT_STOPS_PAGER_MANIFEST": str(_write_manifest_for_committed_plist(tmp_path))}
+    proc = _run_installer(tmp_path, "install", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
+    assert "MANIFEST GUARD OK" in proc.stderr
     assert "DRY-RUN" in proc.stdout
     assert "+ cp " in proc.stdout
     assert "bootstrap" in proc.stdout
     assert not (tmp_path / "LaunchAgents").exists(), "dry-run must not create files"
     assert not (tmp_path / "launchctl_calls.log").exists(), "dry-run must not call launchctl"
+
+
+# --------------------------------- install plist/manifest agreement guard
+#
+# 2026-08-29 (reviewed surface, fractional chain step 5): arming a plist whose
+# ProgramArguments differ from ops/launchd_manifest.json would make the daily
+# drift scan raise "silent containment / job swap?" on its first firing after
+# install. The installer refuses instead — in BOTH modes for file agreement
+# (dry-run must preview honestly), and under --apply additionally when the
+# program the job would exec does not exist here. It reads ProgramArguments
+# off $PLIST_SRC only (round-6 rule) and the digest via the drift scanner's
+# own program_args_digest (never re-derived).
+
+def _assert_nothing_armed(tmp_path: Path) -> None:
+    assert not (tmp_path / "LaunchAgents" / "com.renquant.stops-liveness.plist").exists(), (
+        "must not copy the plist when the manifest guard fails"
+    )
+    assert not (tmp_path / "launchctl_calls.log").exists(), (
+        "must not invoke launchctl when the manifest guard fails"
+    )
+
+
+def test_install_refuses_when_plist_disagrees_with_manifest(tmp_path):
+    env_extra = _valid_registry_install_env(tmp_path)
+    # the manifest pins DIFFERENT arguments than the plist carries
+    _write_fake_manifest(tmp_path, ["/bin/bash", str(tmp_path / "some_other_wrapper.sh")])
+    for mode in ((), ("--apply",)):
+        proc = _run_installer(tmp_path, "install", *mode, env_extra=env_extra)
+        assert proc.returncode == 4, (mode, proc.stdout, proc.stderr)
+        assert "MANIFEST GUARD FAIL" in proc.stderr
+        assert "silent containment / job swap?" in proc.stderr
+        _assert_nothing_armed(tmp_path)
+
+
+def test_install_refuses_when_the_manifest_digest_is_not_the_scanners(tmp_path):
+    """Same arguments, wrong digest: a hand-typed sha is exactly what the scan
+    would flag as CHANGED. The guard compares against program_args_digest."""
+    env_extra = _valid_registry_install_env(tmp_path)
+    _write_fake_manifest(tmp_path, _fake_program_args(tmp_path), digest="0" * 64)
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 4, proc.stderr
+    assert "program_args_digest" in proc.stderr
+    _assert_nothing_armed(tmp_path)
+
+
+def test_install_refuses_when_the_label_is_not_manifested(tmp_path):
+    env_extra = _valid_registry_install_env(tmp_path)
+    _write_fake_manifest(tmp_path, _fake_program_args(tmp_path), label="com.renquant.something-else")
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 4, proc.stderr
+    assert "not declared" in proc.stderr
+    _assert_nothing_armed(tmp_path)
+
+
+def test_install_apply_refuses_when_the_program_target_is_absent_here(tmp_path):
+    """The plist and manifest agree on a wrapper path that does not exist on
+    this machine (an unsynced run checkout). Dry-run previews (file agreement
+    holds); --apply refuses, because launchd would spawn-and-fail dark."""
+    env_extra = _valid_registry_install_env(tmp_path)
+    Path(_fake_program_args(tmp_path)[-1]).unlink()
+    preview = _run_installer(tmp_path, "install", env_extra=env_extra)
+    assert preview.returncode == 0, preview.stderr
+    assert "MANIFEST GUARD OK" in preview.stderr
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
+    assert proc.returncode == 4, proc.stderr
+    assert "not an executable file on this machine" in proc.stderr
+    _assert_nothing_armed(tmp_path)
+
+
+def test_manifest_guard_runs_before_the_registry_guard(tmp_path):
+    """Ordering: the cheap file-agreement check fires first, so a disagreeing
+    plist is refused with exit 4 even when the registry guard would also
+    refuse — the operator sees the surface problem, not a registry symptom."""
+    state_root = _fake_state_root(tmp_path, exec_module_content=_STUB_REGISTRY_MODULE)
+    data_root = tmp_path / "registry-data-root"
+    data_root.mkdir()  # no registry file -> registry guard would exit 3
+    plist_path = _write_fake_plist(
+        tmp_path,
+        env_vars={
+            "RENQUANT_STOPS_PAGER_DATA_ROOT": str(data_root),
+            "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
+        },
+    )
+    _write_fake_manifest(tmp_path, ["/bin/bash", "/elsewhere/wrapper.sh"])
+    proc = _run_installer(tmp_path, "install", "--apply", env_extra={
+        "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
+        "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
+    })
+    assert proc.returncode == 4, proc.stderr
+    assert "no software-stop registry file" not in proc.stderr
+    _assert_nothing_armed(tmp_path)
 
 
 def test_install_apply_copies_plist_and_bootstraps(tmp_path):
@@ -760,6 +991,7 @@ def test_install_apply_refuses_when_registry_missing(tmp_path):
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode != 0
@@ -792,6 +1024,7 @@ def test_install_apply_refuses_when_registry_corrupt(tmp_path):
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode != 0
@@ -833,6 +1066,7 @@ def test_install_apply_ignores_ambient_env_and_uses_plist_value_only(tmp_path):
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
         # Ambient decoy -- must be ignored by the guard entirely.
         "RENQUANT_STOPS_PAGER_DATA_ROOT": str(decoy_data_root),
         "RENQUANT_STOPS_PAGER_PYTHON": sys.executable,
@@ -1045,6 +1279,7 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline(tmp_path
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
@@ -1112,6 +1347,7 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malforme
     env_extra = {
         "RENQUANT_DEPLOY_STATE_ROOT": str(state_root),
         "RENQUANT_STOPS_PAGER_PLIST_SRC": str(plist_path),
+        "RENQUANT_STOPS_PAGER_MANIFEST": str(_fake_manifest_path(tmp_path)),
     }
     proc = _run_installer(tmp_path, "install", "--apply", env_extra=env_extra)
     assert proc.returncode != 0
@@ -1126,9 +1362,11 @@ def test_install_apply_guard_against_real_pinned_execution_and_pipeline_malforme
 
 def test_install_dry_run_does_not_hard_fail_without_registry(tmp_path):
     """install (no --apply) must stay a pure echo-only dry-run even with no
-    registry/inventory/env configured at all -- the guard only gates
-    --apply."""
-    proc = _run_installer(tmp_path, "install")
+    registry/inventory/env configured at all -- the registry guard only gates
+    --apply. (The manifest guard runs in both modes, so the subject here gets
+    the scanner-produced manifest; the committed one lacks the entry by design.)"""
+    env_extra = {"RENQUANT_STOPS_PAGER_MANIFEST": str(_write_manifest_for_committed_plist(tmp_path))}
+    proc = _run_installer(tmp_path, "install", env_extra=env_extra)
     assert proc.returncode == 0, proc.stderr
     assert "DRY-RUN" in proc.stdout
     assert not (tmp_path / "LaunchAgents").exists()

@@ -28,6 +28,12 @@ LABEL="com.renquant.stops-liveness"
 # EnvironmentVariables without touching the real committed plist). Production
 # never sets this — see require_sources.
 PLIST_SRC="${RENQUANT_STOPS_PAGER_PLIST_SRC:-$REPO_ROOT/deploy/$LABEL.plist}"
+# The reviewed launchd surface (GOAL-5 AC2). The plist about to be armed must
+# carry EXACTLY the ProgramArguments this manifest pins for $LABEL, or the
+# daily run-surface drift scan (ops/run_surface_drift_check.py) raises a
+# "silent containment / job swap?" alarm on the very first firing after
+# install. Test-only override, same discipline as RENQUANT_STOPS_PAGER_PLIST_SRC.
+MANIFEST_SRC="${RENQUANT_STOPS_PAGER_MANIFEST:-$REPO_ROOT/ops/launchd_manifest.json}"
 WRAPPER="$REPO_ROOT/scripts/stops_liveness_pager.sh"
 AGENT_DIR="${RENQUANT_STOPS_PAGER_AGENT_DIR:-$HOME/Library/LaunchAgents}"
 PLIST_DST="$AGENT_DIR/$LABEL.plist"
@@ -270,10 +276,76 @@ guard_registry_before_apply() {
     esac
 }
 
+guard_manifest_agreement() {
+    # $1 = "apply" | "dry-run". Fail-closed agreement check between the plist
+    # about to be copied ($PLIST_SRC — the round-6 rule: the armed file, never
+    # ambient env) and the reviewed launchd manifest ($MANIFEST_SRC):
+    #   * $LABEL must be manifested;
+    #   * ProgramArguments must equal the manifest's program_args;
+    #   * the manifest digest must equal what the drift scan's own
+    #     program_args_digest computes for those arguments (one implementation,
+    #     imported from ops/run_surface_drift_check.py — never re-derived here).
+    # Under --apply it additionally requires the program the job will exec
+    # (the last ProgramArguments entry, the wrapper in the PINNED run checkout)
+    # to exist and be executable on THIS machine: a manifested path that is
+    # absent here would arm a job that launchd spawns and immediately fails,
+    # dark, every 10 minutes. Dry-run skips only that machine-state check so
+    # the echo-first preview works on any checkout (CI included).
+    local mode="$1"
+    # PYTHONDONTWRITEBYTECODE: importing the scanner must not leave
+    # ops/__pycache__ behind in the checkout this runs from — at landing time
+    # that is the PINNED run checkout, which the drift scan audits for
+    # untracked files. A guard is read-only or it is not a guard.
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$REPO_ROOT/ops:${PYTHONPATH:-}" \
+        python3 - "$PLIST_SRC" "$MANIFEST_SRC" "$LABEL" "$mode" <<'PY'
+import json
+import os
+import plistlib
+import sys
+
+from run_surface_drift_check import program_args_digest
+
+plist_path, manifest_path, label, mode = sys.argv[1:5]
+try:
+    with open(plist_path, "rb") as fh:
+        args = [str(a) for a in plistlib.load(fh).get("ProgramArguments", [])]
+except Exception as exc:  # noqa: BLE001
+    print(f"MANIFEST GUARD FAIL: cannot read ProgramArguments from {plist_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
+try:
+    with open(manifest_path, encoding="utf-8") as fh:
+        jobs = json.load(fh)["jobs"]
+except Exception as exc:  # noqa: BLE001
+    print(f"MANIFEST GUARD FAIL: cannot read the launchd manifest {manifest_path}: {exc}", file=sys.stderr)
+    sys.exit(1)
+spec = jobs.get(label)
+if not spec:
+    print(f"MANIFEST GUARD FAIL: {label} is not declared in {manifest_path} -- declare it via a reviewed change before arming", file=sys.stderr)
+    sys.exit(1)
+if not args or args != list(spec.get("program_args") or []):
+    print(f"MANIFEST GUARD FAIL: plist ProgramArguments {args} != manifest program_args {spec.get('program_args')} -- the drift scan would alarm 'silent containment / job swap?' on the first firing after install", file=sys.stderr)
+    sys.exit(1)
+digest = program_args_digest(args)
+if digest != spec.get("program_args_sha256"):
+    print(f"MANIFEST GUARD FAIL: manifest program_args_sha256 {spec.get('program_args_sha256')} != program_args_digest {digest} for {args}", file=sys.stderr)
+    sys.exit(1)
+if mode == "apply":
+    target = args[-1]
+    if not (os.path.isfile(target) and os.access(target, os.X_OK)):
+        print(f"MANIFEST GUARD FAIL: the program this job would exec is not an executable file on this machine: {target} (sync the pinned run checkout first)", file=sys.stderr)
+        sys.exit(1)
+print(f"MANIFEST GUARD OK: {label} ProgramArguments == manifest ({digest[:12]}...)", file=sys.stderr)
+PY
+}
+
 case "$CMD" in
     install)
         require_sources
         $APPLY || echo "DRY-RUN (no --apply): printing the exact landing commands, changing nothing."
+        if ! guard_manifest_agreement "$($APPLY && echo apply || echo dry-run)"; then
+            echo "ERROR: plist/manifest agreement guard failed -- refusing to $($APPLY && echo install || echo preview) (see guard output above). Fix deploy/$LABEL.plist or ops/launchd_manifest.json in the same reviewed change." >&2
+            exit 4
+        fi
         if $APPLY; then
             if ! guard_registry_before_apply; then
                 echo "ERROR: registry validity guard failed -- refusing to install (see guard output above). This is a fail-closed safety check (Codex review, 2026-07-12T04:32:57Z): darkness alone is not a runtime safety control. Fix the registry/writer/pin state and retry." >&2
