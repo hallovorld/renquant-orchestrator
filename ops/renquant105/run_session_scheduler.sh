@@ -35,6 +35,29 @@ SUBREPO="$RQ_ROOT/.subrepo_runtime/repos"
 # AFTER a mutable sibling checkout, which shadowed the pinned copy that was
 # already on this line — the pin was present and losing.
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipeline/src:$SUBREPO/renquant-base-data/src:$SUBREPO/renquant-model/src:$SUBREPO/renquant-artifacts/src:$SUBREPO/renquant-execution/src:$SUBREPO/renquant-strategy-104/src:$SUBREPO/renquant-backtesting/src"
+# orch#1085: boot catch-up (same shape as run_batch_scores_export.sh). The
+# plist carries RunAtLoad=true; the guard makes every invocation idempotent:
+# run iff $TS is an NYSE session AND 06:25 <= local time < that session's
+# ACTUAL local close (rq105_catchup_cutoff.py, the same NYSE calendar the
+# scheduler gates on — r2, codex: no fixed 13:00, no weekday-only test) AND
+# today's dated wrapper log is absent (this wrapper writes
+# session_scheduler_<date>.log on every real run, armed or not — the arming
+# verdict is its first line). A scheduler started mid-session is the designed
+# case: it self-gates on the NYSE session and exits after the close. Skips
+# stamp catchup_guard_session-scheduler_<date>.log, never the evidence log.
+# Sits AFTER the pin resolver and the PYTHONPATH export on purpose: the
+# cutoff helper imports the calendar from exactly the pinned code this job
+# runs.
+. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"
+rq105_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 \
+  "$LOG_DIR/catchup_guard_session-scheduler_$TS.log" \
+  "$LOG_DIR/session_scheduler_$TS.log"
+GUARD_RC=$?
+case $GUARD_RC in
+  0) ;;
+  1) exit 0 ;;
+  *) echo "FATAL: catch-up guard error rc=$GUARD_RC" >> "$LOG_DIR/session_scheduler_$TS.log"; exit 1 ;;
+esac
 # ARMING (gate 2). RENQUANT_INTRADAY_DECISIONING is NOT a committed default.
 # It is exported ONLY when the operator-owned runtime file (outside git, so a
 # recovery checkout or sync cannot silently extinguish an authorized

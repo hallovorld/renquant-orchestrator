@@ -218,6 +218,50 @@ def read_plist_program_args(path: str) -> list[str] | None:
     return [str(prog)] if isinstance(prog, str) else None
 
 
+#: Declared launchd INTENTS beyond ProgramArguments: manifest key -> plist key.
+#: A manifest entry that carries one of these makes a claim about the
+#: INSTALLED plist, and a claim nothing compares is a fossil: the quote
+#: logger's ``keep_alive`` sat here uncompared from 2026-07-22 until orch#1085
+#: (2026-08-29), when two ``run_at_load`` intents were added whose whole
+#: point is that the installed plist must carry them. Compared ONLY when the
+#: manifest entry declares the key — an entry without it makes no claim, so
+#: every other job and every test fixture is untouched.
+INTENT_KEYS: tuple[tuple[str, str], ...] = (
+    ("run_at_load", "RunAtLoad"),
+    ("keep_alive", "KeepAlive"),
+)
+
+
+def read_plist_intents(path: str) -> dict[str, object] | None:
+    """{manifest_key: installed value or None} for every INTENT_KEYS entry;
+    None if the plist is unreadable."""
+    data = _plist_load(path)
+    if data is None:
+        return None
+    return {mkey: data.get(pkey) for mkey, pkey in INTENT_KEYS}
+
+
+def _intent_problems(label: str, spec: dict, plist_path: str) -> list[str]:
+    """One problem per DECLARED intent whose installed value differs. A
+    declared-but-uninstalled intent is the containment-protocol (c) shape:
+    the reviewed surface changed, the loaded job did not — the alarm is the
+    designed reminder to bootout/bootstrap, never to edit the manifest."""
+    declared = [(m, p) for m, p in INTENT_KEYS if m in spec]
+    if not declared:
+        return []
+    installed = read_plist_intents(plist_path)
+    out: list[str] = []
+    for mkey, pkey in declared:
+        got = None if installed is None else installed.get(mkey)
+        if got != spec[mkey]:
+            out.append(
+                f"launchd: {label} {pkey} intent NOT installed "
+                f"(manifest={spec[mkey]!r} != disk={got!r}) — the reviewed plist is "
+                f"not the loaded one; bootout/bootstrap it (containment protocol c)"
+            )
+    return out
+
+
 def scan_launchd_plists(agents_dir: str = LAUNCH_AGENTS) -> dict[str, dict]:
     """label -> {program_args, program_args_sha256} for com.renquant.* plists.
     Disabled/backup files (*.disabled*, *.bak*) are not live surface."""
@@ -463,6 +507,8 @@ def check_launchd_surface(
                 f"(disk={live[label]['program_args']} != manifest="
                 f"{spec['program_args']}) — silent containment / job swap?"
             )
+        problems.extend(
+            _intent_problems(label, spec, os.path.join(agents_dir, f"{label}.plist")))
     for label in sorted(set(live) - set(manifest)):
         problems.append(
             f"launchd: unmanifested com.renquant job on disk: {label} "

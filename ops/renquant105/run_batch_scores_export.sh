@@ -13,12 +13,37 @@ RQ105_ORCH_ROOT="${RQ105_ORCH_ROOT:-/Users/renhao/git/github/renquant-orchestrat
 LOG_DIR="$RQ_ROOT/logs/rq105"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y-%m-%d)"
+RQ105_OPS_DIR="$(dirname "$0")"
 # orch#1016: renquant-common comes from the PINNED runtime, verified against
 # subrepos.lock.json before import. No fallback, no env override, fails closed.
-RQ105_OPS_DIR="$(dirname "$0")"
 . "$RQ105_OPS_DIR/rq105_common_src.sh"
 rq105_resolve_common_src || exit 1
 export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
+# orch#1085: boot catch-up. The plist carries RunAtLoad=true, so launchd also
+# invokes this wrapper at every bootstrap (boot/login) — a 06:15 slot missed
+# across a boot (2026-08-28: host up at 10:38, no export, serving chain
+# no-op'd all day) is caught up here. The guard applies to EVERY invocation:
+# run iff $TS is an NYSE session AND 06:15 <= local time < that session's
+# ACTUAL local close (rq105_catchup_cutoff.py: 13:00 PT on a normal day,
+# 10:00 PT on an early-close day, refused on a weekend/holiday — r2, codex)
+# AND today's bundle is missing; otherwise one stamped line in
+# catchup_guard_batch-scores-export_<date>.log (NOT this job's evidence log)
+# and exit 0. The cutoff is the session close: a "pre-market frozen" vector
+# exported after the session would be a post-hoc artifact even when its
+# content is identical. The guard sits AFTER the pin resolver and the
+# PYTHONPATH export on purpose: the cutoff helper imports the calendar from
+# exactly the pinned code this job runs.
+. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"
+rq105_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 \
+  "$LOG_DIR/catchup_guard_batch-scores-export_$TS.log" \
+  "$RQ_ROOT/data/rq105/batch_scores_$TS.json" \
+  "$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
+GUARD_RC=$?
+case $GUARD_RC in
+  0) ;;
+  1) exit 0 ;;
+  *) echo "FATAL: catch-up guard error rc=$GUARD_RC" >> "$LOG_DIR/batch_scores_export_$TS.log"; exit 1 ;;
+esac
 # 2026-08-05 operator directive ("105 应该用 104 prod 的模型"): the frozen batch
 # vector comes from the PROD lane (runs.alpaca.db) — the same run that placed
 # the day's real orders. This SUPERSEDES the 2026-07-28 directive
