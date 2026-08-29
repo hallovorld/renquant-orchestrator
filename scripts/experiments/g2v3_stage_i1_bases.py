@@ -3,19 +3,32 @@
 Implements, literally, the "Stage I-1 — preregistration of the base models"
 section of doc/design/2026-08-27-goal2v3-intraday-granularity.md (declared
 2026-08-28) plus Amendment A1's grid/label/block conventions, reusing the
-Stage I-0 census outputs (scripts/experiments/g2v3_stage_i0_census.py,
-doc/research/data/2026-08-27-g2v3-i0/g2v3_stage_i0_audit.json.gz) for
-eligibility-after-drift, the K5 regime construction and the session/episode
-block structure.  Every frozen number lives in a module-level constant so a
-reviewer (and tests/test_g2v3_stage_i1_harness.py) can check them against the
-spec without reading the code paths.
+Stage I-0 GATE_RUN bundle (doc/research/data/2026-08-29-g2v3-i0-gate-run/,
+PR #1083) for eligibility-after-drift, the K5 regime construction and the
+session/episode block structure.  Every frozen number lives in a module-level
+constant so a reviewer (and tests/test_g2v3_stage_i1_harness.py) can check them
+against the spec without reading the code paths.
 
 Two entry points:
   python scripts/experiments/g2v3_stage_i1_bases.py            # synthetic smoke (default)
   python scripts/experiments/g2v3_stage_i1_bases.py --dev-run  # the real development run
-The `--dev-run` path is built ONLY from the frozen constants (dev_run_config);
-the private `_smoke_config` hook (tiny folds / lower IC name floor / synthetic
-paths) is never reachable from `--dev-run`.
+The `--dev-run` path FAILS CLOSED (exit code 2) unless `load_gate_authorization`
+can load the immutable Stage I-0 gate bundle and verify it against the frozen
+ACCEPTED_GATE_BUNDLE block below: run_status GATE_RUN, gate_verdict PASS, the
+reviewed frozen source commit (resolvable in this repository and containing the
+hashed census script + design doc), the seed / script / design / input-manifest
+hashes, and the report + audit file hashes on disk.  The 2026-08-27
+DEVELOPMENT_ONLY audit is NOT accepted as authorization and is no longer read.
+The `--dev-run` configuration is built ONLY from the frozen constants plus the
+authorization object (dev_run_config); the private `_smoke_config` hook (tiny
+folds / lower IC name floor / synthetic paths) is never reachable from `--dev-run`.
+
+Every report carries a `provenance` block (source commit + clean-tree status,
+run_id, exact invocation, UTC start/end from this process's clock, gate-bundle
+hashes, hashes of the strategy config / sector maps / SPY daily input consumed,
+the full frozen-parameter block including the frozen interpretations, and the
+aggregate consumed-bar manifest) that `validate_i1_provenance` rebuilds from the
+inputs on disk.
 
 Interpretations where the spec text needed a concrete reading are listed in
 INTERPRETATIONS below and copied verbatim into the report.
@@ -32,6 +45,8 @@ import math
 import os
 import pathlib
 import platform
+import re
+import subprocess
 import sys
 import tempfile
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -110,8 +125,232 @@ INTERPRETATIONS = [
 ]
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-CENSUS_AUDIT = REPO / "doc/research/data/2026-08-27-g2v3-i0/g2v3_stage_i0_audit.json.gz"
 OUT_DIR = REPO / "doc/research/data/2026-08-29-g2v3-i1"
+
+# --------------------------------------------------------------------------
+# THE GATE this harness is bound to: the immutable Stage I-0 GATE_RUN bundle.
+# Every value is copied from doc/research/data/2026-08-29-g2v3-i0-gate-run/provenance.json
+# (PR #1083). `--dev-run` refuses to start unless the bundle on disk agrees with EVERY
+# field here AND the frozen commit is resolvable in this repository with these blobs.
+# A change to any value is a re-binding and needs its own review.
+# --------------------------------------------------------------------------
+ACCEPTED_GATE_BUNDLE = dict(
+    dir="doc/research/data/2026-08-29-g2v3-i0-gate-run",
+    report_file="g2v3_stage_i0_report.json",
+    audit_file="g2v3_stage_i0_audit.json.gz",
+    provenance_file="provenance.json",
+    run_id="i0-gate-20260829-f3d5bf7b",
+    frozen_source_commit="f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779",
+    run_status="GATE_RUN",
+    gate_verdict="PASS",
+    gate_h=13,
+    gate_window=("2020-08-01", "2024-06-30"),
+    seed_list_path="doc/research/data/2026-08-27-g2v3-i0/g2v3_seed.txt",
+    seed_list_sha256="cd6f3ed7ab1f353b21154ecb0cba4b27811927854f5a8666e62bfd86c7d9a3cc",
+    seed_list_count=2144,
+    census_script_path="scripts/experiments/g2v3_stage_i0_census.py",
+    census_script_sha256="8e6ddd6e361edcf8f6fdc0d8b02f53ee8af5418943fa081c84459f3b2386eada",
+    design_doc_path="doc/design/2026-08-27-goal2v3-intraday-granularity.md",
+    design_doc_sha256="21678a53c593ead945193566bed4ea30c1e6f364dbfde5da8d5c49539b3808f6",
+    input_manifest_aggregate_sha256="a878f1caeaee863cc06c2f9b3ab0d6eba4389d656a4b4dabd731a1844cdfd4d9",
+    input_manifest_count=2124,
+    report_sha256="da41a706f31b3f39b9ccc9631b93a76a6cb994c8877f112ce49989916634cf44",
+    audit_sha256="dd5127d7326919b777acd0a6bf819dcc158c9cd02a44cd76ef7ca71fa844f3a9",
+)
+GATE_DIR = REPO / ACCEPTED_GATE_BUNDLE["dir"]
+GATE_AUDIT = GATE_DIR / ACCEPTED_GATE_BUNDLE["audit_file"]      # the ONLY census audit --dev-run may consume
+MANIFEST_METHOD = ("sha256 of the UTF-8 text formed by joining, with '\\n' and no trailing newline, the lines "
+                   "'<ticker> <sha256>' for tickers in sorted() order")
+_HEX40 = re.compile(r"^[0-9a-f]{40}$")
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_RUN_ID = re.compile(r"^i1-(dev|smoke)-\d{8}-([0-9a-f]{8}|nogit)$")
+_TS = "%Y-%m-%dT%H:%M:%SZ"
+
+
+class GateNotAuthorized(RuntimeError):
+    """The Stage I-0 gate bundle is missing, tampered, not GATE_RUN/PASS, or not the bundle this harness is bound to."""
+
+
+@dataclasses.dataclass(frozen=True)
+class GateAuthorization:
+    """What `load_gate_authorization` hands to --dev-run: the verified identity of the gate bundle."""
+    bundle_dir: pathlib.Path
+    report_path: pathlib.Path
+    audit_path: pathlib.Path
+    provenance_path: pathlib.Path
+    run_id: str
+    frozen_source_commit: str
+    gate_verdict: str
+    report_sha256: str
+    audit_sha256: str
+    provenance_sha256: str
+    input_manifest_aggregate_sha256: str
+    input_manifest_count: int
+    bear_n_eff_adj: Optional[float]
+
+    def as_record(self) -> dict:
+        return dict(dir=str(self.bundle_dir), run_id=self.run_id, frozen_source_commit=self.frozen_source_commit,
+                    gate_verdict=self.gate_verdict, report_sha256=self.report_sha256, audit_sha256=self.audit_sha256,
+                    provenance_sha256=self.provenance_sha256,
+                    input_manifest_aggregate_sha256=self.input_manifest_aggregate_sha256,
+                    input_manifest_count=self.input_manifest_count, bear_n_eff_adj=self.bear_n_eff_adj)
+
+
+def sha256_file(p: pathlib.Path) -> str:
+    return hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest()
+
+
+def sha256_json(obj) -> str:
+    """sha256 of the canonical JSON (sorted keys, no whitespace) of a JSON-able object."""
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def manifest_aggregate(hashes: Dict[str, str]) -> str:
+    """The gate bundle's aggregate method (provenance.json input_manifest.aggregate_method), reused verbatim."""
+    text = "\n".join(f"{t} {hashes[t]}" for t in sorted(hashes))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _dig(obj, *keys):
+    for k in keys:
+        obj = obj.get(k) if isinstance(obj, dict) else None
+    return obj
+
+
+def _verify_gate_bundle_files(repo_root: pathlib.Path) -> GateAuthorization:
+    """Every FILE-level check of the gate bundle against ACCEPTED_GATE_BUNDLE (no git). Raises GateNotAuthorized
+    with the first disagreement. `load_gate_authorization` adds the git binding on top; this helper exists so
+    tests can exercise the file checks on tmp copies of the bundle."""
+    g = ACCEPTED_GATE_BUNDLE
+    repo_root = pathlib.Path(repo_root)
+    bundle = repo_root / g["dir"]
+    report_p, audit_p, prov_p = bundle / g["report_file"], bundle / g["audit_file"], bundle / g["provenance_file"]
+
+    def refuse(why: str):
+        raise GateNotAuthorized(f"Stage I-0 gate bundle {g['dir']}: {why}")
+
+    if not bundle.is_dir():
+        refuse("bundle directory missing")
+    for p in (report_p, audit_p, prov_p):
+        if not p.is_file():
+            refuse(f"{p.name} missing")
+    try:
+        report = json.loads(report_p.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        refuse(f"{report_p.name} unparseable ({exc})")
+    if not isinstance(report, dict):
+        refuse(f"{report_p.name} is not a JSON object")
+    # --- the verdict, read from the report itself (a development audit is not authorization)
+    if report.get("run_status") != g["run_status"]:
+        refuse(f"report run_status {report.get('run_status')!r} != {g['run_status']!r} "
+               f"(a DEVELOPMENT_ONLY / development audit is not authorization)")
+    if report.get("gate_verdict") != g["gate_verdict"]:
+        refuse(f"report gate_verdict {report.get('gate_verdict')!r} != {g['gate_verdict']!r}")
+    if report.get("h") != g["gate_h"]:
+        refuse(f"report h {report.get('h')!r} != {g['gate_h']!r}")
+    # --- provenance.json field by field against the constants
+    try:
+        prov = json.loads(prov_p.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        refuse(f"{prov_p.name} unparseable ({exc})")
+    if not isinstance(prov, dict):
+        refuse(f"{prov_p.name} is not a JSON object")
+    expected = {
+        "run_id": (_dig(prov, "run_id"), g["run_id"]),
+        "frozen_source_commit": (_dig(prov, "frozen_source_commit"), g["frozen_source_commit"]),
+        "report_run_status": (_dig(prov, "report_run_status"), g["run_status"]),
+        "gate_verdict": (_dig(prov, "gate_verdict"), g["gate_verdict"]),
+        "frozen_parameters.h": (_dig(prov, "frozen_parameters", "h"), g["gate_h"]),
+        "frozen_parameters.window.start": (_dig(prov, "frozen_parameters", "window", "start"), g["gate_window"][0]),
+        "frozen_parameters.window.end": (_dig(prov, "frozen_parameters", "window", "end"), g["gate_window"][1]),
+        "seed_list.path": (_dig(prov, "seed_list", "path"), g["seed_list_path"]),
+        "seed_list.sha256": (_dig(prov, "seed_list", "sha256"), g["seed_list_sha256"]),
+        "seed_list.count": (_dig(prov, "seed_list", "count"), g["seed_list_count"]),
+        "code.census_script.path": (_dig(prov, "code", "census_script", "path"), g["census_script_path"]),
+        "code.census_script.sha256": (_dig(prov, "code", "census_script", "sha256"), g["census_script_sha256"]),
+        "code.census_script.commit": (_dig(prov, "code", "census_script", "commit"), g["frozen_source_commit"]),
+        "code.design_doc.path": (_dig(prov, "code", "design_doc", "path"), g["design_doc_path"]),
+        "code.design_doc.sha256": (_dig(prov, "code", "design_doc", "sha256"), g["design_doc_sha256"]),
+        "code.design_doc.commit": (_dig(prov, "code", "design_doc", "commit"), g["frozen_source_commit"]),
+        "input_manifest.aggregate_sha256": (_dig(prov, "input_manifest", "aggregate_sha256"),
+                                            g["input_manifest_aggregate_sha256"]),
+        "input_manifest.count": (_dig(prov, "input_manifest", "count"), g["input_manifest_count"]),
+        "outputs.report.path": (_dig(prov, "outputs", "report", "path"), g["report_file"]),
+        "outputs.report.sha256": (_dig(prov, "outputs", "report", "sha256"), g["report_sha256"]),
+        "outputs.audit.path": (_dig(prov, "outputs", "audit", "path"), g["audit_file"]),
+        "outputs.audit.sha256": (_dig(prov, "outputs", "audit", "sha256"), g["audit_sha256"]),
+    }
+    for key, (got, want) in expected.items():
+        if got != want:
+            refuse(f"provenance {key} = {got!r}, this harness is bound to {want!r}")
+    if _dig(prov, "clean_tree") is not True:
+        refuse(f"provenance clean_tree = {_dig(prov, 'clean_tree')!r}, the gate run must come from a clean tree")
+    # --- the files on disk against the constants (the provenance's own claims are not trusted)
+    report_sha = sha256_file(report_p)
+    if report_sha != g["report_sha256"]:
+        refuse(f"{report_p.name} sha256 on disk {report_sha[:12]}.. != bound {g['report_sha256'][:12]}.. (tampered)")
+    audit_sha = sha256_file(audit_p)
+    if audit_sha != g["audit_sha256"]:
+        refuse(f"{audit_p.name} sha256 on disk {audit_sha[:12]}.. != bound {g['audit_sha256'][:12]}.. (tampered)")
+    seed_p = repo_root / g["seed_list_path"]
+    if not seed_p.is_file():
+        refuse(f"seed list {g['seed_list_path']} missing")
+    if sha256_file(seed_p) != g["seed_list_sha256"]:
+        refuse(f"seed list {g['seed_list_path']} sha256 on disk != bound {g['seed_list_sha256'][:12]}..")
+    n_seed = sum(1 for line in seed_p.read_text(encoding="utf-8").splitlines() if line.strip())
+    if n_seed != g["seed_list_count"]:
+        refuse(f"seed list has {n_seed} names, bound count is {g['seed_list_count']}")
+    try:
+        with gzip.open(audit_p, "rt", encoding="utf-8") as fh:
+            audit = json.load(fh)
+    except (OSError, ValueError) as exc:
+        refuse(f"{audit_p.name} unreadable ({exc})")
+    hashes = audit.get("bar_store_sha256") if isinstance(audit, dict) else None
+    if not isinstance(hashes, dict) or not hashes:
+        refuse(f"{audit_p.name} carries no bar_store_sha256 map")
+    if not isinstance(audit.get("eligible_membership_post_drift"), dict):
+        refuse(f"{audit_p.name} carries no eligible_membership_post_drift")
+    agg = manifest_aggregate(hashes)
+    if agg != g["input_manifest_aggregate_sha256"] or len(hashes) != g["input_manifest_count"]:
+        refuse(f"input manifest recomputed from the audit = {agg[:12]}.. over {len(hashes)} files, bound "
+               f"{g['input_manifest_aggregate_sha256'][:12]}.. over {g['input_manifest_count']}")
+    bear = _dig(report, "by_regime", "BEAR", "n_eff_adj")
+    return GateAuthorization(
+        bundle_dir=bundle, report_path=report_p, audit_path=audit_p, provenance_path=prov_p,
+        run_id=g["run_id"], frozen_source_commit=g["frozen_source_commit"], gate_verdict=g["gate_verdict"],
+        report_sha256=report_sha, audit_sha256=audit_sha, provenance_sha256=sha256_file(prov_p),
+        input_manifest_aggregate_sha256=agg, input_manifest_count=len(hashes),
+        bear_n_eff_adj=(float(bear) if isinstance(bear, (int, float)) else None))
+
+
+def _git(repo_root: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True)
+
+
+def load_gate_authorization(repo_root: pathlib.Path = None) -> GateAuthorization:
+    """FAIL-CLOSED authorization for --dev-run. Returns a GateAuthorization only when the bundle under
+    `repo_root` passes every file check in `_verify_gate_bundle_files` AND the frozen source commit is
+    resolvable in that repository AND the census script + design doc blobs at that commit hash to the
+    bound values. Anything else raises GateNotAuthorized with the specific reason."""
+    repo_root = pathlib.Path(repo_root if repo_root is not None else REPO)
+    auth = _verify_gate_bundle_files(repo_root)
+    g = ACCEPTED_GATE_BUNDLE
+    commit = g["frozen_source_commit"]
+    try:
+        r = _git(repo_root, "cat-file", "-e", commit + "^{commit}")
+    except OSError as exc:
+        raise GateNotAuthorized(f"cannot run git in {repo_root} to verify the frozen commit ({exc})")
+    if r.returncode != 0:
+        raise GateNotAuthorized(f"frozen source commit {commit[:8]} is not resolvable in {repo_root} "
+                                f"(a bundle copy outside the reviewed repository is not authorization)")
+    for key in ("census_script", "design_doc"):
+        blob = _git(repo_root, "show", f"{commit}:{g[key + '_path']}")
+        if blob.returncode != 0:
+            raise GateNotAuthorized(f"{g[key + '_path']} does not exist at {commit[:8]}")
+        got = hashlib.sha256(blob.stdout).hexdigest()
+        if got != g[key + "_sha256"]:
+            raise GateNotAuthorized(f"{key} at {commit[:8]} hashes to {got[:12]}.., bound {g[key + '_sha256'][:12]}..")
+    return auth
 SPY_DAILY = pathlib.Path("/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet")
 STRATEGY_CONFIG = pathlib.Path(
     "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json")
@@ -135,27 +374,33 @@ class RunConfig:
     dev_start: str = DEV_START
     dev_end: str = DEV_END
     row_cap: int = ROW_CAP
+    gate: Optional[GateAuthorization] = None            # REQUIRED for DEV_RUN (run_stage_i1 refuses otherwise)
+    strategy_config: Optional[pathlib.Path] = None      # the file the sector maps were read from (hashed)
 
 
-def dev_run_config() -> RunConfig:
-    """The ONLY way the --dev-run path builds its configuration: frozen constants + real paths."""
+def dev_run_config(auth: GateAuthorization) -> RunConfig:
+    """The ONLY way the --dev-run path builds its configuration: frozen constants + real paths + the gate
+    authorization from `load_gate_authorization`. The census audit is the GATE bundle's audit, nothing else."""
+    if not isinstance(auth, GateAuthorization):
+        raise GateNotAuthorized("dev_run_config needs the GateAuthorization returned by load_gate_authorization()")
     store = os.environ.get("G2V3_BAR_STORE", "")
     if not store or not pathlib.Path(store).is_dir():
         sys.exit("set G2V3_BAR_STORE to the fetched 10-min bar directory (one parquet per ticker)")
     cfg = json.load(open(STRATEGY_CONFIG))
-    return RunConfig(bar_store=pathlib.Path(store), census_audit=CENSUS_AUDIT, spy_daily=SPY_DAILY,
+    return RunConfig(bar_store=pathlib.Path(store), census_audit=auth.audit_path, spy_daily=SPY_DAILY,
                      sector_map=dict(cfg["sector_map"]), sector_etf_map=dict(cfg["sector_etf_map"]),
-                     out_dir=OUT_DIR, run_status="DEV_RUN")
+                     out_dir=OUT_DIR, run_status="DEV_RUN", gate=auth, strategy_config=STRATEGY_CONFIG)
 
 
 def _smoke_config(bar_store, census_audit, spy_daily, sector_map, sector_etf_map, out_dir,
-                  folds, min_names, dev_start, dev_end) -> RunConfig:
+                  folds, min_names, dev_start, dev_end, strategy_config=None, gate=None) -> RunConfig:
     """PRIVATE smoke hook: the only entry that accepts fold/threshold overrides. Never used by --dev-run."""
     return RunConfig(bar_store=pathlib.Path(bar_store), census_audit=pathlib.Path(census_audit),
                      spy_daily=pathlib.Path(spy_daily), sector_map=dict(sector_map),
                      sector_etf_map=dict(sector_etf_map), out_dir=pathlib.Path(out_dir), run_status="SMOKE",
                      folds=tuple(tuple(f) for f in folds), min_names=int(min_names),
-                     dev_start=dev_start, dev_end=dev_end)
+                     dev_start=dev_start, dev_end=dev_end, gate=gate,
+                     strategy_config=(pathlib.Path(strategy_config) if strategy_config else None))
 
 
 # --------------------------------------------------------------------------
@@ -183,10 +428,6 @@ def eligibility_matrix(audit: dict, sessions: Sequence[str], names: Sequence[str
             if j is not None:
                 elig[si, j] = True
     return elig
-
-
-def sha256_file(p: pathlib.Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
 def load_panel(path: pathlib.Path, sessions: Sequence[str]) -> Optional[Dict[str, np.ndarray]]:
@@ -339,20 +580,27 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
     names_eligible = sorted({n for s in sessions for n in audit["eligible_membership_post_drift"].get(s, ())})
     etfs = sorted({v for v in cfg.sector_etf_map.values()})
     needed = sorted(set(names_eligible) | set(etfs) | {SPY})
-    # --- store identity: every consumed file must be the file the census saw (fail closed)
-    mismatched, missing = [], []
+    # --- store identity: every consumed file must be the file the gate census audited (fail closed).
+    # The consumed-bar manifest is the store itself hashed NOW; a file absent from the audit or hashing
+    # differently from the audit's per-file value is refused — the dev run must consume the audited store.
+    mismatched, unaudited, missing, actual = [], [], [], {}
     for n in needed:
         p = store / f"{n}.parquet"
         if not p.exists():
             missing.append(n)
             continue
-        if n in audited and sha256_file(p) != audited[n]:
+        actual[n] = sha256_file(p)
+        if n not in audited:
+            unaudited.append(n)
+        elif actual[n] != audited[n]:
             mismatched.append(n)
-    if mismatched:
-        sys.exit(f"bar store differs from the census's audited store for {len(mismatched)} files "
-                 f"(e.g. {mismatched[:5]}); refusing to run on an unaudited store")
+    if mismatched or unaudited:
+        sys.exit(f"bar store differs from the gate census's audited store: {len(mismatched)} hash mismatches "
+                 f"(e.g. {mismatched[:5]}), {len(unaudited)} files absent from the audit (e.g. {unaudited[:5]}); "
+                 f"refusing to run on an unaudited store")
     if SPY in missing:
         sys.exit("SPY 10-min bars missing from the bar store")
+    consumed = {SPY: actual[SPY]}                       # every file this run READS, hashed at run time
     # --- market context
     spy_daily = pd.read_parquet(cfg.spy_daily, columns=["close"])["close"]
     spy_daily.index = pd.to_datetime(spy_daily.index)
@@ -373,6 +621,7 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
             sec13_by_sector[sector] = None                     # ETF absent => sec13 NaN for that sector
             continue
         panel = load_panel(p, sessions)
+        consumed[etf] = actual[etf]
         sec13_by_sector[sector] = trailing_log_return(panel["close"], H) if panel else None
     # --- per-name rows
     elig = eligibility_matrix(audit, sessions, names_eligible)
@@ -380,16 +629,15 @@ def build_rows(cfg: RunConfig, audit: dict, sessions: List[str], log=print) -> d
     b2_labels = sorted(set(cfg.sector_map.values()) | {OTHER_SECTOR})
     cols = {k: [] for k in ("name", "session", "slot")}
     feats, labels, states = [], [], {"b1": [], "b2": [], "b3": []}
-    consumed = {}
     tslice = np.array(SCREEN_SLOTS)
     for j, n in enumerate(names_eligible):
         p = store / f"{n}.parquet"
         if not p.exists():
             continue
+        consumed[n] = actual[n]
         panel = load_panel(p, sessions)
         if panel is None:
             continue
-        consumed[n] = audited.get(n)
         sector = cfg.sector_map.get(n)
         f = name_features(panel, ctx, sec13_by_sector.get(sector) if sector else None)
         close = panel["close"]
@@ -623,8 +871,69 @@ def screen_base(rows: dict, pred: np.ndarray, oof_mask: np.ndarray, cfg: RunConf
 # --------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------
+def _utcnow() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime(_TS)
+
+
+def source_state(repo_root: pathlib.Path, ignore: Sequence[pathlib.Path] = ()) -> dict:
+    """`git rev-parse HEAD` + porcelain cleanliness of the harness's own checkout. Entries under `ignore`
+    (the untracked bar store, the output directory) do not count as dirt but are listed as ignored."""
+    repo_root = pathlib.Path(repo_root)
+    try:
+        head = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        porcelain = subprocess.run(["git", "-C", str(repo_root), "status", "--porcelain", "--untracked-files=all"],
+                                   capture_output=True, text=True, check=True).stdout.splitlines()
+    except (subprocess.CalledProcessError, OSError) as exc:
+        return dict(commit=None, clean_tree=None, error=str(exc), ignored=[str(p) for p in ignore])
+    ignored = [pathlib.Path(p).resolve() for p in ignore]
+    dirty = []
+    for line in porcelain:
+        rel = line[3:].split(" -> ")[-1].strip().strip('"')
+        full = (repo_root / rel).resolve()
+        if any(full == ig or ig in full.parents for ig in ignored):
+            continue
+        dirty.append(line)
+    return dict(commit=head, clean_tree=(not dirty), n_dirty=len(dirty), dirty_entries=dirty[:50],
+                ignored=[str(p) for p in ignore],
+                clean_tree_note="git status --porcelain --untracked-files=all, ignoring the listed paths")
+
+
+def frozen_block(cfg: RunConfig) -> dict:
+    """The full frozen-parameter block written to every report (constants + the run's window/folds)."""
+    return dict(h=H, slots=SLOTS, screen_slots=list(SCREEN_SLOTS), dev_window=[cfg.dev_start, cfg.dev_end],
+                seed_base=SEED_BASE, seed_formula="20260828 + 1000*fold_index + 100*base_code + state_index",
+                xgb_params=XGB_PARAMS, row_cap=cfg.row_cap, base_codes=BASE_CODES,
+                min_sector_rows=MIN_SECTOR_ROWS, folds=[list(f) for f in cfg.folds], purge_bars=PURGE_BARS,
+                min_names_per_ic=cfg.min_names, min_pairs=MIN_PAIRS, life_bar_t=LIFE_BAR_T,
+                secondary_horizons=list(SECONDARY_HORIZONS), features=list(FEATURE_NAMES),
+                b1_state_lag_sessions=B1_STATE_LAG_SESSIONS, vz_trailing_sessions=VZ_TRAILING_SESSIONS,
+                vz_min_present=VZ_MIN_PRESENT, b3_slow_sessions=B3_SLOW_SESSIONS,
+                b3_fast_lag_slots=B3_FAST_LAG_SLOTS, k5_regimes=list(K5_REGIMES), b3_labels=list(B3_LABELS))
+
+
+def _bind_dev_run(cfg: RunConfig) -> None:
+    """A DEV_RUN is only ever executed against the gate bundle's audit, under a live GateAuthorization."""
+    if cfg.run_status != "DEV_RUN":
+        return
+    if cfg.gate is None:
+        raise GateNotAuthorized("DEV_RUN without a GateAuthorization — call load_gate_authorization() first")
+    if pathlib.Path(cfg.census_audit).resolve() != pathlib.Path(cfg.gate.audit_path).resolve():
+        raise GateNotAuthorized(f"DEV_RUN census audit {cfg.census_audit} is not the gate bundle's audit "
+                                f"{cfg.gate.audit_path} (the development audit is not authorization)")
+    if sha256_file(cfg.census_audit) != cfg.gate.audit_sha256:
+        raise GateNotAuthorized("the gate audit changed on disk after authorization")
+    if cfg.strategy_config is None or not pathlib.Path(cfg.strategy_config).is_file():
+        raise GateNotAuthorized("DEV_RUN needs the pinned strategy config file for the provenance hash")
+
+
 def run_stage_i1(cfg: RunConfig, log=print) -> dict:
     import xgboost
+    started = _utcnow()
+    _bind_dev_run(cfg)
+    src = source_state(REPO, ignore=[cfg.bar_store, cfg.out_dir])
+    kind = "dev" if cfg.run_status == "DEV_RUN" else "smoke"
+    run_id = f"i1-{kind}-{started[:10].replace('-', '')}-{(src['commit'] or 'nogit')[:8]}"
     audit_in = load_census_audit(cfg.census_audit)
     sessions = session_list(audit_in, cfg.dev_start, cfg.dev_end)
     log(f"sessions in window: {len(sessions)} ({sessions[0]}..{sessions[-1]})" if sessions else "no sessions", flush=True)
@@ -650,39 +959,216 @@ def run_stage_i1(cfg: RunConfig, log=print) -> dict:
                                 beats_b0=(t is not None and b0_t is not None and t > b0_t),
                                 b0_unestablished=b0_t is None)
     trigger = any(c["passes"] and c["beats_b0"] for c in comparison.values())
+    consumed = rows["consumed_sha256"]
+    frozen = frozen_block(cfg)
+    ended = _utcnow()
+    provenance = dict(
+        run_id=run_id, run_status=cfg.run_status,
+        source=dict(repo_root=str(REPO), **src),
+        invocation=dict(argv=list(sys.argv), cwd=os.getcwd(), python=sys.executable,
+                        env={"G2V3_BAR_STORE": os.environ.get("G2V3_BAR_STORE")}),
+        timestamps_utc=dict(start=started, end=ended,
+                            derivation="logged by this process's own clock (datetime.now(UTC)): start at entry "
+                                       "to run_stage_i1, end immediately before the report is written"),
+        gate_bundle=(cfg.gate.as_record() if cfg.gate is not None else None),
+        inputs=dict(
+            census_audit=dict(path=str(cfg.census_audit), sha256=sha256_file(cfg.census_audit)),
+            strategy_config=(dict(path=str(cfg.strategy_config), sha256=sha256_file(cfg.strategy_config))
+                             if cfg.strategy_config else None),
+            sector_map_sha256=sha256_json(cfg.sector_map), sector_etf_map_sha256=sha256_json(cfg.sector_etf_map),
+            spy_daily=dict(path=str(cfg.spy_daily), sha256=sha256_file(cfg.spy_daily)),
+            bar_store=str(cfg.bar_store)),
+        frozen_parameters=dict(frozen, interpretations=list(INTERPRETATIONS)),
+        consumed_bar_manifest=dict(count=len(consumed), aggregate_sha256=manifest_aggregate(consumed),
+                                   aggregate_method=MANIFEST_METHOD,
+                                   per_file="audit consumed_sha256 (hashed from the store at run time)"),
+    )
     report = dict(
-        stage="GOAL-2v3 Stage I-1", run_status=cfg.run_status,
+        stage="GOAL-2v3 Stage I-1", run_status=cfg.run_status, run_id=run_id,
         generated_at=_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         spec="doc/design/2026-08-27-goal2v3-intraday-granularity.md#stage-i-1",
         versions=dict(python=platform.python_version(), xgboost=xgboost.__version__, numpy=np.__version__,
                       pandas=pd.__version__, scipy=__import__("scipy").__version__),
-        frozen=dict(h=H, slots=SLOTS, screen_slots=list(SCREEN_SLOTS), dev_window=[cfg.dev_start, cfg.dev_end],
-                    seed_base=SEED_BASE, seed_formula="20260828 + 1000*fold_index + 100*base_code + state_index",
-                    xgb_params=XGB_PARAMS, row_cap=cfg.row_cap, base_codes=BASE_CODES,
-                    min_sector_rows=MIN_SECTOR_ROWS, folds=[list(f) for f in cfg.folds], purge_bars=PURGE_BARS,
-                    min_names_per_ic=cfg.min_names, min_pairs=MIN_PAIRS, life_bar_t=LIFE_BAR_T,
-                    secondary_horizons=list(SECONDARY_HORIZONS), features=list(FEATURE_NAMES),
-                    b1_state_lag_sessions=B1_STATE_LAG_SESSIONS, vz_trailing_sessions=VZ_TRAILING_SESSIONS,
-                    vz_min_present=VZ_MIN_PRESENT, b3_slow_sessions=B3_SLOW_SESSIONS),
+        frozen=frozen,
         inputs=dict(census_audit=str(cfg.census_audit), bar_store=str(cfg.bar_store), spy_daily=str(cfg.spy_daily),
+                    gate_run_id=(cfg.gate.run_id if cfg.gate is not None else None),
                     n_sessions=len(sessions), n_names=len(rows["names"]), n_observations=int(len(rows["name"])),
                     n_oof_observations=int(oof_all.sum()), missing_store_files=rows["missing_files"],
                     sec13_etf_available_by_sector=rows["sec13_available"],
-                    store_hash_check="all consumed files match the census audit (fail-closed)"),
+                    store_hash_check="every consumed file hashed at run time == the gate audit's per-file "
+                                     "sha256 (fail-closed on mismatch or on files absent from the audit)"),
         fold_row_counts=fold_counts,
         bases=results, s0_reference=s0_res, base_vs_b0=comparison,
         stage_i2_trigger=dict(rule="at least one of B1/B2/B3 passes the life bar AND beats B0's block-t",
                               fired=bool(trigger)),
         interpretations=INTERPRETATIONS,
+        provenance=provenance,
     )
     if cfg.run_status != "DEV_RUN":
         report["note"] = "SMOKE run on synthetic data: no development-window evidence; no verdict."
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
     (cfg.out_dir / "report.json").write_text(json.dumps(report, indent=1, default=_json_default))
-    audit_out["consumed_sha256"] = rows["consumed_sha256"]
+    audit_out["consumed_sha256"] = consumed
     with gzip.open(cfg.out_dir / "g2v3_stage_i1_audit.json.gz", "wt") as fh:
         json.dump(audit_out, fh, default=_json_default)
     return report
+
+
+# --------------------------------------------------------------------------
+# provenance validator: rebuild every hash the report claims from the inputs on disk
+# --------------------------------------------------------------------------
+_CONSTANT_FROZEN = dict(h=H, slots=SLOTS, screen_slots=list(SCREEN_SLOTS), seed_base=SEED_BASE,
+                        xgb_params=XGB_PARAMS, base_codes=BASE_CODES, min_sector_rows=MIN_SECTOR_ROWS,
+                        purge_bars=PURGE_BARS, min_pairs=MIN_PAIRS, life_bar_t=LIFE_BAR_T,
+                        secondary_horizons=list(SECONDARY_HORIZONS), features=list(FEATURE_NAMES),
+                        b1_state_lag_sessions=B1_STATE_LAG_SESSIONS, vz_trailing_sessions=VZ_TRAILING_SESSIONS,
+                        vz_min_present=VZ_MIN_PRESENT, b3_slow_sessions=B3_SLOW_SESSIONS,
+                        b3_fast_lag_slots=B3_FAST_LAG_SLOTS, k5_regimes=list(K5_REGIMES), b3_labels=list(B3_LABELS))
+_DEV_ONLY_FROZEN = dict(dev_window=[DEV_START, DEV_END], row_cap=ROW_CAP, folds=[list(f) for f in FOLDS],
+                        min_names_per_ic=MIN_NAMES_PER_IC)
+
+
+def validate_i1_provenance(report: dict, audit: dict, repo_root: pathlib.Path = None) -> List[str]:
+    """Return every disagreement between a Stage I-1 report's `provenance` block and (a) the report itself,
+    (b) the audit's consumed-bar hashes, (c) the files on disk it names, (d) this module's frozen constants,
+    (e) the gate bundle under `repo_root`. Empty list == the provenance is complete and verifiable."""
+    repo_root = pathlib.Path(repo_root if repo_root is not None else REPO)
+    problems: List[str] = []
+    prov = report.get("provenance")
+    if not isinstance(prov, dict):
+        return ["report has no provenance block"]
+    dev = report.get("run_status") == "DEV_RUN"
+
+    def need(*keys):
+        v = _dig(prov, *keys)
+        if v is None:
+            problems.append(f"provenance.{'.'.join(keys)} missing")
+        return v
+
+    # --- identity
+    run_id = need("run_id")
+    if isinstance(run_id, str):
+        if not _RUN_ID.match(run_id):
+            problems.append(f"run_id {run_id!r} does not match i1-(dev|smoke)-<UTCdate>-<shortsha>")
+        elif run_id.split("-")[1] != ("dev" if dev else "smoke"):
+            problems.append(f"run_id {run_id!r} kind disagrees with run_status {report.get('run_status')!r}")
+        if report.get("run_id") != run_id:
+            problems.append("report.run_id != provenance.run_id")
+    if prov.get("run_status") != report.get("run_status"):
+        problems.append("provenance.run_status != report.run_status")
+    # --- source
+    commit = need("source", "commit")
+    if not (isinstance(commit, str) and _HEX40.match(commit)):
+        problems.append(f"source.commit is not a 40-hex sha: {commit!r}")
+    elif isinstance(run_id, str) and _RUN_ID.match(run_id) and not run_id.endswith(commit[:8]):
+        problems.append("run_id short sha != source.commit")
+    if not isinstance(need("source", "clean_tree"), bool):
+        problems.append("source.clean_tree must be a bool")
+    # --- invocation + clock
+    argv = need("invocation", "argv")
+    if not (isinstance(argv, list) and argv):
+        problems.append("invocation.argv must be a non-empty list")
+    env = need("invocation", "env")
+    if not (isinstance(env, dict) and "G2V3_BAR_STORE" in env):
+        problems.append("invocation.env must record G2V3_BAR_STORE")
+    elif dev and not env.get("G2V3_BAR_STORE"):
+        problems.append("DEV_RUN invocation.env.G2V3_BAR_STORE is empty")
+    start, end = need("timestamps_utc", "start"), need("timestamps_utc", "end")
+    try:
+        t0 = _dt.datetime.strptime(start, _TS)
+        t1 = _dt.datetime.strptime(end, _TS)
+        if t1 < t0:
+            problems.append(f"timestamps_utc end {end} precedes start {start}")
+        if isinstance(run_id, str) and _RUN_ID.match(run_id) and run_id.split("-")[2] != t0.strftime("%Y%m%d"):
+            problems.append("run_id date != timestamps_utc.start date")
+    except (TypeError, ValueError):
+        problems.append(f"timestamps_utc start/end must be {_TS}: {start!r} / {end!r}")
+    # --- gate bundle
+    gate = prov.get("gate_bundle")
+    if dev and not isinstance(gate, dict):
+        problems.append("DEV_RUN provenance has no gate_bundle")
+    if isinstance(gate, dict):
+        g = ACCEPTED_GATE_BUNDLE
+        for key, want in (("run_id", g["run_id"]), ("frozen_source_commit", g["frozen_source_commit"]),
+                          ("gate_verdict", g["gate_verdict"]), ("report_sha256", g["report_sha256"]),
+                          ("audit_sha256", g["audit_sha256"]),
+                          ("input_manifest_aggregate_sha256", g["input_manifest_aggregate_sha256"]),
+                          ("input_manifest_count", g["input_manifest_count"])):
+            if gate.get(key) != want:
+                problems.append(f"gate_bundle.{key} = {gate.get(key)!r} != bound {want!r}")
+        bundle = repo_root / g["dir"]
+        for key, fname in (("report_sha256", g["report_file"]), ("audit_sha256", g["audit_file"]),
+                           ("provenance_sha256", g["provenance_file"])):
+            p = bundle / fname
+            if not p.is_file():
+                problems.append(f"gate bundle file missing under repo_root: {p}")
+            elif sha256_file(p) != gate.get(key):
+                problems.append(f"gate_bundle.{key} != sha256 of {p.name} on disk")
+    # --- inputs on disk
+    for key in ("census_audit", "spy_daily"):
+        entry = need("inputs", key)
+        if isinstance(entry, dict):
+            p = pathlib.Path(str(entry.get("path")))
+            if not p.is_file():
+                problems.append(f"inputs.{key}.path missing on disk: {p}")
+            elif sha256_file(p) != entry.get("sha256"):
+                problems.append(f"inputs.{key}.sha256 != file on disk")
+    sc = _dig(prov, "inputs", "strategy_config")
+    if dev and not isinstance(sc, dict):
+        problems.append("DEV_RUN provenance has no inputs.strategy_config")
+    if isinstance(sc, dict):
+        p = pathlib.Path(str(sc.get("path")))
+        if not p.is_file():
+            problems.append(f"inputs.strategy_config.path missing on disk: {p}")
+        else:
+            if sha256_file(p) != sc.get("sha256"):
+                problems.append("inputs.strategy_config.sha256 != file on disk")
+            try:
+                cfg = json.loads(p.read_text(encoding="utf-8"))
+                if sha256_json(dict(cfg["sector_map"])) != _dig(prov, "inputs", "sector_map_sha256"):
+                    problems.append("inputs.sector_map_sha256 != sector_map rebuilt from the strategy config")
+                if sha256_json(dict(cfg["sector_etf_map"])) != _dig(prov, "inputs", "sector_etf_map_sha256"):
+                    problems.append("inputs.sector_etf_map_sha256 != sector_etf_map rebuilt from the strategy config")
+            except (ValueError, KeyError, TypeError) as exc:
+                problems.append(f"strategy config unreadable for the sector-map rebuild ({exc})")
+    if dev and str(_dig(prov, "inputs", "census_audit", "path") or "") != str(GATE_AUDIT):
+        problems.append(f"DEV_RUN census audit is not the gate bundle's audit {GATE_AUDIT}")
+    # --- frozen block: internal consistency + module constants + the 11 interpretations byte-identical
+    fp = need("frozen_parameters")
+    if isinstance(fp, dict):
+        if dict(report.get("frozen") or {}, interpretations=list(INTERPRETATIONS)) != fp:
+            problems.append("provenance.frozen_parameters != report.frozen + INTERPRETATIONS")
+        for key, want in _CONSTANT_FROZEN.items():
+            if fp.get(key) != want:
+                problems.append(f"frozen_parameters.{key} = {fp.get(key)!r} != module constant {want!r}")
+        if dev:
+            for key, want in _DEV_ONLY_FROZEN.items():
+                if fp.get(key) != want:
+                    problems.append(f"DEV_RUN frozen_parameters.{key} = {fp.get(key)!r} != frozen {want!r}")
+        if fp.get("interpretations") != list(INTERPRETATIONS):
+            problems.append("frozen_parameters.interpretations are not the frozen INTERPRETATIONS (byte-identical)")
+    if report.get("interpretations") != list(INTERPRETATIONS):
+        problems.append("report.interpretations != INTERPRETATIONS")
+    # --- consumed-bar manifest: rebuilt from the audit, cross-checked against the census audit consumed
+    man = need("consumed_bar_manifest")
+    consumed = audit.get("consumed_sha256") if isinstance(audit, dict) else None
+    if not isinstance(consumed, dict) or not consumed:
+        problems.append("audit has no consumed_sha256 map")
+    elif isinstance(man, dict):
+        if man.get("count") != len(consumed):
+            problems.append(f"consumed_bar_manifest.count {man.get('count')} != {len(consumed)} in the audit")
+        if man.get("aggregate_sha256") != manifest_aggregate(consumed):
+            problems.append("consumed_bar_manifest.aggregate_sha256 != aggregate rebuilt from audit.consumed_sha256")
+        census_p = pathlib.Path(str(_dig(prov, "inputs", "census_audit", "path") or ""))
+        if census_p.is_file():
+            try:
+                census_hashes = load_census_audit(census_p).get("bar_store_sha256") or {}
+            except (OSError, ValueError):
+                census_hashes = {}
+            bad = [t for t, h in consumed.items() if census_hashes.get(t) != h]
+            if bad:
+                problems.append(f"{len(bad)} consumed files are not the census-audited files (e.g. {bad[:5]})")
+    return problems
 
 
 def _json_default(o):
@@ -755,8 +1241,10 @@ def _synthetic_store(root: pathlib.Path, n_names: int = 30, n_sessions: int = 40
     sector_map = {n: "tech" for n in names[:third]}
     sector_map.update({n: "finance" for n in names[third:2 * third]})
     sector_etf_map = {"tech": "XLK", "finance": "XLF", "healthcare": "XLV"}   # XLV absent on purpose
+    strategy_config = root / "strategy_config.json"
+    strategy_config.write_text(json.dumps(dict(sector_map=sector_map, sector_etf_map=sector_etf_map), indent=1))
     return dict(bar_store=store, census_audit=audit_p, spy_daily=spy_daily, sector_map=sector_map,
-                sector_etf_map=sector_etf_map, sessions=sessions, names=names)
+                sector_etf_map=sector_etf_map, sessions=sessions, names=names, strategy_config=strategy_config)
 
 
 def _smoke_folds(sessions: List[str]) -> Tuple[Tuple[str, str, str], ...]:
@@ -769,27 +1257,39 @@ def run_smoke(out_dir: pathlib.Path, planted: bool = True, log=print) -> dict:
     syn = _synthetic_store(out_dir / "synthetic", planted=planted)
     cfg = _smoke_config(syn["bar_store"], syn["census_audit"], syn["spy_daily"], syn["sector_map"],
                         syn["sector_etf_map"], out_dir / "out", _smoke_folds(syn["sessions"]), min_names=20,
-                        dev_start=syn["sessions"][0], dev_end=syn["sessions"][-1])
+                        dev_start=syn["sessions"][0], dev_end=syn["sessions"][-1],
+                        strategy_config=syn["strategy_config"])
     return run_stage_i1(cfg, log=log)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dev-run", action="store_true",
-                    help="run on the REAL development bar store (G2V3_BAR_STORE) — gated on the Stage I-0 gate review")
+                    help="run on the REAL development bar store (G2V3_BAR_STORE); refuses (exit 2) unless the "
+                         "Stage I-0 GATE_RUN bundle verifies against ACCEPTED_GATE_BUNDLE")
     ap.add_argument("--smoke-out", default=None, help="synthetic smoke output dir (default: a temp dir)")
     args = ap.parse_args(argv)
     if args.dev_run:
-        cfg = dev_run_config()
-        report = run_stage_i1(cfg)
+        try:
+            auth = load_gate_authorization(REPO)          # FIRST: nothing else happens without it
+            print(f"gate authorization: {auth.run_id} @ {auth.frozen_source_commit[:8]} verdict={auth.gate_verdict} "
+                  f"report={auth.report_sha256[:12]}.. audit={auth.audit_sha256[:12]}..", flush=True)
+            cfg = dev_run_config(auth)
+            report = run_stage_i1(cfg)
+        except GateNotAuthorized as exc:
+            print(f"REFUSED --dev-run (fail closed): {exc}", file=sys.stderr, flush=True)
+            return 2
     else:
         out = pathlib.Path(args.smoke_out or tempfile.mkdtemp(prefix="g2v3_i1_smoke_"))
         print(f"synthetic smoke -> {out}", flush=True)
         report = run_smoke(out)
     summary = {b: dict(block_t=r["overall"]["block_t"], passes=r["passes_life_bar"]) for b, r in report["bases"].items()}
-    print(json.dumps(dict(run_status=report["run_status"], xgboost=report["versions"]["xgboost"], bases=summary,
+    print(json.dumps(dict(run_status=report["run_status"], run_id=report["run_id"],
+                          xgboost=report["versions"]["xgboost"], bases=summary,
                           s0_block_t=report["s0_reference"]["overall"]["block_t"],
-                          stage_i2_trigger=report["stage_i2_trigger"]["fired"]), indent=1))
+                          stage_i2_trigger=report["stage_i2_trigger"]["fired"],
+                          consumed_bar_manifest=report["provenance"]["consumed_bar_manifest"]["aggregate_sha256"]),
+                     indent=1))
     return 0
 
 

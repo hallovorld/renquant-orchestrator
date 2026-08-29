@@ -18,7 +18,7 @@ strategy config, and writes only `doc/research/data/2026-08-29-g2v3-i1/`.
 | Canonical 39-slot RTH grid, position = time, NaN = missing (A1) | `load_panel` (census slot convention `((h*60+m)-570)//10`) |
 | Observation exists only when close[t-13], close[t], close[t+13] present; t = 13..25 | `build_rows` (`exists` mask over `SCREEN_SLOTS`) |
 | Eligibility after BOTH drift layers, from the census artifact (not recomputed) | `load_census_audit`, `session_list`, `eligibility_matrix` |
-| Bar store identity = the store the census audited | `build_rows` sha256 check vs `bar_store_sha256` (fail closed: `SystemExit`) |
+| Bar store identity = the store the census audited | `build_rows` sha256 of every consumed file at run time vs the GATE audit's `bar_store_sha256` (fail closed: `SystemExit` on a mismatch OR on a file the audit never saw) |
 | F: r1, r3, r13 (log), rv13, rng13, vz (60-session same-slot mean), gap, slot, m13, sec13, rel13; NaN on missing, no imputation | `name_features`, `trailing_log_return`; sec13 per `sector_etf_map` ETF from the bar store, NaN when the ETF is absent (`sec13_available` in the report) |
 | Label: forward 13-bar within-session log return, dropped when truncated | `name_features` (`y13`); rows for t > 25 never exist |
 | B0 pooled | `run_bases` (`state_cols["B0"]`) |
@@ -35,7 +35,8 @@ strategy config, and writes only `doc/research/data/2026-08-29-g2v3-i1/`.
 | s0 = -r13 carried as the naive reference, not a base | `build_rows` (`rows["s0"]`), `run_stage_i1` (`s0_reference`) |
 | Each base's block-t vs B0 + Stage I-2 trigger (a conditioned base passes AND beats B0) | `run_stage_i1` (`base_vs_b0`, `stage_i2_trigger`) |
 | Report + compact audit (per-base per-session block series, per-fold row counts, seeds) | `run_stage_i1` -> `report.json`, `g2v3_stage_i1_audit.json.gz` |
-| `--dev-run` built ONLY from frozen constants; smoke hook private | `dev_run_config` (no parameters), `_smoke_config` (the only override path), `RunConfig` defaults |
+| `--dev-run` built ONLY from frozen constants; smoke hook private | `dev_run_config(auth)` (its only parameter is the gate authorization), `_smoke_config` (the only override path), `RunConfig` defaults |
+| `--dev-run` fails closed without the Stage I-0 GATE_RUN bundle (r2) | `ACCEPTED_GATE_BUNDLE`, `load_gate_authorization`, `_bind_dev_run`; see "Gate binding + provenance (r2)" below |
 
 ## Interpretations (spec text that needed a concrete reading; conservative choice; all listed in `INTERPRETATIONS` and copied into every report)
 
@@ -69,4 +70,60 @@ G2V3_BAR_STORE=/path/to/the/audited/g2v3_bars \
   ../RenQuant/.venv/bin/python scripts/experiments/g2v3_stage_i1_bases.py --dev-run
 ```
 
-Reads: the bar store (sha256 of every consumed file must equal the census audit's, else it refuses), `doc/research/data/2026-08-27-g2v3-i0/g2v3_stage_i0_audit.json.gz`, `/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet`, and `sector_map` / `sector_etf_map` from the pinned `renquant-strategy-104/configs/strategy_config.json`. Writes: `doc/research/data/2026-08-29-g2v3-i1/report.json` + `g2v3_stage_i1_audit.json.gz` only. Sector ETFs present in the audited store: SPY, XLE, XLF, XLI, XLK, XLU, XLY `[VERIFIED — audit bar_store_sha256 keys]`; XLV/GLD/TLT/XLRE/XLC are absent, so healthcare / commodity / bond / defensive_bonds / real_estate / telecom get sec13 = NaN by the spec's NaN rule (recorded in `report.inputs.sec13_etf_available_by_sector`).
+Reads: the bar store (sha256 of every consumed file must equal the GATE audit's, else it refuses), `doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz` (the gate bundle's audit — the ONLY census audit the dev run may consume; the 2026-08-27 DEVELOPMENT_ONLY audit is no longer read), `/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet`, and `sector_map` / `sector_etf_map` from the pinned `renquant-strategy-104/configs/strategy_config.json`. Writes: `doc/research/data/2026-08-29-g2v3-i1/report.json` + `g2v3_stage_i1_audit.json.gz` only. Sector ETFs present in the audited store: SPY, XLE, XLF, XLI, XLK, XLU, XLY `[VERIFIED — audit bar_store_sha256 keys]`; XLV/GLD/TLT/XLRE/XLC are absent, so healthcare / commodity / bond / defensive_bonds / real_estate / telecom get sec13 = NaN by the spec's NaN rule (recorded in `report.inputs.sec13_etf_available_by_sector`).
+
+## Gate binding + provenance (r2, 2026-08-29 — PR #1084 review r1 by codex)
+
+Bottom line: `--dev-run` now FAILS CLOSED (exit code 2) unless it can load the immutable Stage I-0 GATE_RUN bundle
+(`doc/research/data/2026-08-29-g2v3-i0-gate-run/`, PR #1083 r2 = e41f04df, merged into this branch so #1084 stacks on
+#1083; the diff collapses once #1083 merges) and verify it against a frozen constant block; every I-1 report carries a
+`provenance` block that a validator rebuilds from disk. No `--dev-run` was executed. The 12-entry `INTERPRETATIONS`
+list is byte-identical to r1 (the doc's 11 numbered readings above plus the s0-reference reading; nothing edited).
+
+**Gate binding** (`scripts/experiments/g2v3_stage_i1_bases.py`):
+
+- `ACCEPTED_GATE_BUNDLE` (module constant): dir, run_id `i0-gate-20260829-f3d5bf7b`, frozen commit
+  `f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779`, run_status `GATE_RUN`, gate_verdict `PASS`, h=13, window
+  2020-08-01..2024-06-30, seed list path/sha256/count (2144), census script sha256, design doc sha256, input-manifest
+  aggregate sha256 + count (2124), report sha256 `da41a706..`, audit sha256 `dd5127d7..` — every value copied from the
+  bundle's `provenance.json` `[VERIFIED — test_bound_constants_are_the_reviewed_gate_bundle compares field by field]`.
+- `load_gate_authorization(repo_root)` -> `GateAuthorization`, else raises `GateNotAuthorized` with the specific reason.
+  Order of checks: bundle dir / report / audit / provenance present; report `run_status == GATE_RUN` (a DEVELOPMENT_ONLY
+  report is refused by name) and `gate_verdict == PASS` and `h == 13`; every provenance field above == the constant
+  (run_id, frozen commit, seed/script/design hashes + commits, manifest aggregate + count, output paths + hashes,
+  clean_tree is true); THEN the files on disk: report and audit sha256 == the constants, seed list sha256 + count, the
+  manifest aggregate recomputed from the audit's `bar_store_sha256` (the gate's own aggregate method, `manifest_aggregate`)
+  == the constant; THEN git: the frozen commit must be resolvable in `repo_root` and the census script + design doc blobs
+  AT that commit must hash to the constants (a faithful bundle copy outside the reviewed repository is not authorization).
+- `--dev-run` calls `load_gate_authorization(REPO)` FIRST (before reading `G2V3_BAR_STORE`); `dev_run_config(auth)` takes
+  the authorization as its only parameter and sets `census_audit = GATE_AUDIT`; `run_stage_i1` re-checks via `_bind_dev_run`
+  (DEV_RUN with no authorization, or with a census audit that is not the gate bundle's audit, or whose audit hash changed,
+  raises). The old `CENSUS_AUDIT` constant pointing at `2026-08-27-g2v3-i0/` is deleted; the only remaining reference to
+  that directory is the seed list, which is an input of the gate itself.
+- Bar store: `build_rows` hashes every file it reads (names + SPY + sector ETFs) at run time; a hash differing from the
+  gate audit's, or a file the audit never saw, is a fail-closed `SystemExit`. The consumed hashes are the audit's
+  `consumed_sha256` and the report's aggregate manifest.
+
+**Provenance** (`report.provenance`, built in `run_stage_i1`; validated by `validate_i1_provenance`): `run_id`
+`i1-dev-<UTCdate>-<shortsha>` (`i1-smoke-…` for the smoke); `source` = `git rev-parse HEAD` + `clean_tree` from
+`git status --porcelain --untracked-files=all` ignoring the bar store and the output dir (ignored paths listed);
+`invocation` = argv, cwd, python, `G2V3_BAR_STORE`; `timestamps_utc` start/end from this process's own clock; `gate_bundle`
+= run_id, frozen commit, verdict, report/audit/provenance sha256, manifest aggregate + count; `inputs` = sha256 of the
+census audit, the strategy config file, the `sector_map` / `sector_etf_map` dicts (canonical JSON), the SPY daily parquet;
+`frozen_parameters` = the full frozen block + the interpretations; `consumed_bar_manifest` = count + aggregate (gate
+method). The validator rebuilds every hash from disk, requires DEV_RUN reports to carry the gate bundle / pinned config /
+frozen folds, and checks the interpretations byte-identical.
+
+**Evidence** `[VERIFIED — pytest, 2026-08-29]`: `tests/test_g2v3_stage_i1_harness.py` + `tests/test_g2v3_stage_i1_provenance.py`
++ `tests/test_g2v3_stage_i1_gate_binding.py` + `tests/test_g2v3_gate_run_bundle_provenance.py`: **58 passed**. Gate binding
+cases: missing bundle / missing report / audit / provenance; DEVELOPMENT_ONLY report; the 2026-08-27 dev bundle dropped
+into the gate dir; gate_verdict FAIL; wrong source commit; wrong run_id; wrong census-script / design-doc / seed /
+manifest-aggregate / manifest-count / audit hash / h in provenance; clean_tree false; tampered report file (status +
+verdict intact, only the hash catches it); tampered audit file; tampered seed list; faithful copy in a fresh `git init`
+repo (commit not resolvable); CLI `--dev-run` with no bundle -> exit 2 before anything else; `run_stage_i1` refusing
+DEV_RUN without authorization or with a non-gate audit; and the exact committed PASS bundle -> authorized
+(run_id, commit, hashes, BEAR n_eff_adj 191.0). Provenance cases: complete block; validates clean; on-disk report ==
+in-memory; consumed-manifest tamper; strategy-config / sector-map / SPY / census-audit tamper; gate-hash tamper;
+frozen-block and interpretation tamper; identity / clock / argv checks; DEV_RUN claims held to the gate + frozen folds.
+Default CLI smoke re-run: B0/B1/B2 block-t 10.117, B3 9.909, s0 10.830, unchanged from r1; `run_id
+i1-smoke-20260829-62145271`, 33 consumed files, provenance validates `[VERIFIED — run 2026-08-29]`.

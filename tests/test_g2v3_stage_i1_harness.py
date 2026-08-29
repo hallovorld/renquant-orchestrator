@@ -70,8 +70,11 @@ def test_frozen_constants_match_the_preregistration():
 
 def test_dev_run_config_never_takes_overrides():
     import inspect
-    assert list(inspect.signature(M.dev_run_config).parameters) == []
-    assert M.CENSUS_AUDIT.name == "g2v3_stage_i0_audit.json.gz"
+    # the ONLY parameter is the gate authorization (tests/test_g2v3_stage_i1_gate_binding.py covers the binding)
+    assert list(inspect.signature(M.dev_run_config).parameters) == ["auth"]
+    assert not hasattr(M, "CENSUS_AUDIT")                          # the 2026-08-27 development audit is not read
+    assert M.GATE_AUDIT.relative_to(M.REPO) == pathlib.Path(
+        "doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz")
     assert M.OUT_DIR.relative_to(M.REPO) == pathlib.Path("doc/research/data/2026-08-29-g2v3-i1")
 
 
@@ -123,15 +126,17 @@ def test_ess_fails_closed_below_eight_pairs():
 # --------------------------------------------------------------------------
 # end-to-end synthetic smoke
 # --------------------------------------------------------------------------
-REPORT_KEYS = {"stage", "run_status", "generated_at", "spec", "versions", "frozen", "inputs", "fold_row_counts",
-               "bases", "s0_reference", "base_vs_b0", "stage_i2_trigger", "interpretations"}
+REPORT_KEYS = {"stage", "run_status", "run_id", "generated_at", "spec", "versions", "frozen", "inputs",
+               "fold_row_counts", "bases", "s0_reference", "base_vs_b0", "stage_i2_trigger", "interpretations",
+               "provenance"}
 
 
 def _smoke(tmp_path, planted, drop=None):
     syn = M._synthetic_store(tmp_path / "syn", planted=planted, drop_eligibility=drop)
     cfg = M._smoke_config(syn["bar_store"], syn["census_audit"], syn["spy_daily"], syn["sector_map"],
                           syn["sector_etf_map"], tmp_path / "out", M._smoke_folds(syn["sessions"]), min_names=20,
-                          dev_start=syn["sessions"][0], dev_end=syn["sessions"][-1])
+                          dev_start=syn["sessions"][0], dev_end=syn["sessions"][-1],
+                          strategy_config=syn["strategy_config"])
     return syn, M.run_stage_i1(cfg, log=lambda *a, **k: None)
 
 
@@ -168,6 +173,8 @@ def test_smoke_planted_signal_is_detected_and_schema_holds(tmp_path):
     assert rep["inputs"]["sec13_etf_available_by_sector"] == {"tech": True, "finance": True, "healthcare": False}
     assert rep["inputs"]["missing_store_files"] == ["XLV"]
     assert rep["frozen"]["folds"] != [list(f) for f in M.FOLDS]        # the smoke used the private tiny folds
+    assert rep["provenance"]["run_status"] == "SMOKE" and rep["provenance"]["gate_bundle"] is None
+    assert M.validate_i1_provenance(rep, aud, M.REPO) == []             # the provenance rebuilds from disk
 
 
 def test_smoke_null_store_gives_small_block_t(tmp_path):
@@ -193,6 +200,11 @@ def test_smoke_honours_census_eligibility_and_refuses_a_changed_store(tmp_path):
     df.to_parquet(p)
     cfg = M._smoke_config(syn["bar_store"], syn["census_audit"], syn["spy_daily"], syn["sector_map"],
                           syn["sector_etf_map"], tmp_path / "out2", M._smoke_folds(s), min_names=20,
-                          dev_start=s[0], dev_end=s[-1])
-    with pytest.raises(SystemExit, match="unaudited store"):
+                          dev_start=s[0], dev_end=s[-1], strategy_config=syn["strategy_config"])
+    with pytest.raises(SystemExit, match="1 hash mismatches.*unaudited store"):
         M.run_stage_i1(cfg, log=lambda *a, **k: None)
+    # a file the audit never saw is refused as well (the dev run must consume the AUDITED store, nothing more)
+    df.to_parquet(syn["bar_store"] / "XLV.parquet")                    # XLV was absent; now present but unaudited
+    with pytest.raises(SystemExit, match="1 files absent from the audit.*unaudited store"):
+        M.run_stage_i1(cfg, log=lambda *a, **k: None)
+    assert not (tmp_path / "out2").exists()
