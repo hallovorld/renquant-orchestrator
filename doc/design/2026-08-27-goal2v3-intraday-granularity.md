@@ -185,3 +185,79 @@ ask 「回「确认修正案 A1」即可」; the operator answered 「go」, whi
 session's established usage (2026-08-27 「go」 selected the granularity
 fork) is the operator's acceptance word. **The Stage I-0 gate run is the
 `--gate-run` executed from the main commit carrying this acknowledgement.**
+
+---
+
+## Stage I-1 — preregistration of the base models (declared 2026-08-28, BEFORE the gate run's result is known)
+
+Everything below is frozen now so that no choice in Stage I-1 can be made
+after seeing which bases work. A change to any item is a new attempt in the
+development record, not an edit.
+
+**Feature set F (computed at canonical slot t from within-session bars and
+information available by t; identical for every base):**
+r1, r3, r13 (trailing 1/3/13-bar log returns); rv13 (13-bar realized vol);
+rng13 = (close_t − min low_{t−12..t}) / (max high − min low) over 13 bars;
+vz = volume_t / trailing-60-session mean volume at the same slot − 1;
+gap = open_{slot 0} / prior-session close − 1 (overnight gap, a FEATURE, not
+a label); slot index t (time of day); m13 = SPY trailing-13-bar return;
+sec13 = sector-ETF trailing-13-bar return (config `sector_etf_map`; names
+without a mapped sector get NaN → XGB native handling); rel13 = r13 − sec13.
+Missing any bar inside a window ⇒ that feature is NaN (no imputation).
+
+**Label:** forward 13-bar log return, within-session only (A1 rule).
+
+**Bases (the operator's spec: different models per state, then a stacker):**
+- B0 pooled: one XGB on F, no conditioning (the control).
+- B1 regime-conditioned: one XGB per K5 approx-regime (4 models).
+- B2 sector-conditioned: one XGB per sector from config `sector_map`
+  (sectors with <50,000 training rows in a fold are folded into "OTHER").
+- B3 macro-trend-conditioned: one XGB per state of the frozen 2×2 macro
+  state, defined operationally on SPY (the A1 canonical grid; official
+  daily closes from `data/ohlcv/SPY/1d.parquet` for the slow leg):
+  slow = sign( close_daily[D−1] / close_daily[D−61] − 1 ) using the 60
+  completed sessions strictly BEFORE the current session D (as-of the
+  prior close; no same-day information); fast = sign( close_slot[t] /
+  close_slot[t−39] − 1 ) where slot t−39 is the same canonical slot one
+  session earlier (t−39 crosses into the prior session by construction:
+  slots are numbered continuously across sessions for this feature only,
+  and the prior session's slot must be PRESENT, else the state is missing).
+  Zero return ⇒ sign = +1 (a tie counts as "up", declared). Missing
+  history (fewer than 61 daily closes, or the prior-session slot absent)
+  ⇒ state MISSING ⇒ the row is excluded from B3 fitting and scoring for
+  that slot (B3 abstains; it does not fall back to another state). The
+  four states are (slow,fast) ∈ {(+,+),(+,−),(−,+),(−,−)}. Both legs use
+  only prices timestamped ≤ t — no slot-t leakage.
+- s₀ (the A1 proxy, −r13) is carried as the naive reference, not a base.
+
+**Model class (uniquely determined):** `xgboost.XGBRegressor(objective=
+"reg:squarederror", max_depth=3, n_estimators=300, learning_rate=0.05,
+subsample=0.8, colsample_bytree=0.8, min_child_weight=20, tree_method=
+"hist", random_state=20260828, n_jobs=8)`; every other parameter at the
+library default of the pinned xgboost version, which the I-1 record must
+state. No tuning. **Row cap and sampling procedure:** if a single fit's
+training frame exceeds 4,000,000 rows, rows are subsampled WITHOUT
+replacement to exactly 4,000,000 using `numpy.random.default_rng(seed)`
+with seed = 20260828 + 1000·fold_index + base_code·100 + state_index
+(base_code: B0=0, B1=1, B2=2, B3=3; state_index = position of the state
+in the base's sorted state list, 0 for B0), applied GLOBALLY per fit (not
+stratified by session or name). Frames under the cap are used whole.
+
+**Folds (forward-chaining, expanding train, OOF = next 6 months):**
+train ≤2021-12-31 → OOF 2022-01..06; ≤2022-06-30 → 2022-07..12;
+≤2022-12-31 → 2023-01..06; ≤2023-06-30 → 2023-07..12;
+≤2023-12-31 → 2024-01..06. A 13-bar purge gap sits between train end and
+OOF start (labels never straddle the boundary).
+
+**Screen (per base, on the pooled OOF period 2022-01..2024-06):**
+blocks = A1 session blocks (mean of the 13 bar-time ICs); per base,
+ρ̂₁ re-estimated on its own episode-internal block pairs (fail-closed <8
+pairs); **life bar: block-t ≥ 1.0 at h=13 on dependence-adjusted units**,
+reported overall AND per regime. Secondary horizons {1,3,39}: diagnostic
+only. A base passes only on the overall bar; per-regime numbers inform
+Stage I-2 weighting, never the pass decision.
+
+**Stage I-2 trigger:** at least one of B1/B2/B3 passes AND beats B0's
+block-t (conditioning must earn its complexity over the pooled control).
+Otherwise I-1 is recorded as a failed attempt and the line pauses for an
+operator decision.
