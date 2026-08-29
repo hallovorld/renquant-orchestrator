@@ -62,7 +62,25 @@ EVIDENCE:  §4(b) block — this PR makes a model/data claim.
                           `[VERIFIED — report.json outcome, pass_bar.P1/P2/P3,
                           series.*.overall.block_t, common_sample,
                           base_refit.determinism_guard; re-read 2026-08-29]`.
-           checks:        `validate_i2_provenance(report, audit, repo_root)` → `[]`;
+           checks:        `validate_i2_provenance(report, audit, repo_root)` → `[]`
+                          from the run's own checkout; from ANY OTHER checkout it
+                          returns exactly one line — "DEV_RUN census audit is not
+                          the gate bundle's audit <that checkout>/…/
+                          g2v3_stage_i0_audit.json.gz" — because the harness
+                          compares the recorded `inputs.census_audit.path` STRING
+                          (the run worktree's absolute path) against the importing
+                          checkout's `GATE_AUDIT`
+                          (`scripts/experiments/g2v3_stage_i2_stack.py:1019`); the
+                          recorded sha256 `dd5127d7…` equals the committed gate
+                          audit under `repo_root` and the bound
+                          `gate_bundle.audit_sha256`, so the content identity is
+                          verified from every checkout and every other check (gate
+                          + I-1 bundle hashes, I-1 harness sha, consumed-bar
+                          manifest, frozen block) passes `[VERIFIED — re-run from a
+                          detached checkout of ec9fe909, 2026-08-29: 1 problem,
+                          that path line; the same checkout-bound note #1088
+                          records for the I-1 validator]`. Claim corrected after
+                          review r1 (was stated as an unconditional `[]`).
                           `tests/test_g2v3_stage_i2_binding.py` +
                           `tests/test_g2v3_stage_i2_harness.py` → 82 passed
                           `[VERIFIED — pytest, 2026-08-29]`. The audit's block series
