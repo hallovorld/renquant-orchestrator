@@ -11,8 +11,9 @@ the bundle says, evaluated against the prereg text as written. It recommends not
 `doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593/` (`report.json` +
 `g2v3_stage_i2_audit.json.gz`). Provenance validates with zero problems
 `[VERIFIED — validate_i2_provenance(report, audit, repo_root) == []` from this worktree AND from a
-fresh `git worktree add` at another absolute path: path identity is checked repo-relatively after
-codex r1 — command in the progress doc, "Review r1"]`; the two I-2 test files pass
+fresh `git worktree add` at another absolute path holding the two umbrella inputs the bundle
+records (without them exactly their two `missing on disk` lines; Corrections, r2/CI): path
+identity is checked repo-relatively after codex r1 — command in the progress doc, "Review r1"]`; the two I-2 test files pass
 `[VERIFIED — pytest tests/test_g2v3_stage_i2_binding.py tests/test_g2v3_stage_i2_harness.py: 99 passed]`.
 
 Tag convention: `[VERIFIED report <key>]` = read from `report.json`; `[VERIFIED audit <key>]` =
@@ -252,7 +253,7 @@ secondary block from every other series `[VERIFIED report: only series.M_xgb car
 | panel | 983 sessions (2020-08-03..2024-06-28), 1,508 names, 10,487,004 observations, 7,097,590 base-OOF, 5,578,562 meta-OOF `[VERIFIED report inputs]` |
 | `report.json` | 66,036 bytes, sha256 `8a2804fd0df7de3665c6f568b6dfe9ff3db91b5643096ddedc4addfcb8ac0a87` `[VERIFIED shasum -a 256]` |
 | `g2v3_stage_i2_audit.json.gz` | 529,055 bytes, sha256 `6629d29a7b071342a20b188e15cf40c9c6c219ebabb4a4eafbd85921ecd9d128`; uncompressed 1,529,481 bytes, sha256 `ca3e6dc3d1333c3cd8b3f41b72bb785fb72fb72637da6328b107f8ae325b14be` `[VERIFIED shasum -a 256]` (the harness writes the audit gzipped; nothing in the bundle exceeds 5 MB, so no file was re-packed — the I-0/I-1 convention) |
-| validation | `validate_i2_provenance(report, audit, repo_root)` → `[]` from any checkout: reproduced from this worktree and from a fresh `git worktree add <tmp> research/g2v3-stage-i2-dev-run` at another absolute path (command in the progress doc, "Review r1"); `tests/test_g2v3_stage_i2_binding.py` + `tests/test_g2v3_stage_i2_harness.py` → 99 passed `[VERIFIED pytest, 2026-08-29]` |
+| validation | `validate_i2_provenance(report, audit, repo_root)` → `[]` from any checkout holding the two umbrella inputs the bundle records (`data/ohlcv/SPY/1d.parquet`, the pinned `strategy_config.json`; without them exactly their two `inputs.<x>.path missing on disk` lines — Corrections, r2/CI): reproduced from this worktree and from a fresh `git worktree add <tmp> research/g2v3-stage-i2-dev-run` at another absolute path (command in the progress doc, "Review r1"); `tests/test_g2v3_stage_i2_binding.py` + `tests/test_g2v3_stage_i2_harness.py` → 99 passed `[VERIFIED pytest, 2026-08-29]` |
 
 Frozen block as run `[VERIFIED report frozen]`: the I-1 block verbatim (h=13, 39 slots, screen
 slots 13..25, dev window 2020-08-01..2024-06-30, seed base 20260828, I-1 XGB params, row cap
@@ -338,3 +339,12 @@ Whichever the operator chooses, the S3-c live flip remains an explicit operator 
   `g2v3_stage_i2_stack.validate_i1_provenance`, because the I-1 harness file is frozen by the §1
   binding `I1_HARNESS_SHA256` and cannot be edited without un-binding this line. The validator
   is not fit code: no number in the bundle changed (sha256 as in §7).
+- **2026-08-29, #1092 CI (tests only).** The #1092 tests pinning the claim above first asserted
+  `[]` from a checkout at another path unconditionally and went red on CI: the bundle records two
+  inputs OUTSIDE this repository (the umbrella's `data/ohlcv/SPY/1d.parquet` and the pinned
+  `strategy_config.json`), which the validator can only check where they were recorded, and the
+  runner holds neither. The claim is therefore stated with that condition in the header and in
+  §7: `[]` from any checkout holding those two files where recorded; elsewhere exactly their two
+  `inputs.<x>.path missing on disk` lines and nothing else — which the tests now pin from a
+  shared clone at another path (`doc/progress/2026-08-29-g2v3-i2-provenance-repo-relative.md`,
+  "CI at 9be7cdd4"). No number in the bundle changed (sha256 as in §7).

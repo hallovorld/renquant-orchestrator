@@ -533,6 +533,22 @@ def _bundle(root: pathlib.Path, rel: str, audit_name: str):
     return json.load(open(d / "report.json")), json.load(gzip.open(d / audit_name))
 
 
+def _recorded_inputs_absent_here(rep, *, every_input: bool = False) -> list:
+    """The validators' EXACT verdict for recorded inputs this machine does not hold: one "missing on disk" line
+    per absent input, nothing else. An input OUTSIDE the run's repo root (the umbrella's SPY parquet, the pinned
+    strategy config) can only be checked where it was recorded, so the portable validators read it there; the
+    frozen I-1 harness reads EVERY input at its recorded absolute path (`every_input`). Empty where those files
+    live (the operator's machine — the docs' `-> []` holds under exactly that condition); from a checkout without
+    them (CI) the same tests pin that nothing BUT these lines is reported."""
+    prov = rep["provenance"]
+    root = prov["source"]["repo_root"]
+    return sorted(f"inputs.{key}.path missing on disk: {entry['path']}"
+                  for key, entry in prov["inputs"].items()
+                  if isinstance(entry, dict) and "path" in entry
+                  and (every_input or M.repo_relative(entry["path"], root) is None)
+                  and not pathlib.Path(entry["path"]).is_file())
+
+
 @pytest.fixture(scope="module")
 def elsewhere(tmp_path_factory):
     return _checkout_elsewhere(tmp_path_factory.mktemp("elsewhere") / "checkout")
@@ -549,20 +565,26 @@ def test_committed_i2_bundle_validates_from_a_checkout_at_another_path(elsewhere
     rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
     recorded = rep["provenance"]["inputs"]["census_audit"]["path"]
     assert not recorded.startswith(str(elsewhere)) and not pathlib.Path(recorded).is_relative_to(elsewhere)
-    assert M.validate_i2_provenance(rep, aud, elsewhere) == []
-    assert M.validate_i2_provenance(rep, aud, REPO) == []
+    outside_only = _recorded_inputs_absent_here(rep)      # [] where the umbrella inputs live; exactly their lines on CI
+    assert sorted(M.validate_i2_provenance(rep, aud, elsewhere)) == outside_only
+    assert sorted(M.validate_i2_provenance(rep, aud, REPO)) == outside_only
 
 
 def test_committed_i1_bundle_validates_from_a_checkout_at_another_path_via_the_portable_entry_point(elsewhere):
     """The I-1 harness is frozen by I1_HARNESS_SHA256, so its validator keeps comparing the recorded ABSOLUTE
     census-audit path with the reviewer's GATE_AUDIT; `M.validate_i1_provenance` substitutes the repo-relative
-    rule for exactly that verdict. When the I-1 harness is ever re-bound with the rule inside, the first
-    assertion flips and this wrapper can go."""
+    rule for exactly that verdict. When the I-1 harness is ever re-bound with the rule inside, the gate line
+    disappears and this wrapper can go."""
     rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
     raw = I1.validate_i1_provenance(rep, aud, elsewhere)
-    assert len(raw) == 1 and raw[0].startswith("DEV_RUN census audit is not the gate bundle's audit"), raw
-    assert M.validate_i1_provenance(rep, aud, elsewhere) == []
-    assert M.validate_i1_provenance(rep, aud, REPO) == []
+    gate_line = [p for p in raw if p.startswith("DEV_RUN census audit is not the gate bundle's audit")]
+    assert len(gate_line) == 1, raw
+    # the frozen harness reads every input at its RECORDED absolute path (the run's scratchpad worktree, the
+    # umbrella): away from the run's own machine it also reports each absent one — and nothing else
+    assert sorted(set(raw) - set(gate_line)) == _recorded_inputs_absent_here(rep, every_input=True), raw
+    outside_only = _recorded_inputs_absent_here(rep)
+    assert sorted(M.validate_i1_provenance(rep, aud, elsewhere)) == outside_only
+    assert sorted(M.validate_i1_provenance(rep, aud, REPO)) == outside_only
 
 
 def _census(rep):
@@ -649,13 +671,19 @@ def _traversal_forms(run_root, target):
 @pytest.mark.parametrize("key", ["spy_daily", "strategy_config", "census_audit"])
 def test_codex_r2_repro_traversal_to_an_outside_file_with_a_matching_sha_is_a_problem(elsewhere, key):
     """The exact r2 reproduction: the committed bundle, `inputs.<key>` re-pointed at <recorded repo_root>/../outside/x,
-    the outside file real (same bytes as the recorded input, so the sha matches) — must NOT validate."""
+    the outside file real and the record's sha256 that file's hash — must NOT validate. The census audit is a byte
+    copy of the checkout's (the recorded sha stands); the umbrella inputs are not on every machine, so their
+    outside file is synthetic and the record's sha256 re-pointed at it (the r2 repro's own move) — the refusal
+    is lexical, before any byte is read."""
     rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
     entry = rep["provenance"]["inputs"][key]
     outside = elsewhere.parent / "outside" / f"{key}.bin"           # where `repo_root / '../outside/…'` would read
     outside.parent.mkdir(exist_ok=True)
-    src = pathlib.Path(entry["path"]) if key != "census_audit" else elsewhere / GATE_AUDIT_REL
-    outside.write_bytes(src.read_bytes())
+    if key == "census_audit":
+        outside.write_bytes((elsewhere / GATE_AUDIT_REL).read_bytes())
+    else:
+        outside.write_bytes(f"outside {key}\n".encode())
+        entry["sha256"] = M.sha256_file(outside)
     assert M.sha256_file(outside) == entry["sha256"]
     run_root = rep["provenance"]["source"]["repo_root"]
     for form in _traversal_forms(run_root, f"outside/{key}.bin"):
@@ -716,20 +744,28 @@ def test_symlink_escaping_repo_root_is_a_problem(tmp_path):
 
 def test_refused_strategy_config_is_not_parsed_for_the_sector_map_rebuild(tmp_path):
     """After `inputs.strategy_config.path` is refused (symlink leaving the checkout), the sector-map rebuild must not
-    open it either: the outside file carries a DIFFERENT sector_map, so any read would add a sector_map_sha256 line."""
+    open it either: the outside file carries a DIFFERENT sector_map, so any read would add a sector_map_sha256 line
+    (the positive control below shows it does, from a confined path)."""
     other = _checkout_elsewhere(tmp_path / "checkout")
     rep, aud = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
     sc = rep["provenance"]["inputs"]["strategy_config"]
-    cfg = json.loads(pathlib.Path(sc["path"]).read_text(encoding="utf-8"))
-    cfg["sector_map"] = dict(cfg["sector_map"], ZZZZ="Tampered")
+    run_root = rep["provenance"]["source"]["repo_root"]
+    cfg = {"sector_map": {"ZZZZ": "Tampered"}, "sector_etf_map": {}}      # not the recorded maps; no umbrella file needed
     outside = tmp_path / "outside" / "strategy_config.json"
     outside.parent.mkdir()
     outside.write_text(json.dumps(cfg), encoding="utf-8")
+    # positive control: the same bytes at a confined repo-local path ARE parsed, and the rebuilt sector_map disagrees
+    inside = other / "doc" / "cfg_inside.json"
+    inside.write_bytes(outside.read_bytes())
+    r = copy.deepcopy(rep)
+    r["provenance"]["inputs"]["strategy_config"].update(path=run_root + "/doc/cfg_inside.json",
+                                                        path_relative="doc/cfg_inside.json", sha256=M.sha256_file(inside))
+    assert any(p.startswith("inputs.sector_map_sha256 !=") for p in M.validate_i2_provenance(r, aud, other))
+    # the refused record: the refusal line, and no sign that the file behind the link was ever opened
     (other / "doc" / "cfg_link.json").symlink_to(outside)
-    sc.update(path=rep["provenance"]["source"]["repo_root"] + "/doc/cfg_link.json", path_relative="doc/cfg_link.json",
-              sha256=M.sha256_file(outside))
+    sc.update(path=run_root + "/doc/cfg_link.json", path_relative="doc/cfg_link.json", sha256=M.sha256_file(outside))
     problems = M.validate_i2_provenance(rep, aud, other)
     assert any(p.startswith("inputs.strategy_config.path resolves outside repo_root") for p in problems), problems
-    assert not any("sector_map_sha256" in p or "strategy config unreadable" in p or "strategy_config.sha256" in p
-                   for p in problems), problems
+    assert not any("sector_map_sha256" in p or "sector_etf_map_sha256" in p or "strategy config unreadable" in p
+                   or "strategy_config.sha256" in p for p in problems), problems
 
