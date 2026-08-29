@@ -1,21 +1,21 @@
 {
   "e3ecdd6587cdaf4e": {
     "member": "gate-stamp-parity",
-    "acked_at": "2026-08-05",
-    "expires_at": "2026-09-05",
+    "acked_at": "2026-08-29",
+    "expires_at": "2026-09-12",
     "acked_by": "claude",
     "numbers_when_acked": [
-      "36",
+      "46",
       "16",
       "0",
-      "20",
+      "30",
       "0",
       "0",
       "0",
       "0"
     ],
-    "reason": "The 16 both-copy artifacts are historical and NONE IS SERVED. That is now measured BY THE DETECTOR and carried in its summary line - '0 of them SERVED by a pinned config' - rather than asserted in this reason: gate_stamp_parity.served_artifact_basenames() reads every strategy_config*.json under the pinned .subrepo_runtime/repos/renquant-strategy-104/configs and intersects the selected artifact basenames with the both-copy set [VERIFIED 2026-08-05]. The one artifact whose two stamps disagree on the VERDICT itself, panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json (canonical passed=False, legacy passed=True), is explained rather than unexplained: the legacy copy carries operator_authorized_override=true with the recorded 2026-07-05 reason, so it holds the post-override verdict while the canonical copy holds the pre-override one [VERIFIED 2026-08-05].",
-    "clears_when": "The served count leaves 0 - which moves a number IN the fingerprinted summary, so a config change alone reports ACKED_BUT_CHANGED even with every census count unchanged [codex on orch#829]. Same for any legacy-only artifact appearing, or the both-copy count moving. It also expires 2026-09-05 regardless.",
+    "reason": "Renewal of the 2026-08-05 ack, which expired 2026-08-19 under the ACK_MAX_AGE_DAYS=14 cap - its written expires_at 2026-09-05 was never the binding date, because ack_expiry takes the EARLIEST of expires_at / dates in clears_when / acked_at+14d. expires_at 2026-09-12 IS acked_at + ACK_MAX_AGE_DAYS, the effective bound, stated here per codex on orch#1058 rather than pretending a later date. Re-verified 2026-08-29 by the read-only detector run (RENQUANT_DATA_ROOT=<umbrella> ops/renquant104/gate_stamp_parity.py): the same 16 both-copy artifacts are historical and NONE IS SERVED, measured BY THE DETECTOR and carried in its summary line ('0 of them SERVED by a pinned config') - gate_stamp_parity.served_artifact_basenames() reads every strategy_config*.json under the pinned .subrepo_runtime/repos/renquant-strategy-104/configs and intersects the selected artifact basenames with the both-copy set. The census moved 36->46 scanned / 20->30 canonical-only since 2026-08-05: the 10 new artifacts are canonical-only, i.e. each carries ONE gate stamp and cannot disagree with itself, so the parity situation is unchanged while the magnitude moved (ACKED_BUT_CHANGED had the ack not already expired). The one artifact whose two stamps disagree on the VERDICT itself, panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json (canonical passed=False, legacy passed=True), is still explained rather than unexplained: the legacy copy carries operator_authorized_override=true with the recorded 2026-07-05 reason, so it holds the post-override verdict while the canonical copy holds the pre-override one [VERIFIED 2026-08-29].",
+    "clears_when": "The served count leaves 0 - which moves a number IN the fingerprinted summary, so a config change alone reports ACKED_BUT_CHANGED even with every census count unchanged [codex on orch#829]. Same for any legacy-only artifact appearing, or the both-copy count moving. It also expires 2026-09-12 regardless (acked_at + ACK_MAX_AGE_DAYS=14, the effective bound).",
     "not_acked_note": "This acks ONLY the parity census. It does not ack booster-identity, whose COLLAPSE line (36 artifacts -> 15 distinct boosters under one identity sha256:cfdd6cb8e950da0f) is a REAL open defect - the WF gate admits on the recipe hash and never scores the candidate's booster. Acking that would be the failure this ledger exists to avoid."
   },
   "1af4f5ed284b8ea0": {
