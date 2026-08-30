@@ -118,6 +118,22 @@ earlier all-vetoed run was defect #3 impersonating the same answer
 - Lesson (recurring): a checker that measures the wrong object passes
   forever; ask "which tree / which predicate does the PRODUCTION path use?"
   and bind the checker to that, then make its verdict name the object.
+- **Regression of #6 (same day, fixed forward, progress doc
+  `2026-08-30-catchup-guard-zsh-portable.md`):** the shared guard's env check
+  used `for req in $required; do eval "val=\${$req:-}"`; zsh does not
+  word-split `$required`, so under the two rq105 wrappers (`/bin/zsh`,
+  `set -u`) the guard died with `(eval):1: bad substitution` /
+  `launchd_catchup_guard:25: val: parameter not set` and both jobs exited 1
+  `[VERIFIED 2026-08-30 11:29 PT after landing the #1098 plists]` — the
+  Monday 06:15 export would have failed. #1098's tests ran the guard under
+  bash only. Fix: explicit `_require_env NAME "${NAME:-}"` reads, no eval;
+  `tests/test_catchup_guard_shell_portability.py` runs the decision matrix
+  under `/bin/zsh`, `/bin/bash`, `/bin/sh` and asserts identical behaviour,
+  and pins every sourcing wrapper's shebang to that set. Landing = `-run`
+  ff-sync before Mon 06:00 PT; no plist change.
+- Lesson: a SOURCED shell file is tested under the shell of its CALLERS, not
+  the CI runner's; the two differ here (zsh vs bash/dash) and word-splitting
+  is the first place they diverge.
 
 ## Addendum 2026-08-30 — defect #7 (AC1 class): the retrain freshness gate vetoed on a delisting
 
