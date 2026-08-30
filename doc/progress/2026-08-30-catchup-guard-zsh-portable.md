@@ -55,6 +55,18 @@ EVIDENCE:  §4(b) block — ops-surface claim, no model/data claim.
                           with, verbatim:
                               (eval):1: bad substitution
                               launchd_catchup_guard:25: val: parameter not set
+           best-known?:   yes — this branch's guard is the only known variant
+                          that passes the decision matrix under all three
+                          shells; `origin/main`'s guard (#1098, 2ed9d962) is
+                          the WORSE one (bash/sh OK, zsh dies). No competing
+                          variant exists.
+           scope:         "this is `ops/catchup_guard.sh` + its four sourcing
+                          wrappers, prod run surface (rq105 launchd jobs), vs
+                          existing best `origin/main` 2ed9d962 = dies under
+                          zsh; branch = rc/stdout/stderr/log byte-identical
+                          under zsh/bash/sh (26/26 matrix)". Ops-surface
+                          claim only: no model/data/IC claim, nothing
+                          deployed (no `-run` sync, no plist change).
            reproduced:    `[VERIFIED 2026-08-30 11:31 PT]` in this worktree,
                           `origin/main` guard, `env -i … /bin/zsh -c 'set -u;
                           . ops/catchup_guard.sh; launchd_catchup_guard
