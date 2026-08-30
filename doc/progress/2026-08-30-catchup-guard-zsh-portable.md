@@ -110,7 +110,7 @@ callers actually use and assert byte-identical behaviour across them.
 - Regression proof: new file vs `origin/main` guard 14 failed / 12 passed;
   vs branch 26 passed `[VERIFIED 2026-08-30 11:36 PT]`.
 - `make test` (worktree, `PYTHON=` the RenQuant venv interpreter,
-  `PYTHONDONTWRITEBYTECODE=1`): full `make test` in progress at commit time; counts follow in a second commit on this branch.
+  `PYTHONDONTWRITEBYTECODE=1`): **11 failed / 7149 passed / 10 skipped** in 324s `[VERIFIED 2026-08-30 11:48 PT]`. All 11 fail IDENTICALLY on an `origin/main` (2ed9d962) baseline worktree in the same environment (`11 failed in 4.78s`), so none is caused by this PR: 2 are the `test_run_surface_drift_check.py` `PENDING_INTENT_INSTALL` / `PENDING_PROGRAM_ARGS_INSTALL` exact-set tests that #1098 §NEXT said would flip once the operator landed the plists (they landed 11:29 PT; follow-up PR deletes the entries); the other 9 are environment/path-bound (`test_cli` FileNotFound in the worktree path, `test_g2v3_stage_i2_binding` ×2 `inputs.spy_daily.sha256 != file on disk`, `test_goal3_public_export_resolution` pipeline-revision record, `test_recapture_emitter_contract` ×2 + `test_rq104_silent_refusal_sentinel` `scripts/weekly_wf_promote.sh:714` contract line drift, `test_shadow_serving_skips_leave_evidence` ×2) — a superset of the 6 known pre-existing, none in files this PR touches.
 
 ## Not done / limits
 
