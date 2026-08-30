@@ -64,6 +64,16 @@ EVIDENCE:  see §4(b) below; full `make test` on this branch: 6 failed / 7099
            leave_evidence` — all read paths/records on the operator's disk
            `[VERIFIED — scratchpad r2_branch_test.log, umbrella venv + absolute
            sibling src, 2026-08-30]`.
+           Re-run on the merged head (origin/main 2ed9d962 / #1098 merged in):
+           8 failed / 7159 passed / 10 skipped — the same 6 plus TWO that #1098
+           itself introduced and that fail identically on a clean `origin/main`
+           worktree at 2ed9d962 (`test_run_surface_drift_check.py::
+           TestManifestGeneration::test_declared_intents_not_yet_installed_are_
+           exactly_the_named_set` and `…::test_reviewed_program_args_pending_
+           install_are_exactly_the_named_set` — they read the operator's
+           installed plists; #1098's own addendum names them as pending the
+           landing) `[VERIFIED — scratchpad r2_merged_test.log and a pytest run
+           of that file on a clean origin/main worktree, 2026-08-30]`.
 NEXT:      codex re-review → merge → orchestrator pin advance + `-run` sync
            (operator landing action). Until then the live promote still vetoes on
            AVB: the interim bridge is umbrella PR #625 (`RETRAIN_EXCLUDE_TICKERS`
