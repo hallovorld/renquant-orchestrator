@@ -1,4 +1,4 @@
-# Retrain freshness guard: presumed-delisted non-watchlist names are excluded with an alert, not a veto (AVB, the IAC pattern)   (PR #TBD)
+# Retrain freshness guard: presumed-delisted non-watchlist names are excluded with an alert, not a veto (AVB, the IAC pattern)   (PR #1096)
 
 STATUS:    delivered (code + tests; NOT deployed — the `-run`/pin advance is the deploy step, see "Deploy")
 WHAT:      `PanelUniverseFreshnessGuardTask` now classifies a stale panel name as
