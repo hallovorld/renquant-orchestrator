@@ -130,7 +130,7 @@ Runtime `renquant-model` porcelain at 10:22 today: clean (the README had been re
 
 Focused suites (8 files): **249 passed, 1 skipped** `[VERIFIED — pytest in-session, RenQuant/.venv, sibling PYTHONPATH]`.
 `make test` (RenQuant/.venv, sibling `*_SRC` overrides — the worktree is not a sibling): **7128 passed, 6 failed, 10 skipped** (334 s) `[VERIFIED — scratchpad/make_test_branch.log]`;
-the same 6 selected on a clean `origin/main` worktree (06ceb310), same interpreter/PYTHONPATH: **6 failed in 5.48s** `[VERIFIED — pytest in-session]` — `test_cli::test_parking_sleeve_cli_computes_allocation`, `test_goal3_public_export_resolution::test_the_RECORD_names_the_revision_that_was_actually_measured`, 2× `test_g2v3_stage_i2_binding` (checkout-at-another-path), 2× `test_shadow_serving_skips_leave_evidence` — all pre-existing and environmental (sibling checkouts' git state / worktree path), none touch a file in this PR.
+clean `origin/main` worktree (06ceb310), same command: **7066 passed, 6 failed, 10 skipped** (330 s) `[VERIFIED — scratchpad/make_test_main.log]`, the IDENTICAL 6 (`comm` of the two FAILED lists is empty both ways; also re-run selected: 6 failed in 5.48s) — `test_cli::test_parking_sleeve_cli_computes_allocation`, `test_goal3_public_export_resolution::test_the_RECORD_names_the_revision_that_was_actually_measured`, 2× `test_g2v3_stage_i2_binding` (checkout-at-another-path), 2× `test_shadow_serving_skips_leave_evidence` — all pre-existing and environmental (sibling checkouts' git state / worktree path), none touch a file in this PR.
 
 ## Landing (operator; one grant; NOT executed by this PR)
 
