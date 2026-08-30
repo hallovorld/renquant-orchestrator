@@ -115,6 +115,16 @@ earlier all-vetoed run was defect #3 impersonating the same answer
   bootout/bootstrap of the two `deploy/` plists + `-run` sync**, then delete
   the four `PENDING_INTENT_INSTALL` / one `PENDING_PROGRAM_ARGS_INSTALL`
   entries in `tests/test_run_surface_drift_check.py`.
+- 2026-08-30 11:29 PT LANDED `[VERIFIED — operator session; installed plists
+  == manifest on all four labels, read-only scan 11:47 PT: only the standing
+  watchlist-trainability CRWV/RKLB/SPCX issue]`. The four
+  `PENDING_INTENT_INSTALL` entries and the `PENDING_PROGRAM_ARGS_INSTALL`
+  entry are deleted; the drift-manifest tests are HERMETIC (fixture plists
+  under tmp_path replay installed==manifest AND the pre-landing disk), and
+  the real-disk reading is an opt-in smoke test
+  (`RENQUANT_DRIFT_DISK_TESTS=1`). Remaining operator item: `-run` ff-sync
+  (`-run` at 2ed9d962 = #1098; #1096 and #1099 (merged 12:02 PT) are not on
+  it; #1099's guard fix must be on `-run` before Mon 06:15 PT).
 - Lesson (recurring): a checker that measures the wrong object passes
   forever; ask "which tree / which predicate does the PRODUCTION path use?"
   and bind the checker to that, then make its verdict name the object.
