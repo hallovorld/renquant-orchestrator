@@ -118,3 +118,31 @@ earlier all-vetoed run was defect #3 impersonating the same answer
 - Lesson (recurring): a checker that measures the wrong object passes
   forever; ask "which tree / which predicate does the PRODUCTION path use?"
   and bind the checker to that, then make its verdict name the object.
+
+## Addendum 2026-08-30 — defect #7 (AC1 class): the retrain freshness gate vetoed on a delisting
+
+- 2026-08-29/30: the weekly promote failed `PANEL-FREEZE 1/293 stale` — the
+  one name is AVB (Equity Residential merger closed 2026-08-17, last bar
+  2026-08-24), still in `tier_A_tickers` and NOT in the served watchlist
+  `[VERIFIED — progress doc 2026-08-30-retrain-universe-exclusion-registry.md]`.
+  The strict 0.0 stale fraction assumed delistings reach the versioned
+  inventory, but the inventory ships NO `delisted_tickers` channel (generated
+  2026-05-05, no regeneration since), so the gate could not pass by
+  construction — same shape as IAC in July (hand-coded
+  `RETRAIN_EXCLUDE_TICKERS=IAC` in the umbrella promote).
+- Fix (orch#1096 r2): exclusions are EXPLICIT and REVIEWED —
+  `config/retrain_universe_exclusions.json` in the orchestrator (reason enum,
+  effective date, evidence URL, adding PR; loaded fail-closed). Its names leave
+  the universe before the refresh and the guard, AND the guard hands base-data's
+  panel build a filtered copy of the inventory (`--inventory`), so an excluded
+  name leaves the actual training universe. A heuristic skip ("stale AND not
+  served ⇒ presumed delisted", r1) was REJECTED in review: an outage, a symbol
+  transition or an ingestion gap satisfy it, and pruning only the freshness
+  accounting leaves stale rows in the panel. Every remaining stale name still
+  vetoes; the veto names ticker / lag / last bar and says to add a reviewed
+  registry entry or fix ingestion; an informational `STALE-NON-WATCHLIST` ntfy
+  names the registry path. **Deploy = orchestrator pin / `-run` sync (operator
+  action); until then the live promote still vetoes on AVB** — interim bridge
+  is umbrella PR #625 (`RETRAIN_EXCLUDE_TICKERS` default `IAC,AVB`, freshness
+  accounting only). The versioned fix stays base-data's: regenerate the
+  inventory with a `delisted_tickers` channel.
