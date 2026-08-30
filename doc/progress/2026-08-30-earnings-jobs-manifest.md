@@ -1,8 +1,8 @@
-# Manifest entries for the earnings-calendar + daily earnings-surprise jobs   (PR #TBD)
+# Manifest entries for the earnings-calendar + daily earnings-surprise jobs   (PR #1102)
 
 STATUS:    delivered (reviewed-surface half of the 2026-08-30 earnings
            freshness fix; the jobs themselves live in umbrella PR
-           RenQuant#TBD — cross-linked below. NOTHING is installed by
+           RenQuant#627 — cross-linked below. NOTHING is installed by
            this PR; installation is the operator landing batch).
 
 WHAT:      ops/launchd_manifest.json += two entries under "jobs" (the
@@ -16,7 +16,7 @@ WHAT:      ops/launchd_manifest.json += two entries under "jobs" (the
              /Users/renhao/git/github/RenQuant/scripts/
              daily_earnings_surprise_refresh.sh
 
-WHY/DIR:   2026-08-30 data audit (umbrella PR RenQuant#TBD carries the
+WHY/DIR:   2026-08-30 data audit (umbrella PR RenQuant#627 carries the
            full root cause): the earnings-calendar producer was never
            scheduled — the prod artifact froze at 2026-04-24 (last date
            2026-07-24) and the live pre/post-earnings buffer silently
@@ -48,7 +48,7 @@ TESTS:     json.loads round-trip OK; per-entry digest == checker recipe
            EVIDENCE). The plists themselves are plutil-linted in the
            umbrella PR.
 
-NEXT:      operator landing batch: merge umbrella PR RenQuant#TBD, pull
+NEXT:      operator landing batch: merge umbrella PR RenQuant#627, pull
            the live tree, cp the two plists from scripts/launchd/ into
            ~/Library/LaunchAgents/ and launchctl load them (literal
            commands in the umbrella progress doc). Until then the daily
