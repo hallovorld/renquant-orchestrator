@@ -185,5 +185,6 @@ NEXT:      codex re-review → merge → orchestrator pin advance + `-run` sync
 
 ## Memory tier
 
-MID `doc/memory/mid-term/serving-reliability.md`: the 2026-08-30 defect #6
-addendum rewritten for r2 (registry, not heuristic; panel build included).
+MID `doc/memory/mid-term/serving-reliability.md`: the 2026-08-30 addendum
+rewritten for r2 (registry, not heuristic; panel build included), renumbered
+defect #7 after #1098 took #6 on `origin/main`.
