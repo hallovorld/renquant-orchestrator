@@ -334,15 +334,25 @@ def test_scheduler_record_kinds_are_the_scheduler_modules_own():
 # 6. shell catch-up guard (bash: the CI runner has no zsh)
 #
 # r2 (codex on the first draft): the cutoff is no longer a fixed 1300 and the
-# day test is no longer "weekday". The guard asks ops/renquant105/
-# rq105_catchup_cutoff.py for the date's ACTUAL local close, running it under
-# the wrapper's own PYTHONPATH (pinned orch src + pin-verified common) and
-# treating any non-zero / non-HHMM answer as a refusal. 6a drives the shell
-# guard with a STUBBED helper (the calendar answer is the test's input); 6b
-# runs the real helper against the real NYSE calendar; 6c runs guard + real
-# helper + real calendar end to end for the shapes codex named.
+# day test is no longer "weekday". The guard asks ops/catchup_cutoff.py for the
+# date's ACTUAL local close, running it under the wrapper's own PYTHONPATH
+# (pinned orch src + pin-verified common) and treating any non-zero / non-HHMM
+# answer as a refusal. 6a drives the shell guard with a STUBBED helper (the
+# calendar answer is the test's input); 6b runs the real helper against the
+# real NYSE calendar; 6c runs guard + real helper + real calendar end to end
+# for the shapes codex named.
+#
+# 2026-08-30: the guard and the helper moved from ops/renquant105/ to the
+# SHARED ops/catchup_guard.sh / ops/catchup_cutoff.py (the dawn preflight and
+# the drift scan gained the same boot catch-up); the function is
+# launchd_catchup_guard, the helper path is passed as CATCHUP_CUTOFF_HELPER
+# and the rq105 jobs pass the `session` cutoff. Everything below is the rq105
+# contract of that shared guard; tests/test_catchup_guard_shared.py covers
+# the literal-cutoff mode and the two new wrappers.
 # ---------------------------------------------------------------------------
-HELPER = OPS / "rq105_catchup_cutoff.py"
+SHARED_OPS = ROOT / "ops"
+GUARD = SHARED_OPS / "catchup_guard.sh"
+HELPER = SHARED_OPS / "catchup_cutoff.py"
 LA = "America/Los_Angeles"
 
 
@@ -361,27 +371,28 @@ def _venv_root(tmp_path: Path) -> Path:
 
 
 def _stub_env(tmp_path: Path, stdout: str, rc: int, stderr: str = "") -> dict:
-    """An RQ105_OPS_DIR whose rq105_catchup_cutoff.py prints `stdout`, writes
-    `stderr`, exits `rc`, and records its argv + PYTHONPATH in helper_called.txt."""
+    """A CATCHUP_CUTOFF_HELPER that prints `stdout`, writes `stderr`, exits
+    `rc`, and records its argv + PYTHONPATH in helper_called.txt."""
     ops = tmp_path / "ops"
     ops.mkdir(exist_ok=True)
     called = tmp_path / "helper_called.txt"
-    (ops / "rq105_catchup_cutoff.py").write_text(
+    (ops / "catchup_cutoff.py").write_text(
         "import os, sys, pathlib\n"
         f"pathlib.Path({str(called)!r}).write_text(' '.join(sys.argv[1:]) + chr(10) + os.environ.get('PYTHONPATH', ''))\n"
         f"sys.stderr.write({stderr!r})\n"
         f"print({stdout!r})\n"
         f"sys.exit({rc})\n"
     )
-    return {"RQ105_OPS_DIR": str(ops), "RQ_ROOT": str(_venv_root(tmp_path)),
+    return {"CATCHUP_CUTOFF_HELPER": str(ops / "catchup_cutoff.py"),
+            "RQ_ROOT": str(_venv_root(tmp_path)),
             "PYTHONPATH": str(tmp_path / "pinned-src")}
 
 
 def _guard(tmp_path: Path, day: str, now: str, *outputs: str, slot="0615", env=None,
-           drop=(), job="batch-scores-export"):
+           drop=(), job="batch-scores-export", cutoff="session"):
     log = tmp_path / "guard.log"
-    cmd = (f'. "{OPS / "rq105_catchup_guard.sh"}"; rq105_catchup_guard {job} '
-           f'{day} {now} {slot} "{log}" ' + " ".join(f'"{o}"' for o in outputs))
+    cmd = (f'. "{GUARD}"; launchd_catchup_guard {job} '
+           f'{day} {now} {slot} {cutoff} "{log}" ' + " ".join(f'"{o}"' for o in outputs))
     full_env = {**os.environ, **(env if env is not None else _stub_env(tmp_path, "1300", 0))}
     for k in drop:
         full_env.pop(k, None)
@@ -474,11 +485,12 @@ def test_guard_usage_error_is_2_not_a_silent_skip(tmp_path):
     assert rc == 2 and "YYYY-MM-DD" in err
 
 
-@pytest.mark.parametrize("missing", ["PYTHONPATH", "RQ105_OPS_DIR", "RQ_ROOT"])
+@pytest.mark.parametrize("missing", ["PYTHONPATH", "CATCHUP_CUTOFF_HELPER", "RQ_ROOT"])
 def test_guard_requires_the_wrappers_environment_or_is_fatal(tmp_path, missing):
     """The cutoff must come from the pinned calendar: without the wrapper's
-    PYTHONPATH / ops dir / root the guard cannot know which calendar it would
-    read, so it returns 2 (FATAL in the wrappers), never a skip and never a run."""
+    PYTHONPATH / helper path / root the guard cannot know which calendar it
+    would read, so it returns 2 (FATAL in the wrappers), never a skip and never
+    a run."""
     env = _stub_env(tmp_path, "1300", 0)
     env.pop(missing)
     rc, lines, err = _guard(tmp_path, "2026-08-31", "0900", str(tmp_path / "b.json"), env=env, drop=(missing,))
@@ -546,7 +558,7 @@ def test_cutoff_helper_fails_closed_when_the_calendar_cannot_be_imported(tmp_pat
 
 
 def test_cutoff_helper_refuses_a_close_that_is_not_on_the_requested_local_date():
-    import rq105_catchup_cutoff as cutoff
+    import catchup_cutoff as cutoff
 
     class _Cal:
         def session_bounds(self, day):
@@ -565,7 +577,7 @@ def test_cutoff_helper_refuses_a_close_that_is_not_on_the_requested_local_date()
 
 # --- 6c: guard + real helper + real calendar, end to end ---------------------
 def _real_env(tmp_path: Path) -> dict:
-    return {"RQ105_OPS_DIR": str(OPS), "RQ_ROOT": str(_venv_root(tmp_path)),
+    return {"CATCHUP_CUTOFF_HELPER": str(HELPER), "RQ_ROOT": str(_venv_root(tmp_path)),
             "PYTHONPATH": _src_pythonpath(), "TZ": LA}
 
 
@@ -596,9 +608,12 @@ def test_guard_with_the_real_calendar_stays_idempotent(tmp_path):
 def test_wrappers_call_the_guard_after_the_pin_resolver_with_the_reviewed_slots_and_no_fixed_cutoff():
     exp = (OPS / "run_batch_scores_export.sh").read_text()
     sch = (OPS / "run_session_scheduler.sh").read_text()
-    assert '. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"' in exp and '. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"' in sch
-    assert 'rq105_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 \\' in exp
-    assert 'rq105_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 \\' in sch
+    for text in (exp, sch):
+        assert '. "$RQ105_OPS_DIR/../catchup_guard.sh"' in text
+        assert 'CATCHUP_CUTOFF_HELPER="$RQ105_OPS_DIR/../catchup_cutoff.py"; export CATCHUP_CUTOFF_HELPER' in text
+        assert "rq105_catchup_guard" not in text and "rq105_catchup_cutoff" not in text
+    assert 'launchd_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 session \\' in exp
+    assert 'launchd_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 session \\' in sch
     assert '"$RQ_ROOT/data/rq105/batch_scores_$TS.json"' in exp and '"$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"' in exp
     assert '"$LOG_DIR/session_scheduler_$TS.log"' in sch
     for text in (exp, sch):
@@ -609,7 +624,7 @@ def test_wrappers_call_the_guard_after_the_pin_resolver_with_the_reviewed_slots_
         # export: the cutoff helper imports the calendar from the pinned code the
         # job itself runs (a skip that needed no pin was a skip that could not
         # know the session's close).
-        assert text.index("rq105_common_src.sh") < text.index("export PYTHONPATH=") < text.index("rq105_catchup_guard ")
+        assert text.index("rq105_common_src.sh") < text.index("export PYTHONPATH=") < text.index("launchd_catchup_guard ")
 
 
 def test_helper_is_the_liveness_checks_calendar_and_has_no_path_fallback():

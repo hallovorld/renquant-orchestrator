@@ -24,7 +24,7 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # across a boot (2026-08-28: host up at 10:38, no export, serving chain
 # no-op'd all day) is caught up here. The guard applies to EVERY invocation:
 # run iff $TS is an NYSE session AND 06:15 <= local time < that session's
-# ACTUAL local close (rq105_catchup_cutoff.py: 13:00 PT on a normal day,
+# ACTUAL local close (ops/catchup_cutoff.py: 13:00 PT on a normal day,
 # 10:00 PT on an early-close day, refused on a weekend/holiday — r2, codex)
 # AND today's bundle is missing; otherwise one stamped line in
 # catchup_guard_batch-scores-export_<date>.log (NOT this job's evidence log)
@@ -32,9 +32,12 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC"
 # exported after the session would be a post-hoc artifact even when its
 # content is identical. The guard sits AFTER the pin resolver and the
 # PYTHONPATH export on purpose: the cutoff helper imports the calendar from
-# exactly the pinned code this job runs.
-. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"
-rq105_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 \
+# exactly the pinned code this job runs. The guard is the SHARED
+# ops/catchup_guard.sh (moved out of this directory when the dawn preflight
+# and the drift scan gained the same boot catch-up).
+CATCHUP_CUTOFF_HELPER="$RQ105_OPS_DIR/../catchup_cutoff.py"; export CATCHUP_CUTOFF_HELPER
+. "$RQ105_OPS_DIR/../catchup_guard.sh"
+launchd_catchup_guard batch-scores-export "$TS" "$(date +%H%M)" 0615 session \
   "$LOG_DIR/catchup_guard_batch-scores-export_$TS.log" \
   "$RQ_ROOT/data/rq105/batch_scores_$TS.json" \
   "$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"

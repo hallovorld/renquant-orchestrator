@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""rq105_catchup_cutoff.py — the catch-up guard's session-calendar cutoff
-(orch#1085 r2; codex on the first draft).
+"""catchup_cutoff.py — the catch-up guard's session-calendar cutoff
+(orch#1085 r2; codex on the first draft). Born as
+``ops/renquant105/rq105_catchup_cutoff.py``; moved next to the shared
+``ops/catchup_guard.sh`` when the dawn preflight gained the same guard.
 
-The first draft of ``rq105_catchup_guard.sh`` took a FIXED ``1300`` local
+The first draft of the guard took a FIXED ``1300`` local
 cutoff and a weekday number. NYSE early-close sessions (day after
 Thanksgiving, Christmas Eve, ...) close at 13:00 ET = 10:00 PT, and weekday
 market holidays have no session at all — so a boot between 10:00 and 13:00 PT
@@ -10,7 +12,8 @@ on an early-close day would have exported a "pre-session frozen" vector after
 the session had ended, and a boot on Labor Day would have started the
 scheduler for a session that does not exist.
 
-This helper is the ONE calendar answer the guard consumes. For a local date
+This helper is the ONE calendar answer the guard consumes (``session`` mode only —
+a calendar-day job passes a literal cutoff and never runs this). For a local date
 it prints the local ``HHMM`` of that date's ACTUAL session close (early-close
 aware) and exits 0; for a non-session date (weekend / holiday) it prints the
 reason and exits 1; for anything else (bad date, calendar backend missing,

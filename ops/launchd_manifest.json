@@ -136,10 +136,12 @@
       "program_args_sha256": "cb1211fff6b1812d8397f9f8cbfb7266ed1693778e96bbab8eb3ffc6044efd2c"
     },
     "com.renquant.rq104-dawn-preflight": {
+      "_run_at_load_comment": "2026-08-30: reviewed intent — the installed plist must carry RunAtLoad=true so a 06:05 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, no dawn_pin_identity_2026-08-28.json, no probe). The wrapper's shared catch-up guard (ops/catchup_guard.sh, session mode via ops/catchup_cutoff.py) bounds the load-time run to NYSE session days, 06:05..that session's ACTUAL local close, today's probe log missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed deploy/ plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
       "program_args": [
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/dawn_funnel_preflight.sh"
       ],
-      "program_args_sha256": "743f3a9ebd33839d356f3258ad5ba6f8c132bffe5a034544a852a6c1e80f58e7"
+      "program_args_sha256": "743f3a9ebd33839d356f3258ad5ba6f8c132bffe5a034544a852a6c1e80f58e7",
+      "run_at_load": true
     },
     "com.renquant.rq104-degradation-sentinel": {
       "program_args": [
@@ -197,7 +199,7 @@
     },
     "com.renquant.rq105-batch-scores-export": {
       "_evidence_glob_comment": "Derived from the job's own script, not guessed: renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh writes $LOG_DIR/batch_scores_export_$TS.log. Without it this job has no per-job evidence surface, and launchd_liveness_scan falls back to a StandardOutPath shared with five other jobs -- unattributable, which is not the same as healthy.",
-      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:15 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/renquant105/rq105_catchup_guard.sh) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (rq105_catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
+      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:15 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/catchup_guard.sh, shared since 2026-08-30) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (ops/catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/batch_scores_export_*.log",
       "program_args": [
         "/bin/zsh",
@@ -237,7 +239,7 @@
     },
     "com.renquant.rq105-session-scheduler": {
       "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
-      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:25 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/renquant105/rq105_catchup_guard.sh) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (rq105_catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
+      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:25 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/catchup_guard.sh, shared since 2026-08-30) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (ops/catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
       "program_args": [
         "/bin/zsh",
@@ -256,11 +258,13 @@
       "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
     },
     "com.renquant.run-surface-drift": {
+      "_program_args_comment": "2026-08-30: the job now runs the wrapper ops/run_surface_drift_scan.sh (previously `.venv/bin/python ops/run_surface_drift_check.py` directly, sha256 bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2). The wrapper applies the shared boot catch-up guard (ops/catchup_guard.sh, literal 2400 cutoff so the scan keeps running every calendar day) and tees the scan into the dated logs/rq104/run_surface_drift_<date>.log; the scan itself is unchanged. Until the operator installs the reviewed deploy/ plist the daily scan alarms `ProgramArguments CHANGED` on ITSELF (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review.",
+      "_run_at_load_comment": "2026-08-30: reviewed intent — the installed plist must carry RunAtLoad=true so a 07:00 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38; zero 2026-08-28 lines in launchd_run_surface_drift.out while 08-27 and 08-29 carry ~40 each). Same mechanism as the two rq105 jobs (orch#1087); the guard runs the scan at load only when 07:00 <= local time and today's dated scan log is missing.",
       "program_args": [
-        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
-        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_check.py"
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_scan.sh"
       ],
-      "program_args_sha256": "bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2"
+      "program_args_sha256": "97ef0267634342953eff92f1c89047ff36ebb1448d647e0722bad630676327dd",
+      "run_at_load": true
     },
     "com.renquant.screen-watchlist": {
       "program_args": [
