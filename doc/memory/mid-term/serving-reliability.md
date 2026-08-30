@@ -91,7 +91,35 @@ earlier all-vetoed run was defect #3 impersonating the same answer
   installed plists. **Landing (bootout/bootstrap of the two plists + `-run`
   sync) is an operator action — until then the running check is the old one.**
 
-## Addendum 2026-08-30 — defect #6 (AC1 class): the retrain freshness gate vetoed on a delisting
+## Addendum 2026-08-30 — defect #6: three run-surface CHECKERS were not telling the truth
+
+- Drift scan's import-resolution check: called `verify()` without the daily's
+  package roots → three false "unresolvable" alarms every morning; the roots
+  the CLI did establish were APPENDED behind the venv's editable `.pth`
+  siblings, so four of eight packages were pinned against the mutable sibling
+  checkouts while the pin read OK `[VERIFIED — progress doc
+  2026-08-30-run-surface-checkers-truth.md §Evidence]`. Fix: `verify()`
+  establishes the resolution itself at the PYTHONPATH position and asserts
+  every `renquant_*` symbol lies under the chosen root
+  (`resolved_from_unpinned_path` otherwise); the INFO line names the tree.
+- Dawn preflight: "pins not aligned" for 7 sessions (08-19..08-27) over ONE
+  dirty auto-generated README, while the order path (`_is_pinned` alone)
+  ran; then the 08-28 slot was dropped by the boot. Fix: `PIN_MISMATCH`
+  (abort) vs `TREE_DIRTY` (docs/README/generated allow-list → WARN + continue)
+  vs `TREE_DIRTY_BLOCKING` (src/configs/code → abort); aborts now notify.
+- Boot catch-up generalised: `ops/catchup_guard.sh` + `ops/catchup_cutoff.py`
+  (moved from `ops/renquant105/`), `session` or literal-`HHMM` cutoff; wired
+  into the dawn preflight (0605 session) and a new drift-scan wrapper (0700,
+  2400 — calendar-day job unchanged). `RunAtLoad` intents + the drift job's
+  new `program_args` are in the manifest; **landing = operator
+  bootout/bootstrap of the two `deploy/` plists + `-run` sync**, then delete
+  the four `PENDING_INTENT_INSTALL` / one `PENDING_PROGRAM_ARGS_INSTALL`
+  entries in `tests/test_run_surface_drift_check.py`.
+- Lesson (recurring): a checker that measures the wrong object passes
+  forever; ask "which tree / which predicate does the PRODUCTION path use?"
+  and bind the checker to that, then make its verdict name the object.
+
+## Addendum 2026-08-30 — defect #7 (AC1 class): the retrain freshness gate vetoed on a delisting
 
 - 2026-08-29/30: the weekly promote failed `PANEL-FREEZE 1/293 stale` — the
   one name is AVB (Equity Residential merger closed 2026-08-17, last bar

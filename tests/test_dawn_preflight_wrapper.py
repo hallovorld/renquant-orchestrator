@@ -74,3 +74,36 @@ def test_pin_check_runs_before_the_bridge_and_fails_closed():
     # fail-closed: an `exit 1` sits between the pin check and the bridge
     exits = [i for i, line in _code_lines() if "exit 1" in line and pin_idx <= i < bridge_idx]
     assert exits, "pin-identity check must abort (exit 1) before the bridge"
+
+
+def test_pin_check_distinguishes_mismatch_from_dirt_and_aborts_loudly():
+    """2026-08-30: the check exits 0 (proceed; TREE_DIRTY in docs paths is a
+    WARN the check prints itself), 1 (PIN_MISMATCH) or 2 (TREE_DIRTY_BLOCKING).
+    The wrapper must map each code to its own message — never "not aligned"
+    for a dirty tree — and must notify on either abort: from 08-19 to 08-27 it
+    aborted seven sessions in silence."""
+    code = "\n".join(l for _, l in _code_lines())
+    assert "PIN_RC=$?" in code
+    assert 'PIN_ABORT="PIN_MISMATCH:' in code and 'PIN_ABORT="TREE_DIRTY_BLOCKING:' in code
+    assert "not aligned" not in code
+    # the abort path is one block: echo + notify + exit 1, after a non-zero rc
+    abort_idx = _first_idx('if [ "$PIN_RC" -ne 0 ]')
+    notify_idx = _first_idx('rq_notify "rq104 dawn preflight ABORT')
+    bridge_idx = _first_idx("renquant_orchestrator daily-bridge")
+    assert -1 < abort_idx < notify_idx < bridge_idx
+    # rc 0 proceeds: no `exit` on the 0 arm
+    zero_arm = [l for _, l in _code_lines() if l.strip().startswith("0)")]
+    assert zero_arm and all("exit" not in l for l in zero_arm)
+
+
+def test_boot_catchup_guard_runs_after_the_pinned_pythonpath_and_before_the_pin_check():
+    """RunAtLoad (deploy/ plist) + the shared guard: the calendar helper must
+    import from the PINNED orchestrator (after `export PYTHONPATH=`), and a
+    load-time skip must not re-run the pin check (before it)."""
+    guard_idx = _first_idx("launchd_catchup_guard dawn-preflight")
+    path_idx = _first_idx("export PYTHONPATH=")
+    pin_idx = _first_idx("dawn_pin_identity_check.py")
+    assert -1 < path_idx < guard_idx < pin_idx
+    code = "\n".join(l for _, l in _code_lines())
+    assert '. "$OPS_DIR/../catchup_guard.sh"' in code
+    assert "0605 session" in code

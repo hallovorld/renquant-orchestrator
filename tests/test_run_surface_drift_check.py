@@ -180,9 +180,41 @@ class TestManifestGeneration:
     #: rq105 jobs whose 06:15/06:25 slots a 10:38 boot swallowed on 08-28.
     #: Landing = operator `launchctl bootout` + `bootstrap` of the reviewed
     #: plists (doc/progress/2026-08-29-rq105-liveness-serving-chain.md).
-    PENDING_INTENT_INSTALL: set[str] = {
-        "com.renquant.rq105-batch-scores-export",
-        "com.renquant.rq105-session-scheduler",
+    #: 2026-08-30: RunAtLoad=true declared for the dawn preflight (06:05) and
+    #: the run-surface drift scan (07:00) — the same 08-28 boot dropped both
+    #: (no dawn_pin_identity_2026-08-28.json; zero 08-28 lines in the drift
+    #: scan's log). Landing = operator bootout/bootstrap of the two deploy/
+    #: plists (doc/progress/2026-08-30-run-surface-checkers-truth.md).
+    #: Now a dict: label -> the value the PREVIOUS reviewed plist carried on
+    #: disk (None = key absent; the dawn preflight plist was reviewed with an
+    #: explicit RunAtLoad=false). The relaxation matches exactly that value —
+    #: still "the last reviewed definition, not yet re-bootstrapped", never a
+    #: third value.
+    PENDING_INTENT_INSTALL: dict[str, object] = {
+        "com.renquant.rq105-batch-scores-export": None,
+        "com.renquant.rq105-session-scheduler": None,
+        "com.renquant.rq104-dawn-preflight": False,
+        "com.renquant.run-surface-drift": None,
+    }
+
+    #: Jobs whose REVIEWED ProgramArguments changed and whose installed plist
+    #: still carries the PREVIOUS reviewed definition, pending the operator's
+    #: bootout/bootstrap. Fourth presence-shaped relaxation, bounded harder
+    #: than the others: the entry names the sha256 of the previous reviewed
+    #: ProgramArguments, and the relaxation applies ONLY while the installed
+    #: digest equals it — an installed job running anything other than the
+    #: last reviewed definition is not "pending install", it is the silent
+    #: containment / job swap shape and stays a residual problem. The
+    #: scheduled scan does NOT read this set and keeps alarming
+    #: "ProgramArguments CHANGED" until the install lands (containment
+    #: protocol c); the exact-equality test below goes red the moment it does,
+    #: forcing this entry's deletion.
+    #: 2026-08-30: com.renquant.run-surface-drift now runs the wrapper
+    #: ops/run_surface_drift_scan.sh (boot catch-up guard + dated scan log);
+    #: the installed plist still runs `.venv/bin/python ops/run_surface_drift_check.py`.
+    PENDING_PROGRAM_ARGS_INSTALL: dict[str, str] = {
+        "com.renquant.run-surface-drift":
+            "bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2",
     }
 
     #: Jobs REMOVED from the reviewed surface whose plist is still installed on
@@ -224,6 +256,7 @@ class TestManifestGeneration:
     _PENDING_PATTERN = "manifested job {label} missing from disk"
     _UNMANIFESTED_PATTERN = "unmanifested com.renquant job on disk: "
     _INTENT_PATTERN = " intent NOT installed (manifest="
+    _PROGRAM_ARGS_PATTERN = " ProgramArguments CHANGED (disk="
 
     @staticmethod
     def _surface_problems():
@@ -243,20 +276,38 @@ class TestManifestGeneration:
         """
         pending, retiring, residual = set(), set(), []
         self._pending_intent: set[str] = set()
+        self._pending_program_args: set[str] = set()
         for prob in self._surface_problems():
             if "missing from disk" in prob and "manifested job " in prob:
                 pending.add(prob.split("manifested job ")[1].split(" missing")[0])
                 continue
+            if self._PROGRAM_ARGS_PATTERN in prob:
+                # Reviewed ProgramArguments changed. Relaxed ONLY while the
+                # installed plist still runs the PREVIOUS reviewed definition
+                # (digest equality with the recorded sha); anything else on
+                # disk is a swap, not a pending install, and stays residual.
+                label = prob.split("launchd: ")[1].split(" ")[0]
+                previous = self.PENDING_PROGRAM_ARGS_INSTALL.get(label)
+                if previous is not None:
+                    import os
+                    installed = drift.read_plist_program_args(os.path.expanduser(
+                        f"~/Library/LaunchAgents/{label}.plist"))
+                    if installed is not None and drift.program_args_digest(installed) == previous:
+                        self._pending_program_args.add(label)
+                        continue
             if self._UNMANIFESTED_PATTERN in prob:
                 label = prob.split(self._UNMANIFESTED_PATTERN)[1].split(" ")[0]
                 if label in self.PENDING_UNINSTALL:
                     retiring.add(label)
                     continue
-            if self._INTENT_PATTERN in prob and "disk=None)" in prob:
-                # Declared intent, NOTHING installed for it yet (disk=None).
-                # A wrong installed value is not this shape and stays residual.
+            if self._INTENT_PATTERN in prob:
+                # Declared intent, disk still carries the PREVIOUS reviewed
+                # value (None = key absent, or the explicit value the last
+                # reviewed plist had). Any other installed value is not this
+                # shape and stays residual.
                 label = prob.split("launchd: ")[1].split(" ")[0]
-                if label in self.PENDING_INTENT_INSTALL:
+                if label in self.PENDING_INTENT_INSTALL and \
+                        f"disk={self.PENDING_INTENT_INSTALL[label]!r})" in prob:
                     self._pending_intent.add(label)
                     continue
             residual.append(prob)
@@ -314,10 +365,35 @@ class TestManifestGeneration:
         loses the labels and this goes red with resolved=[...]: the
         PENDING_INTENT_INSTALL entries must then be deleted in a follow-up."""
         self._partition()
-        assert self._pending_intent == self.PENDING_INTENT_INSTALL, (
+        expected = set(self.PENDING_INTENT_INSTALL)
+        assert self._pending_intent == expected, (
             f"declared-intent-not-installed set changed: "
-            f"unexpected={sorted(self._pending_intent - self.PENDING_INTENT_INSTALL)} "
-            f"resolved={sorted(self.PENDING_INTENT_INSTALL - self._pending_intent)}")
+            f"unexpected={sorted(self._pending_intent - expected)} "
+            f"resolved={sorted(expected - self._pending_intent)}")
+
+    def test_reviewed_program_args_pending_install_are_exactly_the_named_set(self):
+        """Exact-equality bound for the fourth relaxation (2026-08-30). Once the
+        operator bootstraps the reviewed run-surface-drift plist (the wrapper),
+        the installed digest stops matching the recorded PREVIOUS digest, the
+        label leaves `_pending_program_args`, and this goes red with
+        resolved=[...]: the PENDING_PROGRAM_ARGS_INSTALL entry must then be
+        deleted in a follow-up. An installed digest that matches NEITHER the
+        manifest NOR the recorded previous one never lands here — it is a
+        residual problem by construction."""
+        self._partition()
+        assert self._pending_program_args == set(self.PENDING_PROGRAM_ARGS_INSTALL), (
+            f"reviewed-program-args-pending-install set changed: "
+            f"unexpected={sorted(self._pending_program_args - set(self.PENDING_PROGRAM_ARGS_INSTALL))} "
+            f"resolved={sorted(set(self.PENDING_PROGRAM_ARGS_INSTALL) - self._pending_program_args)}")
+
+    def test_the_recorded_previous_digest_is_not_the_reviewed_one(self):
+        """The relaxation names the PREVIOUS definition; if someone records the
+        CURRENT manifest digest the relaxation would accept an installed copy
+        of the new definition as 'pending' and the exact-equality test could
+        never go red. Machine-independent."""
+        jobs = json.loads((REPO / "ops" / "launchd_manifest.json").read_text())["jobs"]
+        for label, previous in self.PENDING_PROGRAM_ARGS_INSTALL.items():
+            assert jobs[label]["program_args_sha256"] != previous, label
 
     def test_retired_but_still_installed_jobs_are_exactly_the_named_set(self):
         """Exact-equality mirror of the pending-install bound. Once the operator
@@ -690,16 +766,20 @@ class TestLaunchdIntents:
         self._manifest_with(agents, mpath, "com.renquant.x")
         assert drift.check_launchd_surface(str(mpath), str(agents)) == []
 
-    def test_the_committed_manifest_declares_the_two_boot_catchup_intents(self):
-        """The reviewed intent for orch#1085: both calendar-only rq105 jobs
-        declare run_at_load=true, their committed plists carry RunAtLoad, and
-        ProgramArguments (the hashed surface) is unchanged."""
+    def test_the_committed_manifest_declares_the_boot_catchup_intents(self):
+        """The reviewed intent for orch#1085 (two rq105 jobs) and 2026-08-30
+        (dawn preflight, drift scan): every boot-catch-up job declares
+        run_at_load=true, its committed plist carries RunAtLoad, and the
+        plist's ProgramArguments digest equals the manifest's (the hashed
+        surface and the reviewed plist agree)."""
         root = Path(__file__).resolve().parent.parent
         jobs = json.loads((root / "ops/launchd_manifest.json").read_text())["jobs"]
-        for label in ("com.renquant.rq105-batch-scores-export",
-                      "com.renquant.rq105-session-scheduler"):
+        for label, where in (("com.renquant.rq105-batch-scores-export", "ops/renquant105"),
+                             ("com.renquant.rq105-session-scheduler", "ops/renquant105"),
+                             ("com.renquant.rq104-dawn-preflight", "deploy"),
+                             ("com.renquant.run-surface-drift", "deploy")):
             assert jobs[label].get("run_at_load") is True, label
-            plist = root / "ops/renquant105" / f"{label}.plist"
+            plist = root / where / f"{label}.plist"
             assert drift.read_plist_intents(str(plist))["run_at_load"] is True, label
             assert drift.program_args_digest(drift.read_plist_program_args(str(plist))) \
                 == jobs[label]["program_args_sha256"], label
