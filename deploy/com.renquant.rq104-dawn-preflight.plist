@@ -13,8 +13,15 @@
 		<key>PATH</key>
 		<string>/Users/renhao/git/github/RenQuant/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
+	<!-- 2026-08-30: a StartCalendarInterval slot missed across a BOOT is never
+	     backfilled by launchd (2026-08-28: host up 10:38, the 06:05 slot was gone,
+	     no dawn_pin_identity_2026-08-28.json). RunAtLoad makes launchd also invoke
+	     the wrapper once at every bootstrap; the wrapper's shared catch-up guard
+	     (ops/catchup_guard.sh, session mode) runs the probe only on an NYSE
+	     session day, only between 06:05 and that session's ACTUAL local close,
+	     and only when today's probe log is missing. -->
 	<key>RunAtLoad</key>
-	<false/>
+	<true/>
 	<key>StandardOutPath</key>
 	<string>/Users/renhao/git/github/RenQuant/logs/rq104/launchd_dawn_preflight.out</string>
 	<key>StandardErrorPath</key>

@@ -38,7 +38,7 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipelin
 # orch#1085: boot catch-up (same shape as run_batch_scores_export.sh). The
 # plist carries RunAtLoad=true; the guard makes every invocation idempotent:
 # run iff $TS is an NYSE session AND 06:25 <= local time < that session's
-# ACTUAL local close (rq105_catchup_cutoff.py, the same NYSE calendar the
+# ACTUAL local close (ops/catchup_cutoff.py, the same NYSE calendar the
 # scheduler gates on — r2, codex: no fixed 13:00, no weekday-only test) AND
 # today's dated wrapper log is absent (this wrapper writes
 # session_scheduler_<date>.log on every real run, armed or not — the arming
@@ -47,9 +47,10 @@ export PYTHONPATH="$RQ105_ORCH_ROOT/src:$RQ_COMMON_SRC:$SUBREPO/renquant-pipelin
 # stamp catchup_guard_session-scheduler_<date>.log, never the evidence log.
 # Sits AFTER the pin resolver and the PYTHONPATH export on purpose: the
 # cutoff helper imports the calendar from exactly the pinned code this job
-# runs.
-. "$RQ105_OPS_DIR/rq105_catchup_guard.sh"
-rq105_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 \
+# runs. The guard is the SHARED ops/catchup_guard.sh.
+CATCHUP_CUTOFF_HELPER="$RQ105_OPS_DIR/../catchup_cutoff.py"; export CATCHUP_CUTOFF_HELPER
+. "$RQ105_OPS_DIR/../catchup_guard.sh"
+launchd_catchup_guard session-scheduler "$TS" "$(date +%H%M)" 0625 session \
   "$LOG_DIR/catchup_guard_session-scheduler_$TS.log" \
   "$LOG_DIR/session_scheduler_$TS.log"
 GUARD_RC=$?

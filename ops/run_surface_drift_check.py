@@ -904,11 +904,18 @@ def check_import_resolution() -> tuple[list[str], list[str]]:
     except Exception as exc:  # noqa: BLE001
         return ([f"import-resolution pin file unreadable: "
                  f"{type(exc).__name__}: {exc}"], [])
+    # verify() establishes the daily's package roots ITSELF (2026-08-30). Before,
+    # only the checker's main() did, so this scan — which calls verify()
+    # directly — ran on the plist's orchestrator-only PYTHONPATH and reported
+    # three sibling packages "unresolvable" every morning; and the roots it did
+    # establish were APPENDED behind the venv's editable .pth siblings, so the
+    # symbols that resolved came from unpinned trees. The INFO line now names
+    # the tree the verdict is about.
     problems = irc.verify(pins)
     if problems:
         return ([f"import-resolution: {p}" for p in problems], [])
     return ([], [f"import-resolution OK — {len(irc.PINNED_SYMBOLS)} symbols resolve "
-                 f"as reviewed"])
+                 f"as reviewed ({irc.resolution_summary()})"])
 
 
 def report_manifested_not_loaded(
