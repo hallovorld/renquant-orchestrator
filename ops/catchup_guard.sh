@@ -4,8 +4,24 @@
 # and generalised when the same boot (2026-08-28 10:38) turned out to have
 # dropped the 06:05 dawn preflight and the 07:00 run-surface drift scan too.
 # Sourced by run_batch_scores_export.sh / run_session_scheduler.sh /
-# renquant104/dawn_funnel_preflight.sh / run_surface_drift_scan.sh; POSIX sh so
-# the CI runner (ubuntu, bash, no zsh) can execute it in tests.
+# renquant104/dawn_funnel_preflight.sh / run_surface_drift_scan.sh.
+#
+# PORTABILITY (regression fixed after orch#1098). This file is SOURCED by
+# wrappers whose shebang and plist ProgramArguments are /bin/zsh (the two
+# rq105 jobs) and by wrappers that run bash (dawn preflight, drift scan); the
+# CI runner executes it under bash and dash (/bin/sh). It must therefore be
+# the common subset of zsh, bash and POSIX sh, under `set -u`:
+#   - no `eval` of variable NAMES, no `${!name}`, no `local -n`, no arrays,
+#     no `[[ ]]`, no `$'..'`, no `read -a`;
+#   - no reliance on word-splitting an unquoted `$var` (zsh does NOT split by
+#     default: `for x in $list` iterates ONCE over the whole string — that
+#     is exactly how #1098's `eval "val=\${$req:-}"` became
+#     `${RQ_ROOT CATCHUP_CUTOFF_HELPER PYTHONPATH:-}` → zsh "bad substitution"
+#     → `val: parameter not set` → both rq105 wrappers exit 1);
+#   - every read of a possibly-unset variable spelled `${var:-}`.
+# tests/test_catchup_guard_shell_portability.py runs the decision matrix under
+# each of /bin/zsh, /bin/bash, /bin/sh and asserts identical rc/stdout/stderr/
+# log, and sources the guard exactly the way run_batch_scores_export.sh does.
 #
 # WHY. launchd fires a StartCalendarInterval slot only while the machine is
 # up. A slot missed during SLEEP is coalesced on wake; a slot missed across a
@@ -82,17 +98,25 @@ launchd_catchup_guard() {
     *[!0-9]*) echo "launchd_catchup_guard: non-numeric HHMM ($now_hhmm / $slot)" >&2; return 2 ;;
   esac
   case "$cutoff_spec" in
-    session) required="RQ_ROOT CATCHUP_CUTOFF_HELPER PYTHONPATH" ;;
-    [0-9][0-9][0-9][0-9]) required="RQ_ROOT" ;;
+    session) ;;
+    [0-9][0-9][0-9][0-9]) ;;
     *) echo "launchd_catchup_guard: cutoff must be 'session' or a literal HHMM (got '$cutoff_spec')" >&2; return 2 ;;
   esac
-  for req in $required; do
-    eval "val=\${$req:-}"
-    if [ -z "$val" ]; then
-      echo "launchd_catchup_guard: $req must be set by the sourcing wrapper before the guard (the cutoff comes from the pinned calendar)" >&2
+  # Required environment, checked by NAME + VALUE pairs: no eval, no indirect
+  # expansion, no word-splitting of a name list (zsh does not split; see the
+  # PORTABILITY note above). Every read is `${VAR:-}` so `set -u` never fires.
+  _require_env() {
+    if [ -z "$2" ]; then
+      echo "launchd_catchup_guard: $1 must be set by the sourcing wrapper before the guard (the cutoff comes from the pinned calendar)" >&2
       return 2
     fi
-  done
+    return 0
+  }
+  _require_env RQ_ROOT "${RQ_ROOT:-}" || return 2
+  if [ "$cutoff_spec" = "session" ]; then
+    _require_env CATCHUP_CUTOFF_HELPER "${CATCHUP_CUTOFF_HELPER:-}" || return 2
+    _require_env PYTHONPATH "${PYTHONPATH:-}" || return 2
+  fi
   _stamp() {
     printf '%s [catch-up guard %s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$job" "$*" >> "$guard_log"
   }
