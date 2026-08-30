@@ -1,10 +1,60 @@
 # Run-surface checkers tell the truth — pinned-runtime import resolution, dirty ≠ mismatch in the dawn preflight, boot catch-up for dawn / drift
 
-STATUS: code + tests + reviewed surface (plists, manifest) in this PR only.
-Nothing installed, no `launchctl`, no write to `~/Library/LaunchAgents`, no
-live-tree or `-run` checkout mutation. Landing (two `bootout`/`bootstrap` +
-the `-run` sync) is the operator action in §Landing. All measurements below
-are read-only and from this session unless tagged otherwise.
+STATUS:    delivered — code + tests + reviewed surface (plists, manifest) in
+           this PR only. Nothing installed, no `launchctl`, no write to
+           `~/Library/LaunchAgents`, no live-tree or `-run` checkout mutation.
+           Landing (two `bootout`/`bootstrap` + the `-run` sync) is the operator
+           action in §Landing. All measurements below are read-only and from
+           this session unless tagged otherwise.
+
+WHAT:      Three run-surface checkers are made to report the truth: (1) the
+           drift scan's import-resolution check now establishes the pinned
+           runtime's package roots itself, at the PYTHONPATH position, and
+           flags any `renquant_*` symbol resolved from outside that root
+           (`resolved_from_unpinned_path`); (2) the dawn preflight separates
+           `PIN_MISMATCH` (abort) from `TREE_DIRTY` (docs/README/generated
+           allow-list → WARN + continue) and `TREE_DIRTY_BLOCKING` (abort), and
+           notifies on either abort; (3) the boot catch-up guard is shared
+           (`ops/catchup_guard.sh` + `ops/catchup_cutoff.py`) and wired into
+           the dawn preflight (0605, `session`) and a new drift-scan wrapper
+           (0700, literal `2400`), with `RunAtLoad=true` in both `deploy/`
+           plists and the manifest intents. File-by-file table in §What changed.
+
+WHY/DIR:   MID workstream `doc/memory/mid-term/serving-reliability.md`
+           (addendum 2026-08-30, defect #6, updated in this PR): a checker that
+           measures the wrong object passes forever. Three false "unresolvable"
+           alarms every morning, 7 silent dawn aborts over one dirty README,
+           and a boot-dropped slot with no catch-up are the same class as #1087
+           (rq105 catch-up) and the earlier run-surface drift-scan work; this
+           PR binds each checker to the object the PRODUCTION path actually
+           uses and makes its verdict name that object.
+
+EVIDENCE:  §4(b) block — ops-surface claim, no model/data claim.
+           artifact:      `ops/import_resolution_check.py`,
+                          `ops/renquant104/dawn_pin_identity_check.py`,
+                          `ops/catchup_guard.sh` (this branch); read-only
+                          inputs `logs/rq104/launchd_run_surface_drift.out`,
+                          `logs/rq104/dawn_pin_identity_*.json`
+           prod or exp:   prod run surface (launchd jobs in `ops/` + `deploy/`);
+                          nothing deployed by this PR
+           existing data: drift log 2026-08-30T07:00:06 — three
+                          `ModuleNotFoundError` lines; dawn receipts 08-19..08-27
+                          all `ok=false` with the single row `renquant-model
+                          pinned=true dirty=true`; zero `2026-08-28` drift-log
+                          lines vs 39/41/40 on 08-27/29/30 (all quoted in
+                          §Bottom line and §Evidence below)
+           best-known?:   not a model variant — n/a; the checker outputs are
+                          compared before/after on the same tree (§Evidence)
+           scope:         "this is the run-surface checker set, prod ops
+                          surface, vs the origin/main checkers on the same
+                          inputs; no IC / Sharpe / APY number is claimed"
+
+NEXT:      operator executes §Landing (bootout/bootstrap of the two `deploy/`
+           plists + `renquant-orchestrator-run` ff-sync); then a follow-up PR
+           deletes the two `PENDING_INTENT_INSTALL` entries and the
+           `PENDING_PROGRAM_ARGS_INSTALL` entry in
+           `tests/test_run_surface_drift_check.py` (the exact-equality tests
+           force it).
 
 ## Bottom line
 
@@ -128,9 +178,34 @@ Runtime `renquant-model` porcelain at 10:22 today: clean (the README had been re
 - `tests/test_rq105_liveness_serving_chain.py` §6: retargeted to the shared guard (same 46 guard tests + wrapper text).
 - `tests/test_run_surface_drift_check.py`: `PENDING_INTENT_INSTALL` is now `label -> previous disk value` (the dawn plist was reviewed with an explicit `RunAtLoad=false`, which is `disk=False`, not `disk=None`); new bounded `PENDING_PROGRAM_ARGS_INSTALL` (`label -> previous reviewed sha256`) relaxed ONLY while the installed digest equals the recorded previous one, with its exact-equality test and a test that the recorded digest is not the current one; the committed-manifest intent test covers all four jobs.
 
-Focused suites (8 files): **249 passed, 1 skipped** `[VERIFIED — pytest in-session, RenQuant/.venv, sibling PYTHONPATH]`.
+Focused suites — the six files listed above, exact command to rely on (run from
+a detached worktree of this head; `PYTHONDONTWRITEBYTECODE=1`, `<wt>` = the
+worktree path):
+
+```
+PYTHONPATH=<wt>/src:<wt>/ops:/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-common/src \
+  /Users/renhao/git/github/RenQuant/.venv/bin/pytest -q \
+  tests/test_import_resolution_check.py tests/test_dawn_pin_identity_check.py \
+  tests/test_dawn_preflight_wrapper.py tests/test_catchup_guard_shared.py \
+  tests/test_rq105_liveness_serving_chain.py tests/test_run_surface_drift_check.py
+```
+→ **199 passed, 1 skipped** `[VERIFIED — re-run 2026-08-30 on head 00bd7a61 in
+`/private/tmp/rq-fix-orch-pr1098`, 29.4 s; matches codex's r1 rerun of the same
+command on the same head]`. (Corrects the earlier "8 files: 249 passed" line —
+that count came from an unlisted, wider selection and is withdrawn; see
+§Corrections.)
 `make test` (RenQuant/.venv, sibling `*_SRC` overrides — the worktree is not a sibling): **7128 passed, 6 failed, 10 skipped** (334 s) `[VERIFIED — scratchpad/make_test_branch.log]`;
 clean `origin/main` worktree (06ceb310), same command: **7066 passed, 6 failed, 10 skipped** (330 s) `[VERIFIED — scratchpad/make_test_main.log]`, the IDENTICAL 6 (`comm` of the two FAILED lists is empty both ways; also re-run selected: 6 failed in 5.48s) — `test_cli::test_parking_sleeve_cli_computes_allocation`, `test_goal3_public_export_resolution::test_the_RECORD_names_the_revision_that_was_actually_measured`, 2× `test_g2v3_stage_i2_binding` (checkout-at-another-path), 2× `test_shadow_serving_skips_leave_evidence` — all pre-existing and environmental (sibling checkouts' git state / worktree path), none touch a file in this PR.
+
+## Corrections (visible, per LONG row 10)
+
+- r1 (codex, 2026-08-30): the C5 header lacked the literal `WHAT:` / `WHY/DIR:`
+  / `EVIDENCE:` / `NEXT:` fields — added above; the narrative sections are
+  unchanged.
+- r1 (codex, 2026-08-30): "Focused suites (8 files): 249 passed, 1 skipped"
+  did not match the six suites listed; the durable figure is now the exact
+  six-file command and its result, **199 passed, 1 skipped**, re-measured in
+  session on this head.
 
 ## Landing (operator; one grant; NOT executed by this PR)
 
