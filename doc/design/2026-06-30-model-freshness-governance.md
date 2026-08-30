@@ -41,6 +41,55 @@ rollout; it does **not** change any code, config, broker, risk-cap, or sizing
 behaviour. Cross-repo implementation happens in follow-up per-repo PRs **after**
 this design is agreed.
 
+## Amendment A4 (2026-08-30) — the implemented fallback ratchet violates A3.2; quality failures are fail-closed, no exceptions
+
+**Finding [VERIFIED 2026-08-30 read-only audit; evidence in
+`doc/research/` forensic records and memory `live-policy-is-not-the-validated-policy`]:**
+the production panel artifact `artifacts/prod/panel-ltr.alpha158_fund.json`
+(trained 2026-08-02) was promoted on 2026-08-04 with
+`wf_gate_metadata.passed=false`, `promotion_basis=freshness_fallback_rfc210`,
+`fallback_genuine_ic=+0.00289` — i.e. a **placebo-floor (Fix-3) failure**, which
+A3.2 above classifies as **QUALITY/SUBSTANCE, fail-closed, always**. The
+implemented `wf_gate/freshness_fallback.py` (renquant-backtesting) instead
+applies a **ratchet**: promote when the candidate's `genuine_ic` is strictly
+greater than the served fallback's. That rule (a) promoted a model whose signal
+is indistinguishable from a 120-day-shifted placebo (bar 0.02; observed 0.0029),
+and (b) can now never promote again — the last five candidates scored
++0.0006 / +0.0003 / +0.0002 / +0.0001 / +0.0000 (2026-08-18..23) — while the 28-day
+ceiling lapses the served artifact on 2026-08-31. The two rules contradict each
+other, and the book's admission state is decided by which one fires first, not
+by any evidence about the model.
+
+**Decision (operator directive 2026-08-30 「自己按照受益最大方向推进」; recorded
+here as the RFC's own rule, not as an operator exception):**
+
+1. **Pillar 3 fallback promotion requires the quality floor.** A candidate may
+   be promoted under `freshness_fallback_rfc210` **only if** it clears the
+   Fix-3 placebo difference floor (`genuine_ic = aligned_real_ic − placebo_ic ≥
+   0.02`, the §5.2 bar) **and** the enumerated infra-only failure classes of
+   §4.3.1. The ratchet ("better than the served fallback") is **removed**: a
+   comparison against a model that itself failed the floor is not a quality
+   predicate.
+2. **The 28-day ceiling stands, with no relaxation knob in production.**
+   `wf_gate.rfc210_max_served_age_days` and `live.preflight.strict=false` are
+   named in code; setting either in the pinned config is a ledger-row change,
+   never an operational fix.
+3. **Consequence accepted:** when no candidate clears the floor, the license
+   lapses, the 13:55 run hard-fails P-WF-GATE, the wrapper reruns sell-only
+   (exits and stops continue via the 06:30–13:00 loop), and buys stay blocked
+   until a candidate genuinely passes. That is the designed safe state for a
+   signal with no measurable edge; it is not an incident. The BUY-BLOCKED alert
+   must be urgent and state the reason (umbrella PR `fix/buy-blocked-alert-truth`).
+4. **The 2026-08-04 promotion is recorded as a policy breach**, not reverted
+   (the artifact lapses on its own on 2026-08-31; reverting to the 2026-04
+   artifact would be older and no better).
+5. **Preflight text may never print a bare ✓ for a licensed or relaxed gate**
+   (same umbrella PR).
+
+Owner of the code change: renquant-backtesting (`wf_gate/freshness_fallback.py`),
+PR `fix/freshness-fallback-quality-floor`; the orchestrator retrainer and
+`weekly_wf_promote.sh` need no change beyond consuming the new verdict text.
+
 ## Response to the #223 amendment review (A3, 2026-07-02)
 
 `doc/design/2026-07-01-104-105-design-review-amendments.md` (umbrella PR #223, an independent review already
