@@ -53,6 +53,13 @@ def _cal_day_gap(a: dt.date, b: dt.date) -> int:
 
 
 def _ctx(tmp_path: Path, **kw) -> mod.RetrainContext:
+    # An EXPLICITLY EMPTY served watchlist disables the presumed-delisted
+    # classification, so every pre-existing guard test keeps its strict
+    # semantics AND stays deterministic: with the field unset the guard would
+    # read the strategy config's watchlist, which on the operator's disk is the
+    # live pinned config (a test that measures the operator's disk). The
+    # presumed-delisted tests below pass a served list explicitly.
+    kw.setdefault("served_watchlist", [])
     return mod.RetrainContext(
         repo_dir=tmp_path,
         xgb_artifact_out=tmp_path / "x.json",
@@ -938,3 +945,351 @@ def test_expected_session_regular_close_cutoff() -> None:
     after = pd.Timestamp("2026-06-30 16:30", tz="America/New_York")
     assert mod._expected_last_completed_session("NYSE", before) == dt.date(2026, 6, 29)
     assert mod._expected_last_completed_session("NYSE", after) == dt.date(2026, 6, 30)
+
+
+# ──────────────── presumed-delisted (AVB / IAC pattern) ────────────────────
+#
+# 2026-08-29/30: the weekly promote FAILED "PANEL-FREEZE 1/293 stale" because
+# AVB (Equity Residential merger closed 2026-08-17, last bar 2026-08-24) is
+# still in tier_A of the inventory, which ships NO delisted_tickers channel.
+# The served panel model (trained 08-02) could not be refreshed. Same pattern
+# as IAC in July (hard-coded RETRAIN_EXCLUDE_TICKERS=IAC in the umbrella).
+# The guard now classifies a stale, non-watchlist name whose bars are more
+# than N sessions behind as presumed delisted: excluded + warned + alerted +
+# persisted, never a veto. Everything else stays strict.
+
+SERVED = ["AAPL", "MSFT", "NVDA"]
+
+
+def _presumed_universe(n_research: int = 97) -> dict[str, dt.date]:
+    """SERVED (3) + research names, ALL fresh → 100 names, so one presumed
+    delisting is 1% (under the 2% cap) and three are 3% (over it)."""
+    md = {t: FRONTIER for t in SERVED}
+    md.update({f"R{i:03d}": FRONTIER for i in range(n_research)})
+    return md
+
+
+def _presumed_ctx(tmp_path: Path, md: dict, **kw) -> mod.RetrainContext:
+    kw.setdefault("served_watchlist", SERVED)
+    kw.setdefault("freshness_max_stale_fraction", 0.0)  # the production strict rule
+    kw.setdefault("freshness_fail_on_stale", True)
+    return _guard_ctx(tmp_path, panel_universe=sorted(md), ohlcv_max_dates=md, **kw)
+
+
+def _posted(monkeypatch) -> list:
+    posted: list = []
+    monkeypatch.setattr(mod, "post_ntfy", lambda *a, **k: posted.append(a))
+    return posted
+
+
+def test_presumed_delisted_avb_like_is_excluded_with_alert_and_run_proceeds(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    """AVB-like: newest bar 4 sessions behind, NOT in the served watchlist →
+    presumed delisted: excluded from the guarded universe, WARNING logged, a
+    non-fatal ntfy alert, the report carries the set, and the run PROCEEDS."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(tmp_path, md)
+    posted = _posted(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+
+    rep = ctx.freshness_report
+    assert ctx.presumed_delisted == {"AVB"}
+    assert rep["n_presumed_delisted"] == 1
+    assert rep["presumed_delisted_names"] == {
+        "AVB": {"lag_sessions": 4, "last_bar": (FRONTIER - dt.timedelta(days=4)).isoformat()}
+    }
+    assert rep["presumed_delisted_refused"] is None
+    assert rep["n_universe"] == 101 and rep["n_active_universe"] == 100
+    assert rep["n_stale"] == 0 and rep["stale_fraction"] == 0.0
+    assert "AVB" not in rep["stale_names"]
+    assert rep["served_watchlist"] == {"source": "explicit", "status": "ok", "n": 3}
+    assert ctx.panel_universe_provenance["presumed_delisted_excluded"] == ["AVB"]
+    # the alert is the PRESUMED-DELISTED one, not a PANEL-FREEZE veto
+    assert [t for t, *_ in posted] == ["RenQuant retrain PRESUMED-DELISTED"]
+    assert "AVB(-4s" in posted[0][1] and "PROCEEDS" in posted[0][1]
+    assert any("PRESUMED-DELISTED" in r.message and r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_presumed_delisted_is_persisted_for_next_run_and_drift_scan(tmp_path, monkeypatch) -> None:
+    """The report is written to a dated file + a latest copy under the retrain
+    log dir (default) so the next run / the drift scan can read the set."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(tmp_path, md)
+    _posted(monkeypatch)
+
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+
+    log_dir = tmp_path / "logs" / "daily_retrain_alpha158_fund"
+    latest = log_dir / "freshness_report.latest.json"
+    dated = log_dir / f"freshness_report.{FRONTIER.isoformat()}.json"
+    assert ctx.freshness_report["persisted_to"] == {"dated": str(dated), "latest": str(latest)}
+    for path in (latest, dated):
+        on_disk = json.loads(path.read_text())
+        assert sorted(on_disk["presumed_delisted_names"]) == ["AVB"]
+        assert on_disk["expected_session"] == FRONTIER.isoformat()
+        assert on_disk["n_presumed_delisted"] == 1
+    assert not list(log_dir.glob("*.incoming"))  # atomic replace left no temp
+
+
+def test_freshness_report_out_override_json_and_directory(tmp_path, monkeypatch) -> None:
+    md = _presumed_universe()
+    _posted(monkeypatch)
+    # a .json path is the 'latest' file, dated sibling next to it
+    ctx = _presumed_ctx(tmp_path, md, freshness_report_out=tmp_path / "out" / "fr.json")
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert (tmp_path / "out" / "fr.json").exists()
+    assert (tmp_path / "out" / f"freshness_report.{FRONTIER.isoformat()}.json").exists()
+    # a directory holds both default names
+    ctx = _presumed_ctx(tmp_path, md, freshness_report_out=tmp_path / "outdir")
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert (tmp_path / "outdir" / "freshness_report.latest.json").exists()
+
+
+def test_report_is_persisted_even_when_the_guard_vetoes(tmp_path, monkeypatch) -> None:
+    md = _presumed_universe()
+    md["AAPL"] = FRONTIER - dt.timedelta(days=10)  # served AND stale → veto
+    ctx = _presumed_ctx(tmp_path, md)
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    on_disk = json.loads(
+        (tmp_path / "logs" / "daily_retrain_alpha158_fund" / "freshness_report.latest.json").read_text()
+    )
+    assert on_disk["stale_names"] == {"AAPL": 10}
+
+
+@pytest.mark.parametrize("lag", [2, 3])
+def test_stale_within_delisting_horizon_is_still_a_stale_failure(tmp_path, monkeypatch, lag) -> None:
+    """Stale (lag > 1) but NOT beyond the 3-session delisting horizon (lag <= 3)
+    → a real stale name, not a delisting: strict 0.0 rule → FAIL. Boundary:
+    exactly 3 sessions is NOT presumed delisted (rule is strictly greater)."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=lag)
+    ctx = _presumed_ctx(tmp_path, md)
+    posted = _posted(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+
+    rep = ctx.freshness_report
+    assert rep["n_presumed_delisted"] == 0 and ctx.presumed_delisted == set()
+    assert rep["stale_names"] == {"AVB": lag}
+    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
+
+
+def test_one_session_lag_is_not_stale_under_the_default_and_never_presumed(tmp_path, monkeypatch) -> None:
+    """A single-session lag is the documented operational allowance: neither
+    stale nor presumed delisted — the run passes with an empty presumed set."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=1)
+    ctx = _presumed_ctx(tmp_path, md)
+    posted = _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert ctx.freshness_report["n_presumed_delisted"] == 0
+    assert ctx.freshness_report["n_stale"] == 0
+    assert posted == []
+
+
+def test_stale_name_in_served_watchlist_still_fails(tmp_path, monkeypatch) -> None:
+    """A served name 10 sessions behind is a REAL problem (a stale live name)
+    → never presumed delisted, strict rule → FAIL."""
+    md = _presumed_universe()
+    md["AAPL"] = FRONTIER - dt.timedelta(days=10)
+    ctx = _presumed_ctx(tmp_path, md)
+    posted = _posted(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+
+    rep = ctx.freshness_report
+    assert rep["n_presumed_delisted"] == 0
+    assert rep["stale_names"] == {"AAPL": 10}
+    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
+
+
+def test_presumed_delisted_above_max_fraction_is_refused_as_mass_outage(tmp_path, monkeypatch) -> None:
+    """3 of 100 names (3% > 2%) would qualify → REFUSED: an outage is not a
+    delisting. The names stay stale and the strict gate trips."""
+    md = _presumed_universe()
+    for t in ("R001", "R002", "R003"):
+        md[t] = FRONTIER - dt.timedelta(days=10)
+    ctx = _presumed_ctx(tmp_path, md)
+    posted = _posted(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="mass outage"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+
+    rep = ctx.freshness_report
+    assert rep["n_presumed_delisted"] == 0 and ctx.presumed_delisted == set()
+    assert rep["presumed_delisted_refused"]["n"] == 3
+    assert rep["presumed_delisted_refused"]["fraction"] == 0.03
+    assert sorted(rep["presumed_delisted_refused"]["names"]) == ["R001", "R002", "R003"]
+    assert sorted(rep["stale_names"]) == ["R001", "R002", "R003"]
+    assert rep["n_active_universe"] == rep["n_universe"] == 100
+    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
+
+
+def test_two_presumed_delistings_under_the_cap_both_excluded(tmp_path, monkeypatch) -> None:
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    md["IAC"] = FROZEN
+    ctx = _presumed_ctx(tmp_path, md)
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert ctx.presumed_delisted == {"AVB", "IAC"}
+    assert ctx.freshness_report["presumed_delisted_fraction"] == round(2 / 102, 4)
+
+
+def test_missing_and_future_bars_are_never_presumed_delisted(tmp_path, monkeypatch) -> None:
+    """Integrity failures stay integrity failures: a MISSING file for a
+    non-watchlist name is not a delisting (it could be a fetch failure), so the
+    run still vetoes even while a genuine presumed delisting is excluded."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    md["ZZZ"] = None
+    ctx = _presumed_ctx(tmp_path, md)
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    rep = ctx.freshness_report
+    assert ctx.presumed_delisted == {"AVB"}
+    assert rep["n_missing"] == 1 and rep["missing_names"] == ["ZZZ"]
+
+
+def test_unavailable_served_watchlist_disables_the_classification(tmp_path, monkeypatch) -> None:
+    """Fail-closed: without a served set, 'not served' would match EVERY stale
+    name. An unreadable / absent watchlist → nothing is presumed delisted and
+    the strict rule vetoes as before; the report says why."""
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(
+        tmp_path, md, served_watchlist=None, served_watchlist_path=tmp_path / "absent.json"
+    )
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    rep = ctx.freshness_report
+    assert rep["n_presumed_delisted"] == 0
+    assert rep["served_watchlist"]["status"] == "unavailable"
+    assert rep["served_watchlist"]["source"] == str(tmp_path / "absent.json")
+    assert rep["stale_names"] == {"AVB": 4}
+
+
+def test_served_watchlist_read_from_strategy_config_file(tmp_path, monkeypatch) -> None:
+    """The default served set is the 'watchlist' array of the strategy config
+    this retrain trains against (the SAME path handed to train_gbdt)."""
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text(json.dumps({"watchlist": ["aapl", "MSFT", " nvda "], "other": 1}))
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    md["NVDA"] = FRONTIER - dt.timedelta(days=4)  # served → must NOT be excluded
+    ctx = _presumed_ctx(tmp_path, md, served_watchlist=None, strategy_config_path=cfg)
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    rep = ctx.freshness_report
+    assert ctx.presumed_delisted == {"AVB"}  # non-served → excluded
+    assert rep["stale_names"] == {"NVDA": 4}  # served → the veto
+    assert rep["served_watchlist"] == {"source": str(cfg), "status": "ok", "n": 3}
+
+
+def test_served_watchlist_file_accepts_plain_list(tmp_path, monkeypatch) -> None:
+    wl = tmp_path / "wl.json"
+    wl.write_text(json.dumps(["AAPL", "MSFT"]))
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(tmp_path, md, served_watchlist=None, served_watchlist_path=wl)
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert ctx.presumed_delisted == {"AVB"}
+    assert ctx.freshness_report["served_watchlist"]["n"] == 2
+
+
+def test_empty_served_watchlist_disables_the_classification(tmp_path, monkeypatch) -> None:
+    md = _presumed_universe()
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(tmp_path, md, served_watchlist=[])
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert ctx.freshness_report["served_watchlist"]["status"] == "empty"
+    assert ctx.freshness_report["n_presumed_delisted"] == 0
+
+
+def test_effective_delisting_horizon_is_max_of_stale_and_delisted_horizons(tmp_path, monkeypatch) -> None:
+    """A per-run widened stale tolerance (stale_after=10, a documented override)
+    must not let a merely-lagging name read as delisted: a name must ALREADY be
+    stale. lag 5 → not stale, not presumed; lag 12 → stale AND beyond → presumed."""
+    md = _presumed_universe()
+    md["R001"] = FRONTIER - dt.timedelta(days=5)
+    md["AVB"] = FRONTIER - dt.timedelta(days=12)
+    ctx = _presumed_ctx(tmp_path, md, freshness_stale_after_days=10)
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    rep = ctx.freshness_report
+    assert rep["presumed_delisted_after_sessions"] == 3
+    assert rep["presumed_delisted_after_sessions_effective"] == 10
+    assert ctx.presumed_delisted == {"AVB"}
+    assert rep["n_stale"] == 0  # R001 at lag 5 is within the widened tolerance
+
+
+def test_exclude_tickers_iac_bridge_still_works_alongside_presumed_delisted(tmp_path, monkeypatch) -> None:
+    """The umbrella still passes --exclude-tickers IAC; the versioned exclude
+    keeps pruning IAC from the universe BEFORE classification, so IAC is
+    neither stale nor presumed delisted, while AVB is presumed delisted."""
+    md = _presumed_universe()
+    md["IAC"] = FROZEN
+    md["AVB"] = FRONTIER - dt.timedelta(days=4)
+    ctx = _presumed_ctx(tmp_path, md, exclude_tickers={"IAC"})
+    ctx.panel_universe = None  # source from an inventory so exclude_tickers applies
+    data = tmp_path / "data"
+    data.mkdir(parents=True)
+    (data / "transformer_universe_inventory.json").write_text(
+        json.dumps({"kind": "transformer_universe_inventory", "generated_utc": "x",
+                    "tier_A_tickers": sorted(md), "tier_B_tickers": []})
+    )
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert ctx.presumed_delisted == {"AVB"}
+    assert ctx.panel_universe_provenance["cli_excluded"] == ["IAC"]
+    assert "IAC" not in ctx.freshness_report["stale_names"]
+    assert ctx.freshness_report["n_universe"] == 101  # 102 declared − IAC
+
+
+def test_presumed_delisted_overrides_are_recorded(tmp_path, monkeypatch) -> None:
+    md = _presumed_universe()
+    ctx = _presumed_ctx(
+        tmp_path, md, presumed_delisted_after_sessions=5, presumed_delisted_max_fraction=0.05
+    )
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    ov = ctx.freshness_report["overrides"]
+    assert ov["presumed_delisted_after_sessions"] == {"value": 5, "default": 3}
+    assert ov["presumed_delisted_max_fraction"] == {"value": 0.05, "default": 0.02}
+    # defaults are NOT recorded as overrides
+    ctx2 = _presumed_ctx(tmp_path, md)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx2) is True
+    assert "presumed_delisted_after_sessions" not in ctx2.freshness_report["overrides"]
+
+
+def test_cli_presumed_delisted_flags_and_defaults() -> None:
+    args = mod.parse_args(["--repo-dir", "/tmp/_test_repo", "--dry-run"])
+    assert args.presumed_delisted_after_sessions == 3
+    assert args.presumed_delisted_max_fraction == 0.02
+    assert args.served_watchlist_file is None
+    assert args.freshness_report_out is None
+    args = mod.parse_args(
+        ["--repo-dir", "/tmp/_test_repo", "--presumed-delisted-after-sessions", "5",
+         "--presumed-delisted-max-fraction", "0.01", "--served-watchlist-file", "/tmp/wl.json",
+         "--freshness-report-out", "/tmp/fr", "--exclude-tickers", "IAC"]
+    )
+    assert args.presumed_delisted_after_sessions == 5
+    assert args.presumed_delisted_max_fraction == 0.01
+    assert args.served_watchlist_file == Path("/tmp/wl.json")
+    assert args.freshness_report_out == Path("/tmp/fr")
+    assert args.exclude_tickers == "IAC"

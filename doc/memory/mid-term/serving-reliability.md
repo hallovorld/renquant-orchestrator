@@ -90,3 +90,27 @@ earlier all-vetoed run was defect #3 impersonating the same answer
   drift scan compares declared `run_at_load`/`keep_alive` intents against the
   installed plists. **Landing (bootout/bootstrap of the two plists + `-run`
   sync) is an operator action — until then the running check is the old one.**
+
+## Addendum 2026-08-30 — defect #6 (AC1 class): the retrain freshness gate vetoed on a delisting
+
+- 2026-08-29/30: the weekly promote failed `PANEL-FREEZE 1/293 stale` — the
+  one name is AVB (merger closed 2026-08-17, last bar 2026-08-24), still in
+  `tier_A_tickers` and NOT in the served watchlist `[VERIFIED — progress doc
+  2026-08-30-retrain-freshness-presumed-delisted.md]`. The strict 0.0 stale
+  fraction assumed delistings reach the versioned inventory, but the
+  inventory ships NO `delisted_tickers` channel (generated 2026-05-05, no
+  regeneration since), so the gate could not pass by construction — same
+  shape as IAC in July (hand-coded `RETRAIN_EXCLUDE_TICKERS=IAC` in the
+  umbrella promote). The served panel model (trained 08-02) lapses the RFC#210
+  28-day SLA on 08-31 without a refresh.
+- Fix (orch PR, same progress doc): the guard classifies a stale name as
+  `presumed_delisted` when its bar is >3 sessions behind AND it is not
+  served; such names are excluded from the guarded universe with a WARNING,
+  an ntfy `PRESUMED-DELISTED` alert and a persisted report
+  (`logs/daily_retrain_alpha158_fund/freshness_report.latest.json`) — never a
+  veto. Served names keep the strict rule; >2% presumed is refused as a mass
+  outage; an unavailable served watchlist disables the exclusion
+  (fail-closed). **Deploy = orchestrator pin / `-run` sync (operator
+  action); until then the live promote still vetoes on AVB** — interim bridge
+  is `RENQUANT_RETRAIN_EXCLUDE_TICKERS=IAC,AVB`. The versioned fix stays
+  base-data's: regenerate the inventory with a `delisted_tickers` channel.
