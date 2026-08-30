@@ -354,7 +354,26 @@ def _run(ctx: RetrainContext, cmd: list[str], *, cwd: Path | None = None) -> Non
     run_subprocess(ctx, cmd, cwd=cwd, env_strategy_config=_fund_strategy_config())
 
 
+def _parse_iso_date(value: object) -> "dt.date | None":
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def _validate_scorer_artifact(path: Path) -> None:
+    """Refuse an artifact this lane could not answer freshness questions about.
+
+    orch#906 fail-closed promote gate: the daily rq104 model-freshness monitor
+    keys on a MEASURED binding data cutoff and refuses ``trained_date`` by
+    design ("a fresh build over stale data is not fresh"). An artifact without
+    ``metadata.data_cutoff_date`` / ``metadata.feature_cutoff_date`` (stamped
+    by ``renquant_model_gbdt.panel_trainer.build_model_artifact`` from the
+    consumed training frame) would spend its whole serving life reporting
+    ``worst=UNKNOWN`` — so it is refused HERE, before any promotion, instead
+    of alarming daily afterwards. Requires the renquant-model stamp change to
+    be present in the sibling checkout (merge order: model PR first).
+    """
     payload = read_json_object(path, "GBDT training")
     if not payload.get("config_fingerprint"):
         raise ValueError(f"GBDT artifact missing config_fingerprint: {path}")
@@ -362,6 +381,38 @@ def _validate_scorer_artifact(path: Path) -> None:
     if payload.get("trained_date") != expected:
         raise ValueError(
             f"GBDT artifact trained_date={payload.get('trained_date')!r}; expected {expected}: {path}"
+        )
+    metadata = payload.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    data_cutoff = _parse_iso_date(metadata.get("data_cutoff_date"))
+    if data_cutoff is None:
+        raise ValueError(
+            f"GBDT artifact stamps no parseable metadata.data_cutoff_date "
+            f"(got {metadata.get('data_cutoff_date')!r}) — the freshness "
+            f"monitor would fail closed to UNKNOWN for its whole serving life; "
+            f"refusing to accept it (orch#906, fail-closed): {path}"
+        )
+    if _parse_iso_date(metadata.get("feature_cutoff_date")) is None:
+        raise ValueError(
+            f"GBDT artifact stamps no parseable metadata.feature_cutoff_date "
+            f"(got {metadata.get('feature_cutoff_date')!r}) — the measured "
+            f"feature-frontier provenance is part of the orch#906 stamp "
+            f"contract; refusing (fail-closed): {path}"
+        )
+    trained = _parse_iso_date(payload.get("trained_date"))
+    if trained is not None and data_cutoff > trained:
+        raise ValueError(
+            f"GBDT artifact metadata.data_cutoff_date={data_cutoff.isoformat()} "
+            f"postdates trained_date={trained.isoformat()} — a labeled training "
+            f"row cannot postdate the training run (look-ahead; fail-closed): {path}"
+        )
+    declared = payload.get("effective_train_cutoff_date")
+    if declared is not None and _parse_iso_date(declared) != data_cutoff:
+        raise ValueError(
+            f"GBDT artifact top-level effective_train_cutoff_date={declared!r} "
+            f"disagrees with metadata.data_cutoff_date={data_cutoff.isoformat()} "
+            f"— two stamps of the same fact must not diverge silently "
+            f"(orch#906, fail-closed): {path}"
         )
 
 

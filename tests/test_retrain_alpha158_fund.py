@@ -81,6 +81,10 @@ def test_retrain_pipeline_command_sequence(monkeypatch, tmp_path) -> None:
             scorer.write_text(json.dumps({
                 "config_fingerprint": "sha256:test",
                 "trained_date": dt.datetime.utcnow().strftime("%Y-%m-%d"),
+                # orch#906: the validator refuses an artifact without the
+                # trainer's measured metadata cutoff stamps (fail-closed).
+                "metadata": {"data_cutoff_date": "2026-05-05",
+                             "feature_cutoff_date": "2026-08-01"},
             }))
         if "renquant_model_gbdt.fit_calibrator_alpha158_fund" in cmd:
             calibrator.parent.mkdir(parents=True, exist_ok=True)
@@ -630,3 +634,81 @@ class TestRawlabelSoleWriterInvocation:
         assert not out.exists()
         assert not out.with_name(out.name + ".incoming").exists()
         assert ctx.commands and "renquant_base_data.rawlabel_sidecar" in ctx.commands[0]
+
+
+# --------------------------------------------------------------------------- #
+# orch#906: _validate_scorer_artifact refuses an artifact the freshness
+# monitor could never classify — no metadata.data_cutoff_date stamp means a
+# whole serving life of ``worst=UNKNOWN``, so the retrain lane fails closed
+# HERE instead of alarming daily afterwards.
+# --------------------------------------------------------------------------- #
+def _stamped_scorer(tmp_path, **overrides):
+    today = dt.datetime.utcnow().strftime("%Y-%m-%d")
+    payload = {
+        "config_fingerprint": "sha256:x",
+        "trained_date": today,
+        "metadata": {"data_cutoff_date": "2026-05-05",
+                     "feature_cutoff_date": "2026-08-01"},
+    }
+    payload.update(overrides)
+    p = tmp_path / "scorer.json"
+    p.write_text(json.dumps(payload))
+    return p
+
+
+def test_validate_scorer_accepts_a_fully_stamped_artifact(tmp_path) -> None:
+    p = _stamped_scorer(
+        tmp_path, effective_train_cutoff_date="2026-05-05")
+    mod._validate_scorer_artifact(p)  # must not raise
+
+
+def test_validate_scorer_refuses_missing_data_cutoff_stamp(tmp_path) -> None:
+    p = _stamped_scorer(
+        tmp_path, metadata={"feature_cutoff_date": "2026-08-01"})
+    with pytest.raises(ValueError, match="data_cutoff_date"):
+        mod._validate_scorer_artifact(p)
+
+
+def test_validate_scorer_refuses_missing_metadata_entirely(tmp_path) -> None:
+    today = dt.datetime.utcnow().strftime("%Y-%m-%d")
+    p = tmp_path / "scorer.json"
+    p.write_text(json.dumps(
+        {"config_fingerprint": "sha256:x", "trained_date": today}))
+    with pytest.raises(ValueError, match="metadata.data_cutoff_date"):
+        mod._validate_scorer_artifact(p)
+
+
+def test_validate_scorer_refuses_unparseable_stamp(tmp_path) -> None:
+    p = _stamped_scorer(
+        tmp_path,
+        metadata={"data_cutoff_date": "not-a-date",
+                  "feature_cutoff_date": "2026-08-01"})
+    with pytest.raises(ValueError, match="data_cutoff_date"):
+        mod._validate_scorer_artifact(p)
+
+
+def test_validate_scorer_refuses_missing_feature_cutoff_stamp(tmp_path) -> None:
+    p = _stamped_scorer(
+        tmp_path, metadata={"data_cutoff_date": "2026-05-05"})
+    with pytest.raises(ValueError, match="feature_cutoff_date"):
+        mod._validate_scorer_artifact(p)
+
+
+def test_validate_scorer_refuses_lookahead_data_cutoff(tmp_path) -> None:
+    # A labeled row cannot postdate the training run.
+    p = _stamped_scorer(
+        tmp_path,
+        metadata={"data_cutoff_date": "2099-01-01",
+                  "feature_cutoff_date": "2099-01-01"})
+    with pytest.raises(ValueError, match="postdates"):
+        mod._validate_scorer_artifact(p)
+
+
+def test_validate_scorer_refuses_disagreeing_top_level_stamp(tmp_path) -> None:
+    # Two stamps of the same fact (the driver's top-level
+    # effective_train_cutoff_date and the trainer's metadata.data_cutoff_date)
+    # must never diverge silently.
+    p = _stamped_scorer(
+        tmp_path, effective_train_cutoff_date="2026-04-01")
+    with pytest.raises(ValueError, match="disagrees"):
+        mod._validate_scorer_artifact(p)

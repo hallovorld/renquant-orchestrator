@@ -169,6 +169,11 @@ _LOOKAHEAD_DAYS_FIELD = "lookahead_days"
 # must never make a stale model read fresh (Codex #423 round-3 review).
 _FEATURE_ANCHOR_FIELD = "max_feature_anchor_date"
 
+# PROVENANCE-only sibling (orch#906): the panel trainer's MEASURED last feature
+# row (``metadata.feature_cutoff_date``). Same #423 round-3 rule: echoed for
+# data-pipeline-health context, NEVER a freshness axis.
+_FEATURE_CUTOFF_FIELD = "feature_cutoff_date"
+
 # Axes that carry an INHERENT horizon lag, mapped to the DOCUMENTED DEFAULT width
 # (absent / 0 for axes with none). ``label_observation_cutoff`` is fwd-label-clipped:
 # even a same-day retrain cannot show a label more recent than the model's OWN label
@@ -194,6 +199,29 @@ _LABEL_OBSERVATION_LOOKAHEAD_BDAYS = 60
 _AXIS_EXPECTED_LAG_BDAYS: dict[str, int] = {
     _LABEL_OBSERVATION_FIELD: _LABEL_OBSERVATION_LOOKAHEAD_BDAYS,
 }
+
+# orch#906: axes that are CONDITIONALLY lagged. ``effective_train_cutoff_date``
+# and ``data_cutoff_date`` name "the last training data the model saw" across
+# model families whose recipes differ: a fwd-labeled panel's last LABELED row
+# trails ``now`` by its own label horizon EXACTLY like
+# ``label_observation_cutoff`` (the panel trainer stamps
+# ``metadata.data_cutoff_date`` as the measured max labeled row), while e.g.
+# the momentum ledger's cutoff deliberately stamps NO ``lookahead_days``
+# because its skip is an embargo, not a horizon. These axes therefore widen
+# the tiering thresholds ONLY when the artifact's OWN stamped
+# ``lookahead_days`` validates (#223 A1 / #225 r3: exact int, exactly the one
+# supported horizon); an absent/invalid stamp applies NO widening (raw-age
+# tiering — the conservative direction) and does NOT fail closed the way the
+# inherently-lagged label-observation axis does, because an unstamped horizon
+# on these axes is a legitimate recipe, not a provenance gap.
+_STAMPED_HORIZON_AXES = ("effective_train_cutoff_date", "data_cutoff_date")
+
+# orch#906: a binding cutoff may be stamped at top level or nested under the
+# artifact's ``metadata`` dict (the panel trainer stamps
+# ``metadata.data_cutoff_date``; the RFC#210 license and the axis-agreement
+# probe already read top-level-then-metadata). A nested bind is recorded as
+# ``metadata.<field>`` so the observable record names where it was read from.
+_METADATA_PREFIX = "metadata."
 
 # 2026-07-02 (Codex #225 round 3): round 2's "explicit plausible range"
 # (1..120 bdays, up to 2x the documented fwd_60d convention) was STILL not
@@ -300,6 +328,25 @@ def _text_or_none(value: object) -> str | None:
     return text or None
 
 
+def _artifact_field(data: dict, field: str) -> "tuple[object, str | None]":
+    """Resolve ``field`` top-level first, then under ``metadata`` (orch#906).
+
+    Returns ``(value, where)`` — ``where`` is the field name as bound
+    (``field`` itself, or ``"metadata.<field>"``), or ``None`` when the field
+    is absent at both levels. Top-level-then-metadata is the SAME read order
+    the RFC#210 buy-admission license and the axis-agreement probe use, so
+    the monitor can never disagree with them about which stamp an artifact
+    carries (the pre-#906 monitor read only the top level and reported
+    UNKNOWN for an artifact whose stamp lives under ``metadata``).
+    """
+    if field in data:
+        return data[field], field
+    md = data.get("metadata")
+    if isinstance(md, dict) and field in md:
+        return md[field], _METADATA_PREFIX + field
+    return None, None
+
+
 def _optional_bool(value: object) -> bool | None:
     """Parse a JSON-ish bool (native, or a "true"/"false"/"1"/"0" string); else None."""
     if value is None:
@@ -363,10 +410,25 @@ def _expected_lag_calendar_days(
       if the documented 60-BD default were assumed" — troubleshooting only,
       NEVER used to widen a tier when ``compensation_lag`` is ``None``.
     """
-    bdays_default = _AXIS_EXPECTED_LAG_BDAYS.get(binding_field or "", 0)
+    field = binding_field or ""
+    if field.startswith(_METADATA_PREFIX):
+        field = field[len(_METADATA_PREFIX):]
+    stamped_bdays = _validate_lookahead_days(lookahead_bdays) or 0
+    if field in _STAMPED_HORIZON_AXES:
+        # orch#906: conditionally lagged — widen ONLY by a validated stamped
+        # horizon. An absent/invalid stamp applies NO widening (raw-age
+        # tiering, the conservative direction) instead of failing closed:
+        # an unstamped horizon is a legitimate recipe on these axes (e.g.
+        # the momentum ledger stamps none because its skip is an embargo,
+        # not a horizon — borrowing a widened bound would be unearned).
+        if stamped_bdays <= 0:
+            return 0, 0
+        frontier = _subtract_business_days(now.date(), stamped_bdays)
+        lag = (now.date() - frontier).days
+        return lag, lag
+    bdays_default = _AXIS_EXPECTED_LAG_BDAYS.get(field, 0)
     if not bdays_default:
         return 0, 0
-    stamped_bdays = _validate_lookahead_days(lookahead_bdays) or 0
     diagnostic_bdays = stamped_bdays if stamped_bdays > 0 else bdays_default
     diagnostic_frontier = _subtract_business_days(now.date(), diagnostic_bdays)
     diagnostic_lag = (now.date() - diagnostic_frontier).days
@@ -482,6 +544,10 @@ class ArtifactFreshness:
     # AHEAD of the (tiered) label-observation cutoff. Data-pipeline-health context
     # only; NEVER used for tiering (round-3 Codex review — see module docstring).
     max_feature_anchor_date: str | None = None
+    # PROVENANCE only (orch#906, same #423 r3 rule): the panel trainer's measured
+    # ``metadata.feature_cutoff_date`` (last feature row the trainer consumed).
+    # Echoed for data-pipeline-health context; NEVER used for tiering.
+    feature_cutoff_date: str | None = None
     # Shadow (RFC #212 §3.2) only: validated-promote status derived from a persisted,
     # pin-bound promotion RECEIPT (never a sidecar boolean). ``None`` when the
     # population has no promote gate; ``True`` only when a bound, validated receipt
@@ -509,6 +575,7 @@ class ArtifactFreshness:
             "binding_cutoff": self.binding_cutoff,
             "binding_field": self.binding_field,
             "detail": self.detail,
+            "feature_cutoff_date": self.feature_cutoff_date,
             "horizon_validated_against": self.horizon_validated_against,
             "label": self.label,
             "lookahead_days_stamped": self.lookahead_days_stamped,
@@ -574,10 +641,17 @@ def read_artifact_freshness(
         return result
 
     result.present = True
-    result.trained_date = _text_or_none(data.get(_TRAINED_DATE_FIELD))
+    trained_value, _ = _artifact_field(data, _TRAINED_DATE_FIELD)
+    result.trained_date = _text_or_none(trained_value)
     # PROVENANCE only (#423 round-3): captured + echoed, NEVER used for tiering.
+    anchor_value, _ = _artifact_field(data, _FEATURE_ANCHOR_FIELD)
     result.max_feature_anchor_date = (
-        raw[:10] if (raw := _text_or_none(data.get(_FEATURE_ANCHOR_FIELD))) else None
+        raw[:10] if (raw := _text_or_none(anchor_value)) else None
+    )
+    # PROVENANCE only (orch#906): the trainer's measured last-feature-row stamp.
+    feature_cutoff_value, _ = _artifact_field(data, _FEATURE_CUTOFF_FIELD)
+    result.feature_cutoff_date = (
+        raw[:10] if (raw := _text_or_none(feature_cutoff_value)) else None
     )
     # #223 amendment A1 / #225 round 3: this artifact's OWN declared label
     # horizon, strictly validated (exact JSON int, exactly the one
@@ -585,16 +659,22 @@ def read_artifact_freshness(
     # ``_validate_lookahead_days``). Read here so it is available for BOTH the
     # widening computation below and observability (``as_dict``) regardless of
     # tier outcome.
-    result.lookahead_days_stamped = _validate_lookahead_days(data.get(_LOOKAHEAD_DAYS_FIELD))
+    lookahead_value, _ = _artifact_field(data, _LOOKAHEAD_DAYS_FIELD)
+    result.lookahead_days_stamped = _validate_lookahead_days(lookahead_value)
     if result.lookahead_days_stamped is not None:
         result.horizon_validated_against = (
             f"exact_fwd60d_interim[{_EXPECTED_LOOKAHEAD_BDAYS}]bdays"
         )
 
+    # orch#906: each axis resolves top-level first, then ``metadata`` — the
+    # AXIS precedence (most-binding first) stays field-major, so a lower-
+    # priority top-level field can never outrank a higher-priority axis that
+    # is stamped under ``metadata``.
     for field_name in DATA_CUTOFF_FIELDS:
-        if _parse_date(data.get(field_name)) is not None:
-            result.binding_cutoff = str(data[field_name]).strip()[:10]
-            result.binding_field = field_name
+        value, where = _artifact_field(data, field_name)
+        if _parse_date(value) is not None:
+            result.binding_cutoff = str(value).strip()[:10]
+            result.binding_field = where
             break
 
     # A missing / unparseable binding DATA cutoff is UNKNOWN, not "stale" — it FAILS
@@ -638,14 +718,14 @@ def read_artifact_freshness(
     # ``unknown`` rather than guessing the documented default (never certifies a
     # tier under an assumed horizon).
     lag_days, diagnostic_lag_days = _expected_lag_calendar_days(
-        result.binding_field, data.get(_LOOKAHEAD_DAYS_FIELD), now
+        result.binding_field, lookahead_value, now
     )
     if lag_days is None:
         result.tier = TIER_UNKNOWN
         result.detail = (
             f"{result.binding_field}={result.binding_cutoff} age={age_days}d requires "
             f"a stamped positive {_LOOKAHEAD_DAYS_FIELD!r} for horizon compensation "
-            f"but none was present/valid ({data.get(_LOOKAHEAD_DAYS_FIELD)!r}); not "
+            f"but none was present/valid ({lookahead_value!r}); not "
             f"guessed at the documented {_LABEL_OBSERVATION_LOOKAHEAD_BDAYS}-BD "
             f"default (diagnostic-only widened threshold would be "
             f"+{diagnostic_lag_days}d) (fail-closed, #223 amendment A1)"
@@ -666,6 +746,11 @@ def read_artifact_freshness(
     if result.max_feature_anchor_date:
         result.detail += (
             f"; max_feature_anchor_date={result.max_feature_anchor_date}"
+            " is data-pipeline-health provenance, not a freshness axis"
+        )
+    if result.feature_cutoff_date:
+        result.detail += (
+            f"; feature_cutoff_date={result.feature_cutoff_date}"
             " is data-pipeline-health provenance, not a freshness axis"
         )
     return result
