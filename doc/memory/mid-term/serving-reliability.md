@@ -94,23 +94,27 @@ earlier all-vetoed run was defect #3 impersonating the same answer
 ## Addendum 2026-08-30 — defect #6 (AC1 class): the retrain freshness gate vetoed on a delisting
 
 - 2026-08-29/30: the weekly promote failed `PANEL-FREEZE 1/293 stale` — the
-  one name is AVB (merger closed 2026-08-17, last bar 2026-08-24), still in
-  `tier_A_tickers` and NOT in the served watchlist `[VERIFIED — progress doc
-  2026-08-30-retrain-freshness-presumed-delisted.md]`. The strict 0.0 stale
-  fraction assumed delistings reach the versioned inventory, but the
-  inventory ships NO `delisted_tickers` channel (generated 2026-05-05, no
-  regeneration since), so the gate could not pass by construction — same
-  shape as IAC in July (hand-coded `RETRAIN_EXCLUDE_TICKERS=IAC` in the
-  umbrella promote). The served panel model (trained 08-02) lapses the RFC#210
-  28-day SLA on 08-31 without a refresh.
-- Fix (orch PR, same progress doc): the guard classifies a stale name as
-  `presumed_delisted` when its bar is >3 sessions behind AND it is not
-  served; such names are excluded from the guarded universe with a WARNING,
-  an ntfy `PRESUMED-DELISTED` alert and a persisted report
-  (`logs/daily_retrain_alpha158_fund/freshness_report.latest.json`) — never a
-  veto. Served names keep the strict rule; >2% presumed is refused as a mass
-  outage; an unavailable served watchlist disables the exclusion
-  (fail-closed). **Deploy = orchestrator pin / `-run` sync (operator
+  one name is AVB (Equity Residential merger closed 2026-08-17, last bar
+  2026-08-24), still in `tier_A_tickers` and NOT in the served watchlist
+  `[VERIFIED — progress doc 2026-08-30-retrain-universe-exclusion-registry.md]`.
+  The strict 0.0 stale fraction assumed delistings reach the versioned
+  inventory, but the inventory ships NO `delisted_tickers` channel (generated
+  2026-05-05, no regeneration since), so the gate could not pass by
+  construction — same shape as IAC in July (hand-coded
+  `RETRAIN_EXCLUDE_TICKERS=IAC` in the umbrella promote).
+- Fix (orch#1096 r2): exclusions are EXPLICIT and REVIEWED —
+  `config/retrain_universe_exclusions.json` in the orchestrator (reason enum,
+  effective date, evidence URL, adding PR; loaded fail-closed). Its names leave
+  the universe before the refresh and the guard, AND the guard hands base-data's
+  panel build a filtered copy of the inventory (`--inventory`), so an excluded
+  name leaves the actual training universe. A heuristic skip ("stale AND not
+  served ⇒ presumed delisted", r1) was REJECTED in review: an outage, a symbol
+  transition or an ingestion gap satisfy it, and pruning only the freshness
+  accounting leaves stale rows in the panel. Every remaining stale name still
+  vetoes; the veto names ticker / lag / last bar and says to add a reviewed
+  registry entry or fix ingestion; an informational `STALE-NON-WATCHLIST` ntfy
+  names the registry path. **Deploy = orchestrator pin / `-run` sync (operator
   action); until then the live promote still vetoes on AVB** — interim bridge
-  is `RENQUANT_RETRAIN_EXCLUDE_TICKERS=IAC,AVB`. The versioned fix stays
-  base-data's: regenerate the inventory with a `delisted_tickers` channel.
+  is umbrella PR #625 (`RETRAIN_EXCLUDE_TICKERS` default `IAC,AVB`, freshness
+  accounting only). The versioned fix stays base-data's: regenerate the
+  inventory with a `delisted_tickers` channel.

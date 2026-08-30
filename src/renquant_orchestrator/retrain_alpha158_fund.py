@@ -16,6 +16,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 from typing import TYPE_CHECKING, Callable
 
@@ -94,35 +95,46 @@ DEFAULT_FRESHNESS_STALE_AFTER_DAYS = 1
 # override — not a default that hides a partial freeze. See
 # doc/progress/2026-07-01-panel-ohlcv-coverage-fix.md.
 DEFAULT_FRESHNESS_MAX_STALE_FRACTION = 0.0
-# PRESUMED-DELISTED classification (the AVB / IAC pattern). The strict 0.0
+# REVIEWED UNIVERSE-EXCLUSION REGISTRY (the AVB / IAC pattern). The strict 0.0
 # fraction above assumes delistings reach the versioned inventory — but the
 # inventory ships NO ``delisted_tickers`` channel (it is gitignored and was
 # generated 2026-05-05), so every real delisting has vetoed the weekly retrain
 # until an operator hand-edited an exclude list: IAC (bars ceased 2026-05-12;
 # ``weekly_wf_promote.sh`` hard-codes RETRAIN_EXCLUDE_TICKERS=IAC) and AVB
 # (Equity Residential merger closed 2026-08-17, last bar 2026-08-24; the
-# 2026-08-29/30 promote failed "PANEL-FREEZE 1/293 stale" and the served panel
-# model lapsed the RFC#210 28-day SLA). The guard now classifies a stale name as
-# ``presumed_delisted`` when BOTH hold: its newest bar is MORE than
-# ``presumed_delisted_after_sessions`` exchange sessions behind the expected
-# session (a delisting is a permanent absence, not a one-session vendor lag),
-# AND the name is NOT in the served watchlist (a stale LIVE name is a real
-# problem — the strict rule stays). Such names are EXCLUDED from the
-# freshness-guarded universe with a WARNING + an ntfy alert + a persisted
-# report line, never a veto. A presumed-delisted fraction above
-# ``presumed_delisted_max_fraction`` is refused as a MASS OUTAGE (a vendor
-# failure is not a delisting) and the names stay stale, so the strict gate
-# trips exactly as before. Three sessions: two sessions of lag is the widest
-# vendor-side publication gap seen on this universe; a name absent for three
-# consecutive sessions while every other name advanced is not lagging.
-DEFAULT_PRESUMED_DELISTED_AFTER_SESSIONS = 3
-# 2% of ~293 names = at most 5 presumed delistings per run; anything larger is
-# not how delistings arrive (they trickle) and is treated as an outage.
-DEFAULT_PRESUMED_DELISTED_MAX_FRACTION = 0.02
+# 2026-08-29/30 promote failed "PANEL-FREEZE 1/293 stale"). A heuristic
+# ("stale AND not served ⇒ presumed delisted") was REJECTED in review: a
+# single-name vendor outage, a symbol transition or an ingestion gap satisfy
+# the same predicate, and pruning a name only from the freshness accounting
+# leaves its stale rows in the panel. Exclusions are therefore EXPLICIT and
+# REVIEWED: ``config/retrain_universe_exclusions.json`` in THIS repo (one entry
+# per ticker: reason from ``EXCLUSION_REASONS``, effective date, evidence URL,
+# the PR that added it). The registry is loaded fail-closed (absent / invalid
+# ⇒ the run refuses), its names are removed from the universe BEFORE the
+# refresh and the guard, AND the panel build is handed a filtered copy of the
+# inventory (``--inventory``) so an excluded name leaves the ACTUAL training
+# universe — not only the freshness accounting. A stale name NOT in the
+# registry still vetoes; the veto names the ticker, its lag and last bar and
+# says exactly what to do (add a reviewed entry with evidence, or fix
+# ingestion).
+DEFAULT_EXCLUSION_REGISTRY_RELPATH = Path("config") / "retrain_universe_exclusions.json"
+# This module lives at <orchestrator>/src/renquant_orchestrator/…; the registry
+# is committed at <orchestrator>/config/… (a source checkout is the only
+# supported deployment — ``runtime_paths.default_github_root`` makes the same
+# assumption). ``--exclusion-registry`` overrides.
+DEFAULT_EXCLUSION_REGISTRY_PATH = Path(__file__).resolve().parents[2] / DEFAULT_EXCLUSION_REGISTRY_RELPATH
+EXCLUSION_REGISTRY_KIND = "retrain_universe_exclusions"
+EXCLUSION_REGISTRY_SCHEMA_VERSION = 1
+EXCLUSION_REASONS = ("delisted", "merged", "symbol_change", "data_outage_confirmed")
+_EXCLUSION_REQUIRED_KEYS = ("ticker", "reason", "effective_date", "evidence_url", "added_by_pr")
+_EXCLUSION_OPTIONAL_KEYS = ("notes",)
+# The filtered inventory handed to the panel build; written next to the
+# freshness report every run (never into ``data/``).
+DEFAULT_EFFECTIVE_INVENTORY_FILENAME = "effective_universe_inventory.json"
 # Where the guard persists its report (relative to the umbrella ``repo_dir``):
 # the same log directory the ``daily_retrain_alpha158_fund.sh`` wrapper writes
 # its per-day log into, so the next run and the ops drift scan can read the
-# presumed-delisted set without parsing a log.
+# stale / excluded sets without parsing a log.
 DEFAULT_FRESHNESS_REPORT_DIRNAME = Path("logs") / "daily_retrain_alpha158_fund"
 DEFAULT_FRESHNESS_REPORT_LATEST = "freshness_report.latest.json"
 # NYSE is the shared exchange the whole stack prices against (base-data's
@@ -238,23 +250,20 @@ class RetrainContext:
     # >max-stale-fraction of the panel universe stale after a refresh is a real
     # training-input integrity failure. Set False to only warn (ntfy) + proceed.
     freshness_fail_on_stale: bool = True
-    # ── Presumed-delisted classification (AVB / IAC pattern; see the
-    # DEFAULT_PRESUMED_DELISTED_* comment block). A stale name is presumed
-    # delisted only when its lag exceeds ``presumed_delisted_after_sessions``
-    # AND it is absent from the served watchlist. ``served_watchlist`` pins the
-    # list explicitly (tests / reproducibility); otherwise it is read from the
-    # ``watchlist`` key of ``served_watchlist_path`` (default: the SAME
-    # ``strategy_config`` this retrain hands to train_gbdt — the config the
-    # trained artifact is fingerprinted against). An unavailable or EMPTY
-    # watchlist disables the classification entirely (fail-closed: without a
-    # served set, "not served" would match every stale name), so the strict
-    # rule then applies to everything, exactly as before this field existed.
-    presumed_delisted_after_sessions: int = DEFAULT_PRESUMED_DELISTED_AFTER_SESSIONS
-    presumed_delisted_max_fraction: float = DEFAULT_PRESUMED_DELISTED_MAX_FRACTION
+    # ── Reviewed universe-exclusion registry (see the DEFAULT_EXCLUSION_*
+    # comment block). None → the registry committed in this repo. Loaded
+    # fail-closed: absent / unreadable / schema-invalid ⇒ ExclusionRegistryError.
+    exclusion_registry_path: Path | None = None
+    # The served watchlist is used ONLY to label the informational
+    # STALE-NON-WATCHLIST alert (a stale name that is not served is the usual
+    # shape of a delisting the registry has not learned yet). It never changes
+    # the verdict. Explicit list (tests / pins) or the ``watchlist`` of
+    # ``strategy_config``; unavailable ⇒ the alert says so and covers every
+    # stale name.
     served_watchlist: "list[str] | None" = None
-    served_watchlist_path: Path | None = None
     # Where the guard persists ``freshness_report`` (a dated file plus a
-    # ``latest`` copy). None → ``<repo_dir>/logs/daily_retrain_alpha158_fund/``.
+    # ``latest`` copy) and the effective inventory. None →
+    # ``<repo_dir>/logs/daily_retrain_alpha158_fund/``.
     freshness_report_out: Path | None = None
     # Freshness is measured against an INDEPENDENTLY derived expected latest
     # completed market session — NOT max(known ticker dates), which would let a
@@ -299,9 +308,10 @@ class RetrainContext:
     ohlcv_refresh_summary: dict[str, int] = field(default_factory=dict)
     freshness_report: dict = field(default_factory=dict)
     panel_universe_provenance: dict = field(default_factory=dict)
-    # Names the guard EXCLUDED as presumed delisted this run (audit surface;
-    # also persisted in ``freshness_report["presumed_delisted_names"]``).
-    presumed_delisted: "set[str]" = field(default_factory=set)
+    # The filtered inventory the guard wrote for the panel build (set by
+    # ``PanelUniverseFreshnessGuardTask``; ``BuildAlpha158PanelTask`` passes it
+    # as ``--inventory`` and refuses a real run without it).
+    effective_inventory_path: Path | None = None
     rawlabel_refresh_summary: dict = field(default_factory=dict)
 
     @property
@@ -397,17 +407,39 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
     pruned as a versioned exclusion (audited, not counted as stale failures).
     """
     if ctx.panel_universe is not None:
-        universe = sorted(dict.fromkeys(str(t) for t in ctx.panel_universe))
-        if not universe:
+        declared = sorted(dict.fromkeys(str(t) for t in ctx.panel_universe))
+        if not declared:
             raise InventoryUnavailableError(
                 "explicit panel_universe is empty — refuse to run the refresh/guard "
                 "on an empty universe (fail-closed)"
             )
+        # The reviewed registry applies to an explicit universe too (raises on
+        # an absent / invalid registry — fail-closed).
+        registry, registry_prov = load_exclusion_registry(_exclusion_registry_path(ctx))
+        registry_excluded = {t: registry[t].as_record() for t in declared if t in registry}
+        universe = [t for t in declared if t not in registry_excluded]
+        if not universe:
+            raise InventoryUnavailableError(
+                "explicit panel_universe is EMPTY after the reviewed exclusion registry "
+                f"({sorted(registry_excluded)}) — refuse to run on an empty universe (fail-closed)"
+            )
         prov = {
             "source": "explicit",
+            "n_declared": len(declared),
             "n_universe": len(universe),
-            "fingerprint": _fingerprint({"universe": universe}),
+            "n_registry_excluded": len(registry_excluded),
+            "registry_excluded": registry_excluded,
+            "exclusion_registry": registry_prov,
+            "fingerprint": _fingerprint(
+                {"universe": universe, "registry_excluded": sorted(registry_excluded)}
+            ),
         }
+        if registry_excluded:
+            log.info(
+                "panel universe: %d ticker(s) excluded via the reviewed registry: %s",
+                len(registry_excluded),
+                ", ".join(f"{t}({r['reason']})" for t, r in sorted(registry_excluded.items())),
+            )
         return universe, prov
 
     inv_path = ctx.resolved_inventory_path
@@ -443,10 +475,13 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
         str(t)
         for t in (set(inv.get("tier_A_tickers", [])) | set(inv.get("tier_B_tickers", [])))
     )
-    delisted: set[str] = set()
+    inv_delisted_declared: set[str] = set()
     for key in _INVENTORY_DELISTED_KEYS:
-        delisted |= {str(t) for t in inv.get(key, [])}
-    delisted |= ctx.exclude_tickers
+        inv_delisted_declared |= {str(t) for t in inv.get(key, [])}
+    # The reviewed registry (raises on absent / invalid — fail-closed) is
+    # UNIONED with the inventory's own delisted keys and the CLI bridge.
+    registry, registry_prov = load_exclusion_registry(_exclusion_registry_path(ctx))
+    delisted = inv_delisted_declared | ctx.exclude_tickers | set(registry)
     universe = [t for t in declared if t not in delisted]
     if not universe:
         raise InventoryUnavailableError(
@@ -455,15 +490,20 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
             f"(fail-closed)"
         )
     cli_excluded = ctx.exclude_tickers & set(declared)
-    inv_delisted = (delisted - ctx.exclude_tickers) & set(declared)
+    inv_delisted = inv_delisted_declared & set(declared)
+    registry_excluded = {t: registry[t].as_record() for t in declared if t in registry}
     prov = {
         "source": str(inv_path),
         "kind": inv.get("kind"),
         "generated_utc": inv.get("generated_utc"),
         "n_declared": len(declared),
         "n_delisted_excluded": len(inv_delisted),
+        "inventory_delisted_excluded": sorted(inv_delisted),
         "n_cli_excluded": len(cli_excluded),
         "cli_excluded": sorted(cli_excluded),
+        "n_registry_excluded": len(registry_excluded),
+        "registry_excluded": registry_excluded,
+        "exclusion_registry": registry_prov,
         "n_universe": len(universe),
         "fingerprint": _fingerprint(
             {
@@ -474,6 +514,13 @@ def _resolve_panel_universe(ctx: RetrainContext) -> "tuple[list[str], dict]":
             }
         ),
     }
+    if registry_excluded:
+        log.info(
+            "panel universe: %d ticker(s) excluded via the reviewed registry %s: %s",
+            len(registry_excluded),
+            registry_prov["path"],
+            ", ".join(f"{t}({r['reason']})" for t, r in sorted(registry_excluded.items())),
+        )
     if cli_excluded:
         log.info(
             "panel universe: %d ticker(s) excluded via --exclude-tickers: %s",
@@ -642,48 +689,186 @@ def _freshness_overrides(ctx: RetrainContext) -> dict:
         }
     if not ctx.freshness_fail_on_stale:
         overrides["fail_on_stale"] = {"value": False, "default": True}
-    if ctx.presumed_delisted_after_sessions != DEFAULT_PRESUMED_DELISTED_AFTER_SESSIONS:
-        overrides["presumed_delisted_after_sessions"] = {
-            "value": ctx.presumed_delisted_after_sessions,
-            "default": DEFAULT_PRESUMED_DELISTED_AFTER_SESSIONS,
-        }
-    if ctx.presumed_delisted_max_fraction != DEFAULT_PRESUMED_DELISTED_MAX_FRACTION:
-        overrides["presumed_delisted_max_fraction"] = {
-            "value": ctx.presumed_delisted_max_fraction,
-            "default": DEFAULT_PRESUMED_DELISTED_MAX_FRACTION,
+    if ctx.exclusion_registry_path is not None and (
+        Path(ctx.exclusion_registry_path).resolve() != DEFAULT_EXCLUSION_REGISTRY_PATH
+    ):
+        overrides["exclusion_registry_path"] = {
+            "value": str(ctx.exclusion_registry_path),
+            "default": str(DEFAULT_EXCLUSION_REGISTRY_PATH),
         }
     if ctx.expected_session is not None:
         overrides["expected_session_pinned"] = ctx.expected_session.isoformat()
     return overrides
 
 
+class ExclusionRegistryError(ValueError):
+    """The reviewed universe-exclusion registry is absent, unreadable or
+    schema-invalid. Fail-closed: the registry decides which DECLARED names
+    leave the training universe, so an unprovable registry blocks the run
+    instead of silently excluding nothing (or everything)."""
+
+
+@dataclass(frozen=True)
+class UniverseExclusion:
+    """One reviewed registry entry (``config/retrain_universe_exclusions.json``)."""
+
+    ticker: str
+    reason: str
+    effective_date: dt.date
+    evidence_url: str
+    added_by_pr: str
+    notes: str = ""
+
+    def as_record(self) -> dict:
+        rec = {
+            "reason": self.reason,
+            "effective_date": self.effective_date.isoformat(),
+            "evidence_url": self.evidence_url,
+            "added_by_pr": self.added_by_pr,
+        }
+        if self.notes:
+            rec["notes"] = self.notes
+        return rec
+
+
+_TICKER_RE = re.compile(r"[A-Z0-9][A-Z0-9.\-]*")
+
+
+def _validate_exclusion_entry(index: int, raw: object, path: Path) -> UniverseExclusion:
+    where = f"{path}: exclusions[{index}]"
+    if not isinstance(raw, dict):
+        raise ExclusionRegistryError(f"{where}: entry must be a JSON object")
+    unknown = set(raw) - set(_EXCLUSION_REQUIRED_KEYS) - set(_EXCLUSION_OPTIONAL_KEYS)
+    if unknown:
+        raise ExclusionRegistryError(f"{where}: unknown key(s) {sorted(unknown)}")
+    missing = [k for k in _EXCLUSION_REQUIRED_KEYS if k not in raw]
+    if missing:
+        raise ExclusionRegistryError(f"{where}: missing required key(s) {missing}")
+    values: dict[str, str] = {}
+    for key in (*_EXCLUSION_REQUIRED_KEYS, *_EXCLUSION_OPTIONAL_KEYS):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, str) or (key != "notes" and not value.strip()):
+            raise ExclusionRegistryError(f"{where}: {key!r} must be a non-empty string")
+        values[key] = value.strip()
+    ticker = values["ticker"].upper()
+    if not _TICKER_RE.fullmatch(ticker):
+        raise ExclusionRegistryError(f"{where}: ticker {values['ticker']!r} is not a symbol")
+    if values["reason"] not in EXCLUSION_REASONS:
+        raise ExclusionRegistryError(
+            f"{where}: reason {values['reason']!r} is not one of {list(EXCLUSION_REASONS)}"
+        )
+    try:
+        effective = dt.date.fromisoformat(values["effective_date"])
+    except ValueError as exc:
+        raise ExclusionRegistryError(
+            f"{where}: effective_date {values['effective_date']!r} is not an ISO date"
+        ) from exc
+    if not values["evidence_url"].startswith(("http://", "https://")):
+        raise ExclusionRegistryError(
+            f"{where}: evidence_url must be an http(s) URL, got {values['evidence_url']!r}"
+        )
+    return UniverseExclusion(
+        ticker=ticker,
+        reason=values["reason"],
+        effective_date=effective,
+        evidence_url=values["evidence_url"],
+        added_by_pr=values["added_by_pr"],
+        notes=values.get("notes", ""),
+    )
+
+
+def load_exclusion_registry(path: Path) -> "tuple[dict[str, UniverseExclusion], dict]":
+    """Load + validate the reviewed exclusion registry, FAIL-CLOSED.
+
+    Returns ``({ticker: UniverseExclusion}, provenance)`` where provenance
+    carries the path, a content fingerprint and the entry count. Raises
+    :class:`ExclusionRegistryError` on a missing / unreadable / non-JSON file,
+    a wrong ``kind`` / ``schema_version``, a non-list ``exclusions``, any entry
+    with a missing or empty required key, an unknown key, an unknown
+    ``reason``, a non-ISO ``effective_date``, a non-http(s) ``evidence_url``,
+    or a duplicate ticker. An EMPTY ``exclusions`` list is valid.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ExclusionRegistryError(
+            f"exclusion registry unreadable: {path}: {exc} (fail-closed)"
+        ) from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ExclusionRegistryError(f"exclusion registry is invalid JSON: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ExclusionRegistryError(f"exclusion registry must be a JSON object: {path}")
+    if payload.get("kind") != EXCLUSION_REGISTRY_KIND:
+        raise ExclusionRegistryError(
+            f"exclusion registry kind={payload.get('kind')!r}, expected {EXCLUSION_REGISTRY_KIND!r}: {path}"
+        )
+    if payload.get("schema_version") != EXCLUSION_REGISTRY_SCHEMA_VERSION:
+        raise ExclusionRegistryError(
+            f"exclusion registry schema_version={payload.get('schema_version')!r}, "
+            f"expected {EXCLUSION_REGISTRY_SCHEMA_VERSION}: {path}"
+        )
+    entries = payload.get("exclusions")
+    if not isinstance(entries, list):
+        raise ExclusionRegistryError(f"exclusion registry 'exclusions' must be a list: {path}")
+    registry: dict[str, UniverseExclusion] = {}
+    for index, entry in enumerate(entries):
+        exclusion = _validate_exclusion_entry(index, entry, path)
+        if exclusion.ticker in registry:
+            raise ExclusionRegistryError(
+                f"{path}: exclusions[{index}]: duplicate ticker {exclusion.ticker}"
+            )
+        registry[exclusion.ticker] = exclusion
+    prov = {
+        "path": str(path),
+        "n": len(registry),
+        "schema_version": EXCLUSION_REGISTRY_SCHEMA_VERSION,
+        "fingerprint": _fingerprint(
+            {"exclusions": {t: x.as_record() for t, x in sorted(registry.items())}}
+        ),
+    }
+    return registry, prov
+
+
+def _exclusion_registry_path(ctx: RetrainContext) -> Path:
+    return Path(ctx.exclusion_registry_path or DEFAULT_EXCLUSION_REGISTRY_PATH)
+
+
+def _stale_remedy(ctx: RetrainContext) -> str:
+    """The one sentence every stale veto / alert ends with: exactly what to do."""
+    return (
+        "A stale name is never skipped silently: if it has genuinely left the "
+        f"market, add a REVIEWED entry to {DEFAULT_EXCLUSION_REGISTRY_RELPATH.as_posix()} "
+        f"(registry in use: {_exclusion_registry_path(ctx)}) with reason / effective_date / "
+        "evidence_url / added_by_pr via a PR; otherwise fix ingestion for it."
+    )
+
+
 def _resolve_served_watchlist(ctx: RetrainContext) -> "tuple[set[str], dict]":
-    """The SERVED watchlist the presumed-delisted rule is keyed on.
+    """The SERVED watchlist, used ONLY to label the informational
+    STALE-NON-WATCHLIST alert (it never changes the verdict).
 
     Returns ``(watchlist, provenance)``. An explicit ``ctx.served_watchlist``
-    wins (tests / reproducible pins). Otherwise the ``watchlist`` array is read
-    from ``ctx.served_watchlist_path`` — default ``ctx.strategy_config``, the
-    SAME config this retrain passes to ``train_gbdt`` (so "served" means "the
-    config the produced artifact is fingerprinted against"); a plain JSON list
-    is also accepted for ``--served-watchlist-file``. Any failure (missing /
-    unreadable / not-JSON / no non-empty ``watchlist``) yields an EMPTY set
-    with ``status="unavailable"`` and the reason — it never raises, because
-    the caller's fail-closed response to an unknown served set is to classify
-    NOTHING as presumed delisted (the strict rule applies to every stale name).
+    wins (tests / reproducible pins). Otherwise the ``watchlist`` array is
+    read from ``ctx.strategy_config`` — the SAME config this retrain passes to
+    ``train_gbdt``. Any failure yields an EMPTY set with
+    ``status="unavailable"`` and the reason; it never raises.
     """
     if ctx.served_watchlist is not None:
         names = {str(t).strip().upper() for t in ctx.served_watchlist if str(t).strip()}
         return names, {"source": "explicit", "status": "ok" if names else "empty", "n": len(names)}
-    path = ctx.served_watchlist_path or ctx.strategy_config
+    path = ctx.strategy_config
     prov: dict = {"source": str(path), "n": 0}
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         prov.update(status="unavailable", reason=f"{type(exc).__name__}: {exc}")
         return set(), prov
-    raw = payload if isinstance(payload, list) else (
-        payload.get("watchlist") if isinstance(payload, dict) else None
-    )
+    raw = payload.get("watchlist") if isinstance(payload, dict) else None
     if not isinstance(raw, list) or not raw:
         prov.update(status="unavailable", reason="no non-empty 'watchlist' array")
         return set(), prov
@@ -692,35 +877,113 @@ def _resolve_served_watchlist(ctx: RetrainContext) -> "tuple[set[str], dict]":
     return names, prov
 
 
-def _freshness_report_paths(ctx: RetrainContext, expected: "dt.date") -> "tuple[Path, Path]":
-    """(dated, latest) report paths. ``freshness_report_out`` overrides the
-    DIRECTORY when it is one / does not yet exist as a file; a path ending in
-    ``.json`` is used as the ``latest`` file with the dated sibling next to it."""
+def _freshness_report_dir(ctx: RetrainContext) -> "tuple[Path, Path]":
+    """(directory, latest) for the guard's persisted outputs.
+    ``freshness_report_out`` overrides the DIRECTORY; a path ending in
+    ``.json`` is used as the ``latest`` file with the siblings next to it."""
     out = ctx.freshness_report_out
     if out is None:
         directory = ctx.repo_dir / DEFAULT_FRESHNESS_REPORT_DIRNAME
-        latest = directory / DEFAULT_FRESHNESS_REPORT_LATEST
-    elif out.suffix == ".json":
-        directory, latest = out.parent, out
+        return directory, directory / DEFAULT_FRESHNESS_REPORT_LATEST
+    if out.suffix == ".json":
+        return out.parent, out
+    return out, out / DEFAULT_FRESHNESS_REPORT_LATEST
+
+
+def _freshness_report_paths(ctx: RetrainContext, expected: "dt.date") -> "tuple[Path, Path]":
+    """(dated, latest) report paths."""
+    directory, latest = _freshness_report_dir(ctx)
+    return directory / f"freshness_report.{expected.isoformat()}.json", latest
+
+
+def _atomic_write_json(target: Path, payload: dict) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".incoming")
+    tmp.write_text(json.dumps(payload, indent=1, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def _write_effective_inventory(ctx: RetrainContext, universe: list[str], provenance: dict) -> dict:
+    """Write the FILTERED inventory the panel build consumes, so a reviewed
+    exclusion leaves the ACTUAL training universe — not only the freshness
+    accounting.
+
+    Boundary, stated honestly: the panel build is base-data's
+    (``renquant_base_data.alpha158_qlib_panel.LoadUniverseJob``) and it
+    re-reads ``tier_A_tickers`` + ``tier_B_tickers`` from the inventory file it
+    is given; it has no exclude argument and ignores ``delisted_tickers``. The
+    orchestrator therefore hands it a COPY of the inventory with the excluded
+    names removed from BOTH tier lists (everything else in the file preserved)
+    via ``--inventory``. The copy also carries ``delisted_tickers`` (the union
+    of the inventory's own key and every exclusion) and an
+    ``effective_universe`` provenance block naming each excluded ticker and
+    its reason. Written next to the freshness report (never into ``data/``).
+    An explicit ``panel_universe`` becomes a minimal inventory (tier_A = the
+    list). Invariant enforced: tier_A ∪ tier_B of the written file == the
+    resolved universe exactly.
+    """
+    source = provenance.get("source")
+    if source == "explicit":
+        payload: dict = {
+            "kind": "transformer_universe_inventory",
+            "generated_utc": None,
+            "tier_A_tickers": list(universe),
+            "tier_B_tickers": [],
+        }
     else:
-        directory, latest = out, out / DEFAULT_FRESHNESS_REPORT_LATEST
-    dated = directory / f"freshness_report.{expected.isoformat()}.json"
-    return dated, latest
+        src = json.loads(Path(source).read_text(encoding="utf-8"))
+        payload = dict(src)
+        keep = set(universe)
+        for key in ("tier_A_tickers", "tier_B_tickers"):
+            payload[key] = [str(t) for t in src.get(key, []) if str(t) in keep]
+    excluded = (
+        set(provenance.get("registry_excluded", {}))
+        | set(provenance.get("cli_excluded", []))
+        | set(provenance.get("inventory_delisted_excluded", []))
+    )
+    payload["delisted_tickers"] = sorted(
+        {str(t) for t in payload.get("delisted_tickers", [])} | excluded
+    )
+    payload["effective_universe"] = {
+        "written_by": "renquant_orchestrator.retrain_alpha158_fund",
+        "source": source,
+        "source_fingerprint": provenance.get("fingerprint"),
+        "n_universe": len(universe),
+        "registry_excluded": provenance.get("registry_excluded", {}),
+        "cli_excluded": provenance.get("cli_excluded", []),
+        "inventory_delisted_excluded": provenance.get("inventory_delisted_excluded", []),
+        "exclusion_registry": provenance.get("exclusion_registry"),
+    }
+    built = sorted(set(payload["tier_A_tickers"]) | set(payload["tier_B_tickers"]))
+    if built != sorted(universe):
+        raise RuntimeError(
+            "effective inventory invariant violated: tier lists do not equal the resolved "
+            f"universe (built={len(built)} universe={len(universe)})"
+        )
+    target = _freshness_report_dir(ctx)[0] / DEFAULT_EFFECTIVE_INVENTORY_FILENAME
+    _atomic_write_json(target, payload)
+    return {
+        "path": str(target),
+        "n_universe": len(universe),
+        "fingerprint": _fingerprint(
+            {
+                "tier_A_tickers": payload["tier_A_tickers"],
+                "tier_B_tickers": payload["tier_B_tickers"],
+                "delisted_tickers": payload["delisted_tickers"],
+            }
+        ),
+    }
 
 
 def _persist_freshness_report(ctx: RetrainContext, report: dict, expected: "dt.date") -> dict:
     """Write ``report`` to a dated file + a ``latest`` copy (atomic replace) so
-    the NEXT run and the ops drift scan can read the presumed-delisted set
+    the NEXT run and the ops drift scan can read the stale / excluded sets
     without parsing a log. Written BEFORE the verdict, so a failed run leaves
     a record too. Raises on an unwritable target (fail-closed: a run bundle
     that cannot be persisted is not a run we can audit)."""
     dated, latest = _freshness_report_paths(ctx, expected)
-    dated.parent.mkdir(parents=True, exist_ok=True)
-    blob = json.dumps(report, indent=1, sort_keys=True)
     for target in (dated, latest):
-        tmp = target.with_name(target.name + ".incoming")
-        tmp.write_text(blob, encoding="utf-8")
-        os.replace(tmp, target)
+        _atomic_write_json(target, report)
     return {"dated": str(dated), "latest": str(latest)}
 
 
@@ -1217,20 +1480,18 @@ class PanelUniverseFreshnessGuardTask(Task):
     emit a LOUD ntfy alert and — per ``freshness_fail_on_stale`` — either fail
     the retrain (default, fail-closed) or proceed with the warning.
 
-    PRESUMED-DELISTED (AVB / IAC pattern; DEFAULT_PRESUMED_DELISTED_* block):
-    before the fraction gate, a stale name whose lag exceeds
-    ``presumed_delisted_after_sessions`` AND which is NOT in the served
-    watchlist is classified ``presumed_delisted`` and EXCLUDED from the
-    guarded universe — with a WARNING log line, a non-fatal ntfy alert, and
-    the full set persisted in the freshness report — instead of vetoing the
-    retrain. Names IN the served watchlist keep the strict rule (a stale LIVE
-    name is a real problem). Missing / future-dated bars are never presumed
-    delisted (they are integrity failures). If the presumed-delisted fraction
-    exceeds ``presumed_delisted_max_fraction`` the classification is REFUSED
-    as a mass outage and every such name stays stale, so the strict gate
-    trips exactly as before. An unavailable / empty served watchlist also
-    disables the classification (fail-closed). The report is persisted
-    (dated + ``latest``) BEFORE the verdict so a failed run leaves a record.
+    REVIEWED EXCLUSIONS (AVB / IAC pattern; DEFAULT_EXCLUSION_* block): the
+    universe this guard measures has ALREADY had the reviewed registry's
+    names removed (``_resolve_panel_universe``), and the guard writes the
+    filtered EFFECTIVE inventory the panel build consumes, so an excluded name
+    leaves the actual training universe. Every name that remains is held to
+    the strict rule — there is no heuristic skip. A stale name NOT in the
+    registry vetoes, and the veto names the ticker, its lag and last bar and
+    says exactly what to do (a reviewed registry entry with evidence, or an
+    ingestion fix). Stale names outside the served watchlist additionally
+    raise an informational STALE-NON-WATCHLIST alert naming the registry path
+    (labels only; the verdict is unchanged). The report is persisted (dated +
+    ``latest``) BEFORE the verdict so a failed run leaves a record.
     """
 
     def run(self, ctx: RetrainContext) -> bool | None:
@@ -1239,15 +1500,18 @@ class PanelUniverseFreshnessGuardTask(Task):
         if ctx.dry_run:
             log.info("[dry-run] skipping panel freshness guard")
             return True
-        # A name is presumed delisted only if it is ALREADY stale (lag >
-        # stale_after_days) AND beyond the delisting horizon, so the effective
-        # horizon is the larger of the two: a per-run widened stale tolerance
-        # (a documented override) can never make a merely-lagging name look
-        # delisted.
-        delisted_after = max(ctx.presumed_delisted_after_sessions, ctx.freshness_stale_after_days)
-        # Fail closed on an unestablishable universe (raises).
+        # Fail closed on an unestablishable universe / registry (raises).
         universe, provenance = _resolve_panel_universe(ctx)
         ctx.panel_universe_provenance = provenance
+        # The filtered inventory the panel build consumes (raises if unwritable).
+        effective = _write_effective_inventory(ctx, universe, provenance)
+        provenance["effective_inventory"] = effective
+        ctx.effective_inventory_path = Path(effective["path"])
+        excluded_names = sorted(
+            set(provenance.get("registry_excluded", {}))
+            | set(provenance.get("cli_excluded", []))
+            | set(provenance.get("inventory_delisted_excluded", []))
+        )
         # Independently-derived reference session (raises if underivable).
         expected = _resolve_expected_session(ctx)
         dates = {t: _resolve_ohlcv_max_date(ctx, t) for t in universe}
@@ -1268,69 +1532,34 @@ class PanelUniverseFreshnessGuardTask(Task):
             if lag > ctx.freshness_stale_after_days:
                 stale[t] = lag
 
-        # ── Presumed-delisted classification (never touches missing/future) ──
+        # Labels only: which stale names are NOT served (the usual shape of a
+        # delisting the registry has not learned yet). Never changes the verdict.
         watchlist, watchlist_prov = _resolve_served_watchlist(ctx)
-        presumed: dict[str, int] = {}
-        refused: dict | None = None
-        if not watchlist:
-            if stale:
-                log.warning(
-                    "freshness guard: served watchlist %s (%s) — presumed-delisted "
-                    "classification DISABLED; every stale name is held to the strict rule",
-                    watchlist_prov.get("status"),
-                    watchlist_prov.get("reason", watchlist_prov.get("source")),
-                )
-        else:
-            presumed = {
-                t: lag
-                for t, lag in stale.items()
-                if lag > delisted_after and t not in watchlist
-            }
-        presumed_fraction = len(presumed) / len(universe)
-        if presumed and presumed_fraction > ctx.presumed_delisted_max_fraction:
-            refused = {
-                "reason": "mass outage, not a delisting",
-                "n": len(presumed),
-                "fraction": round(presumed_fraction, 4),
-                "max_fraction": ctx.presumed_delisted_max_fraction,
-                "names": {t: lag for t, lag in sorted(presumed.items())},
-            }
-            log.error(
-                "freshness guard: %d/%d non-watchlist names (%.2f%%) would be presumed "
-                "delisted, above the %.2f%% cap — REFUSED as a mass outage; they stay stale",
-                len(presumed),
-                len(universe),
-                presumed_fraction * 100,
-                ctx.presumed_delisted_max_fraction * 100,
+        stale_not_served = {t: lag for t, lag in stale.items() if t not in watchlist} if watchlist else {}
+        if stale and not watchlist:
+            log.warning(
+                "freshness guard: served watchlist %s (%s) — STALE-NON-WATCHLIST labelling "
+                "skipped; the strict verdict below covers every stale name",
+                watchlist_prov.get("status"),
+                watchlist_prov.get("reason", watchlist_prov.get("source")),
             )
-            presumed = {}
-        active = [t for t in universe if t not in presumed]
-        if not active:
-            raise FreshnessUnprovableError(
-                "freshness guard: every panel ticker was presumed delisted — an "
-                "empty active universe is unprovable (fail-closed)"
-            )
-        stale_active = {t: lag for t, lag in stale.items() if t not in presumed}
-        ctx.presumed_delisted = set(presumed)
-        provenance["presumed_delisted_excluded"] = sorted(presumed)
-        provenance["n_active_universe"] = len(active)
 
         # Missing and future-dated bars are integrity failures, never tolerated.
-        n_bad = len(stale_active) + len(missing) + len(future)
-        fraction = n_bad / len(active)
+        n_bad = len(stale) + len(missing) + len(future)
+        fraction = n_bad / len(universe)
         frontier = max(known.values())
         worst = sorted(
-            [(lag, t) for t, lag in stale_active.items()]
+            [(lag, t) for t, lag in stale.items()]
             + [(_session_gap(ctx, d, expected), t) for t, d in future.items()],
             reverse=True,
         )[:10]
+        remedy = _stale_remedy(ctx)
         report = {
             "expected_session": expected.isoformat(),
             "as_of_frontier": frontier.isoformat(),
             "inventory_fingerprint": provenance["fingerprint"],
             "exchange": ctx.exchange,
             "n_universe": len(universe),
-            "n_active_universe": len(active),
             "n_stale": n_bad,
             "n_missing": len(missing),
             "n_future": len(future),
@@ -1341,70 +1570,78 @@ class PanelUniverseFreshnessGuardTask(Task):
             # FULL affected-name lists (not just the worst 10) so the run bundle
             # records every ticker that tripped the gate — the exact names an
             # operator must chase before promotion.
-            "stale_names": {t: lag for t, lag in sorted(stale_active.items())},
+            "stale_names": {t: lag for t, lag in sorted(stale.items())},
+            "stale_detail": {
+                t: {"lag_sessions": lag, "last_bar": known[t].isoformat()}
+                for t, lag in sorted(stale.items())
+            },
+            "stale_not_served": {
+                t: {"lag_sessions": lag, "last_bar": known[t].isoformat()}
+                for t, lag in sorted(stale_not_served.items())
+            },
+            "served_watchlist": watchlist_prov,
             "missing_names": sorted(missing),
             "future_names": {t: d.isoformat() for t, d in sorted(future.items())},
-            # Presumed-delisted surface: the names EXCLUDED this run (with their
-            # lag and last bar), the rule's parameters, the served-watchlist
-            # provenance the rule was keyed on, and a mass-outage refusal if any.
-            "n_presumed_delisted": len(presumed),
-            "presumed_delisted_fraction": round(len(presumed) / len(universe), 4),
-            "presumed_delisted_names": {
-                t: {"lag_sessions": lag, "last_bar": known[t].isoformat()}
-                for t, lag in sorted(presumed.items())
-            },
-            "presumed_delisted_after_sessions": ctx.presumed_delisted_after_sessions,
-            "presumed_delisted_after_sessions_effective": delisted_after,
-            "presumed_delisted_max_fraction": ctx.presumed_delisted_max_fraction,
-            "presumed_delisted_refused": refused,
-            "served_watchlist": watchlist_prov,
+            # Exclusion surface: every name removed from the universe this run,
+            # with its reason, and the effective inventory the panel build reads.
+            "n_excluded": len(excluded_names),
+            "excluded_names": excluded_names,
+            "registry_excluded": provenance.get("registry_excluded", {}),
+            "cli_excluded": provenance.get("cli_excluded", []),
+            "inventory_delisted_excluded": provenance.get("inventory_delisted_excluded", []),
+            "exclusion_registry": provenance.get("exclusion_registry"),
+            "effective_inventory": effective,
+            "remedy": remedy,
             # Any deviation from the fail-closed defaults, persisted for audit.
             "overrides": _freshness_overrides(ctx),
         }
         ctx.freshness_report = report
         report["persisted_to"] = _persist_freshness_report(ctx, report, expected)
 
-        if presumed:
+        if stale_not_served:
             names_str = ", ".join(
-                f"{t}(-{lag}s, last {known[t].isoformat()})" for t, lag in sorted(presumed.items())
+                f"{t}(-{lag}s, last {known[t].isoformat()})"
+                for t, lag in sorted(stale_not_served.items())
             )
             body = (
-                f"{len(presumed)}/{len(universe)} panel ticker(s) PRESUMED DELISTED and "
-                f"excluded from the freshness-guarded universe (bars >{delisted_after} "
-                f"sessions behind expected {ctx.exchange} session {expected.isoformat()}, not in the "
-                f"served watchlist of {watchlist_prov.get('n')}): {names_str}. Retrain PROCEEDS on "
-                f"{len(active)} names. Make it versioned: add to the inventory's delisted_tickers "
-                f"or RENQUANT_RETRAIN_EXCLUDE_TICKERS. Report: {report['persisted_to']['latest']}"
+                f"{len(stale_not_served)} stale panel ticker(s) not in the served watchlist "
+                f"of {watchlist_prov.get('n')} "
+                f"(bars lag expected {ctx.exchange} session {expected.isoformat()} by "
+                f">{ctx.freshness_stale_after_days} sessions): {names_str}. NOT excluded. "
+                f"{remedy} Report: {report['persisted_to']['latest']}"
             )
-            log.warning("freshness guard PRESUMED-DELISTED: %s", body)
+            log.warning("freshness guard STALE-NON-WATCHLIST: %s", body)
             if not ctx.quiet:
-                post_ntfy("RenQuant retrain PRESUMED-DELISTED", body, ctx.ntfy_topic)
+                post_ntfy("RenQuant retrain STALE-NON-WATCHLIST", body, ctx.ntfy_topic)
 
         if fraction <= ctx.freshness_max_stale_fraction:
             log.info(
-                "freshness guard OK: %d/%d stale (%.2f%% <= %.2f%%), presumed_delisted=%d%s, "
-                "expected_session=%s",
+                "freshness guard OK: %d/%d stale (%.2f%% <= %.2f%%), excluded=%d%s, "
+                "expected_session=%s, effective_inventory=%s",
                 n_bad,
-                len(active),
+                len(universe),
                 fraction * 100,
                 ctx.freshness_max_stale_fraction * 100,
-                len(presumed),
-                f" [{', '.join(sorted(presumed))}]" if presumed else "",
+                len(excluded_names),
+                f" [{', '.join(excluded_names)}]" if excluded_names else "",
                 expected.isoformat(),
+                effective["path"],
             )
             return True
 
-        worst_str = ", ".join(f"{t}(-{lag}s)" for lag, t in worst[:8])
+        worst_str = ", ".join(
+            f"{t}(-{lag}s, last {known[t].isoformat()})" for lag, t in worst[:8]
+        )
         title = "RenQuant retrain PANEL-FREEZE"
         body = (
-            f"{n_bad}/{len(active)} panel tickers stale "
+            f"{n_bad}/{len(universe)} panel tickers stale "
             f"({fraction:.1%} > {ctx.freshness_max_stale_fraction:.1%}; "
-            f"missing={len(missing)} future={len(future)}"
-            f"{'; presumed-delisted REFUSED as mass outage' if refused else ''}); "
+            f"missing={len(missing)} future={len(future)}); "
             f"bars lag expected {ctx.exchange} session {expected.isoformat()} by "
             f">{ctx.freshness_stale_after_days} sessions. "
             f"Worst: {worst_str}. "
-            f"{'FAILING retrain' if ctx.freshness_fail_on_stale else 'proceeding with warning'}."
+            f"{'FAILING retrain' if ctx.freshness_fail_on_stale else 'proceeding with warning'}. "
+            f"{remedy}"
         )
         if not ctx.quiet:
             post_ntfy(title, body, ctx.ntfy_topic)
@@ -1415,17 +1652,36 @@ class PanelUniverseFreshnessGuardTask(Task):
 
 
 class BuildAlpha158PanelTask(Task):
+    """Build the alpha158 panel from the guard's EFFECTIVE inventory.
+
+    The panel build (base-data) re-reads tier_A/tier_B from the inventory file
+    it is given, so it is handed the filtered copy the freshness guard wrote
+    (``--inventory``) — that is how a reviewed exclusion leaves the actual
+    training universe. A real run without that file is REFUSED rather than
+    silently falling back to the raw inventory (which would re-admit every
+    excluded name). A dry-run has no guard output and previews the plain
+    command.
+    """
+
     def run(self, ctx: RetrainContext) -> bool | None:
-        _run(
-            ctx,
-            [
-                ctx.python,
-                "-m",
-                "renquant_base_data.alpha158_qlib_panel",
-                "--data-dir",
-                str(ctx.data_dir),
-            ],
-        )
+        cmd = [
+            ctx.python,
+            "-m",
+            "renquant_base_data.alpha158_qlib_panel",
+            "--data-dir",
+            str(ctx.data_dir),
+        ]
+        if ctx.effective_inventory_path is not None:
+            cmd += ["--inventory", str(ctx.effective_inventory_path)]
+        elif ctx.dry_run:
+            log.info("[dry-run] panel build would consume the guard's effective inventory")
+        else:
+            raise RuntimeError(
+                "panel build refused: the freshness guard produced no effective inventory, "
+                "so the reviewed universe exclusions cannot be applied to the panel build "
+                "(fail-closed; never fall back to the raw inventory)"
+            )
+        _run(ctx, cmd)
         return True
 
 
@@ -2004,47 +2260,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help=(
             "Comma-separated tickers to exclude from the panel universe "
-            "(supplementary to the inventory's delisted_tickers). Use for "
-            "newly-delisted names that haven't been pruned from the versioned "
-            "inventory yet — a single stale ticker blocks the entire retrain "
-            "at freshness_max_stale_fraction=0.0."
+            "(unioned with the inventory's delisted_tickers and the reviewed "
+            "--exclusion-registry). An ad-hoc per-run bridge only; the reviewed "
+            "registry is the durable path — a single stale ticker blocks the "
+            "entire retrain at freshness_max_stale_fraction=0.0."
         ),
     )
-    # ── Presumed-delisted classification (AVB / IAC pattern) ─────────────────
+    # ── Reviewed universe-exclusion registry (AVB / IAC pattern) ─────────────
     parser.add_argument(
-        "--presumed-delisted-after-sessions",
-        type=int,
-        default=DEFAULT_PRESUMED_DELISTED_AFTER_SESSIONS,
-        help=(
-            "A stale panel ticker whose newest bar lags the expected session by "
-            "MORE than this many sessions AND which is NOT in the served watchlist "
-            "is presumed delisted: excluded from the guarded universe with a "
-            "warning + ntfy alert + persisted report line, instead of vetoing the "
-            "retrain. Default 3. Names in the served watchlist always keep the "
-            "strict rule. The effective horizon is the larger of this and "
-            "--freshness-stale-after-days (a name must already be stale)."
-        ),
-    )
-    parser.add_argument(
-        "--presumed-delisted-max-fraction",
-        type=float,
-        default=DEFAULT_PRESUMED_DELISTED_MAX_FRACTION,
-        help=(
-            "Above this fraction of the panel universe, presumed delistings are "
-            "REFUSED as a mass outage (a vendor failure is not a delisting): the "
-            "names stay stale and the strict freshness gate trips. Default 0.02."
-        ),
-    )
-    parser.add_argument(
-        "--served-watchlist-file",
+        "--exclusion-registry",
         type=Path,
         default=None,
         help=(
-            "JSON file (an object with a 'watchlist' array, or a plain list) "
-            "naming the SERVED tickers the presumed-delisted rule must never "
-            "exclude. Default: the 'watchlist' of the strategy config this "
-            "retrain trains against. Unreadable/empty → the classification is "
-            "disabled (strict rule for every stale name)."
+            "The reviewed universe-exclusion registry (JSON; one entry per ticker "
+            "with reason / effective_date / evidence_url / added_by_pr). Its names "
+            "are removed from the training universe before the refresh, the guard "
+            "AND the panel build (the guard hands the panel build a filtered "
+            "inventory). Loaded fail-closed: absent or invalid → the run refuses. "
+            f"Default: {DEFAULT_EXCLUSION_REGISTRY_PATH}"
         ),
     )
     parser.add_argument(
@@ -2121,12 +2354,8 @@ def main(argv: list[str] | None = None) -> int:
         freshness_stale_after_days=args.freshness_stale_after_days,
         freshness_max_stale_fraction=args.freshness_max_stale_fraction,
         freshness_fail_on_stale=args.freshness_fail_on_stale,
-        presumed_delisted_after_sessions=args.presumed_delisted_after_sessions,
-        presumed_delisted_max_fraction=args.presumed_delisted_max_fraction,
-        served_watchlist_path=(
-            args.served_watchlist_file.expanduser().resolve()
-            if args.served_watchlist_file
-            else None
+        exclusion_registry_path=(
+            args.exclusion_registry.expanduser().resolve() if args.exclusion_registry else None
         ),
         freshness_report_out=(
             args.freshness_report_out.expanduser().resolve()

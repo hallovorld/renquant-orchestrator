@@ -52,14 +52,30 @@ def _cal_day_gap(a: dt.date, b: dt.date) -> int:
     return max((b - a).days, 0)
 
 
+EMPTY_REGISTRY = {"kind": "retrain_universe_exclusions", "schema_version": 1, "exclusions": []}
+
+
+def _registry_file(tmp_path: Path, entries: list | None = None, **top) -> Path:
+    """Write a registry under tmp_path (default: valid and EMPTY); ``top``
+    overrides top-level keys (used to break the schema on purpose)."""
+    payload = dict(EMPTY_REGISTRY)
+    payload["exclusions"] = list(entries or [])
+    payload.update(top)
+    path = tmp_path / "retrain_universe_exclusions.json"
+    path.write_text(json.dumps(payload))
+    return path
+
+
 def _ctx(tmp_path: Path, **kw) -> mod.RetrainContext:
-    # An EXPLICITLY EMPTY served watchlist disables the presumed-delisted
-    # classification, so every pre-existing guard test keeps its strict
-    # semantics AND stays deterministic: with the field unset the guard would
-    # read the strategy config's watchlist, which on the operator's disk is the
-    # live pinned config (a test that measures the operator's disk). The
-    # presumed-delisted tests below pass a served list explicitly.
+    # Deterministic defaults so no guard test measures the operator's disk:
+    # an EXPLICITLY EMPTY served watchlist (else the guard would read the live
+    # pinned strategy config) and an EMPTY exclusion registry under tmp_path
+    # (else the committed registry — which really does list IAC and AVB —
+    # would prune names these tests declare). The registry tests below write
+    # their own entries; the committed file has its own test.
     kw.setdefault("served_watchlist", [])
+    if "exclusion_registry_path" not in kw:  # not setdefault: never clobber a caller's file
+        kw["exclusion_registry_path"] = _registry_file(tmp_path)
     return mod.RetrainContext(
         repo_dir=tmp_path,
         xgb_artifact_out=tmp_path / "x.json",
@@ -797,7 +813,11 @@ def test_freshness_report_affected_names_persist_on_fail_closed(tmp_path, monkey
         mod.PanelUniverseFreshnessGuardTask().run(ctx)
     assert set(ctx.freshness_report["stale_names"]) == set(universe)
     # strict defaults → no override recorded except the pinned reference session
-    assert set(ctx.freshness_report["overrides"]) == {"expected_session_pinned"}
+    # and the tmp exclusion registry `_ctx` pins (a non-default path IS an override)
+    assert set(ctx.freshness_report["overrides"]) == {
+        "expected_session_pinned",
+        "exclusion_registry_path",
+    }
 
 
 # ─────────── CLI / integration: expected-session / as-of injection ──────────
@@ -947,33 +967,52 @@ def test_expected_session_regular_close_cutoff() -> None:
     assert mod._expected_last_completed_session("NYSE", after) == dt.date(2026, 6, 30)
 
 
-# ──────────────── presumed-delisted (AVB / IAC pattern) ────────────────────
+# ──────────── reviewed universe-exclusion registry (AVB / IAC pattern) ───────
 #
-# 2026-08-29/30: the weekly promote FAILED "PANEL-FREEZE 1/293 stale" because
-# AVB (Equity Residential merger closed 2026-08-17, last bar 2026-08-24) is
-# still in tier_A of the inventory, which ships NO delisted_tickers channel.
-# The served panel model (trained 08-02) could not be refreshed. Same pattern
-# as IAC in July (hard-coded RETRAIN_EXCLUDE_TICKERS=IAC in the umbrella).
-# The guard now classifies a stale, non-watchlist name whose bars are more
-# than N sessions behind as presumed delisted: excluded + warned + alerted +
-# persisted, never a veto. Everything else stays strict.
+# 2026-08-29/30: the weekly promote FAILED "PANEL-FREEZE 1/293 stale" on AVB
+# (Equity Residential merger closed 2026-08-17, last bar 2026-08-24), still in
+# tier_A of an inventory that ships NO delisted_tickers channel — the IAC
+# pattern from July. Review REJECTED a "stale AND not served ⇒ presumed
+# delisted" heuristic: a single-name outage, a symbol transition or an
+# ingestion gap satisfies it, and pruning a name only from the freshness
+# accounting leaves its stale rows in the panel. Exclusions are therefore
+# EXPLICIT and REVIEWED (config/retrain_universe_exclusions.json), applied to
+# the universe AND to the inventory the panel build reads; everything else
+# stays strict and the veto says exactly what to do.
 
 SERVED = ["AAPL", "MSFT", "NVDA"]
+SEC_AVB = "https://www.sec.gov/Archives/edgar/data/0000915912/000110465926097833/tm2623381d1_8k.htm"
+AVB_ENTRY = {
+    "ticker": "AVB",
+    "reason": "merged",
+    "effective_date": "2026-08-17",
+    "evidence_url": SEC_AVB,
+    "added_by_pr": "hallovorld/renquant-orchestrator#1096",
+}
+IAC_ENTRY = {
+    "ticker": "IAC",
+    "reason": "data_outage_confirmed",
+    "effective_date": "2026-05-12",
+    "evidence_url": "https://github.com/hallovorld/RenQuant/blob/main/doc/progress/2026-07-17-retrain-exclude-iac.md",
+    "added_by_pr": "hallovorld/renquant-orchestrator#1096",
+}
+EFFECTIVE_INVENTORY = Path("logs") / "daily_retrain_alpha158_fund" / "effective_universe_inventory.json"
 
 
-def _presumed_universe(n_research: int = 97) -> dict[str, dt.date]:
-    """SERVED (3) + research names, ALL fresh → 100 names, so one presumed
-    delisting is 1% (under the 2% cap) and three are 3% (over it)."""
-    md = {t: FRONTIER for t in SERVED}
-    md.update({f"R{i:03d}": FRONTIER for i in range(n_research)})
-    return md
-
-
-def _presumed_ctx(tmp_path: Path, md: dict, **kw) -> mod.RetrainContext:
-    kw.setdefault("served_watchlist", SERVED)
-    kw.setdefault("freshness_max_stale_fraction", 0.0)  # the production strict rule
-    kw.setdefault("freshness_fail_on_stale", True)
-    return _guard_ctx(tmp_path, panel_universe=sorted(md), ohlcv_max_dates=md, **kw)
+def _inventory(tmp_path: Path, tier_a: list[str], tier_b: list[str] = (), **extra) -> Path:
+    data = tmp_path / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    path = data / "transformer_universe_inventory.json"
+    payload = {
+        "kind": "transformer_universe_inventory",
+        "generated_utc": "2026-06-30T00:00:00+00:00",
+        "tier_A_tickers": list(tier_a),
+        "tier_B_tickers": list(tier_b),
+        "tier_counts": {"A": len(tier_a), "B": len(tier_b)},
+        **extra,
+    }
+    path.write_text(json.dumps(payload))
+    return path
 
 
 def _posted(monkeypatch) -> list:
@@ -982,78 +1021,448 @@ def _posted(monkeypatch) -> list:
     return posted
 
 
-def test_presumed_delisted_avb_like_is_excluded_with_alert_and_run_proceeds(
-    tmp_path, monkeypatch, caplog
-) -> None:
-    """AVB-like: newest bar 4 sessions behind, NOT in the served watchlist →
-    presumed delisted: excluded from the guarded universe, WARNING logged, a
-    non-fatal ntfy alert, the report carries the set, and the run PROCEEDS."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(tmp_path, md)
+def _strict(tmp_path: Path, md: dict, **kw) -> mod.RetrainContext:
+    kw.setdefault("served_watchlist", SERVED)
+    kw.setdefault("freshness_max_stale_fraction", 0.0)  # the production strict rule
+    kw.setdefault("freshness_fail_on_stale", True)
+    return _guard_ctx(tmp_path, ohlcv_max_dates=md, **kw)
+
+
+# ── registry parsing / validation ─────────────────────────────────────────────
+
+
+def test_registry_valid_entries_parse(tmp_path) -> None:
+    reg = _registry_file(tmp_path, [AVB_ENTRY, {**IAC_ENTRY, "notes": "vendor: no price data"}])
+    registry, prov = mod.load_exclusion_registry(reg)
+    assert sorted(registry) == ["AVB", "IAC"]
+    avb = registry["AVB"]
+    assert avb.reason == "merged"
+    assert avb.effective_date == dt.date(2026, 8, 17)
+    assert avb.evidence_url == SEC_AVB
+    assert avb.as_record() == {
+        "reason": "merged",
+        "effective_date": "2026-08-17",
+        "evidence_url": SEC_AVB,
+        "added_by_pr": "hallovorld/renquant-orchestrator#1096",
+    }
+    assert registry["IAC"].as_record()["notes"] == "vendor: no price data"
+    assert prov == {
+        "path": str(reg),
+        "n": 2,
+        "schema_version": 1,
+        "fingerprint": prov["fingerprint"],
+    }
+    assert prov["fingerprint"].startswith("sha256:")
+
+
+def test_registry_empty_is_valid_and_ticker_is_uppercased(tmp_path) -> None:
+    registry, prov = mod.load_exclusion_registry(_registry_file(tmp_path))
+    assert registry == {} and prov["n"] == 0
+    registry, _ = mod.load_exclusion_registry(
+        _registry_file(tmp_path, [{**AVB_ENTRY, "ticker": " avb "}])
+    )
+    assert list(registry) == ["AVB"]
+
+
+def test_registry_unknown_reason_rejected(tmp_path) -> None:
+    reg = _registry_file(tmp_path, [{**AVB_ENTRY, "reason": "spun_off"}])
+    with pytest.raises(mod.ExclusionRegistryError, match="reason 'spun_off' is not one of"):
+        mod.load_exclusion_registry(reg)
+
+
+def test_registry_missing_or_bad_evidence_rejected(tmp_path) -> None:
+    no_evidence = {k: v for k, v in AVB_ENTRY.items() if k != "evidence_url"}
+    with pytest.raises(mod.ExclusionRegistryError, match=r"missing required key\(s\) \['evidence_url'\]"):
+        mod.load_exclusion_registry(_registry_file(tmp_path, [no_evidence]))
+    with pytest.raises(mod.ExclusionRegistryError, match="'evidence_url' must be a non-empty string"):
+        mod.load_exclusion_registry(_registry_file(tmp_path, [{**AVB_ENTRY, "evidence_url": "  "}]))
+    with pytest.raises(mod.ExclusionRegistryError, match=r"evidence_url must be an http\(s\) URL"):
+        mod.load_exclusion_registry(
+            _registry_file(tmp_path, [{**AVB_ENTRY, "evidence_url": "doc/progress/x.md"}])
+        )
+
+
+@pytest.mark.parametrize(
+    "mutate, match",
+    [
+        (lambda e: {**e, "effective_date": "2026/08/17"}, "is not an ISO date"),
+        (lambda e: {**e, "ticker": "av b"}, "is not a symbol"),
+        (lambda e: {**e, "added_by_pr": ""}, "'added_by_pr' must be a non-empty string"),
+        (lambda e: {**e, "sessions_stale": 4}, r"unknown key\(s\) \['sessions_stale'\]"),
+        (lambda e: {**e, "notes": 7}, "'notes' must be a non-empty string"),
+        (lambda e: "AVB", "entry must be a JSON object"),
+    ],
+)
+def test_registry_entry_schema_violations_rejected(tmp_path, mutate, match) -> None:
+    with pytest.raises(mod.ExclusionRegistryError, match=match):
+        mod.load_exclusion_registry(_registry_file(tmp_path, [mutate(AVB_ENTRY)]))
+
+
+def test_registry_duplicate_ticker_rejected(tmp_path) -> None:
+    reg = _registry_file(tmp_path, [AVB_ENTRY, {**AVB_ENTRY, "reason": "delisted"}])
+    with pytest.raises(mod.ExclusionRegistryError, match="duplicate ticker AVB"):
+        mod.load_exclusion_registry(reg)
+
+
+@pytest.mark.parametrize(
+    "top, match",
+    [
+        ({"kind": "something_else"}, "kind='something_else'"),
+        ({"schema_version": 2}, "schema_version=2"),
+        ({"exclusions": {"AVB": AVB_ENTRY}}, "'exclusions' must be a list"),
+    ],
+)
+def test_registry_top_level_violations_rejected(tmp_path, top, match) -> None:
+    with pytest.raises(mod.ExclusionRegistryError, match=match):
+        mod.load_exclusion_registry(_registry_file(tmp_path, [], **top))
+
+
+def test_registry_missing_or_corrupt_file_fails_closed(tmp_path) -> None:
+    with pytest.raises(mod.ExclusionRegistryError, match="unreadable"):
+        mod.load_exclusion_registry(tmp_path / "absent.json")
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    with pytest.raises(mod.ExclusionRegistryError, match="invalid JSON"):
+        mod.load_exclusion_registry(bad)
+    bad.write_text("[]")
+    with pytest.raises(mod.ExclusionRegistryError, match="must be a JSON object"):
+        mod.load_exclusion_registry(bad)
+
+
+def test_committed_registry_is_valid_and_lists_iac_and_avb() -> None:
+    """The registry shipped in THIS repo is the production default: it must
+    parse under the strict schema and carry the two reviewed entries."""
+    expected = Path(mod.__file__).resolve().parents[2] / "config" / "retrain_universe_exclusions.json"
+    assert mod.DEFAULT_EXCLUSION_REGISTRY_PATH == expected
+    registry, prov = mod.load_exclusion_registry(mod.DEFAULT_EXCLUSION_REGISTRY_PATH)
+    assert {"IAC", "AVB"} <= set(registry)
+    assert registry["AVB"].reason == "merged"
+    assert registry["AVB"].effective_date == dt.date(2026, 8, 17)
+    assert registry["AVB"].evidence_url == SEC_AVB
+    assert registry["IAC"].effective_date == dt.date(2026, 5, 12)
+    assert registry["IAC"].reason in mod.EXCLUSION_REASONS
+    assert all(x.added_by_pr for x in registry.values())
+    assert prov["n"] == len(registry)
+
+
+# ── AVB in the registry → out of the universe, the panel build AND freshness ──
+
+
+def test_registry_entry_leaves_universe_panel_build_and_freshness(tmp_path, monkeypatch) -> None:
+    """AVB (4 sessions behind, in the registry) is removed from the resolved
+    universe, never counted stale, absent from the EFFECTIVE inventory handed
+    to the panel build (both tier lists), listed with its reason in the report
+    and the effective inventory — and the run PROCEEDS with no alert."""
+    _inventory(tmp_path, ["AAPL", "AVB", "MSFT"], ["XYZ"])
+    md = {"AAPL": FRONTIER, "MSFT": FRONTIER, "XYZ": FRONTIER, "AVB": FRONTIER - dt.timedelta(days=4)}
+    ctx = _strict(tmp_path, md, exclusion_registry_path=_registry_file(tmp_path, [AVB_ENTRY]))
     posted = _posted(monkeypatch)
 
-    with caplog.at_level("WARNING"):
-        assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-
-    rep = ctx.freshness_report
-    assert ctx.presumed_delisted == {"AVB"}
-    assert rep["n_presumed_delisted"] == 1
-    assert rep["presumed_delisted_names"] == {
-        "AVB": {"lag_sessions": 4, "last_bar": (FRONTIER - dt.timedelta(days=4)).isoformat()}
-    }
-    assert rep["presumed_delisted_refused"] is None
-    assert rep["n_universe"] == 101 and rep["n_active_universe"] == 100
-    assert rep["n_stale"] == 0 and rep["stale_fraction"] == 0.0
-    assert "AVB" not in rep["stale_names"]
-    assert rep["served_watchlist"] == {"source": "explicit", "status": "ok", "n": 3}
-    assert ctx.panel_universe_provenance["presumed_delisted_excluded"] == ["AVB"]
-    # the alert is the PRESUMED-DELISTED one, not a PANEL-FREEZE veto
-    assert [t for t, *_ in posted] == ["RenQuant retrain PRESUMED-DELISTED"]
-    assert "AVB(-4s" in posted[0][1] and "PROCEEDS" in posted[0][1]
-    assert any("PRESUMED-DELISTED" in r.message and r.levelname == "WARNING" for r in caplog.records)
-
-
-def test_presumed_delisted_is_persisted_for_next_run_and_drift_scan(tmp_path, monkeypatch) -> None:
-    """The report is written to a dated file + a latest copy under the retrain
-    log dir (default) so the next run / the drift scan can read the set."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(tmp_path, md)
-    _posted(monkeypatch)
-
     assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert posted == []
 
+    prov = ctx.panel_universe_provenance
+    assert prov["n_universe"] == 3 and prov["n_declared"] == 4
+    assert prov["registry_excluded"] == {"AVB": AVB_ENTRY_RECORD}
+    assert prov["exclusion_registry"]["n"] == 1
+    rep = ctx.freshness_report
+    assert rep["n_stale"] == 0 and rep["stale_names"] == {} and rep["n_universe"] == 3
+    assert rep["excluded_names"] == ["AVB"] and rep["n_excluded"] == 1
+    assert rep["registry_excluded"]["AVB"]["reason"] == "merged"
+    assert rep["registry_excluded"]["AVB"]["evidence_url"] == SEC_AVB
+    # the effective inventory the panel build consumes
+    eff = tmp_path / EFFECTIVE_INVENTORY
+    assert Path(rep["effective_inventory"]["path"]) == eff == ctx.effective_inventory_path
+    assert rep["effective_inventory"]["n_universe"] == 3
+    on_disk = json.loads(eff.read_text())
+    assert on_disk["tier_A_tickers"] == ["AAPL", "MSFT"]
+    assert on_disk["tier_B_tickers"] == ["XYZ"]
+    assert on_disk["delisted_tickers"] == ["AVB"]
+    assert on_disk["effective_universe"]["registry_excluded"]["AVB"]["reason"] == "merged"
+    assert on_disk["effective_universe"]["source"] == str(tmp_path / "data" / "transformer_universe_inventory.json")
+    # every other inventory key is preserved verbatim
+    assert on_disk["kind"] == "transformer_universe_inventory"
+    assert on_disk["generated_utc"] == "2026-06-30T00:00:00+00:00"
+    assert on_disk["tier_counts"] == {"A": 3, "B": 1}
+    assert not list(eff.parent.glob("*.incoming"))
+    # the panel build is handed that file, not the raw inventory
+    ctx.dry_run = True  # record the command instead of spawning base-data
+    assert mod.BuildAlpha158PanelTask().run(ctx) is True
+    cmd = ctx.commands[-1]
+    assert "renquant_base_data.alpha158_qlib_panel" in cmd
+    assert cmd[-4:] == ["--data-dir", str(tmp_path / "data"), "--inventory", str(eff)]
+
+
+AVB_ENTRY_RECORD = {k: v for k, v in AVB_ENTRY.items() if k != "ticker"}
+
+
+def test_panel_build_refuses_a_real_run_without_the_effective_inventory(tmp_path) -> None:
+    """Never fall back to the raw inventory (it would re-admit every excluded
+    name). A dry-run previews the plain command."""
+    ctx = _ctx(tmp_path)
+    with pytest.raises(RuntimeError, match="panel build refused"):
+        mod.BuildAlpha158PanelTask().run(ctx)
+    assert ctx.commands == []
+    ctx = _ctx(tmp_path, dry_run=True)
+    assert mod.BuildAlpha158PanelTask().run(ctx) is True
+    assert "--inventory" not in ctx.commands[-1]
+
+
+def test_registry_entry_is_not_refreshed_either(tmp_path) -> None:
+    _inventory(tmp_path, ["AAPL", "AVB", "MSFT"])
+    calls: list[str] = []
+
+    def fake_fetch(sym, *, timeout_sec=None):
+        calls.append(sym)
+        return _ohlcv(FRONTIER)
+
+    ctx = _ctx(
+        tmp_path,
+        fetch_fn=fake_fetch,
+        expected_session=FRONTIER,
+        session_gap_fn=_cal_day_gap,
+        exclusion_registry_path=_registry_file(tmp_path, [AVB_ENTRY]),
+    )
+    assert mod.RefreshFullUniverseOhlcvTask().run(ctx) is True
+    assert sorted(calls) == ["AAPL", "MSFT"]
+    assert ctx.ohlcv_refresh_summary["n_universe"] == 2
+
+
+# ── a stale name NOT in the registry still vetoes, and says what to do ────────
+
+
+def test_stale_name_not_in_registry_vetoes_with_actionable_message(tmp_path, monkeypatch) -> None:
+    _inventory(tmp_path, ["AAPL", "AVB", "MSFT"])
+    last_bar = FRONTIER - dt.timedelta(days=4)
+    md = {"AAPL": FRONTIER, "MSFT": FRONTIER, "AVB": last_bar}
+    ctx = _strict(tmp_path, md)  # empty registry
+    posted = _posted(monkeypatch)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    msg = str(excinfo.value)
+    assert "1/3 panel tickers stale" in msg
+    assert f"AVB(-4s, last {last_bar.isoformat()})" in msg  # ticker, lag, last bar
+    assert "add a REVIEWED entry to config/retrain_universe_exclusions.json" in msg
+    assert str(ctx.exclusion_registry_path) in msg
+    assert "otherwise fix ingestion" in msg
+    assert "never skipped silently" in msg
+    # the informational alert names the registry, then the veto alert
+    assert [t for t, *_ in posted] == [
+        "RenQuant retrain STALE-NON-WATCHLIST",
+        "RenQuant retrain PANEL-FREEZE",
+    ]
+    info = posted[0][1]
+    assert "1 stale panel ticker(s) not in the served watchlist of 3" in info
+    assert f"AVB(-4s, last {last_bar.isoformat()})" in info
+    assert "NOT excluded" in info
+    assert "config/retrain_universe_exclusions.json" in info
+    rep = ctx.freshness_report
+    assert rep["stale_names"] == {"AVB": 4}
+    assert rep["stale_detail"] == {"AVB": {"lag_sessions": 4, "last_bar": last_bar.isoformat()}}
+    assert rep["stale_not_served"] == rep["stale_detail"]
+    assert rep["served_watchlist"] == {"source": "explicit", "status": "ok", "n": 3}
+    assert rep["excluded_names"] == [] and rep["registry_excluded"] == {}
+    assert "config/retrain_universe_exclusions.json" in rep["remedy"]
+    on_disk = json.loads(
+        (tmp_path / "logs" / "daily_retrain_alpha158_fund" / "freshness_report.latest.json").read_text()
+    )
+    assert on_disk["stale_not_served"] == rep["stale_not_served"]
+
+
+def test_stale_served_name_vetoes_without_the_non_watchlist_alert(tmp_path, monkeypatch) -> None:
+    _inventory(tmp_path, ["AAPL", "MSFT"])
+    md = {"AAPL": FRONTIER - dt.timedelta(days=10), "MSFT": FRONTIER}
+    ctx = _strict(tmp_path, md)
+    posted = _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
+    assert ctx.freshness_report["stale_not_served"] == {}
+    assert ctx.freshness_report["stale_names"] == {"AAPL": 10}
+
+
+def test_unavailable_served_watchlist_skips_the_label_but_still_vetoes(tmp_path, monkeypatch) -> None:
+    """Labels only: with no served set "non-watchlist" is undefined, so the
+    informational alert is skipped (a WARNING says why) — the verdict is the
+    strict rule regardless and the veto carries the remedy."""
+    _inventory(tmp_path, ["AAPL", "AVB"])
+    md = {"AAPL": FRONTIER, "AVB": FRONTIER - dt.timedelta(days=4)}
+    ctx = _strict(tmp_path, md, served_watchlist=None, strategy_config_path=tmp_path / "absent.json")
+    posted = _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="fix ingestion"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
+    rep = ctx.freshness_report
+    assert rep["served_watchlist"]["status"] == "unavailable"
+    assert rep["stale_not_served"] == {}
+    assert rep["stale_names"] == {"AVB": 4}
+
+
+def test_served_watchlist_read_from_strategy_config(tmp_path, monkeypatch) -> None:
+    cfg = tmp_path / "strategy_config.json"
+    cfg.write_text(json.dumps({"watchlist": ["aapl", " avb "]}))
+    _inventory(tmp_path, ["AAPL", "AVB", "ZZZ"])
+    md = {"AAPL": FRONTIER, "AVB": FRONTIER - dt.timedelta(days=4), "ZZZ": FRONTIER - dt.timedelta(days=4)}
+    ctx = _strict(tmp_path, md, served_watchlist=None, strategy_config_path=cfg)
+    _posted(monkeypatch)
+    with pytest.raises(RuntimeError, match="panel tickers stale"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    rep = ctx.freshness_report
+    assert rep["served_watchlist"] == {"source": str(cfg), "status": "ok", "n": 2}
+    assert sorted(rep["stale_names"]) == ["AVB", "ZZZ"]
+    assert sorted(rep["stale_not_served"]) == ["ZZZ"]  # AVB is served here → not labelled
+
+
+# ── IAC keeps working; registry ∪ --exclude-tickers; explicit universe ───────
+
+
+def test_iac_and_avb_excluded_via_the_committed_registry_without_the_cli_bridge(
+    tmp_path, monkeypatch
+) -> None:
+    """With the umbrella's --exclude-tickers IAC bridge gone, the committed
+    registry alone keeps IAC (frozen since 2026-05-12) and AVB out."""
+    _inventory(tmp_path, ["AAPL", "AVB", "IAC", "MSFT"])
+    md = {"AAPL": FRONTIER, "MSFT": FRONTIER, "IAC": FROZEN, "AVB": FRONTIER - dt.timedelta(days=4)}
+    ctx = _strict(tmp_path, md, exclusion_registry_path=mod.DEFAULT_EXCLUSION_REGISTRY_PATH)
+    posted = _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    assert posted == []
+    rep = ctx.freshness_report
+    assert rep["excluded_names"] == ["AVB", "IAC"]
+    assert sorted(rep["registry_excluded"]) == ["AVB", "IAC"]
+    assert rep["cli_excluded"] == []
+    assert rep["n_universe"] == 2 and rep["n_stale"] == 0
+    assert "exclusion_registry_path" not in rep["overrides"]  # the default is not an override
+    on_disk = json.loads(ctx.effective_inventory_path.read_text())
+    assert on_disk["tier_A_tickers"] == ["AAPL", "MSFT"]
+    assert on_disk["delisted_tickers"] == ["AVB", "IAC"]
+
+
+def test_registry_and_exclude_tickers_union(tmp_path, monkeypatch) -> None:
+    """The CLI bridge and the registry UNION: each source is reported on its
+    own, a name in both is excluded once, and the effective inventory carries
+    the union in delisted_tickers."""
+    _inventory(tmp_path, ["AAPL", "AVB", "IAC", "MSFT", "ZZZ"], delisted_tickers=["OLD"])
+    md = {"AAPL": FRONTIER, "MSFT": FRONTIER, "IAC": FROZEN, "AVB": FROZEN, "ZZZ": FROZEN}
+    ctx = _strict(
+        tmp_path,
+        md,
+        exclude_tickers={"IAC", "ZZZ", "AVB"},
+        exclusion_registry_path=_registry_file(tmp_path, [AVB_ENTRY]),
+    )
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    prov = ctx.panel_universe_provenance
+    assert prov["cli_excluded"] == ["AVB", "IAC", "ZZZ"] and prov["n_cli_excluded"] == 3
+    assert sorted(prov["registry_excluded"]) == ["AVB"] and prov["n_registry_excluded"] == 1
+    assert prov["inventory_delisted_excluded"] == []  # OLD is not a declared name
+    assert prov["n_universe"] == 2
+    rep = ctx.freshness_report
+    assert rep["excluded_names"] == ["AVB", "IAC", "ZZZ"]
+    on_disk = json.loads(ctx.effective_inventory_path.read_text())
+    assert on_disk["tier_A_tickers"] == ["AAPL", "MSFT"]
+    assert on_disk["delisted_tickers"] == ["AVB", "IAC", "OLD", "ZZZ"]  # inventory key preserved
+
+
+def test_inventory_delisted_key_flows_into_the_effective_inventory(tmp_path, monkeypatch) -> None:
+    _inventory(tmp_path, ["AAPL", "OLD"], delisted_tickers=["OLD"])
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER, "OLD": FROZEN})
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    prov = ctx.panel_universe_provenance
+    assert prov["inventory_delisted_excluded"] == ["OLD"] and prov["n_delisted_excluded"] == 1
+    assert ctx.freshness_report["excluded_names"] == ["OLD"]
+    on_disk = json.loads(ctx.effective_inventory_path.read_text())
+    assert on_disk["tier_A_tickers"] == ["AAPL"] and on_disk["delisted_tickers"] == ["OLD"]
+
+
+def test_registry_applies_to_an_explicit_panel_universe(tmp_path, monkeypatch) -> None:
+    md = {"AAPL": FRONTIER, "AVB": FROZEN}
+    ctx = _strict(
+        tmp_path,
+        md,
+        panel_universe=["AAPL", "AVB"],
+        exclusion_registry_path=_registry_file(tmp_path, [AVB_ENTRY]),
+    )
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
+    prov = ctx.panel_universe_provenance
+    assert prov["source"] == "explicit" and prov["n_declared"] == 2 and prov["n_universe"] == 1
+    assert sorted(prov["registry_excluded"]) == ["AVB"]
+    on_disk = json.loads(ctx.effective_inventory_path.read_text())
+    assert on_disk["tier_A_tickers"] == ["AAPL"] and on_disk["tier_B_tickers"] == []
+    assert on_disk["delisted_tickers"] == ["AVB"]
+    assert on_disk["effective_universe"]["source"] == "explicit"
+    # every explicit name excluded → empty universe → fail closed
+    ctx = _strict(tmp_path, md, panel_universe=["AVB"], exclusion_registry_path=ctx.exclusion_registry_path)
+    with pytest.raises(mod.InventoryUnavailableError, match="EMPTY after the reviewed exclusion registry"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+
+
+def test_invalid_registry_fails_closed_in_guard_and_refresh(tmp_path) -> None:
+    _inventory(tmp_path, ["AAPL"])
+    bad = _registry_file(tmp_path, [{**AVB_ENTRY, "reason": "gone"}])
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER}, exclusion_registry_path=bad)
+    with pytest.raises(mod.ExclusionRegistryError, match="reason 'gone'"):
+        mod.PanelUniverseFreshnessGuardTask().run(ctx)
+    assert ctx.effective_inventory_path is None
+    ctx = _ctx(
+        tmp_path,
+        fetch_fn=lambda sym, *, timeout_sec=None: _ohlcv(FRONTIER),
+        expected_session=FRONTIER,
+        session_gap_fn=_cal_day_gap,
+        exclusion_registry_path=tmp_path / "absent.json",
+    )
+    with pytest.raises(mod.ExclusionRegistryError, match="unreadable"):
+        mod.RefreshFullUniverseOhlcvTask().run(ctx)
+
+
+# ── persisted report + overrides + CLI ───────────────────────────────────────
+
+
+def test_freshness_report_is_persisted_dated_and_latest(tmp_path, monkeypatch) -> None:
+    """The report is written to a dated file + a latest copy under the retrain
+    log dir (default), next to the effective inventory, so the next run / the
+    drift scan can read the stale and excluded sets without parsing a log."""
+    _inventory(tmp_path, ["AAPL", "AVB"])
+    md = {"AAPL": FRONTIER, "AVB": FRONTIER - dt.timedelta(days=4)}
+    ctx = _strict(tmp_path, md, exclusion_registry_path=_registry_file(tmp_path, [AVB_ENTRY]))
+    _posted(monkeypatch)
+    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
     log_dir = tmp_path / "logs" / "daily_retrain_alpha158_fund"
     latest = log_dir / "freshness_report.latest.json"
     dated = log_dir / f"freshness_report.{FRONTIER.isoformat()}.json"
     assert ctx.freshness_report["persisted_to"] == {"dated": str(dated), "latest": str(latest)}
     for path in (latest, dated):
         on_disk = json.loads(path.read_text())
-        assert sorted(on_disk["presumed_delisted_names"]) == ["AVB"]
+        assert on_disk["excluded_names"] == ["AVB"]
+        assert on_disk["registry_excluded"]["AVB"]["reason"] == "merged"
         assert on_disk["expected_session"] == FRONTIER.isoformat()
-        assert on_disk["n_presumed_delisted"] == 1
+        assert on_disk["effective_inventory"]["path"] == str(log_dir / "effective_universe_inventory.json")
     assert not list(log_dir.glob("*.incoming"))  # atomic replace left no temp
 
 
 def test_freshness_report_out_override_json_and_directory(tmp_path, monkeypatch) -> None:
-    md = _presumed_universe()
+    _inventory(tmp_path, ["AAPL"])
     _posted(monkeypatch)
-    # a .json path is the 'latest' file, dated sibling next to it
-    ctx = _presumed_ctx(tmp_path, md, freshness_report_out=tmp_path / "out" / "fr.json")
+    # a .json path is the 'latest' file, siblings next to it
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER}, freshness_report_out=tmp_path / "out" / "fr.json")
     assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
     assert (tmp_path / "out" / "fr.json").exists()
     assert (tmp_path / "out" / f"freshness_report.{FRONTIER.isoformat()}.json").exists()
-    # a directory holds both default names
-    ctx = _presumed_ctx(tmp_path, md, freshness_report_out=tmp_path / "outdir")
+    assert ctx.effective_inventory_path == tmp_path / "out" / "effective_universe_inventory.json"
+    # a directory holds the default names
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER}, freshness_report_out=tmp_path / "outdir")
     assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
     assert (tmp_path / "outdir" / "freshness_report.latest.json").exists()
+    assert (tmp_path / "outdir" / "effective_universe_inventory.json").exists()
 
 
 def test_report_is_persisted_even_when_the_guard_vetoes(tmp_path, monkeypatch) -> None:
-    md = _presumed_universe()
-    md["AAPL"] = FRONTIER - dt.timedelta(days=10)  # served AND stale → veto
-    ctx = _presumed_ctx(tmp_path, md)
+    _inventory(tmp_path, ["AAPL", "MSFT"])
+    md = {"AAPL": FRONTIER - dt.timedelta(days=10), "MSFT": FRONTIER}  # served AND stale → veto
+    ctx = _strict(tmp_path, md)
     _posted(monkeypatch)
     with pytest.raises(RuntimeError, match="panel tickers stale"):
         mod.PanelUniverseFreshnessGuardTask().run(ctx)
@@ -1061,235 +1470,37 @@ def test_report_is_persisted_even_when_the_guard_vetoes(tmp_path, monkeypatch) -
         (tmp_path / "logs" / "daily_retrain_alpha158_fund" / "freshness_report.latest.json").read_text()
     )
     assert on_disk["stale_names"] == {"AAPL": 10}
+    assert "fix ingestion" in on_disk["remedy"]
 
 
-@pytest.mark.parametrize("lag", [2, 3])
-def test_stale_within_delisting_horizon_is_still_a_stale_failure(tmp_path, monkeypatch, lag) -> None:
-    """Stale (lag > 1) but NOT beyond the 3-session delisting horizon (lag <= 3)
-    → a real stale name, not a delisting: strict 0.0 rule → FAIL. Boundary:
-    exactly 3 sessions is NOT presumed delisted (rule is strictly greater)."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=lag)
-    ctx = _presumed_ctx(tmp_path, md)
-    posted = _posted(monkeypatch)
-
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-
-    rep = ctx.freshness_report
-    assert rep["n_presumed_delisted"] == 0 and ctx.presumed_delisted == set()
-    assert rep["stale_names"] == {"AVB": lag}
-    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
-
-
-def test_one_session_lag_is_not_stale_under_the_default_and_never_presumed(tmp_path, monkeypatch) -> None:
-    """A single-session lag is the documented operational allowance: neither
-    stale nor presumed delisted — the run passes with an empty presumed set."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=1)
-    ctx = _presumed_ctx(tmp_path, md)
-    posted = _posted(monkeypatch)
+def test_non_default_registry_path_is_recorded_as_an_override(tmp_path, monkeypatch) -> None:
+    _inventory(tmp_path, ["AAPL"])
+    _posted(monkeypatch)
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER})  # _ctx pins a tmp registry
     assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    assert ctx.freshness_report["n_presumed_delisted"] == 0
-    assert ctx.freshness_report["n_stale"] == 0
-    assert posted == []
-
-
-def test_stale_name_in_served_watchlist_still_fails(tmp_path, monkeypatch) -> None:
-    """A served name 10 sessions behind is a REAL problem (a stale live name)
-    → never presumed delisted, strict rule → FAIL."""
-    md = _presumed_universe()
-    md["AAPL"] = FRONTIER - dt.timedelta(days=10)
-    ctx = _presumed_ctx(tmp_path, md)
-    posted = _posted(monkeypatch)
-
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-
-    rep = ctx.freshness_report
-    assert rep["n_presumed_delisted"] == 0
-    assert rep["stale_names"] == {"AAPL": 10}
-    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
-
-
-def test_presumed_delisted_above_max_fraction_is_refused_as_mass_outage(tmp_path, monkeypatch) -> None:
-    """3 of 100 names (3% > 2%) would qualify → REFUSED: an outage is not a
-    delisting. The names stay stale and the strict gate trips."""
-    md = _presumed_universe()
-    for t in ("R001", "R002", "R003"):
-        md[t] = FRONTIER - dt.timedelta(days=10)
-    ctx = _presumed_ctx(tmp_path, md)
-    posted = _posted(monkeypatch)
-
-    with pytest.raises(RuntimeError, match="mass outage"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-
-    rep = ctx.freshness_report
-    assert rep["n_presumed_delisted"] == 0 and ctx.presumed_delisted == set()
-    assert rep["presumed_delisted_refused"]["n"] == 3
-    assert rep["presumed_delisted_refused"]["fraction"] == 0.03
-    assert sorted(rep["presumed_delisted_refused"]["names"]) == ["R001", "R002", "R003"]
-    assert sorted(rep["stale_names"]) == ["R001", "R002", "R003"]
-    assert rep["n_active_universe"] == rep["n_universe"] == 100
-    assert [t for t, *_ in posted] == ["RenQuant retrain PANEL-FREEZE"]
-
-
-def test_two_presumed_delistings_under_the_cap_both_excluded(tmp_path, monkeypatch) -> None:
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    md["IAC"] = FROZEN
-    ctx = _presumed_ctx(tmp_path, md)
-    _posted(monkeypatch)
+    ov = ctx.freshness_report["overrides"]["exclusion_registry_path"]
+    assert ov == {"value": str(ctx.exclusion_registry_path), "default": str(mod.DEFAULT_EXCLUSION_REGISTRY_PATH)}
+    ctx = _strict(tmp_path, {"AAPL": FRONTIER}, exclusion_registry_path=None)
     assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    assert ctx.presumed_delisted == {"AVB", "IAC"}
-    assert ctx.freshness_report["presumed_delisted_fraction"] == round(2 / 102, 4)
+    assert "exclusion_registry_path" not in ctx.freshness_report["overrides"]
+    assert ctx.freshness_report["exclusion_registry"]["path"] == str(mod.DEFAULT_EXCLUSION_REGISTRY_PATH)
 
 
-def test_missing_and_future_bars_are_never_presumed_delisted(tmp_path, monkeypatch) -> None:
-    """Integrity failures stay integrity failures: a MISSING file for a
-    non-watchlist name is not a delisting (it could be a fetch failure), so the
-    run still vetoes even while a genuine presumed delisting is excluded."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    md["ZZZ"] = None
-    ctx = _presumed_ctx(tmp_path, md)
-    _posted(monkeypatch)
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-    rep = ctx.freshness_report
-    assert ctx.presumed_delisted == {"AVB"}
-    assert rep["n_missing"] == 1 and rep["missing_names"] == ["ZZZ"]
-
-
-def test_unavailable_served_watchlist_disables_the_classification(tmp_path, monkeypatch) -> None:
-    """Fail-closed: without a served set, 'not served' would match EVERY stale
-    name. An unreadable / absent watchlist → nothing is presumed delisted and
-    the strict rule vetoes as before; the report says why."""
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(
-        tmp_path, md, served_watchlist=None, served_watchlist_path=tmp_path / "absent.json"
-    )
-    _posted(monkeypatch)
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-    rep = ctx.freshness_report
-    assert rep["n_presumed_delisted"] == 0
-    assert rep["served_watchlist"]["status"] == "unavailable"
-    assert rep["served_watchlist"]["source"] == str(tmp_path / "absent.json")
-    assert rep["stale_names"] == {"AVB": 4}
-
-
-def test_served_watchlist_read_from_strategy_config_file(tmp_path, monkeypatch) -> None:
-    """The default served set is the 'watchlist' array of the strategy config
-    this retrain trains against (the SAME path handed to train_gbdt)."""
-    cfg = tmp_path / "strategy_config.json"
-    cfg.write_text(json.dumps({"watchlist": ["aapl", "MSFT", " nvda "], "other": 1}))
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    md["NVDA"] = FRONTIER - dt.timedelta(days=4)  # served → must NOT be excluded
-    ctx = _presumed_ctx(tmp_path, md, served_watchlist=None, strategy_config_path=cfg)
-    _posted(monkeypatch)
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-    rep = ctx.freshness_report
-    assert ctx.presumed_delisted == {"AVB"}  # non-served → excluded
-    assert rep["stale_names"] == {"NVDA": 4}  # served → the veto
-    assert rep["served_watchlist"] == {"source": str(cfg), "status": "ok", "n": 3}
-
-
-def test_served_watchlist_file_accepts_plain_list(tmp_path, monkeypatch) -> None:
-    wl = tmp_path / "wl.json"
-    wl.write_text(json.dumps(["AAPL", "MSFT"]))
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(tmp_path, md, served_watchlist=None, served_watchlist_path=wl)
-    _posted(monkeypatch)
-    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    assert ctx.presumed_delisted == {"AVB"}
-    assert ctx.freshness_report["served_watchlist"]["n"] == 2
-
-
-def test_empty_served_watchlist_disables_the_classification(tmp_path, monkeypatch) -> None:
-    md = _presumed_universe()
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(tmp_path, md, served_watchlist=[])
-    _posted(monkeypatch)
-    with pytest.raises(RuntimeError, match="panel tickers stale"):
-        mod.PanelUniverseFreshnessGuardTask().run(ctx)
-    assert ctx.freshness_report["served_watchlist"]["status"] == "empty"
-    assert ctx.freshness_report["n_presumed_delisted"] == 0
-
-
-def test_effective_delisting_horizon_is_max_of_stale_and_delisted_horizons(tmp_path, monkeypatch) -> None:
-    """A per-run widened stale tolerance (stale_after=10, a documented override)
-    must not let a merely-lagging name read as delisted: a name must ALREADY be
-    stale. lag 5 → not stale, not presumed; lag 12 → stale AND beyond → presumed."""
-    md = _presumed_universe()
-    md["R001"] = FRONTIER - dt.timedelta(days=5)
-    md["AVB"] = FRONTIER - dt.timedelta(days=12)
-    ctx = _presumed_ctx(tmp_path, md, freshness_stale_after_days=10)
-    _posted(monkeypatch)
-    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    rep = ctx.freshness_report
-    assert rep["presumed_delisted_after_sessions"] == 3
-    assert rep["presumed_delisted_after_sessions_effective"] == 10
-    assert ctx.presumed_delisted == {"AVB"}
-    assert rep["n_stale"] == 0  # R001 at lag 5 is within the widened tolerance
-
-
-def test_exclude_tickers_iac_bridge_still_works_alongside_presumed_delisted(tmp_path, monkeypatch) -> None:
-    """The umbrella still passes --exclude-tickers IAC; the versioned exclude
-    keeps pruning IAC from the universe BEFORE classification, so IAC is
-    neither stale nor presumed delisted, while AVB is presumed delisted."""
-    md = _presumed_universe()
-    md["IAC"] = FROZEN
-    md["AVB"] = FRONTIER - dt.timedelta(days=4)
-    ctx = _presumed_ctx(tmp_path, md, exclude_tickers={"IAC"})
-    ctx.panel_universe = None  # source from an inventory so exclude_tickers applies
-    data = tmp_path / "data"
-    data.mkdir(parents=True)
-    (data / "transformer_universe_inventory.json").write_text(
-        json.dumps({"kind": "transformer_universe_inventory", "generated_utc": "x",
-                    "tier_A_tickers": sorted(md), "tier_B_tickers": []})
-    )
-    _posted(monkeypatch)
-    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    assert ctx.presumed_delisted == {"AVB"}
-    assert ctx.panel_universe_provenance["cli_excluded"] == ["IAC"]
-    assert "IAC" not in ctx.freshness_report["stale_names"]
-    assert ctx.freshness_report["n_universe"] == 101  # 102 declared − IAC
-
-
-def test_presumed_delisted_overrides_are_recorded(tmp_path, monkeypatch) -> None:
-    md = _presumed_universe()
-    ctx = _presumed_ctx(
-        tmp_path, md, presumed_delisted_after_sessions=5, presumed_delisted_max_fraction=0.05
-    )
-    _posted(monkeypatch)
-    assert mod.PanelUniverseFreshnessGuardTask().run(ctx) is True
-    ov = ctx.freshness_report["overrides"]
-    assert ov["presumed_delisted_after_sessions"] == {"value": 5, "default": 3}
-    assert ov["presumed_delisted_max_fraction"] == {"value": 0.05, "default": 0.02}
-    # defaults are NOT recorded as overrides
-    ctx2 = _presumed_ctx(tmp_path, md)
-    assert mod.PanelUniverseFreshnessGuardTask().run(ctx2) is True
-    assert "presumed_delisted_after_sessions" not in ctx2.freshness_report["overrides"]
-
-
-def test_cli_presumed_delisted_flags_and_defaults() -> None:
+def test_cli_exclusion_registry_flag_and_presumed_delisted_flags_removed() -> None:
     args = mod.parse_args(["--repo-dir", "/tmp/_test_repo", "--dry-run"])
-    assert args.presumed_delisted_after_sessions == 3
-    assert args.presumed_delisted_max_fraction == 0.02
-    assert args.served_watchlist_file is None
+    assert args.exclusion_registry is None
     assert args.freshness_report_out is None
     args = mod.parse_args(
-        ["--repo-dir", "/tmp/_test_repo", "--presumed-delisted-after-sessions", "5",
-         "--presumed-delisted-max-fraction", "0.01", "--served-watchlist-file", "/tmp/wl.json",
+        ["--repo-dir", "/tmp/_test_repo", "--exclusion-registry", "/tmp/reg.json",
          "--freshness-report-out", "/tmp/fr", "--exclude-tickers", "IAC"]
     )
-    assert args.presumed_delisted_after_sessions == 5
-    assert args.presumed_delisted_max_fraction == 0.01
-    assert args.served_watchlist_file == Path("/tmp/wl.json")
+    assert args.exclusion_registry == Path("/tmp/reg.json")
     assert args.freshness_report_out == Path("/tmp/fr")
     assert args.exclude_tickers == "IAC"
+    for flag in (
+        ["--presumed-delisted-after-sessions", "5"],
+        ["--presumed-delisted-max-fraction", "0.01"],
+        ["--served-watchlist-file", "/tmp/wl.json"],
+    ):
+        with pytest.raises(SystemExit):
+            mod.parse_args(["--repo-dir", "/tmp/_test_repo", *flag])
