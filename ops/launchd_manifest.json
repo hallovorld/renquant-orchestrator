@@ -21,6 +21,13 @@
       ],
       "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c"
     },
+    "com.renquant.daily-earnings-surprise": {
+      "_schedule_comment": "Mon-Fri 06:00 PT (scripts/launchd/com.renquant.daily-earnings-surprise.plist in the umbrella). WHY THIS SLOT: refreshes PEAD/SUE only for tickers with a print in the last 7 days, selected from the prod earnings calendar that com.renquant.earnings-calendar-refresh rewrites at 05:40 the same morning; finishes before the 06:05 dawn preflight. The Saturday 04:00 weekly-fundamental-refresh full pass stays authoritative for the whole watchlist. 2026-08-30 data-audit fix: weekly-only cadence left PEAD/SUE median-imputed for up to a week after a print.",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_earnings_surprise_refresh.sh"
+      ],
+      "program_args_sha256": "bac22ae731521374cb6572a563ee0c30813a97807d65368c5438757c03f80e10"
+    },
     "com.renquant.daily-iv-snapshot": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_iv_snapshot.sh"
@@ -40,6 +47,13 @@
         "/Users/renhao/git/github/RenQuant/scripts/daily_104.sh"
       ],
       "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129"
+    },
+    "com.renquant.earnings-calendar-refresh": {
+      "_schedule_comment": "Mon-Fri 05:40 PT + Sat 04:40 PT (scripts/launchd/com.renquant.earnings-calendar-refresh.plist in the umbrella). WHY THIS SLOT: every session morning before the 06:00 earnings-surprise refresh (which selects on this calendar) and the 06:05 dawn preflight; the Saturday anchor sits clear of weekly-fundamental-refresh (04:00). 2026-08-30 data-audit fix: the calendar producer was never scheduled — the prod artifact froze at 2026-04-24 (last date 2026-07-24) and the pre/post-earnings buffer silently could not fire for any later print.",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/refresh_earnings_calendar.sh"
+      ],
+      "program_args_sha256": "f13d8d6f76e9844de60f0b4e1efc2c9aa2b3369cd34d375b2a590793eeca0d39"
     },
     "com.renquant.intraday104": {
       "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence.",

@@ -196,6 +196,21 @@ PREVIOUS_DRIFT_PROGRAM_ARGS_SHA256 = (
     "bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2"
 )
 
+#: The two earnings jobs DECLARED on the reviewed surface 2026-08-30
+#: (orch#1102; wrappers + plists in umbrella RenQuant#627, merged the same
+#: day) and NOT yet installed — the operator's landing batch (cp the two
+#: plists from the umbrella's scripts/launchd/ + bootstrap) is pending. Until
+#: it lands, the scheduled drift scan alarms `manifested job … missing from
+#: disk` for exactly these two labels (containment protocol c — the designed
+#: reminder); the hermetic test below pins that alarm shape, and the opt-in
+#: operator-disk class names the same two as its PENDING_INSTALL relaxation.
+#: Delete from BOTH places once the exact-equality test goes red with
+#: resolved=[...].
+EARNINGS_JOBS_PENDING_INSTALL_2026_08_30 = (
+    "com.renquant.daily-earnings-surprise",
+    "com.renquant.earnings-calendar-refresh",
+)
+
 #: Where the reviewed plist for each intent-declaring job is committed.
 COMMITTED_PLISTS = {
     "com.renquant.rq104-dawn-preflight": "deploy/com.renquant.rq104-dawn-preflight.plist",
@@ -263,7 +278,7 @@ class TestCommittedManifestAgainstFixtures:
                 spec["program_args"]), label
 
     def test_installed_equals_manifest_is_clean(self, tmp_path):
-        """installed == manifest, for all 40 jobs, intents included → no issue."""
+        """installed == manifest, for every manifested job, intents included → no issue."""
         agents = _fixture_agents_from_manifest(tmp_path)
         assert drift.check_launchd_surface(str(MANIFEST_PATH), str(agents)) == []
 
@@ -357,6 +372,23 @@ class TestCommittedManifestAgainstFixtures:
             "(add to ops/launchd_manifest.json via a reviewed change)",
         ]
 
+    def test_the_two_earnings_jobs_absent_from_disk_alarm_as_missing(self, tmp_path):
+        """The pre-landing disk for orch#1102: the two earnings jobs declared
+        but not installed. Exactly two problems, both `missing from disk`,
+        one per label, and NOTHING else — the shape the scheduled scan
+        reports until the operator's landing batch, and the shape the opt-in
+        PENDING_INSTALL relaxation names (same tuple, one source)."""
+        for label in EARNINGS_JOBS_PENDING_INSTALL_2026_08_30:
+            assert label in _manifest_jobs(), label
+        agents = _fixture_agents_from_manifest(tmp_path)
+        for label in EARNINGS_JOBS_PENDING_INSTALL_2026_08_30:
+            (agents / f"{label}.plist").unlink()
+        problems = drift.check_launchd_surface(str(MANIFEST_PATH), str(agents))
+        assert problems == [
+            f"launchd: manifested job {label} missing from disk"
+            for label in sorted(EARNINGS_JOBS_PENDING_INSTALL_2026_08_30)
+        ], problems
+
 
 # --- Operator-disk smoke test (OPT-IN: RENQUANT_DRIFT_DISK_TESTS=1) ---------
 
@@ -386,9 +418,13 @@ class TestOperatorDiskSurface:
 
     #: Jobs DECLARED on the reviewed run surface that are not yet installed.
     #: History: 2026-08-03 all three then-pending jobs installed; 2026-08-04
-    #: (orch#801) the fleet-lane sentinel needs no launchd job. Empty until a
-    #: future reviewed job declares a pending state by name.
-    PENDING_INSTALL: set[str] = set()
+    #: (orch#801) the fleet-lane sentinel needs no launchd job; 2026-08-30
+    #: (orch#1102) the two earnings jobs declared, plists in umbrella
+    #: RenQuant#627, install pending the operator's landing batch — see
+    #: EARNINGS_JOBS_PENDING_INSTALL_2026_08_30 above (one source for this
+    #: set and the hermetic alarm test). Delete the entries once the
+    #: exact-equality test below goes red with resolved=[...].
+    PENDING_INSTALL: set[str] = set(EARNINGS_JOBS_PENDING_INSTALL_2026_08_30)
 
     #: Jobs whose manifest entry declares an INTENT (run_at_load / keep_alive)
     #: the installed plist does not yet carry: label -> the value the PREVIOUS
