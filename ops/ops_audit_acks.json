@@ -15,7 +15,7 @@
       "0"
     ],
     "reason": "Census renewal 46->48 scanned, 30->32 canonical-only (2 new artifacts are canonical-only, i.e. each carries ONE gate stamp and cannot disagree with itself). The 16 both-copy artifacts and 0 served count are unchanged [VERIFIED 2026-08-31 detector run]. The parity situation is identical to the 2026-08-29 ack. The one verdict-disagreeing artifact (panel-ltr.alpha158_fund.weekly_rollback_2026-07-06.json, canonical passed=False / legacy passed=True with operator_authorized_override) is still explained [VERIFIED 2026-08-31].",
-    "clears_when": "The served count leaves 0 - which moves a number IN the fingerprinted summary, so a config change alone reports ACKED_BUT_CHANGED even with every census count unchanged [codex on orch#829]. Same for any legacy-only artifact appearing, or the both-copy count moving. It also expires 2026-09-12 regardless (acked_at + ACK_MAX_AGE_DAYS=14, the effective bound).",
+    "clears_when": "The served count leaves 0 - which moves a number IN the fingerprinted summary, so a config change alone reports ACKED_BUT_CHANGED even with every census count unchanged [codex on orch#829]. Same for any legacy-only artifact appearing, or the both-copy count moving. It also expires 2026-09-14 regardless (acked_at 2026-08-31 + ACK_MAX_AGE_DAYS=14, the effective bound).",
     "not_acked_note": "This acks ONLY the parity census. It does not ack booster-identity, whose COLLAPSE line (36 artifacts -> 15 distinct boosters under one identity sha256:cfdd6cb8e950da0f) is a REAL open defect - the WF gate admits on the recipe hash and never scores the candidate's booster. Acking that would be the failure this ledger exists to avoid."
   },
   "1af4f5ed284b8ea0": {
