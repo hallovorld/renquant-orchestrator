@@ -88,9 +88,9 @@ free slots) at the smallest structural change.
    exits (the cap gates ENTRIES only).
    *Monitoring gates (first 10 completed sessions post-deploy):*
 
-   **Eligibility.** G1 and G2 use sessions where at least one buy order was
-   placed (model-lapse and holiday sessions excluded). G3 uses ALL sessions
-   where the pipeline ran and at least one name passed the buy-admission gate
+   **Eligibility.** G1 uses sessions where at least one buy order was placed
+   (model-lapse and holiday sessions excluded). G3 uses ALL sessions where
+   the pipeline ran and at least one name passed the buy-admission gate
    pre-wash (i.e., a buy intent existed) — sessions blocked by wash-sale ARE
    eligible for G3, since that is exactly what it measures. If fewer than 5
    eligible sessions accumulate in either window, that gate is INCONCLUSIVE
@@ -101,9 +101,9 @@ free slots) at the smallest structural change.
 
    | gate | metric | source | formula | breach rule |
    |---|---|---|---|---|
-   | G1 deployment | `deployed_pct` | run bundle `equity_snapshot` | `sum(position_market_value) / net_liquidation_value` at session close | 10-session median < 25% (halfway between today's ~17% and the grid's 32.6%) |
-   | G2 price tilt | `integer_tilt` | run bundle `order_log` + `decision_ledger` | `median(fill_price of new buys) / median(last_close of all cap-admitted names)` per session; denominator uses `last_close` from the decision ledger's scored universe (persisted for every admitted name whether or not it was bought) | 10-session median > 1.35× (midpoint between today's 1.28× and cap-15's 1.40×) |
-   | G3 wash block | `wash_block_count` | run bundle `decision_ledger` | count of sessions where `wash_sale_mass_block` zeroed all buys AND at least one name passed the pre-wash buy-admission gate | post count > baseline count + 2 (i.e., absolute count comparison on equal 10-session windows; +2 allows for one extra blocked session beyond normal variance) |
+   | G1 deployment | `invested_fraction` | `daily_trading_health.build_cash_deployment_signal` via account snapshot (`portfolio_value`, `cash` from broker read API) [VERIFIED — `daily_trading_health.py:333-341`] | `1 - cash / portfolio_value` at session close | 10-session median < 25% (halfway between today's ~17% and the grid's 32.6%) |
+   | G2 price tilt | DEFERRED | not computable from current schema — `candidate_scores` records (`ticker`, `panel_score`, `selected`, `blocked_by`) but no close price; `decision_ledger` records (`gate`, `verdict`, `reason`, `inputs_json`) but no price field [VERIFIED — DDL in `renquant_common/decision_ledger.py:23-29`, `l3_candidate_dataset.py:105` column list] | **prerequisite**: pipeline adds `close` (prior-close price) to `candidate_scores` rows for all admitted names, then: `median(fill_price of new buys) / median(close of all cap-admitted names)` per session | deferred until prerequisite lands; the AC1 grid measured cap-10 integer tilt at 1.20x (better than today's 1.28x), so the expected direction is favorable |
+   | G3 wash block | `wash_block_rate` | `decision_ledger` — `gate = 'wash_sale_mass_block'`, `verdict = 'block'`, one row per `(run_id, scope=ticker)` [VERIFIED — DDL `PRIMARY KEY (run_id, scope, gate)`] | sessions where every name with buy intent received `verdict = 'block'` from `wash_sale_mass_block` / total eligible sessions (sessions with at least one buy-intent name) | 10-session block rate > baseline block rate + 0.20 (i.e., if baseline has 2/10 = 20% blocked, breach at > 40%; the +0.20 absolute-rate margin allows for one extra blocked session per 5 eligible) |
 
    A breach on ANY gate → revert PR filed within 24h of detection, findings
    appended to this doc. The revert is a single-key change

@@ -24,11 +24,16 @@ EVIDENCE:
   r2 staged plan: (1) cap only now, authority = LONG row 2b (orch#1049);
                   monitoring gates (first 10 sessions, gate-specific
                   eligibility, min 5 each window):
-                  G1 deployed_pct median >= 25%,
-                  G2 integer_tilt median <= 1.35x (fill_price / last_close),
-                  G3 wash_block_count post <= baseline + 2 (absolute);
-                  any breach -> revert PR within 24h. Full formulas, source
-                  fields, and eligibility rules in the research doc.
+                  G1 invested_fraction median >= 25% (source:
+                  daily_trading_health.build_cash_deployment_signal),
+                  G2 DEFERRED — price tilt not computable from current
+                  schema (candidate_scores lacks close price; decision_ledger
+                  lacks price); prerequisite = pipeline adds close to
+                  candidate_scores; AC1 grid measured 1.20x (favorable),
+                  G3 wash_block_rate post <= baseline + 0.20 absolute
+                  (source: decision_ledger gate='wash_sale_mass_block');
+                  any G1/G3 breach -> revert PR within 24h. Full formulas,
+                  source fields, and eligibility rules in the research doc.
                   (2) fractional separately: umbrella broker-adapter PR
                   implementing is_fractionable on the ACTIVE adapter,
                   software-stops stage-3 arming, then one-bit flip under
