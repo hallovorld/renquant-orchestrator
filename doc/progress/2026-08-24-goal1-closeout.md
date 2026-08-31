@@ -22,10 +22,13 @@ EVIDENCE:
                  at minimum structural change; 15 buys +12pp with worst
                  tilt regime (1.40x).
   r2 staged plan: (1) cap only now, authority = LONG row 2b (orch#1049);
-                  monitoring gates (first 10 sessions): median deployment
-                  toward ~32%, realized integer price-tilt <= 1.28x,
-                  wash-sale block-session rate no rise vs trailing baseline;
-                  any gate failing -> revert PR.
+                  monitoring gates (first 10 completed sessions, baseline =
+                  10 pre-deploy sessions, min 5 eligible each window):
+                  G1 deployed_pct 10-session median >= 25%,
+                  G2 integer_tilt 10-session median <= 1.35x,
+                  G3 wash_block_rate post <= baseline + 1 session;
+                  any breach -> revert PR within 24h. Formulas and sources
+                  in the research doc.
                   (2) fractional separately: umbrella broker-adapter PR
                   implementing is_fractionable on the ACTIVE adapter,
                   software-stops stage-3 arming, then one-bit flip under

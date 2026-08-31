@@ -86,11 +86,23 @@ free slots) at the smallest structural change.
    *Rollback*: single-key revert PR + pin advance — no state migration; if
    the book holds >8 names at revert time, positions age out through normal
    exits (the cap gates ENTRIES only).
-   *Monitoring gates (first 10 sessions post-deploy)*: median deployment
-   (expect movement toward ~32%), realized integer price-tilt (expect ≤
-   today's 1.28×), wash-sale block-session rate (expect no rise vs the
-   trailing baseline); any gate failing → revert PR, findings appended to
-   this doc.
+   *Monitoring gates (first 10 completed sessions post-deploy):*
+
+   Pre-deploy baseline: the 10 sessions immediately before the pin advance
+   that activates cap 10 (all under cap 8). Sessions with zero buys
+   (model lapse, holiday) are excluded from both baseline and post windows;
+   if fewer than 5 eligible sessions remain in either window, the gate is
+   INCONCLUSIVE and the window extends until 5 are collected.
+
+   | gate | metric | source | formula | breach rule |
+   |---|---|---|---|---|
+   | G1 deployment | `deployed_pct` | run bundle `equity_snapshot` | `sum(position_market_value) / net_liquidation_value` at session close | 10-session median < 25% (halfway between today's ~17% and the grid's 32.6%) |
+   | G2 price tilt | `integer_tilt` | run bundle `order_log` | `median(fill_price of new buys) / median(fill_price of all cap-admitted names)` per session | 10-session median > 1.35× (midpoint between today's 1.28× and cap-15's 1.40×) |
+   | G3 wash block | `wash_block_rate` | run bundle `decision_ledger` | `count(sessions where wash_sale_mass_block zeroed all buys) / count(eligible sessions)` | post rate > baseline rate + 1 session (i.e., more than 1 additional blocked session in 10, accounting for the ~3/5 baseline rate) |
+
+   A breach on ANY gate → revert PR filed within 24h of detection, findings
+   appended to this doc. The revert is a single-key change
+   (`max_concurrent_positions: 10 → 8`) + pin advance; no state migration.
 2. **Fractional, separately, under its own contract**: (a) umbrella
    broker-adapter PR implementing the renquant-execution#19 contract on the
    ACTIVE adapter (`live/alpaca_broker.py`); (b) software-stops stage-3
