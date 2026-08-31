@@ -88,17 +88,22 @@ free slots) at the smallest structural change.
    exits (the cap gates ENTRIES only).
    *Monitoring gates (first 10 completed sessions post-deploy):*
 
+   **Eligibility.** G1 and G2 use sessions where at least one buy order was
+   placed (model-lapse and holiday sessions excluded). G3 uses ALL sessions
+   where the pipeline ran and at least one name passed the buy-admission gate
+   pre-wash (i.e., a buy intent existed) — sessions blocked by wash-sale ARE
+   eligible for G3, since that is exactly what it measures. If fewer than 5
+   eligible sessions accumulate in either window, that gate is INCONCLUSIVE
+   and the window extends until 5 are collected.
+
    Pre-deploy baseline: the 10 sessions immediately before the pin advance
-   that activates cap 10 (all under cap 8). Sessions with zero buys
-   (model lapse, holiday) are excluded from both baseline and post windows;
-   if fewer than 5 eligible sessions remain in either window, the gate is
-   INCONCLUSIVE and the window extends until 5 are collected.
+   that activates cap 10 (all under cap 8), with gate-specific eligibility.
 
    | gate | metric | source | formula | breach rule |
    |---|---|---|---|---|
    | G1 deployment | `deployed_pct` | run bundle `equity_snapshot` | `sum(position_market_value) / net_liquidation_value` at session close | 10-session median < 25% (halfway between today's ~17% and the grid's 32.6%) |
-   | G2 price tilt | `integer_tilt` | run bundle `order_log` | `median(fill_price of new buys) / median(fill_price of all cap-admitted names)` per session | 10-session median > 1.35× (midpoint between today's 1.28× and cap-15's 1.40×) |
-   | G3 wash block | `wash_block_rate` | run bundle `decision_ledger` | `count(sessions where wash_sale_mass_block zeroed all buys) / count(eligible sessions)` | post rate > baseline rate + 1 session (i.e., more than 1 additional blocked session in 10, accounting for the ~3/5 baseline rate) |
+   | G2 price tilt | `integer_tilt` | run bundle `order_log` + `decision_ledger` | `median(fill_price of new buys) / median(last_close of all cap-admitted names)` per session; denominator uses `last_close` from the decision ledger's scored universe (persisted for every admitted name whether or not it was bought) | 10-session median > 1.35× (midpoint between today's 1.28× and cap-15's 1.40×) |
+   | G3 wash block | `wash_block_count` | run bundle `decision_ledger` | count of sessions where `wash_sale_mass_block` zeroed all buys AND at least one name passed the pre-wash buy-admission gate | post count > baseline count + 2 (i.e., absolute count comparison on equal 10-session windows; +2 allows for one extra blocked session beyond normal variance) |
 
    A breach on ANY gate → revert PR filed within 24h of detection, findings
    appended to this doc. The revert is a single-key change
