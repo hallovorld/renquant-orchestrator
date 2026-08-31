@@ -9,9 +9,9 @@
     "local test detects drift between this contract and the live wrapper; the local",
     "source pin is an ADDITIONAL check, not the proof."
   ],
-  "captured": "2026-08-24 | re-captured RenQuant#603/#604: exit-code-derived 'chain complete'/'PASS' replaced with positive outcome vocabulary (PROMOTED / RAN, NOTHING PROMOTED / FAILED / OUTCOME UNVERIFIED) classified from the child's own markers; orch#1052",
+  "captured": "2026-08-30 | re-captured after wf_promote_outcome.sh shared lib adoption",
   "wrappers": {
-    "scripts/weekly_wf_promote.sh": "63c3d1ac70f06ea9",
+    "scripts/weekly_wf_promote.sh": "7f596ae7ff4b1e9d",
     "scripts/conditional_retrain_104.sh": "eedeba2155907596",
     "scripts/retrain_panel.sh": "b37cf748a83182d6"
   },
@@ -20,14 +20,14 @@
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote PASSED at $(date) \u2014 $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:714",
+      "source": "scripts/weekly_wf_promote.sh:717",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "action",
       "template": "=== weekly_wf_promote FALLBACK-PROMOTED (rfc210) at $(date) \u2014 $GATE_SUMMARY ===",
-      "source": "scripts/weekly_wf_promote.sh:710",
+      "source": "scripts/weekly_wf_promote.sh:713",
       "observed_in_logs": false,
       "_comment": "RFC#210 freshness-fallback action (RenQuant#559 Step 4b): the served artifact CHANGED, so the sentinel counts it as ACTION \u2014 a fallback promotion clearing the streak is the #101 design, not a relaxation."
     },
@@ -44,14 +44,14 @@
       "job": "weekly-wf-promote",
       "kind": "refusal",
       "template": "WF gate REJECTED staged model \u2014 production unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:516",
+      "source": "scripts/weekly_wf_promote.sh:519",
       "observed_in_logs": "logs/weekly_wf_promote/2026-08-01.log"
     },
     {
       "job": "weekly-wf-promote",
       "kind": "refusal",
       "template": "RFC#210 fallback verdict: REFUSE \u2014 production unchanged. See $FALLBACK_JSON",
-      "source": "scripts/weekly_wf_promote.sh:509",
+      "source": "scripts/weekly_wf_promote.sh:512",
       "observed_in_logs": "logs/weekly_wf_promote/2026-08-04.log",
       "_comment": "orch#1006/D1: the freshness fallback's own refusal verdict. Today it is always followed by the REJECTED line, but the watch must not rest on that coupling."
     },
@@ -59,14 +59,14 @@
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Promote FAILED \u2014 production may still be on prior model or .previous rollback target.",
-      "source": "scripts/weekly_wf_promote.sh:655",
+      "source": "scripts/weekly_wf_promote.sh:658",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Training FAILED \u2014 production artifact unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:434",
+      "source": "scripts/weekly_wf_promote.sh:437",
       "observed_in_logs": "logs/weekly_wf_promote/2026-07-31.log",
       "_comment": "orch#1006/D4: 12 logs end on this line and matched NOTHING, so 8 real Step-3 failures classified `undecided` and were dropped from the streak tally."
     },
@@ -74,21 +74,21 @@
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Training FAILED \u2014 staging artifacts missing.",
-      "source": "scripts/weekly_wf_promote.sh:439",
+      "source": "scripts/weekly_wf_promote.sh:442",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "WF manifest stamping/recipe validation FAILED \u2014 production unchanged.",
-      "source": "scripts/weekly_wf_promote.sh:464",
+      "source": "scripts/weekly_wf_promote.sh:467",
       "observed_in_logs": false
     },
     {
       "job": "weekly-wf-promote",
       "kind": "failure",
       "template": "Fallback promote FAILED \u2014 production may still be on prior model or .previous rollback target.",
-      "source": "scripts/weekly_wf_promote.sh:559",
+      "source": "scripts/weekly_wf_promote.sh:562",
       "observed_in_logs": false
     },
     {
