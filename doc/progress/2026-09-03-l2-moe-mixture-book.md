@@ -1,4 +1,4 @@
-# L2 MoE mixture book — the mixture-of-experts allocation marked daily in shadow   (PR TBD)
+# L2 MoE mixture book — the mixture-of-experts allocation marked daily in shadow   (PR #1114)
 
 STATUS:    delivered — derived view, no live surface, no ntfy.
 WHAT:      `l2_paper_bandit.py` gains `mixture_view()` + `write_mixture()`: on
