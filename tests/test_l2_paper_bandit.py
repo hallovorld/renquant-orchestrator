@@ -142,7 +142,7 @@ def test_mixture_compounds_and_tracks_champion_and_best_fixed_arm():
     assert mrows[-1]["mixture_value"] == pytest.approx(expected, abs=1e-5)
     assert mrows[-1]["champion_value"] == pytest.approx(1.0201, abs=1e-6)
     assert mrows[-1]["best_fixed_arm"] != l2.CHAMPION
-    assert mrows[-1]["best_fixed_arm_value"] == pytest.approx(1.0404, abs=1e-6)
+    assert mrows[-1]["best_fixed_arm_value"] == pytest.approx(1.0404, abs=1e-6)   # consecutive marks: held every step
     assert mrows[-1]["mixture_minus_champion"] == pytest.approx(
         mrows[-1]["mixture_value"] - mrows[-1]["champion_value"], abs=1e-6)
 
@@ -183,5 +183,26 @@ def test_gap_catch_up_magnitude_never_enters_the_mixture():
     assert small[1]["mixture_return"] == pytest.approx(big[1]["mixture_return"], abs=1e-9)
     assert small[1]["mixture_value"] == pytest.approx(big[1]["mixture_value"], abs=1e-9)
     assert big[1]["mixture_return"] == pytest.approx(big[1]["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
-    # per-arm book values DO differ (they book every mark) — the comparison surface is honest
-    assert big[1]["best_fixed_arm_value"] > small[1]["best_fixed_arm_value"]
+    # codex #1114 r2: the comparators live under the SAME rule — a gap catch-up
+    # changes NEITHER side of the stated regret comparison
+    for k in ("best_fixed_arm_value", "champion_value", "mixture_minus_champion", "arm_values_held"):
+        assert small[1][k] == big[1][k], k
+    assert small[1]["best_fixed_arm"] == big[1]["best_fixed_arm"]
+
+
+def test_regret_comparison_is_under_one_set_of_admissible_observations():
+    """Neither side of mixture-vs-fixed-arm can move on a return the mixture
+    was defined unable to hold: with the gap arm's catch-up varied, every
+    comparator on every date is identical."""
+    champ = _marks(100, 101, 102.01, 103.0301, 104.060401)
+    def run(catch_up: float):
+        other = {"2026-08-01": 100.0, "2026-08-04": 100.0 * (1 + catch_up), "2026-08-05": 100.0 * (1 + catch_up) * 1.01}
+        am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+        return l2.mixture_view(am, l2.replay(am))
+    a, b = run(-0.30), run(0.80)
+    assert len(a) == len(b) == 4
+    for ra, rb in zip(a, b):
+        for k in ("mixture_value", "champion_value", "best_fixed_arm_value", "mixture_minus_champion", "arm_values_held"):
+            assert ra[k] == rb[k], (ra["asof"], k)
+    # the held step after the gap (08-05, +1%) IS booked for the re-marked arms in both
+    assert all(a[-1]["arm_values_held"][x] == pytest.approx(1.01, abs=1e-6) for x in l2.ARMS if x != l2.CHAMPION)

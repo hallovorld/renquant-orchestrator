@@ -24,7 +24,7 @@ WHY/DIR:   Operator 2026-09-03: "moe模型尽快进shadow". The MoE direction is
            measured on. This is G-M AC2.
 EVIDENCE:  artifact:      `logs/l2_paper_bandit/l2_moe_mixture.jsonl` (written by the scheduled job once `-run` carries this merge)
            prod or exp:   experiment — read-only over the lane DBs; a derived file next to the verified log
-           existing data: dry run over the real DBs 2026-09-03 07:10 PDT: 96 rows replayed, champion weight 0.504974 [VERIFIED — module stdout]; `tests/test_l2_paper_bandit.py` 11 passed (7 existing + 4 new: first-day/rule-2 weights, compounding + champion/best-arm tracking, missing intermediate mark ⇒ 0 contribution AND catch-up excluded, catch-up magnitude never enters the mixture, deterministic rewrite + CLI payload, verified log untouched) [VERIFIED — 2026-09-03 14:40 PDT]
+           existing data: dry run over the real DBs 2026-09-03 07:10 PDT: 96 rows replayed, champion weight 0.504974 [VERIFIED — module stdout]; `tests/test_l2_paper_bandit.py` 12 passed (7 existing + 5 new: first-day/rule-2 weights, compounding + champion/best-arm tracking, missing intermediate mark ⇒ 0 contribution AND catch-up excluded, catch-up magnitude never enters the mixture nor the comparators, regret under one set of admissible observations, deterministic rewrite + CLI payload, verified log untouched) [VERIFIED — 2026-09-03 14:40 PDT]
            best-known?:   n/a — a marking, not a verdict; the regret bound is conditional on the §2 contract
            scope:         "this marks the mixture on paper books; it allocates nothing and claims nothing about profitability"
 CORRECTIONS (review r1, codex HIGH): r0 applied the weight effective on the
@@ -35,4 +35,11 @@ CORRECTIONS (review r1, codex HIGH): r0 applied the weight effective on the
            catch-up is excluded (`gap_excluded`, `held` on every row). Regression:
            missing intermediate mark; catch-up magnitude (0% vs +50%) leaves the
            mixture identical on the re-mark date while per-arm book values differ.
+CORRECTIONS (review r2, codex HIGH): r1 left the comparators (per-arm values,
+           champion, best fixed arm) booking every mark while the mixture excluded
+           gap catch-ups — regret against a book that saw returns the mixture was
+           defined unable to hold. r2 compounds the comparators under the SAME
+           held-step rule (`arm_values_held`); regression: with the gap arm's
+           catch-up varied (−30% vs +80%) every comparator on every date is
+           identical. Raw every-mark returns stay in the verified log.
 NEXT:      merge → `-run` ff-only (the job's PYTHONPATH) → first mixture file at the next 15:45 PT run (backfilled over the full history); weights + mixture lines join the ops report; ≥2 weeks of history before any proposal (design). G-M AC3 (routed-scorer shadow profile) is the next line.

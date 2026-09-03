@@ -186,8 +186,12 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
     capital sits in cash), and when it re-marks after a gap its multi-day
     catch-up return is EXCLUDED (``gap_excluded``) — the mixture never held it
     over that interval, so no synthetic P&L is booked and the path does not
-    depend on when the gap closes. Values compound from 1.0. Per-arm values
-    (for the champion / best-fixed-arm comparison) use every mark as booked.
+    depend on when the gap closes. Values compound from 1.0. The per-arm
+    values (champion / best fixed arm in hindsight) compound under the SAME
+    held-step rule, so ``mixture_minus_champion`` and the best-fixed-arm gap
+    are regret under one set of admissible observations. Raw, every-mark book
+    returns remain in the verified log's ``returns`` field for anyone who
+    wants the non-comparable reference.
 
     The champion book's own value and every arm's value are carried alongside
     so the §2 claim — a REGRET bound versus the best fixed arm in hindsight,
@@ -221,9 +225,14 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
         gap_excluded = sorted(a for a, r in rets.items() if r is not None and not held[a])
         mix_r = sum(effective[a] * rets[a] for a in ARMS if held[a])
         mixture *= 1.0 + mix_r
-        for a, r in rets.items():
-            if r is not None:
-                values[a] *= 1.0 + r
+        # The comparators live under the SAME valuation rule (codex #1114 r2):
+        # a fixed-arm book also compounds only across priced steps, so
+        # "mixture minus best fixed arm" is regret under one set of admissible
+        # observations, never the mixture against a book that saw returns the
+        # mixture was defined unable to hold.
+        for a in ARMS:
+            if held[a]:
+                values[a] *= 1.0 + rets[a]
         best_arm = max(values, key=values.get)
         out.append({
             "schema": MIXTURE_SCHEMA,
@@ -234,7 +243,7 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
             "gap_excluded": gap_excluded,
             "mixture_return": round(mix_r, 6),
             "mixture_value": round(mixture, 6),
-            "arm_values": {a: round(v, 6) for a, v in values.items()},
+            "arm_values_held": {a: round(v, 6) for a, v in values.items()},
             "champion_value": round(values[CHAMPION], 6),
             "best_fixed_arm": best_arm,
             "best_fixed_arm_value": round(values[best_arm], 6),
