@@ -206,3 +206,19 @@ def test_regret_comparison_is_under_one_set_of_admissible_observations():
             assert ra[k] == rb[k], (ra["asof"], k)
     # the held step after the gap (08-05, +1%) IS booked for the re-marked arms in both
     assert all(a[-1]["arm_values_held"][x] == pytest.approx(1.01, abs=1e-6) for x in l2.ARMS if x != l2.CHAMPION)
+
+
+def test_an_intermediate_mark_between_calendar_dates_is_not_a_priced_step():
+    """A shadow lane marking on a day the champion does not: paper_returns()
+    books that arm's prev→intermediate leg on a non-calendar date (never seen
+    by the mixture) and only the intermediate→d leg on d. Holding it on d
+    would silently drop a leg, so the step is not priced: excluded."""
+    champ = {"2026-08-01": 100.0, "2026-08-03": 102.01}            # champion skips 08-02
+    other = {"2026-08-01": 100.0, "2026-08-02": 110.0, "2026-08-03": 99.0}   # marks 08-02 too
+    am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+    mrows = l2.mixture_view(am, l2.replay(am))
+    assert len(mrows) == 1 and mrows[0]["asof"] == "2026-08-03"
+    others = [a for a in l2.ARMS if a != l2.CHAMPION]
+    assert mrows[0]["held"] == [l2.CHAMPION] and mrows[0]["gap_excluded"] == sorted(others)
+    assert mrows[0]["mixture_return"] == pytest.approx(mrows[0]["weights_effective"][l2.CHAMPION] * 0.0201, abs=1e-6)
+    assert all(mrows[0]["arm_values_held"][a] == 1.0 for a in others)

@@ -182,7 +182,9 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
     feedback; the equal-start floor-applied weights on the first date) are
     applied to each arm's realized paper return — but ONLY across a calendar
     step the arm can price: the arm must be marked on this date AND the
-    previous calendar date. An arm without an honest mark contributes 0 (its
+    previous calendar date, with no mark in between (an intermediate mark on
+    a non-calendar date would split the arm's return into a leg the mixture
+    never sees). An arm without an honest mark contributes 0 (its
     capital sits in cash), and when it re-marks after a gap its multi-day
     catch-up return is EXCLUDED (``gap_excluded``) — the mixture never held it
     over that interval, so no synthetic P&L is booked and the path does not
@@ -220,7 +222,11 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
         # and RE-ENTERS at the new mark: the multi-day catch-up return is never
         # applied to a weight that was not held over that interval, so no
         # synthetic P&L and no dependence on when the gap happens to close.
-        held = {a: (r is not None and prev_date is not None and prev_date in arm_marks[a])
+        # ... and the arm must have NO mark strictly between the two calendar
+        # dates: paper_returns() would then book only the last leg on d and
+        # the earlier leg on a non-calendar date the mixture never sees.
+        held = {a: (r is not None and prev_date is not None and prev_date in arm_marks[a]
+                    and not any(prev_date < m < d for m in arm_marks[a]))
                 for a, r in rets.items()}
         gap_excluded = sorted(a for a, r in rets.items() if r is not None and not held[a])
         mix_r = sum(effective[a] * rets[a] for a in ARMS if held[a])
