@@ -73,7 +73,8 @@
     },
     "com.renquant.l2-paper-bandit": {
       "_schedule_comment": "weekdays 15:45 local. AFTER daily104 (13:55 + runtime) writes the champion post-close mark and AFTER shadow-ab-daily (~14:20, measured from profile DB mtimes 2026-09-02 14:14-14:20) marks the three profile books; AFTER l1-exposure-shadow (15:30) for ordering only. The engine's self-verifying replay REFUSES a log whose rows no longer match the DB marks, so the day's marks must be FINAL when this fires (RunAtLoad=false for the same reason). PYTHONPATH = renquant-orchestrator-run/src (operator-synced main), not the dev checkout.",
-      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/l2_paper_bandit/l2_paper_bandit.jsonl",
+      "_evidence_glob_comment": "The engine keeps ONE append-only log (l2_paper_bandit.jsonl) rather than a dated file per firing, and appends only on a SYNCED run (a REFUSED replay never touches it), so the newest match's mtime is the last GOOD row, not merely the last firing. The wildcard is required by tests/test_manifest_evidence_globs.py (a fixed path is not a glob); it matches exactly that file today.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/l2_paper_bandit/*.jsonl",
       "program_args": [
         "/Users/renhao/git/github/RenQuant/.venv/bin/python",
         "-m",
