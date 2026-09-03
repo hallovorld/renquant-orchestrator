@@ -104,3 +104,80 @@ def test_winner_gains_weight_but_floor_binds():
     assert final[l2.CHAMPION] == pytest.approx(0.5)          # floor binds
     others = {a: w for a, w in final.items() if a != l2.CHAMPION}
     assert max(others, key=others.get) == "profile_blend_mom"  # winner leads
+
+
+
+# ── the MoE mixture book (derived view) ──────────────────────────────────────
+
+def _marks(*vals: float, start="2026-08-01") -> dict[str, float]:
+    import datetime as _dt
+    d0 = _dt.date.fromisoformat(start)
+    return {(d0 + _dt.timedelta(days=i)).isoformat(): v for i, v in enumerate(vals)}
+
+
+def test_mixture_first_day_uses_the_equal_start_weights_then_previous_row():
+    champ = _marks(100, 101, 102.01)          # +1%, +1%
+    other = _marks(100, 102, 102)             # +2%, 0%
+    arm_marks = {a: (champ if a == l2.CHAMPION else other) for a in l2.ARMS}
+    rows = l2.replay(arm_marks)
+    mrows = l2.mixture_view(arm_marks, rows)
+    assert [m["asof"] for m in mrows] == [r["asof"] for r in rows]
+    start = l2.apply_champion_floor({a: 1.0 for a in l2.ARMS})
+    assert mrows[0]["weights_effective"] == {a: round(w, 6) for a, w in start.items()}
+    # day 1: 0.5*1% + 0.5*2% (three "other" arms share the other half)
+    assert mrows[0]["mixture_return"] == pytest.approx(0.5 * 0.01 + 0.5 * 0.02, abs=1e-6)
+    assert mrows[1]["weights_effective"] == rows[0]["weights"]   # rule 2: previous row
+    assert mrows[1]["mixture_return"] == pytest.approx(
+        sum(rows[0]["weights"][a] * (0.01 if a == l2.CHAMPION else 0.0) for a in l2.ARMS), abs=1e-6)
+
+
+def test_mixture_compounds_and_tracks_champion_and_best_fixed_arm():
+    champ = _marks(100, 101, 102.01)
+    other = _marks(100, 102, 104.04)
+    arm_marks = {a: (champ if a == l2.CHAMPION else other) for a in l2.ARMS}
+    mrows = l2.mixture_view(arm_marks, l2.replay(arm_marks))
+    expected = 1.0
+    for m in mrows:
+        expected *= 1.0 + m["mixture_return"]
+    assert mrows[-1]["mixture_value"] == pytest.approx(expected, abs=1e-5)
+    assert mrows[-1]["champion_value"] == pytest.approx(1.0201, abs=1e-6)
+    assert mrows[-1]["best_fixed_arm"] != l2.CHAMPION
+    assert mrows[-1]["best_fixed_arm_value"] == pytest.approx(1.0404, abs=1e-6)
+    assert mrows[-1]["mixture_minus_champion"] == pytest.approx(
+        mrows[-1]["mixture_value"] - mrows[-1]["champion_value"], abs=1e-6)
+
+
+def test_arm_without_a_mark_contributes_zero_that_day():
+    champ = _marks(100, 101, 102.01)
+    other = {"2026-08-01": 100.0, "2026-08-03": 103.0}   # no 08-02 mark
+    arm_marks = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+    mrows = l2.mixture_view(arm_marks, l2.replay(arm_marks))
+    day1 = mrows[0]
+    assert all(day1["arm_returns"][a] is None for a in l2.ARMS if a != l2.CHAMPION)
+    assert day1["mixture_return"] == pytest.approx(0.5 * 0.01, abs=1e-6)
+
+
+def test_mixture_file_is_rewritten_deterministically(tmp_path, capsys):
+    series = {arm: dict(_BASE) for arm in l2.ARMS}
+    root = _mk_all(tmp_path, series)
+    assert l2.main(["--data-root", str(root)]) == 0
+    out = root / "logs" / "l2_paper_bandit" / l2.MIXTURE_LOG
+    first = out.read_bytes()
+    assert l2.main(["--data-root", str(root)]) == 0
+    assert out.read_bytes() == first
+    payload = json.loads(capsys.readouterr().out.rsplit("{\n  \"status\"", 1)[-1].join(["{\n  \"status\"", ""]))
+    assert payload["mixture_latest"]["asof"] == json.loads(first.splitlines()[-1])["asof"]
+    assert set(payload["mixture_latest"]) == {"asof", "mixture_value", "champion_value",
+                                             "best_fixed_arm", "best_fixed_arm_value",
+                                             "mixture_minus_champion"}
+
+
+def test_mixture_never_touches_the_verified_log(tmp_path):
+    series = {arm: dict(_BASE) for arm in l2.ARMS}
+    root = _mk_all(tmp_path, series)
+    assert l2.main(["--data-root", str(root)]) == 0
+    log = root / "logs" / "l2_paper_bandit" / "l2_paper_bandit.jsonl"
+    before = log.read_bytes()
+    assert l2.main(["--data-root", str(root)]) == 0
+    assert log.read_bytes() == before
+    assert "mixture" not in json.loads(before.splitlines()[0])

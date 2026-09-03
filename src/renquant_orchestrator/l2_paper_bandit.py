@@ -172,6 +172,71 @@ def sync_log(log_dir: Path, rows: list[dict]) -> tuple[int, int]:
     return len(existing), len(rows) - len(existing)
 
 
+MIXTURE_SCHEMA = "l2_moe_mixture.v1"
+MIXTURE_LOG = "l2_moe_mixture.jsonl"
+
+
+def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> list[dict]:
+    """The MoE paper book, DERIVED from the replay: on each calendar date the
+    weights EFFECTIVE that day (the previous row's weights — rule 2, no same-day
+    feedback; the equal-start floor-applied weights on the first date) are
+    applied to each arm's realized paper return. An arm without an honest mark
+    that day contributes 0 (its capital is treated as flat — conservative, and
+    consistent with rule 3 carrying its weight). Values compound from 1.0.
+
+    The champion book's own value and every arm's value are carried alongside
+    so the §2 claim — a REGRET bound versus the best fixed arm in hindsight,
+    never a profitability claim — is readable from the file. This is the
+    mixture-of-experts allocation running in shadow: nothing here allocates
+    capital; it marks what the Hedge weights WOULD have earned on the books
+    the lanes already keep.
+    """
+    arm_rets = {a: paper_returns(m) for a, m in arm_marks.items()}
+    start = apply_champion_floor({a: 1.0 for a in ARMS})
+    effective = {a: round(w, 6) for a, w in start.items()}
+    values = {a: 1.0 for a in ARMS}
+    mixture = 1.0
+    out: list[dict] = []
+    for row in rows:
+        d = row["asof"]
+        rets = {a: arm_rets[a].get(d) for a in ARMS}
+        mix_r = sum(effective[a] * (r or 0.0) for a, r in rets.items())
+        mixture *= 1.0 + mix_r
+        for a, r in rets.items():
+            if r is not None:
+                values[a] *= 1.0 + r
+        best_arm = max(values, key=values.get)
+        out.append({
+            "schema": MIXTURE_SCHEMA,
+            "asof": d,
+            "weights_effective": dict(effective),
+            "arm_returns": {a: (None if r is None else round(r, 6)) for a, r in rets.items()},
+            "mixture_return": round(mix_r, 6),
+            "mixture_value": round(mixture, 6),
+            "arm_values": {a: round(v, 6) for a, v in values.items()},
+            "champion_value": round(values[CHAMPION], 6),
+            "best_fixed_arm": best_arm,
+            "best_fixed_arm_value": round(values[best_arm], 6),
+            "mixture_minus_champion": round(mixture - values[CHAMPION], 6),
+        })
+        effective = dict(row["weights"])   # becomes effective from the next date
+    return out
+
+
+def write_mixture(log_dir: Path, mrows: list[dict]) -> Path:
+    """The mixture file is a DERIVED view: rewritten in full on every run from
+    the same deterministic replay (no append/verify — the verified object is
+    l2_paper_bandit.jsonl; this file is a function of it and the arm DBs)."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    out = log_dir / MIXTURE_LOG
+    tmp = out.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for row in mrows:
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    tmp.replace(out)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-root", type=Path, default=None,
@@ -191,13 +256,20 @@ def main(argv=None) -> int:
             raise RuntimeError("champion book has fewer than 2 marks — no calendar")
         rows = replay(arm_marks)
         verified, appended = sync_log(log_dir, rows)
+        mrows = mixture_view(arm_marks, rows)
+        write_mixture(log_dir, mrows)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason
         print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))
         return 1
     latest = rows[-1] if rows else {}
+    mix_latest = mrows[-1] if mrows else {}
     print(json.dumps({"status": "SYNCED", "rows_verified": verified,
                       "rows_appended": appended,
-                      "latest": latest}, indent=2))
+                      "latest": latest,
+                      "mixture_latest": {k: mix_latest.get(k) for k in (
+                          "asof", "mixture_value", "champion_value", "best_fixed_arm",
+                          "best_fixed_arm_value", "mixture_minus_champion")}},
+                     indent=2))
     return 0
 
 
