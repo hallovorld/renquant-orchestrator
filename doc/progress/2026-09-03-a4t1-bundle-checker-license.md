@@ -1,4 +1,4 @@
-# Bundle checker accepts the RFC#210 A4-T1 stamp in lockstep with the live preflight   (PR TBD)
+# Bundle checker accepts the RFC#210 A4-T1 stamp in lockstep with the live preflight   (PR #1113)
 
 STATUS:    delivered — companion to renquant-pipeline#308.
 WHAT:      `scripts/check_model_bundle_consistency.py` `wf_gate_metadata`
