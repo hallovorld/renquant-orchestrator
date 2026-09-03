@@ -1,0 +1,29 @@
+{
+  "schema": "a4t1_authorization.v1",
+  "exception_id": "a4t1_20260831T141820Z",
+  "run_id": "20260831T141820Z",
+  "artifact_digest": "760912ec122fa6e02628077df8b35e58145209ea3b6b395bd670d8ead9e4af1e",
+  "authority": "renquant-orchestrator:ops/governance/a4t1/20260831T141820Z.authorization.json",
+  "authorized_bypasses": [
+    "regime_sanity_ic",
+    "wf_benchmark_economics",
+    "trade_contract",
+    "trade_monotonicity",
+    "alpha_economics"
+  ],
+  "quality_floor_override": 0.001,
+  "temporal_bounds": ["2026-08-31", "2026-09-07"],
+  "structural_authorization": {
+    "operator_session": "428feb92",
+    "date": "2026-08-31",
+    "scope": "zero-trade structural predicate (4 classes)"
+  },
+  "candidate_authorization": {
+    "operator_session": "428feb92",
+    "date": "2026-09-02",
+    "scope": "regime_sanity_ic bypass for specific candidate 20260831T141820Z",
+    "evidence": "explicit 'go' in response to authorization request for regime_sanity_ic bypass"
+  },
+  "backtesting_pr": "hallovorld/renquant-backtesting#128 (v13: identification + proof contract)",
+  "system_of_record": "this file (reviewed, committed) for the authorization; ledger receipts under <data_root>/logs/weekly_wf_promote/a4t1_ledger/<exception_id>.consumed.json, data_root = RENQUANT_DATA_ROOT or the umbrella runtime root (renquant_orchestrator.runtime_paths.default_data_root)"
+}
