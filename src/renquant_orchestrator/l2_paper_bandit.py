@@ -172,6 +172,107 @@ def sync_log(log_dir: Path, rows: list[dict]) -> tuple[int, int]:
     return len(existing), len(rows) - len(existing)
 
 
+MIXTURE_SCHEMA = "l2_moe_mixture.v1"
+MIXTURE_LOG = "l2_moe_mixture.jsonl"
+
+
+def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> list[dict]:
+    """The MoE paper book, DERIVED from the replay: on each calendar date the
+    weights EFFECTIVE that day (the previous row's weights — rule 2, no same-day
+    feedback; the equal-start floor-applied weights on the first date) are
+    applied to each arm's realized paper return — but ONLY across a calendar
+    step the arm can price: the arm must be marked on this date AND the
+    previous calendar date, with no mark in between (an intermediate mark on
+    a non-calendar date would split the arm's return into a leg the mixture
+    never sees). An arm without an honest mark contributes 0 (its
+    capital sits in cash), and when it re-marks after a gap its multi-day
+    catch-up return is EXCLUDED (``gap_excluded``) — the mixture never held it
+    over that interval, so no synthetic P&L is booked and the path does not
+    depend on when the gap closes. Values compound from 1.0. The per-arm
+    values (champion / best fixed arm in hindsight) compound under the SAME
+    held-step rule, so ``mixture_minus_champion`` and the best-fixed-arm gap
+    are regret under one set of admissible observations. Raw, every-mark book
+    returns remain in the verified log's ``returns`` field for anyone who
+    wants the non-comparable reference.
+
+    The champion book's own value and every arm's value are carried alongside
+    so the §2 claim — a REGRET bound versus the best fixed arm in hindsight,
+    never a profitability claim — is readable from the file. This is the
+    mixture-of-experts allocation running in shadow: nothing here allocates
+    capital; it marks what the Hedge weights WOULD have earned on the books
+    the lanes already keep.
+    """
+    arm_rets = {a: paper_returns(m) for a, m in arm_marks.items()}
+    start = apply_champion_floor({a: 1.0 for a in ARMS})
+    effective = {a: round(w, 6) for a, w in start.items()}
+    values = {a: 1.0 for a in ARMS}
+    mixture = 1.0
+    out: list[dict] = []
+    cal_all = sorted(arm_marks[CHAMPION])
+    prev_by_date = {cal_all[i]: cal_all[i - 1] for i in range(1, len(cal_all))}
+    for row in rows:
+        d = row["asof"]
+        prev_date = prev_by_date.get(d)    # the champion's mark this step starts from
+        rets = {a: arm_rets[a].get(d) for a in ARMS}
+        # VALUATION RULE (codex #1114 r1): paper_returns() books the whole
+        # return between consecutive MARKS on the later mark date. The mixture
+        # holds an arm only across a single calendar step it can price — the
+        # arm must be marked on BOTH this date and the previous calendar date.
+        # Otherwise the arm's capital sits in cash for the gap (contributes 0)
+        # and RE-ENTERS at the new mark: the multi-day catch-up return is never
+        # applied to a weight that was not held over that interval, so no
+        # synthetic P&L and no dependence on when the gap happens to close.
+        # ... and the arm must have NO mark strictly between the two calendar
+        # dates: paper_returns() would then book only the last leg on d and
+        # the earlier leg on a non-calendar date the mixture never sees.
+        held = {a: (r is not None and prev_date is not None and prev_date in arm_marks[a]
+                    and not any(prev_date < m < d for m in arm_marks[a]))
+                for a, r in rets.items()}
+        gap_excluded = sorted(a for a, r in rets.items() if r is not None and not held[a])
+        mix_r = sum(effective[a] * rets[a] for a in ARMS if held[a])
+        mixture *= 1.0 + mix_r
+        # The comparators live under the SAME valuation rule (codex #1114 r2):
+        # a fixed-arm book also compounds only across priced steps, so
+        # "mixture minus best fixed arm" is regret under one set of admissible
+        # observations, never the mixture against a book that saw returns the
+        # mixture was defined unable to hold.
+        for a in ARMS:
+            if held[a]:
+                values[a] *= 1.0 + rets[a]
+        best_arm = max(values, key=values.get)
+        out.append({
+            "schema": MIXTURE_SCHEMA,
+            "asof": d,
+            "weights_effective": dict(effective),
+            "arm_returns": {a: (None if r is None else round(r, 6)) for a, r in rets.items()},
+            "held": sorted(a for a in ARMS if held[a]),
+            "gap_excluded": gap_excluded,
+            "mixture_return": round(mix_r, 6),
+            "mixture_value": round(mixture, 6),
+            "arm_values_held": {a: round(v, 6) for a, v in values.items()},
+            "champion_value": round(values[CHAMPION], 6),
+            "best_fixed_arm": best_arm,
+            "best_fixed_arm_value": round(values[best_arm], 6),
+            "mixture_minus_champion": round(mixture - values[CHAMPION], 6),
+        })
+        effective = dict(row["weights"])   # becomes effective from the next date
+    return out
+
+
+def write_mixture(log_dir: Path, mrows: list[dict]) -> Path:
+    """The mixture file is a DERIVED view: rewritten in full on every run from
+    the same deterministic replay (no append/verify — the verified object is
+    l2_paper_bandit.jsonl; this file is a function of it and the arm DBs)."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    out = log_dir / MIXTURE_LOG
+    tmp = out.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for row in mrows:
+            f.write(json.dumps(row, sort_keys=True) + "\n")
+    tmp.replace(out)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-root", type=Path, default=None,
@@ -191,13 +292,20 @@ def main(argv=None) -> int:
             raise RuntimeError("champion book has fewer than 2 marks — no calendar")
         rows = replay(arm_marks)
         verified, appended = sync_log(log_dir, rows)
+        mrows = mixture_view(arm_marks, rows)
+        write_mixture(log_dir, mrows)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason
         print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))
         return 1
     latest = rows[-1] if rows else {}
+    mix_latest = mrows[-1] if mrows else {}
     print(json.dumps({"status": "SYNCED", "rows_verified": verified,
                       "rows_appended": appended,
-                      "latest": latest}, indent=2))
+                      "latest": latest,
+                      "mixture_latest": {k: mix_latest.get(k) for k in (
+                          "asof", "mixture_value", "champion_value", "best_fixed_arm",
+                          "best_fixed_arm_value", "mixture_minus_champion")}},
+                     indent=2))
     return 0
 
 
