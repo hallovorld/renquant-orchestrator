@@ -24,7 +24,7 @@ WATCHLIST = ["AAPL", "MSFT", "NVDA"]
 
 def _write_bundle(tmp_path: Path, *, art_fp=LIVE_FP, art_wl=WATCHLIST,
                   cal_fp=SCORER_FP, wf_passed=True, wf_complete=True,
-                  promotion_basis=None, trained_date=None) -> Path:
+                  promotion_basis=None, trained_date=None, a4t1=None) -> Path:
     sd = tmp_path / "backtesting" / "renquant_104"
     (sd / "artifacts" / "prod").mkdir(parents=True, exist_ok=True)
     wf = {}
@@ -40,6 +40,8 @@ def _write_bundle(tmp_path: Path, *, art_fp=LIVE_FP, art_wl=WATCHLIST,
         art["metadata"]["promotion_basis"] = promotion_basis
     if trained_date is not None:
         art["trained_date"] = trained_date
+    if a4t1:
+        art["metadata"].update(a4t1)
     (sd / "artifacts" / "prod" / "panel-ltr.alpha158_fund.json").write_text(json.dumps(art))
     cal = {"metadata": {"scorer_model_content_fingerprint": cal_fp}}
     (sd / "artifacts" / "prod" / "panel-rank-calibration.json").write_text(json.dumps(cal))
@@ -245,3 +247,64 @@ def test_common_mismatch_with_no_repo_arg_fails(tmp_path):
         fingerprint_config=lambda c: LIVE_FP,
         model_content_sha256=lambda a: "sha256:COMMON-V1")
     assert _verdict(res, "calibrator_scorer_match") is False
+
+
+# ── RFC#210 Amendment A4-T1: the zero-trade candidate has no Sharpe numerics ──
+
+import datetime as _dt
+
+
+def _a4t1_stamp(*, run_id="20260831T141820Z", expiry=None, receipt="2cd9d27b" + "0" * 56,
+                override=True):
+    exp = expiry or (_dt.date.today() + _dt.timedelta(days=3)).isoformat()
+    stamp = {"fallback_a4t1_override": override, "fallback_a4t1_expiry": exp,
+             "fallback_a4t1_candidate_run_id": run_id,
+             "fallback_a4t1_candidate_authority":
+                 "renquant-orchestrator:ops/governance/a4t1/20260831T141820Z.authorization.json"}
+    if receipt is not None:
+        stamp["fallback_a4t1_consumption_proof"] = {"schema": "a4t1_consumption_proof.v1",
+                                                    "receipt_id": receipt}
+    return stamp
+
+
+def _fresh() -> str:
+    return (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+
+
+def test_a4t1_stamped_zero_trade_candidate_is_deploy_ready_without_numerics(tmp_path):
+    res = _run(tmp_path, wf_passed=False, wf_complete=False,
+               promotion_basis="freshness_fallback_rfc210", trained_date=_fresh(),
+               a4t1=_a4t1_stamp())
+    assert _verdict(res, "wf_gate_metadata") is True
+    note = next(c["detail"] for c in res["checks"] if c["contract"] == "wf_gate_metadata")
+    assert "rfc210=served" in note and "a4t1=licensed(run=20260831T141820Z" in note
+
+
+def test_rfc210_served_without_the_a4t1_stamp_still_needs_the_numerics(tmp_path):
+    res = _run(tmp_path, wf_passed=False, wf_complete=False,
+               promotion_basis="freshness_fallback_rfc210", trained_date=_fresh())
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+@pytest.mark.parametrize("bad", [
+    dict(expiry=(_dt.date.today() - _dt.timedelta(days=1)).isoformat()),
+    dict(run_id="20260901T120000Z"),
+    dict(receipt=None),
+    dict(receipt=""),
+    dict(override=False),
+    dict(override="true"),
+    dict(expiry="soon"),
+])
+def test_a4t1_stamp_defects_keep_the_numerics_requirement(tmp_path, bad):
+    res = _run(tmp_path, wf_passed=False, wf_complete=False,
+               promotion_basis="freshness_fallback_rfc210", trained_date=_fresh(),
+               a4t1=_a4t1_stamp(**bad))
+    assert _verdict(res, "wf_gate_metadata") is False
+
+
+def test_a4t1_stamp_does_not_rescue_an_aged_out_artifact(tmp_path):
+    old = (_dt.date.today() - _dt.timedelta(days=29)).isoformat()
+    res = _run(tmp_path, wf_passed=False, wf_complete=False,
+               promotion_basis="freshness_fallback_rfc210", trained_date=old,
+               a4t1=_a4t1_stamp())
+    assert _verdict(res, "wf_gate_metadata") is False

@@ -49,6 +49,10 @@ def _active_panel(config: dict) -> dict:
     return (config.get("ranking", {}).get("panel_scoring", {}) or config.get("panel_ltr", {}) or {})
 
 
+#: RFC#210 A4-T1 — mirrors renquant_pipeline.kernel.rfc210_license.A4T1_LICENSED_RUN_IDS.
+A4T1_LICENSED_RUN_IDS = frozenset({"20260831T141820Z"})
+
+
 def _finite(v) -> bool:
     try:
         f = float(v)
@@ -187,10 +191,37 @@ def check_bundle(config_path: Path, strategy_dir: Path, *,
                 else:
                     licensed = 0 <= age <= 28
                     lic_note = f" rfc210={'served' if licensed else 'refused'}(age={age}d)"
-        ok = ((gate_passed or licensed) and not missing
-              and ("n_cuts_beat_spy_sharpe" in wf))
+        # RFC#210 Amendment A4-T1 (2026-08-31..09-07, renquant-pipeline#308 in
+        # LOCKSTEP): the ONE operator-authorized zero-trade candidate has no
+        # Sharpe numerics (its WF produced no round-trips) and no SPY cut count.
+        # The live P-REGIME-IC/P-WF-GATE admit it under the stamped license, so
+        # this checker mirrors exactly that: rfc210-served AND
+        # fallback_a4t1_override is True AND the run id is in the licensed set
+        # AND today <= fallback_a4t1_expiry AND the orchestrator receipt is on
+        # the artifact. Anything less keeps the numerics requirement.
+        a4t1_note = ""
+        a4t1 = False
+        if licensed:
+            meta = art.get("metadata") or {}
+            run_id = meta.get("fallback_a4t1_candidate_run_id")
+            raw_exp = meta.get("fallback_a4t1_expiry")
+            proof = meta.get("fallback_a4t1_consumption_proof")
+            receipt = proof.get("receipt_id") if isinstance(proof, dict) else None
+            if (meta.get("fallback_a4t1_override") is True
+                    and isinstance(run_id, str) and run_id in A4T1_LICENSED_RUN_IDS
+                    and isinstance(raw_exp, str) and isinstance(receipt, str) and receipt.strip()):
+                try:
+                    exp = _dt.date.fromisoformat(raw_exp.strip())
+                except ValueError:
+                    a4t1_note = " a4t1=refused(bad expiry)"
+                else:
+                    a4t1 = _dt.date.today() <= exp
+                    a4t1_note = (f" a4t1={'licensed' if a4t1 else 'refused(window closed)'}"
+                                 f"(run={run_id} until {raw_exp})")
+        ok = ((gate_passed or licensed)
+              and (a4t1 or (not missing and "n_cuts_beat_spy_sharpe" in wf)))
         add("wf_gate_metadata", ok,
-            f"passed={wf.get('passed')}{lic_note} missing_numerics={missing} "
+            f"passed={wf.get('passed')}{lic_note}{a4t1_note} missing_numerics={missing} "
             f"override={wf.get('operator_authorized_override')}")
 
     ready = all(c["pass"] for c in checks)
