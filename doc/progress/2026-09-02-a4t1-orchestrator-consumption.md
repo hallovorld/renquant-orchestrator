@@ -1,8 +1,39 @@
-# A4-T1 orchestrator-owned consumption — v2 (identify → consume → stamp)
+# A4-T1 orchestrator-owned consumption — v2 (identify → consume → stamp)   (PR #1110)
 
-STATUS:    v2 of the orchestrator side of RFC#210 A4-T1, paired with
-           renquant-backtesting#128 (v13). Supersedes orch#1107 (v1).
+STATUS:    delivered — v2 of the orchestrator side of RFC#210 A4-T1, paired
+           with renquant-backtesting#128 (v13); supersedes orch#1107 (v1).
            This PR's CI is RED until bt#128 merges — by design (see TESTS).
+WHAT:      committed authorization record
+           `ops/governance/a4t1/20260831T141820Z.authorization.json`;
+           `a4t1_governance.promote_candidate(prod, staging, as_of)` as the ONLY
+           producer of consumption proofs (identify → `decide()` → atomic
+           `O_CREAT|O_EXCL` marker under `<data_root>/logs/weekly_wf_promote/
+           a4t1_ledger/` → `stamp()` → marker `stamped: true`); the
+           `renquant_orchestrator a4t1-promote` CLI subcommand and the
+           `ops/renquant104/a4t1_promote_staged.sh` wrapper; strategy snapshot
+           refreshed.
+WHY/DIR:   closes the three codex #1107 blockers (no production entry point;
+           free-form `consume()` bypassable; host-local `~/.renquant` + red CI).
+           Direction: governance state is orchestrator-owned and auditable in
+           git plus the backed-up data root; backtesting only identifies the
+           candidate and validates the proof it is handed.
+EVIDENCE:  `tests/test_a4t1_governance.py` 22 passed + `tests/test_doc_alignment.py`
+           2 passed with bt#128 (885d3ce) on the path [VERIFIED — pytest
+           2026-09-03 at e966e43c, the last code-touching commit]; full suite in
+           the PR worktree 7223 passed / 4 failed / 15 skipped, the 4 being the
+           known pre-existing set on main plus one detached-worktree path artifact
+           [VERIFIED — prior work, PR #1110 comment 2026-09-03T14:38Z]. No
+           model-quality claim is made.
+           artifact:      `ops/governance/a4t1/20260831T141820Z.authorization.json` (this PR), binding the live staging artifact `backtesting/renquant_104/artifacts/prod/panel-ltr.alpha158_fund.weekly_20260831T141820Z.staging.json` (umbrella live tree)
+           prod or exp:   prod (governs the production pair promotion of exactly one candidate)
+           existing data: record `artifact_digest` == bt `_A4T1_CANDIDATE_DIGEST` == canonical-JSON SHA-256 recomputed from the live artifact (`760912ec…4af1e`) [VERIFIED — python hashlib + record read, 2026-09-03]
+           best-known?:   no — the authorized candidate is a zero-trade artifact the standing A4 policy refuses; this PR governs the operator-authorized exception, not the candidate's quality
+           scope:         "this is the orchestrator consumption record for the 20260831T141820Z staging artifact, prod, vs the served 2026-08-02 model — one-shot governance, no signal claim"
+NEXT:      bt#128 merges → CI here turns green → this PR merges; then the
+           umbrella PR (pins + `weekly_wf_promote.sh` rewiring + `make snapshot`)
+           → live-tree ff-only + `.subrepo_runtime` sync →
+           `weekly_wf_promote.sh --promote-staged 20260831T141820Z` → daily full
+           (see §Operator sequence after merge).
 
 ## Problem (codex on #1107, three blockers)
 
