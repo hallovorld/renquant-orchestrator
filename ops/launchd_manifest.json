@@ -71,6 +71,16 @@
       ],
       "program_args_sha256": "38a9fa00c579d558d569180316cb3f4b03499ffe376a2fec0e745bf3d79ca7b3"
     },
+    "com.renquant.l2-paper-bandit": {
+      "_schedule_comment": "weekdays 15:45 local. AFTER daily104 (13:55 + runtime) writes the champion post-close mark and AFTER shadow-ab-daily (~14:20, measured from profile DB mtimes 2026-09-02 14:14-14:20) marks the three profile books; AFTER l1-exposure-shadow (15:30) for ordering only. The engine's self-verifying replay REFUSES a log whose rows no longer match the DB marks, so the day's marks must be FINAL when this fires (RunAtLoad=false for the same reason). PYTHONPATH = renquant-orchestrator-run/src (operator-synced main), not the dev checkout.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/l2_paper_bandit/l2_paper_bandit.jsonl",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "-m",
+        "renquant_orchestrator.l2_paper_bandit"
+      ],
+      "program_args_sha256": "ff49d683a1f8bd57682043d60d2fa4d4fc3d982863ba7279f5bafc6c013a8ba8"
+    },
     "com.renquant.momentum-train-weekly": {
       "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). This wrapper exec-redirects FIRST (the conditional-retrain silent-pre-exec-death lesson, orch#754 trail): every refusal lands in the dated log with an explicit REFUSED marker and every exit path writes a terminal marker, so log EXISTENCE proves the wrapper fired and log CONTENT carries the verdict.",
       "_schedule_comment": "weekly, Saturday 05:00 (StartCalendarInterval Weekday=6 Hour=5 Minute=0 in ops/renquant104/com.renquant.momentum-train-weekly.plist). WHY THIS SLOT: the design fixes a weekly cadence aligned with the WF world; weekly-wf-promote and weekly-fundamental-refresh both fire Saturday 04:00 (read from the installed plists, 2026-08-02), so 05:00 trains over fresh Friday-close surfaces after that refresh hour -- and stays clear of Saturday 05:30, the slot the retiring weekly-retrain-patchtst still occupies until its #755 bootout grant executes, so the two grants stay uncoupled.",
