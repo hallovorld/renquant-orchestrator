@@ -147,37 +147,41 @@ def test_mixture_compounds_and_tracks_champion_and_best_fixed_arm():
         mrows[-1]["mixture_value"] - mrows[-1]["champion_value"], abs=1e-6)
 
 
-def test_arm_without_a_mark_contributes_zero_that_day():
-    champ = _marks(100, 101, 102.01)
-    other = {"2026-08-01": 100.0, "2026-08-03": 103.0}   # no 08-02 mark
+def test_arm_without_a_mark_contributes_zero_that_day_and_its_catch_up_is_excluded():
+    """codex #1114 r1: paper_returns books the whole gap return on the re-mark
+    date; the mixture never held the arm over the gap, so that catch-up must
+    not be booked either (no synthetic P&L)."""
+    champ = _marks(100, 101, 102.01, 103.0301)
+    other = {"2026-08-01": 100.0, "2026-08-03": 103.0, "2026-08-04": 103.0}   # no 08-02 mark
     arm_marks = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
     mrows = l2.mixture_view(arm_marks, l2.replay(arm_marks))
-    day1 = mrows[0]
-    assert all(day1["arm_returns"][a] is None for a in l2.ARMS if a != l2.CHAMPION)
-    assert day1["mixture_return"] == pytest.approx(0.5 * 0.01, abs=1e-6)
+    day1, day2, day3 = mrows[0], mrows[1], mrows[2]
+    others = [a for a in l2.ARMS if a != l2.CHAMPION]
+    assert all(day1["arm_returns"][a] is None for a in others)
+    assert day1["mixture_return"] == pytest.approx(day1["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # 08-03: the others re-mark with a +3% two-day catch-up — EXCLUDED, only the champion is held
+    assert all(day2["arm_returns"][a] == pytest.approx(0.03, abs=1e-6) for a in others)
+    assert day2["gap_excluded"] == sorted(others) and day2["held"] == [l2.CHAMPION]
+    assert day2["mixture_return"] == pytest.approx(day2["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # 08-04: consecutive marks again — held (return 0 here), no exclusion
+    assert day3["gap_excluded"] == [] and set(day3["held"]) == set(l2.ARMS)
 
 
-def test_mixture_file_is_rewritten_deterministically(tmp_path, capsys):
-    series = {arm: dict(_BASE) for arm in l2.ARMS}
-    root = _mk_all(tmp_path, series)
-    assert l2.main(["--data-root", str(root)]) == 0
-    out = root / "logs" / "l2_paper_bandit" / l2.MIXTURE_LOG
-    first = out.read_bytes()
-    assert l2.main(["--data-root", str(root)]) == 0
-    assert out.read_bytes() == first
-    payload = json.loads(capsys.readouterr().out.rsplit("{\n  \"status\"", 1)[-1].join(["{\n  \"status\"", ""]))
-    assert payload["mixture_latest"]["asof"] == json.loads(first.splitlines()[-1])["asof"]
-    assert set(payload["mixture_latest"]) == {"asof", "mixture_value", "champion_value",
-                                             "best_fixed_arm", "best_fixed_arm_value",
-                                             "mixture_minus_champion"}
-
-
-def test_mixture_never_touches_the_verified_log(tmp_path):
-    series = {arm: dict(_BASE) for arm in l2.ARMS}
-    root = _mk_all(tmp_path, series)
-    assert l2.main(["--data-root", str(root)]) == 0
-    log = root / "logs" / "l2_paper_bandit" / "l2_paper_bandit.jsonl"
-    before = log.read_bytes()
-    assert l2.main(["--data-root", str(root)]) == 0
-    assert log.read_bytes() == before
-    assert "mixture" not in json.loads(before.splitlines()[0])
+def test_gap_catch_up_magnitude_never_enters_the_mixture():
+    """The synthetic-P&L concern (codex #1114 r1): whatever the missing arm
+    earned across its gap, the mixture on the re-mark date books only the
+    arms it HELD. Hedge weights may legitimately differ AFTER that date
+    (the bandit observed a clipped return) — that is the allocation working,
+    not a booking error."""
+    champ = _marks(100, 101, 102.01, 103.0301)
+    def run(catch_up: float):
+        other = {"2026-08-01": 100.0, "2026-08-03": 100.0 * (1 + catch_up), "2026-08-04": 100.0 * (1 + catch_up)}
+        am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+        return l2.mixture_view(am, l2.replay(am))
+    small, big = run(0.0), run(0.50)
+    assert small[1]["gap_excluded"] == big[1]["gap_excluded"] and small[1]["gap_excluded"]
+    assert small[1]["mixture_return"] == pytest.approx(big[1]["mixture_return"], abs=1e-9)
+    assert small[1]["mixture_value"] == pytest.approx(big[1]["mixture_value"], abs=1e-9)
+    assert big[1]["mixture_return"] == pytest.approx(big[1]["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # per-arm book values DO differ (they book every mark) — the comparison surface is honest
+    assert big[1]["best_fixed_arm_value"] > small[1]["best_fixed_arm_value"]

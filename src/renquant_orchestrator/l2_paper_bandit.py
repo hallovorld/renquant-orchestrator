@@ -180,9 +180,14 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
     """The MoE paper book, DERIVED from the replay: on each calendar date the
     weights EFFECTIVE that day (the previous row's weights — rule 2, no same-day
     feedback; the equal-start floor-applied weights on the first date) are
-    applied to each arm's realized paper return. An arm without an honest mark
-    that day contributes 0 (its capital is treated as flat — conservative, and
-    consistent with rule 3 carrying its weight). Values compound from 1.0.
+    applied to each arm's realized paper return — but ONLY across a calendar
+    step the arm can price: the arm must be marked on this date AND the
+    previous calendar date. An arm without an honest mark contributes 0 (its
+    capital sits in cash), and when it re-marks after a gap its multi-day
+    catch-up return is EXCLUDED (``gap_excluded``) — the mixture never held it
+    over that interval, so no synthetic P&L is booked and the path does not
+    depend on when the gap closes. Values compound from 1.0. Per-arm values
+    (for the champion / best-fixed-arm comparison) use every mark as booked.
 
     The champion book's own value and every arm's value are carried alongside
     so the §2 claim — a REGRET bound versus the best fixed arm in hindsight,
@@ -197,10 +202,24 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
     values = {a: 1.0 for a in ARMS}
     mixture = 1.0
     out: list[dict] = []
+    cal_all = sorted(arm_marks[CHAMPION])
+    prev_by_date = {cal_all[i]: cal_all[i - 1] for i in range(1, len(cal_all))}
     for row in rows:
         d = row["asof"]
+        prev_date = prev_by_date.get(d)    # the champion's mark this step starts from
         rets = {a: arm_rets[a].get(d) for a in ARMS}
-        mix_r = sum(effective[a] * (r or 0.0) for a, r in rets.items())
+        # VALUATION RULE (codex #1114 r1): paper_returns() books the whole
+        # return between consecutive MARKS on the later mark date. The mixture
+        # holds an arm only across a single calendar step it can price — the
+        # arm must be marked on BOTH this date and the previous calendar date.
+        # Otherwise the arm's capital sits in cash for the gap (contributes 0)
+        # and RE-ENTERS at the new mark: the multi-day catch-up return is never
+        # applied to a weight that was not held over that interval, so no
+        # synthetic P&L and no dependence on when the gap happens to close.
+        held = {a: (r is not None and prev_date is not None and prev_date in arm_marks[a])
+                for a, r in rets.items()}
+        gap_excluded = sorted(a for a, r in rets.items() if r is not None and not held[a])
+        mix_r = sum(effective[a] * rets[a] for a in ARMS if held[a])
         mixture *= 1.0 + mix_r
         for a, r in rets.items():
             if r is not None:
@@ -211,6 +230,8 @@ def mixture_view(arm_marks: dict[str, dict[str, float]], rows: list[dict]) -> li
             "asof": d,
             "weights_effective": dict(effective),
             "arm_returns": {a: (None if r is None else round(r, 6)) for a, r in rets.items()},
+            "held": sorted(a for a in ARMS if held[a]),
+            "gap_excluded": gap_excluded,
             "mixture_return": round(mix_r, 6),
             "mixture_value": round(mixture, 6),
             "arm_values": {a: round(v, 6) for a, v in values.items()},
