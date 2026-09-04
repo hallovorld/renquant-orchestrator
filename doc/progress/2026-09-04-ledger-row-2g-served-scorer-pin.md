@@ -37,6 +37,7 @@ recorded as the reason the package was prepared, NOT as authority.
 - Pin history: strategy-104 `git log -S expected_content_sha256 --
   configs/strategy_config.json` → 0bd93d6 (2026-08-04) and 40640d1 (2026-07-26);
   no move since [VERIFIED].
+- Read-only proof: the pinned pipeline's `load_blend_scorer` refuses the pinned config with the same MISMATCH and LOADS strategy-104#107's config (2 components, identity-verified) against the live artifacts [VERIFIED — 2026-09-04 ~06:55 PDT].
 - strategy-104#107 suite: 104 passed, 1 skipped, 1 pre-existing failure
   (`test_config_drift_cli_exposes_repo_root`, identical on the unmodified
   pinned checkout) [VERIFIED].
