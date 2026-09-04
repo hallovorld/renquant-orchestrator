@@ -1,10 +1,17 @@
 # LONG-ledger row 2d — one-time authority for the correlation-artifact PATH fix (orch#1065)
 
 STATUS: ledger-only PR, row-2a/2b/2c precedent: the authority row lands on
-orchestrator `main` BEFORE the config PR merges. **AUTHORIZATION PENDING** —
-this PR does not merge until the operator's first-hand, change-specific
-confirmation is quoted verbatim in the row's slot (exactly the row-2b
-pattern, orch#1046/#1049).
+orchestrator `main` BEFORE the config PR merges. **Confirmation slot FILLED
+2026-09-03** with the operator's first-hand reply 「授权，加速」("authorized,
+speed up"), given between 18:01 and 18:10 PDT in the Claude operator session
+428feb92 in direct reply to the agent message that enumerated the pending
+operator decisions — "codex plan/credits; second A4-T1 license before 09-07;
+untrack artifacts/prod/*; CRWV/RKLB/SPCX; row 2d (orch#1081, correlation
+artifact path)". Recorded exactly as that: a reply to an enumerated list that
+named this row and this change, not a message that restates the change
+itself. Whether that meets the row-2b bar ("first-hand, change-specific") is
+for the reviewer; the slot quotes what was said and nothing more. Posted with
+timestamp on this PR and on renquant-strategy-104#104.
 
 ## The decision this row records (once confirmed)
 
