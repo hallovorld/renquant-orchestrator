@@ -1,4 +1,4 @@
-# Scorer-identity monitor: a recorded incident explains exactly one boundary   (PR #TBD)
+# Scorer-identity monitor: a recorded incident explains exactly one boundary   (PR #1116)
 
 STATUS:    delivered — G-A (stop a standing page by recording its cause, not
            by loosening the guard).
