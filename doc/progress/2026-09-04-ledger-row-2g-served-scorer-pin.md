@@ -1,4 +1,4 @@
-# LONG-ledger row 2g — one-time authority for the served-scorer content-pin move (A4-T1 promotion)   (PR #TBD)
+# LONG-ledger row 2g — one-time authority for the served-scorer content-pin move (A4-T1 promotion)   (PR #1115)
 
 STATUS: ledger-only PR, row-2a..2f precedent: the authority row lands on
 orchestrator `main` BEFORE the config PR merges. **AUTHORIZATION PENDING** —
