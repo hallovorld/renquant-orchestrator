@@ -1,4 +1,4 @@
-# Count down the serving exception instead of discovering it on expiry day   (PR #TBD)
+# Count down the serving exception instead of discovering it on expiry day   (PR #1120)
 
 STATUS:    delivered — the recurrence guard for the 2026-09-07 cliff.
 WHAT:      New observe-only `serving_window_monitor.py`: reads the SERVED
