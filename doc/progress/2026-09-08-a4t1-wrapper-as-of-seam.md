@@ -1,4 +1,4 @@
-# CI went red on every orchestrator PR when the A4-T1 window closed   (PR #TBD)
+# CI went red on every orchestrator PR when the A4-T1 window closed   (PR #1119)
 
 STATUS:    delivered — repo-wide unblock: `test` fails on EVERY orchestrator
            PR from 2026-09-08, including doc-only ones.
