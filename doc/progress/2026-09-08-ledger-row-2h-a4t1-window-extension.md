@@ -1,4 +1,4 @@
-# LONG-ledger row 2h — one-time authority for a SECOND dated A4-T1 window   (PR #TBD)
+# LONG-ledger row 2h — one-time authority for a SECOND dated A4-T1 window   (PR #1118)
 
 STATUS: ledger-only PR, row-2a..2g precedent: the authority row lands on
 orchestrator `main` BEFORE the licensed change merges. **AUTHORIZATION
