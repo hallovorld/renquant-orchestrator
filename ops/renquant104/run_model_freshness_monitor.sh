@@ -93,6 +93,22 @@ trap 'rm -f "$TMP"' EXIT
 "$PYTHON" -m renquant_orchestrator.model_freshness_monitor --notify 2>&1 | tee -a "$TMP"
 RC="${PIPESTATUS[0]}"
 
+# --- 2b. serving-window countdown ------------------------------------------------
+# Same question one layer up: model freshness asks "is the model recent enough",
+# this asks "is the EXCEPTION the book trades under about to close, and will
+# anything be servable when it does". Added 2026-09-08 because the A4-T1 window
+# expired on its stamped 09-07 date into a state with no servable model and the
+# first signal was the daily aborting to sell-only.
+#
+# It carries its own alert and its own exit code. The wrapper's exit code stays
+# the FRESHNESS monitor's — the run-health classifier reads this job's status as
+# the freshness verdict and re-pointing it here would silently change what those
+# codes mean — so the window verdict is recorded in the evidence log and paged
+# directly by the monitor.
+"$PYTHON" -m renquant_orchestrator.serving_window_monitor --notify 2>&1 | tee -a "$TMP"
+WINDOW_RC="${PIPESTATUS[0]}"
+echo "--- serving-window monitor exit=$WINDOW_RC (0 ok | 1 closing | 2 CLOSED | 3 unknown)" >>"$TMP" 2>&1
+
 # --- 3. terminal marker, THEN publish. Both only after the process returned. ------
 {
   echo "--- monitor exit=$RC (0 healthy | 1 warn | 2 escalate | 3 breach/unknown)"
