@@ -12,7 +12,7 @@ Exactly one renquant-pipeline PR (#310, branch `feat/a4t1-window-extension`,
 commit 28b59e10 at preparation) adds ONE registry entry extending the A4-T1
 window of the SAME served artifact — run `20260831T141820Z`, digest
 `760912ec…4af1e` — from the stamped 2026-09-07 to a confirmed end date
-(prepared default 2026-10-16). No artifact is rewritten, no gate is relaxed,
+(prepared date 2026-09-28 — the artifact's age-bar ceiling). No artifact is rewritten, no gate is relaxed,
 no other artifact is covered.
 
 ## Why a row is required
@@ -38,17 +38,25 @@ package was prepared, NOT as authority.
   regimes, genuine_ic 0.00024–0.00087 vs the 0.02 floor [VERIFIED —
   read-only WF metadata].
 - pipeline#310: 55 tests green; read-only evaluation of the LIVE artifact —
-  `REFUSED` today without the entry, `SERVED … until 2026-10-16` with it,
+  `REFUSED` today without the entry, `SERVED … until 2026-09-28` with it,
   stamped expiry unchanged [VERIFIED].
 
 ## What confirms this row
 
 The operator states, first-hand, the artifact and the end date — e.g. reply
 to the agent prompt 「确认 row 2h:把 A4-T1 窗口从 2026-09-07 延到 <日期>，
-仍是同一工件 20260831T141820Z / 760912ec…4af1e」. Any end date may be named;
-2026-10-16 is prepared because the merge gate (codex quota) is unavailable
-until 2026-10-03, so a shorter window would expire before it could land
-unless codex is restored sooner. The verbatim text, date and channel go into
+仍是同一工件 20260831T141820Z / 760912ec…4af1e」. Any end date may be named, but
+**2026-09-28 is a hard ceiling, not a preference**: a window only decides
+whether the regime-evidence exception applies, and the artifact must ALSO
+hold the ordinary RFC#210 license, whose age bar is 28 days. Trained
+2026-08-31, it is unservable from 2026-09-29 whatever the window says
+[VERIFIED 2026-09-09 — read-only against the LIVE artifact with the registry
+at 2026-10-16: SERVED=True through 09-28, SERVED=False from 09-29 on
+"governance-served artifact aged out"; the last 18 days were inert].
+**Scheduling consequence: this row helps only if it MERGES AND DEPLOYS by
+2026-09-28, and codex is reported unavailable until 2026-10-03 — five days
+too late. On the current quota timeline this row cannot restore the buy path
+at all; restoring codex capacity before ~2026-09-26 is what makes it useful.** The verbatim text, date and channel go into
 the row's slot and are posted with timestamp on this PR and on
 renquant-pipeline#310. Until then both PRs stay open and unmerged.
 
