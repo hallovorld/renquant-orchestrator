@@ -98,6 +98,73 @@ def test_an_artifact_that_stands_on_its_own_makes_the_close_harmless():
     assert "harmless" in v["summary"] and "2 eligible regime" in v["summary"]
 
 
+# ── the window is not always the cliff ────────────────────────────────────
+# A4-T1 is the INNER gate. The artifact must ALSO clear RFC#210's age bar, and
+# on 2026-09-09 that bar was measured to bite on 09-29 while the proposed window
+# ran to 10-16 — a monitor reading only the window would have promised 37 days
+# that did not exist. These pin the binding-constraint choice; the age bar is
+# injected so they do not silently pass when renquant_pipeline is off the path.
+
+def _with_age_bar(monkeypatch, value, note=None):
+    monkeypatch.setattr(swm, "_age_bar_expiry", lambda payload: (value, note))
+
+
+def test_the_age_bar_binds_when_it_comes_first(monkeypatch):
+    _with_age_bar(monkeypatch, dt.date(2026, 9, 20))
+    art = _artifact(expiry="2026-10-16")
+    v = swm.evaluate_window(art, today=dt.date(2026, 9, 15))
+    assert v["binding_constraint"] == "age"
+    assert v["cliff"] == "2026-09-20" and v["days_left"] == 5
+    assert v["expiry"] == "2026-10-16"          # the window is still reported
+    assert "age bar" in v["summary"] and "2026-10-16" in v["summary"]
+    assert "bites first" in v["summary"]
+    assert v["status"] == swm.STATUS_WARN        # 5d out, inside the lead
+
+
+def test_the_window_binds_when_it_comes_first(monkeypatch):
+    _with_age_bar(monkeypatch, dt.date(2026, 12, 1))
+    v = swm.evaluate_window(_artifact(expiry="2026-09-20"),
+                            today=dt.date(2026, 9, 15))
+    assert v["binding_constraint"] == "window"
+    assert v["cliff"] == "2026-09-20" and v["days_left"] == 5
+    assert "A4-T1 window" in v["summary"]
+
+
+def test_the_two_cliffs_on_one_day_are_reported_as_such(monkeypatch):
+    _with_age_bar(monkeypatch, dt.date(2026, 9, 28))
+    v = swm.evaluate_window(_artifact(expiry="2026-09-28"),
+                            today=dt.date(2026, 9, 25))
+    assert v["binding_constraint"] == "window"   # tie goes to the window
+    assert "same day" in v["summary"]
+
+
+def test_an_unavailable_age_bar_is_noted_never_guessed(monkeypatch):
+    _with_age_bar(monkeypatch, None, "age bar not consulted: ModuleNotFoundError")
+    v = swm.evaluate_window(_artifact(expiry="2026-10-16"),
+                            today=dt.date(2026, 9, 15))
+    assert v["age_expiry"] is None and v["binding_constraint"] == "window"
+    assert v["age_bar_note"].startswith("age bar not consulted")
+
+
+def test_the_age_bar_comes_from_the_pipelines_own_constant():
+    """Anti-transcription: a hardcoded 28 here would silently disagree with the
+    pinned pipeline the moment the SLA moved. Either we read THEIR constant, or
+    we say we could not — never a plausible-looking date of our own."""
+    got, note = swm._age_bar_expiry({"trained_date": "2026-08-31"})
+    if got is None:
+        assert note and note.startswith("age bar not consulted")
+        return
+    from renquant_pipeline.kernel.rfc210_license import DEFAULT_MAX_SERVED_AGE_DAYS
+    assert got == dt.date(2026, 8, 31) + dt.timedelta(days=DEFAULT_MAX_SERVED_AGE_DAYS)
+    assert note is None
+
+
+@pytest.mark.parametrize("trained", [None, "", "  ", "not-a-date"])
+def test_an_unreadable_trained_date_disables_the_age_axis(trained):
+    got, note = swm._age_bar_expiry({"trained_date": trained})
+    assert got is None and note.startswith("age bar not consulted")
+
+
 # ── fail closed, never guess ──────────────────────────────────────────────
 
 @pytest.mark.parametrize("expiry", [None, "", "  ", "soon", "2026-13-01"])

@@ -75,6 +75,30 @@ def _eligible_regime_count(wf: dict) -> int | None:
     return sum(1 for r in regimes if isinstance(r, dict) and r.get("eligible"))
 
 
+def _age_bar_expiry(payload: dict) -> tuple[dt.date | None, str | None]:
+    """Last day the artifact clears RFC#210's age bar, and why not if unknown.
+
+    The bar belongs to renquant-pipeline, so it is IMPORTED, never transcribed —
+    a hardcoded 28 here would silently disagree with the pinned pipeline the
+    moment the SLA moved, and this monitor exists to say when serving stops.
+    A missing constant or an unreadable `trained_date` returns ``None`` with a
+    note: the age axis is then simply not counted, never assumed generous.
+    """
+    try:
+        from renquant_pipeline.kernel.rfc210_license import (
+            DEFAULT_MAX_SERVED_AGE_DAYS as _MAX_AGE)
+    except Exception as exc:  # noqa: BLE001 - pipeline not importable in this checkout
+        return None, f"age bar not consulted: {exc.__class__.__name__}"
+    raw = payload.get("trained_date")
+    if not isinstance(raw, str) or not raw.strip():
+        return None, f"age bar not consulted: trained_date is {raw!r}"
+    try:
+        trained = dt.date.fromisoformat(raw.strip())
+    except ValueError:
+        return None, f"age bar not consulted: trained_date {raw!r} is not an ISO date"
+    return trained + dt.timedelta(days=int(_MAX_AGE)), None
+
+
 def evaluate_window(payload: object, *, today: dt.date,
                     lead_days: int = DEFAULT_LEAD_DAYS) -> dict[str, Any]:
     """Pure verdict for one served artifact. No I/O.
@@ -108,14 +132,31 @@ def evaluate_window(payload: object, *, today: dt.date,
 
     wf = meta.get("wf_gate_metadata")
     eligible = _eligible_regime_count(wf if isinstance(wf, dict) else {})
-    days_left = (expiry - today).days
+
+    # THE WINDOW IS NOT ALWAYS THE CLIFF. A4-T1 is the INNER gate: it decides
+    # only whether the regime-evidence exception applies. The artifact must ALSO
+    # hold the ordinary RFC#210 license, whose age bar is the pipeline's own
+    # DEFAULT_MAX_SERVED_AGE_DAYS. Measured 2026-09-09 on the live artifact: with
+    # the window set to 2026-10-16 the license still returned SERVED=False from
+    # 09-29 ("governance-served artifact aged out"), so a monitor reading only
+    # the stamped window would have promised 37 days that did not exist. Count
+    # down whichever cliff comes FIRST, and name it.
+    age_expiry, age_note = _age_bar_expiry(payload)
+    binding, cliff = "window", expiry
+    if age_expiry is not None and age_expiry < expiry:
+        binding, cliff = "age", age_expiry
+    days_left = (cliff - today).days
     out: dict[str, Any] = {
         "exception": "a4t1", "run_id": run_id, "expiry": expiry.isoformat(),
+        "age_expiry": age_expiry.isoformat() if age_expiry else None,
+        "binding_constraint": binding, "cliff": cliff.isoformat(),
         "days_left": days_left, "eligible_regimes": eligible,
         "trained_date": payload.get("trained_date"),
         "receipt_id": ((meta.get("fallback_a4t1_consumption_proof") or {}).get("receipt_id")
                        if isinstance(meta.get("fallback_a4t1_consumption_proof"), dict) else None),
     }
+    if age_note:
+        out["age_bar_note"] = age_note
     # Does the artifact stand on its own once the window closes?
     if eligible is None:
         standalone = None
@@ -130,29 +171,40 @@ def evaluate_window(payload: object, *, today: dt.date,
             f"artifact carries {eligible} eligible regime(s) of its own — the standing "
             "regime-IC gate passes without the license, so the close is harmless")
         return out
+
+    # Every line below names the BINDING cliff, not the window, because they are
+    # not always the same date and the reader acts on the one that comes first.
+    what = ("the A4-T1 window" if binding == "window"
+            else f"the RFC#210 age bar (trained {payload.get('trained_date')})")
+    also = ""
+    if age_expiry is not None and binding == "age":
+        also = f" The A4-T1 window runs to {expiry}, but the age bar bites first."
+    elif age_expiry is not None and age_expiry == expiry:
+        also = " The window and the age bar fall on the same day."
     consequence = (
         "P-REGIME-IC returns to HARD, the daily aborts to sell-only, and with it the "
         "shadow lanes and the rq105 export go dark — the book cannot buy at all")
     if days_left < 0:
         out["status"] = STATUS_CLOSED
         out["summary"] = (
-            f"A4-T1 window on {run_id} CLOSED {expiry} ({-days_left}d ago) and the served "
-            f"artifact has {eligible if eligible is not None else 'unknown'} eligible "
-            f"regimes: {consequence}. Exits: promote a candidate whose WF produced "
+            f"Serving on {run_id} CLOSED {cliff} ({-days_left}d ago) — {what} — and the "
+            f"served artifact has {eligible if eligible is not None else 'unknown'} eligible "
+            f"regimes: {consequence}.{also} Exits: promote a candidate whose WF produced "
             "round-trips, or record a new dated operator window.")
     elif days_left <= lead_days:
         out["status"] = STATUS_WARN
         out["summary"] = (
-            f"A4-T1 window on {run_id} closes in {days_left}d ({expiry}) and the served "
-            f"artifact has {eligible if eligible is not None else 'unknown'} eligible "
-            f"regimes, so on that date {consequence}. Decide before then: promote a "
+            f"Serving on {run_id} closes in {days_left}d ({cliff}) — {what} — and the "
+            f"served artifact has {eligible if eligible is not None else 'unknown'} eligible "
+            f"regimes, so on that date {consequence}.{also} Decide before then: promote a "
             "candidate whose WF produced round-trips, or record a new dated window.")
     else:
         out["status"] = STATUS_OK
         out["summary"] = (
-            f"A4-T1 window on {run_id} closes {expiry} in {days_left}d; the served artifact "
-            f"has {eligible if eligible is not None else 'unknown'} eligible regimes, so a "
-            f"replacement must be in place by then (alarm starts at {lead_days}d)")
+            f"Serving on {run_id} closes {cliff} in {days_left}d — {what}; the served "
+            f"artifact has {eligible if eligible is not None else 'unknown'} eligible "
+            f"regimes, so a replacement must be in place by then.{also} "
+            f"(alarm starts at {lead_days}d)")
     return out
 
 
