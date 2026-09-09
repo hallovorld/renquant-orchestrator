@@ -1,4 +1,4 @@
-# A promotion that leaves the pin behind is not a promotion   (PR #TBD)
+# A promotion that leaves the pin behind is not a promotion   (PR #1121)
 
 STATUS:    design for review — no code. `doc/design/2026-09-09-promotion-emits-the-pin-delta.md`.
 WHAT:      The recurrence guard for the 2026-09-04 zero-buy incident, stated as
