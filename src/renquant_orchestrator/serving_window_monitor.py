@@ -75,8 +75,16 @@ def _eligible_regime_count(wf: dict) -> int | None:
     return sum(1 for r in regimes if isinstance(r, dict) and r.get("eligible"))
 
 
-def evaluate(payload: object, *, today: dt.date, lead_days: int = DEFAULT_LEAD_DAYS) -> dict[str, Any]:
-    """Pure verdict for one served artifact. No I/O."""
+def evaluate_window(payload: object, *, today: dt.date,
+                    lead_days: int = DEFAULT_LEAD_DAYS) -> dict[str, Any]:
+    """Pure verdict for one served artifact. No I/O.
+
+    Named for what it evaluates, not `evaluate`: `scorer_identity_monitor`
+    already exports a bare `evaluate` with a different body, and the GOAL-3
+    twin-surface audit counts exactly that collision — two same-named exports
+    in one package with no import site is how a caller ends up reaching the
+    twin it did not mean.
+    """
     if not isinstance(payload, dict):
         return {"status": STATUS_UNKNOWN, "summary": "served artifact is not a JSON object"}
     meta = payload.get("metadata")
@@ -186,17 +194,29 @@ def main(argv=None) -> int:
                    "summary": f"served artifact unreadable at {artifact}: "
                               f"{exc.__class__.__name__}"}
     else:
-        verdict = evaluate(payload, today=today, lead_days=args.lead_days)
+        # The exit code is read by a wrapper that maps 0/1/2/3 onto verdicts, so an
+        # unhandled exception exiting 1 would be READ AS "window closing" — a crash
+        # wearing a verdict's clothes. Every path below returns a verdict instead.
+        try:
+            verdict = evaluate_window(payload, today=today, lead_days=args.lead_days)
+        except Exception as exc:  # noqa: BLE001 - a crash must not read as a verdict
+            verdict = {"status": STATUS_UNKNOWN,
+                       "summary": f"serving-window verdict raised "
+                                  f"{exc.__class__.__name__}: {exc}"}
     verdict["artifact"] = str(artifact)
     verdict["as_of"] = today.isoformat()
 
     title, body, prio = format_alert(verdict)
-    alerted = False
-    if verdict["status"] != STATUS_OK:
-        if args.notify and not args.quiet:
+    alert: dict[str, Any] = {"title": title, "body": body, "sent": False}
+    if verdict["status"] != STATUS_OK and args.notify and not args.quiet:
+        # A transport failure is not a verdict either: record it and keep the
+        # verdict's own code, so the evidence log says the page never left.
+        try:
             post_ntfy(title, body, args.topic, priority=prio)
-            alerted = True
-    verdict["alert"] = {"title": title, "body": body, "sent": alerted}
+            alert["sent"] = True
+        except Exception as exc:  # noqa: BLE001
+            alert["error"] = f"{exc.__class__.__name__}: {exc}"
+    verdict["alert"] = alert
     print(json.dumps(verdict, indent=2, sort_keys=True))
     return _EXIT.get(verdict["status"], 3)
 

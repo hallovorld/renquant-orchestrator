@@ -51,7 +51,7 @@ def _artifact(*, expiry: str | None = "2026-09-07", eligible: int | None = 0,
 # ── what it would have said before the cliff ──────────────────────────────
 
 def test_six_days_out_it_warns_and_names_the_date_and_the_consequence():
-    v = swm.evaluate(_artifact(), today=dt.date(2026, 9, 1))
+    v = swm.evaluate_window(_artifact(), today=dt.date(2026, 9, 1))
     assert v["status"] == swm.STATUS_WARN
     assert v["days_left"] == 6 and v["expiry"] == "2026-09-07"
     assert v["eligible_regimes"] == 0 and v["stands_without_the_license"] is False
@@ -63,20 +63,20 @@ def test_six_days_out_it_warns_and_names_the_date_and_the_consequence():
 
 
 def test_outside_the_lead_it_is_quiet_but_still_states_the_deadline():
-    v = swm.evaluate(_artifact(), today=dt.date(2026, 8, 31))
+    v = swm.evaluate_window(_artifact(), today=dt.date(2026, 8, 31))
     assert v["status"] == swm.STATUS_OK and v["days_left"] == 7 or True
-    v = swm.evaluate(_artifact(), today=dt.date(2026, 8, 20))
+    v = swm.evaluate_window(_artifact(), today=dt.date(2026, 8, 20))
     assert v["status"] == swm.STATUS_OK
     assert "closes 2026-09-07" in v["summary"] and "alarm starts at 7d" in v["summary"]
 
 
 def test_the_lead_boundary_is_inclusive():
-    assert swm.evaluate(_artifact(), today=dt.date(2026, 8, 31))["status"] == swm.STATUS_WARN
-    assert swm.evaluate(_artifact(), today=dt.date(2026, 8, 30))["status"] == swm.STATUS_OK
+    assert swm.evaluate_window(_artifact(), today=dt.date(2026, 8, 31))["status"] == swm.STATUS_WARN
+    assert swm.evaluate_window(_artifact(), today=dt.date(2026, 8, 30))["status"] == swm.STATUS_OK
 
 
 def test_the_2026_09_08_state_is_reported_closed():
-    v = swm.evaluate(_artifact(), today=dt.date(2026, 9, 8))
+    v = swm.evaluate_window(_artifact(), today=dt.date(2026, 9, 8))
     assert v["status"] == swm.STATUS_CLOSED and v["days_left"] == -1
     assert "CLOSED 2026-09-07 (1d ago)" in v["summary"]
     title, _, prio = swm.format_alert(v)
@@ -86,13 +86,13 @@ def test_the_2026_09_08_state_is_reported_closed():
 # ── the states that must stay quiet ───────────────────────────────────────
 
 def test_no_exception_in_force_is_healthy_and_says_nothing_else():
-    v = swm.evaluate(_artifact(stamped=False), today=dt.date(2026, 9, 8))
+    v = swm.evaluate_window(_artifact(stamped=False), today=dt.date(2026, 9, 8))
     assert v["status"] == swm.STATUS_OK and v["exception"] is None
     assert v["summary"] == "no serving exception in force on the served artifact"
 
 
 def test_an_artifact_that_stands_on_its_own_makes_the_close_harmless():
-    v = swm.evaluate(_artifact(eligible=2), today=dt.date(2026, 9, 6))
+    v = swm.evaluate_window(_artifact(eligible=2), today=dt.date(2026, 9, 6))
     assert v["status"] == swm.STATUS_OK
     assert v["stands_without_the_license"] is True
     assert "harmless" in v["summary"] and "2 eligible regime" in v["summary"]
@@ -107,19 +107,19 @@ def test_an_unreadable_window_is_unknown_not_assumed_open(expiry):
         del art["metadata"]["fallback_a4t1_expiry"]
     else:
         art["metadata"]["fallback_a4t1_expiry"] = expiry
-    v = swm.evaluate(art, today=dt.date(2026, 9, 1))
+    v = swm.evaluate_window(art, today=dt.date(2026, 9, 1))
     assert v["status"] == swm.STATUS_UNKNOWN
     assert swm.format_alert(v)[2] == 4
 
 
 def test_an_unreadable_regime_stamp_is_reported_not_guessed():
-    v = swm.evaluate(_artifact(eligible=None), today=dt.date(2026, 9, 1))
+    v = swm.evaluate_window(_artifact(eligible=None), today=dt.date(2026, 9, 1))
     assert v["eligible_regimes"] is None and v["stands_without_the_license"] is None
     assert v["status"] == swm.STATUS_WARN and "unknown eligible regimes" in v["summary"]
 
 
 def test_a_non_object_payload_is_unknown():
-    assert swm.evaluate(["nope"], today=dt.date(2026, 9, 1))["status"] == swm.STATUS_UNKNOWN
+    assert swm.evaluate_window(["nope"], today=dt.date(2026, 9, 1))["status"] == swm.STATUS_UNKNOWN
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────
@@ -157,6 +157,32 @@ def test_cli_without_notify_is_read_only(monkeypatch, tmp_path, capsys):
     rc, sent = _run(monkeypatch, tmp_path, _artifact(), ("--as-of", "2026-09-08",))
     assert rc == 2 and sent == []
     assert json.loads(capsys.readouterr().out)["alert"]["sent"] is False
+
+
+def test_a_crash_in_the_verdict_is_unknown_not_a_verdict_code(monkeypatch, tmp_path, capsys):
+    """The wrapper maps 0/1/2/3 onto verdicts. An unhandled exception exiting 1
+    would be read as `window closing` — a crash wearing a verdict's clothes."""
+    def boom(*a, **kw):
+        raise RuntimeError("regime stamp exploded")
+    monkeypatch.setattr(swm, "evaluate_window", boom)
+    rc, sent = _run(monkeypatch, tmp_path, _artifact(), ("--as-of", "2026-09-08",))
+    assert rc == 3
+    assert "RuntimeError" in json.loads(capsys.readouterr().out)["summary"]
+
+
+def test_a_failed_page_is_recorded_and_does_not_become_the_verdict(
+        monkeypatch, tmp_path, capsys):
+    """ntfy being down is not `the window is unreadable`. Keep the verdict's own
+    exit code and say plainly in the evidence that the page never left."""
+    def boom(*a, **kw):
+        raise OSError("ntfy unreachable")
+    art = tmp_path / "panel-ltr.alpha158_fund.json"
+    art.write_text(json.dumps(_artifact()), encoding="utf-8")
+    monkeypatch.setattr(swm, "post_ntfy", boom)
+    rc = swm.main(["--artifact", str(art), "--as-of", "2026-09-08", "--notify"])
+    alert = json.loads(capsys.readouterr().out)["alert"]
+    assert rc == 2                      # still CLOSED, not UNKNOWN
+    assert alert["sent"] is False and "OSError" in alert["error"]
 
 
 def test_missing_artifact_fails_closed_to_unknown(monkeypatch, tmp_path, capsys):
