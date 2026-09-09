@@ -1,4 +1,4 @@
-# The MoE L2 lane says what it did: daily ntfy on both outcomes   (PR #TBD)
+# The MoE L2 lane says what it did: daily ntfy on both outcomes   (PR #1117)
 
 STATUS:    delivered — G-A/G-D: the lane has run daily since 2026-09-03 with
            NO alert path of any kind.
