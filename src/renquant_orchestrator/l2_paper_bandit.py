@@ -46,7 +46,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
+
 from .runtime_paths import default_data_root
+
+#: Operator alert topic — the same one every other 104 job posts to.
+DEFAULT_NTFY_TOPIC = "renquant"
 
 ETA = 0.21
 CLIP = 0.05
@@ -273,12 +278,68 @@ def write_mixture(log_dir: Path, mrows: list[dict]) -> Path:
     return out
 
 
+def format_notification(
+    status: str,
+    *,
+    latest: dict | None = None,
+    mix_latest: dict | None = None,
+    appended: int = 0,
+    why: str | None = None,
+) -> tuple[str, str, int]:
+    """``(title, body, priority)`` for the operator alert. Pure — no I/O.
+
+    The engine ran daily from 2026-09-03 with NO alert path of any kind: its
+    only outputs were two JSONL files and a launchd stdout log nobody reads,
+    so the operator asked repeatedly where the MoE messages were. Both
+    outcomes are reported here — a SYNCED row (what the mixture did) and a
+    REFUSED run (the self-verifying log found a divergence and will now
+    refuse forever, which is exactly the state that must not stay silent).
+    """
+    if status != "SYNCED":
+        return (
+            "RenQuant MoE L2 REFUSED",
+            f"l2_paper_bandit refused and appended NOTHING: {why}\n"
+            "The log is self-verifying: every run replays the full history and "
+            "refuses while any existing row diverges, so this repeats until the "
+            "divergence is explained. No arm weight advanced today.",
+            4,
+        )
+    latest = latest or {}
+    mix_latest = mix_latest or {}
+    weights = latest.get("weights") or {}
+    returns = latest.get("returns") or {}
+    asof = latest.get("asof") or mix_latest.get("asof") or "unknown"
+    lines = [f"{appended} row(s) appended | arms marked: {len(weights)}"]
+    for arm in sorted(weights, key=lambda a: -weights[a]):
+        ret = returns.get(arm)
+        ret_txt = f"{ret:+.4%}" if isinstance(ret, (int, float)) else "unmarked"
+        lines.append(f"{arm:<22} w={weights[arm]:.4f}  r={ret_txt}")
+    mv, cv = mix_latest.get("mixture_value"), mix_latest.get("champion_value")
+    if isinstance(mv, (int, float)) and isinstance(cv, (int, float)):
+        lines.append(
+            f"mixture {mv:.6f} vs champion {cv:.6f} "
+            f"({mix_latest.get('mixture_minus_champion', float('nan')):+.5f}; "
+            f"best fixed arm {mix_latest.get('best_fixed_arm')})")
+    lines.append(
+        "Hedge over 4 PAPER books: regret vs the champion, not a profitability "
+        "claim, and no order is placed from this lane.")
+    return (f"RenQuant MoE L2 paper-bandit {asof}", "\n".join(lines), 3)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-root", type=Path, default=None,
                     help="overrides default_data_root() resolution")
     ap.add_argument("--log-dir", type=Path, default=None)
+    ap.add_argument("--topic", default=DEFAULT_NTFY_TOPIC)
+    # Default: notify on the PRODUCTION run only. A run with an explicit
+    # --log-dir is a dry run into scratch (the documented way to exercise the
+    # engine before 14:30 without poisoning the real log), and must stay
+    # silent; --notify/--no-notify override either way.
+    ap.add_argument("--notify", dest="notify", action="store_true", default=None)
+    ap.add_argument("--no-notify", dest="notify", action="store_false")
     args = ap.parse_args(argv)
+    notify = (args.log_dir is None) if args.notify is None else args.notify
     data_root = args.data_root or default_data_root()
     log_dir = args.log_dir or data_root.joinpath(*DEFAULT_LOG_SUBDIR)
     try:
@@ -295,16 +356,30 @@ def main(argv=None) -> int:
         mrows = mixture_view(arm_marks, rows)
         write_mixture(log_dir, mrows)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason
-        print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))
+        title, body, prio = format_notification("REFUSED", why=str(exc))
+        if notify:
+            post_ntfy(title, body, args.topic, priority=prio)
+        # stdout stays ONE parseable JSON object (the launchd log and the
+        # existing CLI contract both read it that way); the alert text rides
+        # inside it so the operator sees the same words in both places.
+        print(json.dumps({"status": "REFUSED", "why": str(exc),
+                          "notification": {"title": title, "body": body,
+                                           "sent": bool(notify)}}, indent=2))
         return 1
     latest = rows[-1] if rows else {}
     mix_latest = mrows[-1] if mrows else {}
+    title, body, prio = format_notification(
+        "SYNCED", latest=latest, mix_latest=mix_latest, appended=appended)
+    if notify:
+        post_ntfy(title, body, args.topic, priority=prio)
     print(json.dumps({"status": "SYNCED", "rows_verified": verified,
                       "rows_appended": appended,
                       "latest": latest,
                       "mixture_latest": {k: mix_latest.get(k) for k in (
                           "asof", "mixture_value", "champion_value", "best_fixed_arm",
-                          "best_fixed_arm_value", "mixture_minus_champion")}},
+                          "best_fixed_arm_value", "mixture_minus_champion")},
+                      "notification": {"title": title, "body": body,
+                                       "sent": bool(notify)}},
                      indent=2))
     return 0
 
