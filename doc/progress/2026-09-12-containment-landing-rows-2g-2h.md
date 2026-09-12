@@ -66,3 +66,4 @@ LIVE RESULT (2026-09-12 11:06–11:09 PDT, steps 2–7 executed on the live tree
   `logs/rq104/dawn_pin_identity_containment_20260912T180627Z.json`]. NYSE closed today, so this is the fixed 104
   running end-to-end without an order; first live orders are Monday 2026-09-14 13:55 if the dawn preflight and the
   daily reproduce this.
+REVIEWED-TWIN CI (RenQuant#644, 2026-09-12): three reds, three causes — `check`: pins not on main (by design until pipeline#310 + s104#107 merge); `verify-pinned-declaration`: stale snapshot, fixed at ab2b07a; `verify-pinned-paths`: content_sha256 mismatch because CI compares the new pin against the COMMITTED artifact bytes (pre-promotion model) while the live bytes are the promoted model — structural until RenQuant#642 untracks the pair; no waiver exists and no agent commits prod artifact bytes. The LIVE probe is the evidence the pin matches the served bytes.
