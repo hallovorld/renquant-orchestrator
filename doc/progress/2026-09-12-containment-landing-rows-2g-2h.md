@@ -55,3 +55,14 @@ NEXT:      Monday 2026-09-14: 06:06 dawn preflight must report 0 problems and
            (correlation-artifact path) is NOT part of this landing — it does
            not gate buying and stays on the PR path. The rows and PRs still do
            not MERGE until codex returns; merging then lifts this containment.
+LIVE RESULT (2026-09-12 11:06–11:09 PDT, steps 2–7 executed on the live tree):
+  backup `subrepos.lock.json.containment-bak.20260912T180627Z`; lock patched; `subrepo_assemble.py --sync` ok;
+  runtime HEADs = 235d3c5e2a… / d2f27e2879…, both clean; live pin identity `verdict OK pin_mismatch False`;
+  LIVE readonly probe on the live runtime + live artifacts: `P-WF-GATE ✓ LICENSED (served age 12d ≤ 28)`,
+  `P-REGIME-IC ✓ LICENSED (RFC#210 A4-T1)`, blend loaded (components[0] pin f1b1c1322e3b66f7), `funnel integrity:
+  verdict=ECONOMIC_TRADE candidates_final=70 buys=4` (ATI 7, VLO 4, EME 1, CVX 9 — NET dropped vs the scratch sim on
+  live-quote drift), `PREFLIGHT-DECISION reached — no orders, no state persisted, no ntfy`, attestation OK, analyzer
+  `dawn funnel preflight OK` [VERIFIED — `logs/rq104/containment_probe_20260912T180627Z.log`, receipt
+  `logs/rq104/dawn_pin_identity_containment_20260912T180627Z.json`]. NYSE closed today, so this is the fixed 104
+  running end-to-end without an order; first live orders are Monday 2026-09-14 13:55 if the dawn preflight and the
+  daily reproduce this.
