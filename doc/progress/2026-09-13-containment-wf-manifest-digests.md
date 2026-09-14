@@ -30,35 +30,47 @@ WHY/DIR:   The weekly promote gate's WF SIMULATION crashed on every candidate si
            are blocked behind the codex review quota until 2026-10-03. The operator
            ordered the WF path fixed (「wf设置有问题！解决好！」) and, given the
            one-file scope, chose the containment over waiting.
-EVIDENCE:  preflight:  full 3-cut WF gate run on these exact bytes in a scratch copy
-                       of the strategy dir (`scratchpad/wf-proof`, live untouched),
-                       2026-09-13 12:09–12:18 PDT: 3/3 cuts returncode 0, three
-                       round-trip ledgers, trade_contract PASS (20 rows); verdict FAIL
-                       on substance — Sharpe +0.515/+0.487/+0.714 vs SPY
-                       +0.715/+0.749/+1.778 (mean +0.572 vs +1.081, 0/3), monotonicity
-                       FAIL (BULL_CALM n=18), placebo FAIL — the same shape as the
-                       last successful live sim on 08-23 [VERIFIED]
-           landing:    backup blob 515e1cc02f13 ✓; live blob after copy 5251c58454ec ✓;
-                       `stamp_wf_manifest_digests.py --check` on the LIVE manifest:
-                       43 entries, 0 problems; the exact post-window loader call
-                       `resolve_manifest_uri(…, require_digest=True)` resolves 86/86
-                       scorer + calibrator URIs against the live corpus; the backup
-                       (unstamped) manifest still raises the window-closed error
-                       [VERIFIED 2026-09-13 13:21 PDT]
-           git view:   the manifest is now the 87th dirty tracked file under
-                       artifacts/sim + walkforward_gbdt_prod_recipe_v2 (86 were the
-                       pre-existing Step-3.5 stamps that #639 commits); one untracked
-                       backup. The daily run-surface drift scan cannot see this
-                       (it reads umbrella git metadata as files) — orchestrator#1122
-                       adds pin-lineage alarms for the runtime repos, not for umbrella
-                       artifacts; the reminder is this record and the session loop.
-           smell:      `stamp_walkforward_fingerprints.py` (Step 3.5) writes the
-                       scorer's ABSOLUTE path into each calibrator
-                       (`metadata.scorer_artifact`), so calibrator digests are
-                       checkout-location-dependent; idempotent in situ, rewrote all 43
-                       calibrators in the relocated scratch copy. Follow-up, not here.
-           scope:      "one manifest file on the live tree gains the digests #639
-                       carries; no corpus bytes, no config, no pin, no job changed"
+EVIDENCE:  artifact:      `backtesting/renquant_104/artifacts/sim/walkforward_manifest_gbdt_prod_recipe_v2.calibrated.json`
+                          on the live umbrella tree: blob 515e1cc02f13 (origin/main) →
+                          5251c58454ec (RenQuant#639's bytes, sha256 e7335d15c86c0ae8);
+                          backup `…calibrated.json.containment-bak.20260913T202136Z`
+           prod or exp:   PROD — a live-tree containment on the one manifest the weekly
+                          promote gate's WF simulation reads from disk. The 3-cut
+                          preflight below ran in an EXPERIMENT scratch copy
+                          (`scratchpad/wf-proof`); the live tree was untouched by it.
+           existing data: preflight:  full 3-cut WF gate run on these exact bytes in a scratch copy
+                                      of the strategy dir (`scratchpad/wf-proof`, live untouched),
+                                      2026-09-13 12:09–12:18 PDT: 3/3 cuts returncode 0, three
+                                      round-trip ledgers, trade_contract PASS (20 rows); verdict FAIL
+                                      on substance — Sharpe +0.515/+0.487/+0.714 vs SPY
+                                      +0.715/+0.749/+1.778 (mean +0.572 vs +1.081, 0/3), monotonicity
+                                      FAIL (BULL_CALM n=18), placebo FAIL — the same shape as the
+                                      last successful live sim on 08-23 [VERIFIED]
+                          landing:    backup blob 515e1cc02f13 ✓; live blob after copy 5251c58454ec ✓;
+                                      `stamp_wf_manifest_digests.py --check` on the LIVE manifest:
+                                      43 entries, 0 problems; the exact post-window loader call
+                                      `resolve_manifest_uri(…, require_digest=True)` resolves 86/86
+                                      scorer + calibrator URIs against the live corpus; the backup
+                                      (unstamped) manifest still raises the window-closed error
+                                      [VERIFIED 2026-09-13 13:21 PDT]
+                          git view:   the manifest is now the 87th dirty tracked file under
+                                      artifacts/sim + walkforward_gbdt_prod_recipe_v2 (86 were the
+                                      pre-existing Step-3.5 stamps that #639 commits); one untracked
+                                      backup. The daily run-surface drift scan cannot see this
+                                      (it reads umbrella git metadata as files) — orchestrator#1122
+                                      adds pin-lineage alarms for the runtime repos, not for umbrella
+                                      artifacts; the reminder is this record and the session loop.
+                          smell:      `stamp_walkforward_fingerprints.py` (Step 3.5) writes the
+                                      scorer's ABSOLUTE path into each calibrator
+                                      (`metadata.scorer_artifact`), so calibrator digests are
+                                      checkout-location-dependent; idempotent in situ, rewrote all 43
+                                      calibrators in the relocated scratch copy. Follow-up, not here.
+           best-known?:   n/a — no model claim. The digests make the WF simulation EXECUTE
+                          again; they change no verdict. The preflight verdict above is FAIL on
+                          substance, the same shape as the last successful live sim (08-23), so
+                          no candidate becomes promotable by this landing.
+           scope:         "one manifest file on the live tree gains the digests #639
+                          carries; no corpus bytes, no config, no pin, no job changed"
 NEXT:      Proof of effect = the next WF gate run (conditional-retrain104 weekdays
            13:10, anomaly-gated; retrain-panel104 Sun 10:00) must stamp
            `cuts[*].returncode = 0` and a real verdict. Lift: merge #639 (+#641),
