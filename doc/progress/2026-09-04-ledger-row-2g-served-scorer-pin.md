@@ -1,11 +1,58 @@
 # LONG-ledger row 2g — one-time authority for the served-scorer content-pin move (A4-T1 promotion)   (PR #1115)
 
-STATUS: ledger-only PR, row-2a..2f precedent: the authority row lands on
-orchestrator `main` BEFORE the config PR merges. **AUTHORIZATION PENDING** —
-this PR does not merge until the operator's first-hand, change-specific
-confirmation is quoted verbatim in the row's slot.
+STATUS:    ledger-only PR, row-2a..2f precedent: the authority row lands on
+           orchestrator `main` BEFORE the config PR merges. AUTHORIZATION
+           RECEIVED 2026-09-12 — the operator's first-hand confirmation
+           (Claude operator session 428feb92, chat, in direct reply to the
+           message listing the 确认 prompts with keys and values; verbatim
+           「现在就落地！不要等任何时间！马上就做好一切！我今天就要修好的104重新跑一遍！」
+           / 「不要卡住"能做的都做完了" 把所有都做好！不要被任何事情卡住！」,
+           recorded as an explicit override of the reply format) is quoted in
+           the row's slot [VERIFIED — row text on this branch, commit 8035c26a],
+           and the pin move LANDED the same day on the live tree under the
+           CLAUDE.md §5 CONTAINMENT PROTOCOL as a live `subrepos.lock.json`
+           pin edit, NOT a merge (record: orch#1118's
+           `doc/progress/2026-09-12-containment-landing-rows-2g-2h.md`).
+           This PR and strategy-104#107 still do NOT MERGE until the codex
+           gate returns; merging lifts the containment.
+WHAT:      Appends LONG row 2g to `doc/memory/long-term-agreements.md` (after
+           2f; no existing row's meaning edited) plus this record. The row is
+           a ONE-TIME exception to row 2 licensing exactly one
+           renquant-strategy-104 PR (#107, branch
+           `fix/served-scorer-pin-a4t1-20260831`) to move
+           `ranking.panel_scoring.components[0].expected_content_sha256` from
+           `sha256:6461b827ab2339a8` (the 2026-08-02 model) to
+           `sha256:f1b1c1322e3b66f7` (the A4-T1 promoted artifact, candidate
+           20260831T141820Z, trained 2026-08-31, promoted 2026-09-03 09:09
+           PDT) in the seven carriers that hold the key, plus a named
+           `_expected_content_sha256_reason` in each. No other key, file or
+           PR; the 08-04 audit manifest untouched; no artifact written or
+           promoted. Details in the sections below.
+WHY/DIR:   Row 2 makes `strategy_config.json` read-only with no exception, so
+           this production-config write needs its own single-use, PR-named
+           row with first-hand operator authority. The A4-T1 authorization
+           (2026-08-31 session; 「go」 2026-09-02) and the 2026-09-03 blanket
+           「授权，加速」 name no key and are recorded as the reason the package
+           was prepared, NOT as authority. Direction: G-C (the refresh path
+           reaches a SERVED outcome) — the 09-03 promotion swapped the served
+           bytes but no promote step moves the pin, so the buy path was
+           fail-closed; the row completes the authorized promotion, it does
+           not widen it.
+EVIDENCE:  artifact:      served `artifacts/prod/panel-ltr.alpha158_fund.json` — trained 2026-08-31, `promotion_basis=freshness_fallback_rfc210`, A4-T1 run 20260831T141820Z, receipt 2cd9d27b…, sha256 prefix f1b1c1322e3b66f7; `.previous.json` = 6461b827ab2339a8, trained 2026-08-02 [VERIFIED — read-only hashlib + json, 2026-09-04]; the refusal at `RenQuant/logs/rq104/dawn_funnel_preflight_2026-09-04.log:227-228`
+           prod or exp:   prod — the served config's content pin (active + golden + five prod-mirror lanes). This row licenses the write; strategy-104#107 carries it; no artifact bytes change.
+           existing data: the four dated bullets under "Evidence" below (the 2026-09-04 06:06 MISMATCH refusal; pin history 0bd93d6 / 40640d1 with no move since; the read-only `load_blend_scorer` proof — pinned config refused, #107's config loaded; the #107 suite 104 passed / 1 skipped / 1 pre-existing failure). After the 09-12 containment landing, the readonly probe on the live runtime loaded the blend on the new pin and reached `ECONOMIC_TRADE … candidates_final=70 buys=4` with no orders [VERIFIED — `RenQuant/logs/rq104/containment_probe_20260912T180627Z.log` re-read 2026-09-13: that decision line and the digest f1b1c1322e3b66f7 are present].
+           best-known?:   n/a — identity bookkeeping; no model claim (the promoted artifact is the zero-trade A4-T1 candidate the standing policy refuses; this row does not change that decision, it makes the authorized decision executable).
+           scope:         "one LONG row licensing one digest-pin move (plus its named reason) in seven config carriers of one PR; no other key, file, artifact or PR"
+NEXT:      codex gate returns → review + merge this row → merge
+           strategy-104#107 → umbrella pin advance (`subrepos.lock.json`
+           renquant-strategy-104 → that merge) + snapshot re-render → live
+           `git pull --ff-only` + `subrepo_assemble --sync`; at that sync the
+           live lock equals main's and the §5 containment is lifted by
+           construction. Rollback = single-commit revert of #107 + pin
+           re-advance; the containment's literal revert is in orch#1118's
+           record.
 
-## The decision this row records (once confirmed)
+## The decision this row records (confirmed 2026-09-12)
 
 Exactly one renquant-strategy-104 PR (#107, branch
 `fix/served-scorer-pin-a4t1-20260831`, commit f5a428fe at preparation) moves
@@ -42,7 +89,7 @@ recorded as the reason the package was prepared, NOT as authority.
   (`test_config_drift_cli_exposes_repo_root`, identical on the unmodified
   pinned checkout) [VERIFIED].
 
-## What confirms this row
+## What confirms this row (satisfied 2026-09-12 — see STATUS and the row's slot)
 
 Operator states, first-hand, in any operator channel, that exactly this pin
 move is approved — e.g. reply 「确认」 to the agent prompt 「确认 row 2g:
