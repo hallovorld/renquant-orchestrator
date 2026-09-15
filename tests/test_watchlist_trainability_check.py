@@ -32,6 +32,13 @@ def _load():
 
 C = _load()
 
+# Every dated fixture below is stamped 2026-08-23 and every check is run AS OF
+# this fixed date (one day later). The module reads the wall clock by default,
+# which is right for the scheduled job and wrong for a test: on 2026-09-13 the
+# fixture crossed the 21-day declaration limit and seven tests here went red on
+# every orchestrator PR, for a reason that had nothing to do with any PR.
+AS_OF = __import__("datetime").date(2026, 8, 24)
+
 
 def _tree(tmp_path: Path, *, served, trained, declared, stamp="2026-08-23",
           run_universe=None) -> Path:
@@ -59,7 +66,7 @@ def _tree(tmp_path: Path, *, served, trained, declared, stamp="2026-08-23",
 def test_a_served_ticker_that_is_neither_trained_nor_declared_FAILS(tmp_path):
     root = _tree(tmp_path, served=["AAPL", "CRWV"], trained=["AAPL"],
                  declared={"SPY": "benchmark index"})
-    offenders, _ = C.undeclared_untrainable(root)
+    offenders, _ = C.undeclared_untrainable(root, today=AS_OF)
     assert offenders == ["CRWV"]
 
 
@@ -68,7 +75,7 @@ def test_a_DECLARED_untrainable_ticker_is_fine(tmp_path):
     fire on the mechanism it exists to protect."""
     root = _tree(tmp_path, served=["AAPL", "SPY"], trained=["AAPL"],
                  declared={"SPY": "benchmark index (strategy_config.benchmark)"})
-    offenders, _ = C.undeclared_untrainable(root)
+    offenders, _ = C.undeclared_untrainable(root, today=AS_OF)
     assert offenders == []
 
 
@@ -77,7 +84,7 @@ def test_a_declaration_with_a_BLANK_reason_does_not_count(tmp_path):
     string would let a name be silenced without anyone justifying it."""
     root = _tree(tmp_path, served=["AAPL", "CRWV"], trained=["AAPL"],
                  declared={"CRWV": "   "})
-    offenders, _ = C.undeclared_untrainable(root)
+    offenders, _ = C.undeclared_untrainable(root, today=AS_OF)
     assert offenders == ["CRWV"]
 
 
@@ -86,19 +93,19 @@ def test_it_CAN_go_green(tmp_path):
     Both remedies must work."""
     added_to_universe = _tree(tmp_path / "a", served=["AAPL", "CRWV"],
                               trained=["AAPL", "CRWV"], declared={})
-    assert C.undeclared_untrainable(added_to_universe)[0] == []
+    assert C.undeclared_untrainable(added_to_universe, today=AS_OF)[0] == []
 
     declared_instead = _tree(tmp_path / "b", served=["AAPL", "CRWV"],
                              trained=["AAPL"],
                              declared={"CRWV": "IPO 2025-06; 293 rows, far short of the cohort"})
-    assert C.undeclared_untrainable(declared_instead)[0] == []
+    assert C.undeclared_untrainable(declared_instead, today=AS_OF)[0] == []
 
 
 def test_a_ticker_only_in_the_tournament_is_not_an_offender(tmp_path):
     """Direction matters: trained-but-not-served is a different situation and
     this guard must not conflate them."""
     root = _tree(tmp_path, served=["AAPL"], trained=["AAPL", "OLD"], declared={})
-    offenders, ev = C.undeclared_untrainable(root)
+    offenders, ev = C.undeclared_untrainable(root, today=AS_OF)
     assert offenders == []
     assert ev["served_minus_tournament"] == []
 
@@ -106,7 +113,7 @@ def test_a_ticker_only_in_the_tournament_is_not_an_offender(tmp_path):
 def test_case_and_whitespace_do_not_create_phantom_offenders(tmp_path):
     root = _tree(tmp_path, served=[" aapl ", "CRWV"], trained=["AAPL"],
                  declared={"crwv": "declared lowercase"})
-    assert C.undeclared_untrainable(root)[0] == []
+    assert C.undeclared_untrainable(root, today=AS_OF)[0] == []
 
 
 # ---------------------------------------------------------------------------
@@ -119,13 +126,13 @@ def test_a_missing_served_config_RAISES_rather_than_passing(tmp_path):
     root = _tree(tmp_path, served=["AAPL"], trained=["AAPL"], declared={})
     (root / C.SERVED_CONFIG).unlink()
     with pytest.raises(C.InputMissing, match="served config"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
 def test_an_EMPTY_watchlist_RAISES(tmp_path):
     root = _tree(tmp_path, served=[], trained=["AAPL"], declared={})
     with pytest.raises(C.InputMissing, match="normalise to NOTHING"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
 def test_a_missing_declaration_file_RAISES(tmp_path):
@@ -135,10 +142,9 @@ def test_a_missing_declaration_file_RAISES(tmp_path):
     for p in (root / "logs" / "weekly_tournament_retrain").glob("*.json"):
         p.unlink()
     with pytest.raises(C.InputMissing, match="no declaration file"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
-AS_OF = __import__("datetime").date(2026, 8, 24)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +160,7 @@ def test_a_declaration_for_a_DIFFERENT_universe_does_not_authorise(tmp_path):
                  declared={"CRWV": "declared under a different universe"},
                  run_universe=["AAPL", "OLDNAME"])
     with pytest.raises(C.InputMissing, match="DIFFERENT universe"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
 def test_a_declaration_with_no_run_universe_sibling_is_UNVERIFIABLE(tmp_path):
@@ -162,7 +168,7 @@ def test_a_declaration_with_no_run_universe_sibling_is_UNVERIFIABLE(tmp_path):
     for p in (root / "logs" / "weekly_tournament_retrain").glob("*expected_watchlist*"):
         p.unlink()
     with pytest.raises(C.InputMissing, match="cannot be bound"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
 def test_a_declaration_older_than_the_producers_cadence_is_refused(tmp_path):
@@ -201,7 +207,7 @@ def test_a_watchlist_that_normalises_to_nothing_is_refused(tmp_path, which):
     kw["served" if which == "served" else "trained"] = ["   ", ""]
     root = _tree(tmp_path, **kw)
     with pytest.raises(C.InputMissing, match="normalise to NOTHING"):
-        C.undeclared_untrainable(root)
+        C.undeclared_untrainable(root, today=AS_OF)
 
 
 def test_the_newest_declaration_wins(tmp_path):
@@ -226,14 +232,14 @@ def test_the_newest_declaration_wins(tmp_path):
 
 def test_exit_codes_separate_a_violation_from_an_unreadable_input(tmp_path):
     bad = _tree(tmp_path / "v", served=["AAPL", "CRWV"], trained=["AAPL"], declared={})
-    assert C.main(["--rq-root", str(bad)]) == 1
+    assert C.main(["--rq-root", str(bad), "--today", "2026-08-24"]) == 1
 
     good = _tree(tmp_path / "g", served=["AAPL"], trained=["AAPL"], declared={})
-    assert C.main(["--rq-root", str(good)]) == 0
+    assert C.main(["--rq-root", str(good), "--today", "2026-08-24"]) == 0
 
     broken = _tree(tmp_path / "b", served=["AAPL"], trained=["AAPL"], declared={})
     (broken / C.TOURNAMENT_CONFIG).write_text("{not json")
-    assert C.main(["--rq-root", str(broken)]) == 2, (
+    assert C.main(["--rq-root", str(broken), "--today", "2026-08-24"]) == 2, (
         "an unreadable input must not share an exit code with a real violation")
 
 
