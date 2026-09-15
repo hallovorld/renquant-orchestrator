@@ -67,6 +67,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sqlite3
 import sys
@@ -277,6 +278,98 @@ def watched_lanes() -> tuple[WatchedLane, ...]:
                     "day, not first-publish day",
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# frozen instruments (2026-09-15)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class FrozenInstrument:
+    """A shadow lane whose ARTIFACT is deliberately not retrained for a stated
+    period, because it is the instrument of a preregistered forward ledger.
+
+    The producer (renquant-pipeline `shadow_health`) judges every lane by two
+    age axes (`trained_<n>d_limit_28d`, `cutoff_lag_<n>d_over_<bound>d`) and
+    reports a lane over either as `degraded` — the right verdict for a lane
+    whose retrain chain silently stopped. It is the WRONG verdict for a lane
+    whose retrain is forbidden by design: retraining the certified top-decile
+    classifier mid-ledger would change the instrument the 120-session ledger
+    measures, so its training age is a property of the experiment, not a
+    fault. Since 2026-09-14 that lane has paged `NOT ACTIONABLE / DEGRADED`
+    daily on age alone, and would every session until the ledger's GATE read.
+
+    Binding is by lane name AND the served artifact's `content_sha256` — the
+    exact artifact the ledger was registered on. A DIFFERENT artifact in the
+    same lane (someone retrained it) is not frozen and must meet the age bar;
+    a record past `until` is not frozen either. Only AGE-ONLY degradations are
+    reclassified (`_AGE_ONLY_REASON`): a load failure, thin coverage, missing
+    provenance, or a malformed record on a frozen lane alarms exactly as
+    before — the freeze covers the instrument's age, nothing else.
+    """
+    lane: str
+    content_sha256: str
+    until: dt.date
+    authority: str
+    reason: str
+
+
+#: Lane-name -> frozen instrument. Every entry names its authority; the test
+#: suite pins that each lane is a watched lane and each `until` is a date.
+FROZEN_INSTRUMENTS: tuple[FrozenInstrument, ...] = (
+    FrozenInstrument(
+        lane="topdecile_clf_blend_leg",
+        content_sha256="sha256:1e644354e0981f47",
+        until=dt.date(2027, 2, 28),
+        authority=(
+            "strategy-104 doc/progress/2026-07-26-operator-delegated-activation.md "
+            "(operator-directed shadow-slot activation, expected_content_sha256 "
+            "pinned in the served config); pipeline#213 frozen forward readout — "
+            "INFO read ~mid-Nov 2026 at 60 matured sessions, GATE ~Feb 2027 at 120"
+        ),
+        reason=(
+            "the certified top-decile classifier (model#74/75/76) is the INSTRUMENT "
+            "of a preregistered 120-session forward ledger; retraining it mid-ledger "
+            "would change what the ledger measures, so its training age (trained "
+            "2026-07-28, cutoff 2026-04-28) is frozen by design and is not a fault"
+        ),
+    ),
+)
+
+#: The producer's age-axis reason vocabulary (renquant-pipeline `shadow_health.
+#: _staleness_reasons`): `trained_<age>d_limit_<max>d`, `cutoff_lag_<n>d_over_
+#: <bound>d(floor_<f>d+slack_<s>d)`, the no-horizon fallback `stale_<n>d_limit_
+#: <max>d` + its marker, and a future-dated trained_date. Anything else on a
+#: degraded record (coverage, provenance, load) is NOT an age reason.
+_AGE_ONLY_REASON = re.compile(
+    r"^(?:trained_\d+d_limit_\d+d"
+    r"|cutoff_lag_\d+d_over_\d+d\(floor_\d+d\+slack_\d+d\)"
+    r"|stale_\d+d_limit_\d+d"
+    r"|no_declared_lookahead_single_axis"
+    r"|trained_date_future_\d+d)$"
+)
+
+#: classification of a frozen instrument's age-only degradation: quiet, like
+#: HEALTHY, but named so the patrol can SAY it happened.
+FROZEN_AGED = "frozen_instrument_aged"
+
+
+def frozen_instrument_for(lane_name: str, run_date: dt.date,
+                          content_sha256: str | None) -> FrozenInstrument | None:
+    """The freeze this (lane, artifact, date) is entitled to, or None."""
+    for fi in FROZEN_INSTRUMENTS:
+        if fi.lane != lane_name:
+            continue
+        if run_date > fi.until:
+            return None
+        if (content_sha256 or "").strip().lower() != fi.content_sha256.lower():
+            return None
+        return fi
+    return None
+
+
+def is_age_only_degradation(reasons: list[str]) -> bool:
+    return bool(reasons) and all(_AGE_ONLY_REASON.match(r) for r in reasons)
 
 
 #: The producer's task-level sentinel name (renquant-pipeline `shadow_health.
@@ -1150,22 +1243,33 @@ def _read_from_mlflow(days: list[dt.date], lane: 'WatchedLane'
 # checks — mutually exclusive by construction (at most one fires per window)
 # ---------------------------------------------------------------------------
 
-def _classify_window(records, days):
+def _classify_window(records, days, lane_name=SHADOW_NAME):
     """(date, record, class, reasons) for days that had live runs, oldest-first.
     A day with no record (None) means no runs at all — liveness's domain — and
-    is omitted (so a streak is only asserted over days we can actually see)."""
+    is omitted (so a streak is only asserted over days we can actually see).
+
+    A DEGRADED record whose every reason is an age reason, on a lane whose
+    served artifact is a registered frozen instrument for that date, is
+    reclassified FROZEN_AGED (quiet, named). Any other fault on that lane —
+    or an age fault on a different artifact, or past `until` — is untouched."""
     out = []
     for d in days:
         r = records.get(d)
         if r is None:
             continue
         cls, reasons = classify(r)
+        if cls == DEGRADED and is_age_only_degradation(reasons):
+            fi = frozen_instrument_for(lane_name, d, r.content_sha256)
+            if fi is not None:
+                cls = FROZEN_AGED
+                reasons = [f"{x} — frozen instrument by design until "
+                           f"{fi.until.isoformat()}" for x in reasons]
         out.append((d, r, cls, reasons))
     return out
 
 
 def check_feed_dark_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
-    obs = _classify_window(records, days)
+    obs = _classify_window(records, days, lane_name)
     if len(obs) < len(days) or not obs:
         return None
     if all(c == FEED_DARK for _, _, c, _ in obs):
@@ -1180,7 +1284,7 @@ def check_feed_dark_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
 
 
 def check_load_failure_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
-    obs = _classify_window(records, days)
+    obs = _classify_window(records, days, lane_name)
     if len(obs) < len(days) or not obs:
         return None
     if all(c == LOAD_FAIL for _, _, c, _ in obs):
@@ -1202,11 +1306,14 @@ def check_degraded_streak(records, days, lane_name=SHADOW_NAME) -> str | None:
     """Loaded-but-unusable for >= N sessions: stale cutoff, low coverage, missing
     provenance (pipeline `actionable=false`) — or a mixed window of degradations.
     Excludes the pure all-LOAD_FAIL / all-FEED_DARK windows those checks own."""
-    obs = _classify_window(records, days)
+    obs = _classify_window(records, days, lane_name)
     if len(obs) < len(days) or not obs:
         return None
     classes = [c for _, _, c, _ in obs]
-    if any(c == HEALTHY for c in classes):
+    # FROZEN_AGED is quiet like HEALTHY: an age-only degradation on a registered
+    # frozen instrument is by design (see FrozenInstrument), so it breaks a
+    # degraded streak exactly as a healthy day would.
+    if any(c in (HEALTHY, FROZEN_AGED) for c in classes):
         return None
     if all(c == LOAD_FAIL for c in classes) or all(c == FEED_DARK for c in classes):
         return None  # a more specific check owns these
@@ -1742,6 +1849,16 @@ def _patrol_lane(lane: WatchedLane, days: list[dt.date], today: dt.date,
         out.extend(problems)
         return EXIT_ALARM
 
+    frozen_days = [d for d, _, c, _ in _classify_window(records, days, lane.name)
+                   if c == FROZEN_AGED]
+    if frozen_days:
+        fi = next((f for f in FROZEN_INSTRUMENTS if f.lane == lane.name), None)
+        print(f"rq104 shadow-scorer sentinel [{lane.name}]: FROZEN INSTRUMENT — "
+              f"age-only degradation on {len(frozen_days)} day(s) "
+              f"({', '.join(d.isoformat() for d in frozen_days)}) is by design "
+              f"until {fi.until.isoformat() if fi else '?'} "
+              f"(authority: {fi.authority if fi else '?'}); non-age faults on this "
+              f"lane still alarm.")
     src = next((records[d].source for d in reversed(days) if records.get(d)), "n/a")
     print(f"rq104 shadow-scorer sentinel OK {today.isoformat()} "
           f"(lane='{lane.name}', source={src})")
