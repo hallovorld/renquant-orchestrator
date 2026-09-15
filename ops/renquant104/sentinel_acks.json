@@ -1,32 +1,6 @@
 {
-  "com.renquant.conditional-retrain104": {
-    "acked_at": "2026-08-02",
-    "acked_exit_codes": [
-      1
-    ],
-    "clears_check": {
-      "job": "com.renquant.conditional-retrain104",
-      "kind": "launchctl_exit_zero",
-      "scope": "full"
-    },
-    "clears_when": "next VIX-anomaly trigger runs the gated chain clean",
-    "reason": "RE-DIAGNOSED 2026-08-02 from the job's own daily logs (the prior IAC/RenQuant#495 reason described a May-era failure and is OBSOLETE): the job runs daily and logs cleanly; on 2026-07-31 a real VIX anomaly (-7.26% vs the 5% threshold) fired the gated weekly-promote chain and the chain FAILED within 5 seconds - the SAME chronic never-completed WF-promote root the weekly-wf-promote row acks (open-ended, gate-is-correct). So the clearing condition WAS tested on 07-31 and failed honestly; this re-stamp records that measurement. Clears exactly when the shared root clears."
-  },
-  "com.renquant.monthly-meta-label-retrain": {
-    "acked_at": "2026-08-03",
-    "acked_exit_codes": [
-      1
-    ],
-    "clears_check": {
-      "kind": "manual",
-      "why": "clears on the renquant-orchestrator#771 job redesign (sim with as-of model vintages, or a redefined window) - a design deliverable with no observable exit code or artifact to bind to yet; the leakage guard's refusal (exit 1) is CORRECT until then, so launchctl exit 0 would mean the guard stopped guarding, not that the ack cleared. (The prior citation was a bare 'task #75', unresolvable outside the session that wrote it - ack-audit finding, fixed 2026-08-03.)"
-    },
-    "clears_when": "job redesigned to sim with as-of model vintages (or window redefined) - renquant-orchestrator#771",
-    "expires_at": "2026-08-16",
-    "reason": "DIAGNOSED via supervised re-run 07-17: the leakage guard CORRECTLY refuses the snapshot sim — its fixed 12-mo window (ending T-60d) now always predates the active model's trained_date (2026-06-21), i.e. replaying the past with a future-trained model is look-ahead by construction. Worked pre-July only because the then-active vintage happened to predate the window end. Design defect in the job (model-vintage vs window), not in the guard; redesign = task #75."
-  },
   "com.renquant.rq104-degradation-sentinel": {
-    "acked_at": "2026-08-03",
+    "acked_at": "2026-09-15",
     "acked_exit_codes": [
       1
     ],
@@ -35,27 +9,11 @@
       "why": "self-referential - this job's exit 1 IS the alarm-delivered signal by design, so launchctl exit 0 says 'the last firing found zero alarms', a statement about the fleet's state that day, not that this ack's subject cleared; liveness is attested by com.renquant.run-surface-drift reading the receipt, because a process cannot attest to its own liveness"
     },
     "clears_when": "any firing with zero alarms. Note this row no longer hides a crash: exit 3 is not acked here, and an absent or stale receipt is LOUD in the run-surface drift scan.",
-    "expires_at": "2026-08-17",
-    "reason": "exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift — a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
-  },
-  "com.renquant.rq105-batch-scores-export": {
-    "acked_at": "2026-08-05",
-    "acked_exit_codes": [
-      1
-    ],
-    "clears_check": {
-      "job": "com.renquant.rq105-batch-scores-export",
-      "kind": "launchctl_exit_zero",
-      "scope": "clause"
-    },
-    "clears_when": "renquant-strategy-104#73 (wash_sale_min_material_npv = 1.00) is merged AND pinned AND one session afterwards produces a contract-clean full-buy-funnel run, at which point the export has an eligible source vector. If #73 lands and the export STILL refuses, this ack is WRONG and must be removed, not renewed.",
-    "expires_at": "2026-08-14",
-    "reason": "CORRECTED 2026-07-31. The previous diagnosis (Class-A absolute row floor vs light-signal day; replaced by health-evidence contract #531; manual export succeeded 5/5 rc=0) described a DIFFERENT failure and expired 2026-07-20. Measured cause of the CURRENT exit 1: the job refuses BY DESIGN - 'run 2026-07-29-live-a68df3f8 fails class-A health evidence: full_buy_run(pipeline_flags) - a frozen vector must come from a contract-clean, full-buy-funnel run with training provenance; refusing to export'. That precondition is correct and has been satisfiable ONCE in the last nine sessions (2026-07-20). Four of the other eight were verdict=STRUCTURAL_BLOCK with buys=0, every one firing ['wash_sale_mass_block'] and nothing else (07-23, 07-24, 07-28, 07-29). So this is NOT a 105 defect: the export is starved by the 104 buy-side block, and the downstream intraday_pairing_logger shows the same shape (sessions 0, admitted pairs 0, rows written 0). Evidence read 2026-07-31: logs/daily_104/2026-07-2*.log, logs/rq105/batch_scores_export_2026-07-30.log, logs/rq105/intraday_pairing_logger_2026-07-30.log.",
-    "acked_at_corrected_note": "STAMP CORRECTED 2026-08-05 (orch#622/ack-ledger finding): the row was actually introduced 2026-08-02, not 2026-07-31. expires_at was already explicit at 2026-08-14 and is UNCHANGED, so this correction moves the clock's honesty and not the deadline — a stamp fix must never buy time.",
-    "re_reviewed_2026_08_05": "RE-REVIEWED 2026-08-05 (orch#622 ack-ledger stamp-lag finding). The finding asked for `acked_at` to match the commit that introduced the row — and that is UNSATISFIABLE by editing the old date, because any edit re-dates the row to the editing commit. The only stamp the audit can accept is the date of a real re-review, so this row was actually re-reviewed today and stamped with today. `expires_at` is pinned to the ORIGINAL deadline so the re-review buys NO time: a stamp correction must never extend an ack. VERIFIED today: renquant-strategy-104#73 (wash_sale_min_material_npv) is still the stated precondition and has not landed, so the diagnosis stands unchanged. Deadline UNCHANGED at 2026-08-14."
+    "expires_at": "2026-09-29",
+    "reason": "RENEWED 2026-09-15 (the 08-03 row expired 08-17 and the sentinel has listed itself as 'ACK EXPIRED' in every DEGRADED page since). exit 1 IS the sentinel's alarm-delivered signal (by design); self-referential row. GOAL-1 #622: an uncaught exception used to exit 1 as well, so a CRASHED sentinel and an ALARMING one were the same observable and this ack covered both. A crash now exits 3, and every firing writes a liveness receipt (~/.renquant/sentinel/rq104_degradation_receipt.json, override RQ_SENTINEL_RECEIPT) whose freshness and outcome are checked by com.renquant.run-surface-drift - a separate job, because a process cannot attest to its own liveness. So this ack now covers ONLY exit 1."
   },
   "com.renquant.shadow-ab-daily": {
-    "acked_at": "2026-08-05",
+    "acked_at": "2026-09-15",
     "acked_exit_codes": [
       3
     ],
@@ -64,10 +22,50 @@
       "kind": "launchctl_exit_zero",
       "scope": "clause"
     },
-    "clears_when": "run-checkout pins synced to the run manifest (orch#747 item 5) and the 14:35 two-arm run passes PRECHECK",
-    "reason": "DIAGNOSED 2026-08-01 from the session log: exit 3 is the job's OWN fail-closed PRECHECK - run-manifest identity verification refuses because the run checkouts drifted from the manifest pins (5 repos HEAD != manifest commit; renquant-model tree DIRTY 'M README.md'). The guard from b48d3ed1 is working as designed; the remedy is the operator-gated pin sync, not a code fix. Supersedes the expired 07-17 epoch-3/4 ack.",
-    "expires_at": "2026-08-15",
-    "acked_at_corrected_note": "STAMP CORRECTED 2026-08-05 (orch#622/ack-ledger finding): introduced 2026-08-02, not 2026-08-01. This row carried NO expires_at, so the expiry was derived as acked_at+14 and correcting the stamp alone would have moved it 2026-08-15 -> 2026-08-16, LOOSENING the guard and adding to the 08-16 expiry cliff. expires_at is now pinned to 2026-08-15, the date the early-firing clock already implied. VERIFIED 2026-08-05: the precondition is still UNMET — runtime/renquant-model is still dirty ('M README.md'), the same drift the reason names.",
-    "re_reviewed_2026_08_05": "RE-REVIEWED 2026-08-05 (orch#622 ack-ledger stamp-lag finding). The finding asked for `acked_at` to match the commit that introduced the row — and that is UNSATISFIABLE by editing the old date, because any edit re-dates the row to the editing commit. The only stamp the audit can accept is the date of a real re-review, so this row was actually re-reviewed today and stamped with today. `expires_at` is pinned to the ORIGINAL deadline so the re-review buys NO time: a stamp correction must never extend an ack. This row carried NO expires_at, so its deadline was derived as acked_at+14; stamping today without pinning would have moved it 2026-08-15 -> 2026-08-19. It is pinned to 2026-08-15. VERIFIED today: the precondition is STILL UNMET — the run-surface drift scan still reports runtime/renquant-model dirty ('M README.md'), the same drift the reason names. NOTE for the next reader: today's operator-authorised sync moved renquant-orchestrator-run, which is a DIFFERENT surface from the pinned subrepo runtime this job executes from — it does not touch this condition."
+    "clears_when": "run_manifest.json refreshed to the current runtime pins under a section-5 containment record (operator-gated) and the 14:35 two-arm run passes PRECHECK - or the job is retired from ops/launchd_manifest.json; either is an operator decision, not a code fix",
+    "expires_at": "2026-09-28",
+    "reason": "RE-DIAGNOSED 2026-09-15 from ~/renquant-shadow-ab/logs/2026-09-15_session.log (the 08-05 row expired 08-15): exit 3 is still the job's OWN fail-closed PRECHECK. Run-manifest identity verification refuses because all 8 run checkouts differ from the pins in ~/renquant-shadow-ab/run_manifest.json (file mtime 2026-07-17): backtesting 31b6d6e4 != 8f6700ab, base-data f8514066 != 0678958e, common ef7726dd != 6f09cb99, execution 91c7bf88 != c4163984, model 36085810 != 5ef1c2d9, orchestrator 0474af18 != 28b1d2ba, pipeline 235d3c5e != 7108f514, strategy-104 d2f27e28 != 0d45d960. launchctl: runs=19, last exit 3. The older 'No such file or directory' lines in launchd.err.log predate the runtime checkout and are not the current failure. The guard works as designed; the manifest is two months behind the pins it verifies. Remedy is an operator decision (refresh the manifest under section 5, or retire the job) - not a code fix."
+  },
+  "com.renquant.agent-pr-loop": {
+    "acked_at": "2026-09-15",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "job": "com.renquant.agent-pr-loop",
+      "kind": "launchctl_exit_zero",
+      "scope": "clause"
+    },
+    "clears_when": "the codex CLI's usage limit resets (its own message names Oct 3rd, 4:00 PM) and a cycle exits 0 - or RenQuant#645 is deployed, after which the same cap is recorded as a quota block and the cycle exits 0 as 'degraded' instead of 1",
+    "expires_at": "2026-09-27",
+    "reason": "DIAGNOSED 2026-09-15 from logs/agent_pr_loop/status.json (finished_at 2026-09-15T22:05:46Z): exit 1 is the loop's RuntimeError on the codex-review step because the codex CLI is at its usage limit - verbatim stderr 'ERROR: You've hit your usage limit. Upgrade to Plus to continue using Codex, or try again at Oct 3rd, 2026 4:00 PM.' The loop reported the FIRST stderr line (a codex models-cache tracing log codex recovers from on every run) as the cause; that text matched no non-retryable marker, so the loop raised and re-spawned codex every 300s - 2,583 identical cycles since 2026-09-03 - instead of recording a quota block, and the claude-review, fix and both merge stages were skipped each cycle. Fixed in RenQuant#645 (cause extraction + marker), which itself cannot merge until the quota resets. Exit 1 here is NOT a crash of the loop's own code and nothing merges before the reset."
+  },
+  "com.renquant.monthly-calibrator-refresh": {
+    "acked_at": "2026-09-15",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "job": "com.renquant.monthly-calibrator-refresh",
+      "kind": "launchctl_exit_zero",
+      "scope": "clause"
+    },
+    "clears_when": "the next monthly run (1st of the month, 03:00) publishes with 'Binding gate: OK' after the fit-script fix is pinned into the runtime renquant-model checkout; this row expires BEFORE that run so a repeat failure is loud, not acked",
+    "expires_at": "2026-09-26",
+    "reason": "DIAGNOSED 2026-09-15 from logs/monthly_calibrator/2026-09-01.log: exit 1 = Step 3b SCORER/CALIBRATOR BINDING GATE FAILED (fail-closed by design; the production calibrator was NEVER modified, the staged fit was quarantined under artifacts/prod/_rejected_calibrators/). Root cause reproduced read-only on 2026-09-15: renquant_model_gbdt.fit_calibrator_alpha158_fund._artifact_fingerprint stamps model_content_sha256(payload) - the schema-v1 allowlist hash (0660bc89...) - for a scorer that carries no stamped fingerprint, while the runtime (PanelScorer.load -> renquant_common.model_fingerprint.stamp_artifact_metadata) identifies the same legacy artifact by the 0.8.1 denylist hash (2d5a0288...). scripts/verify_calibrator_scorer_binding.py PASSES the live pair, FAILS a simulated fresh fit stamped the fit script's way, and PASSES a simulated fit stamped with the runtime identity. The 2026-10-01 run will fail the same way until the renquant-model fix (fit script stamps the runtime identity for unstamped scorers) lands and the model pin advances. Fifth occurrence of the fingerprint-binding class (05-27, 06-22, 07-01, 07-14/16); renquant-model#56 unified the hash function but the runtime never used it for legacy artifacts."
+  },
+  "com.renquant.rq104-risk-budget": {
+    "acked_at": "2026-09-15",
+    "acked_exit_codes": [
+      1
+    ],
+    "clears_check": {
+      "job": "com.renquant.rq104-risk-budget",
+      "kind": "launchctl_exit_zero",
+      "scope": "clause"
+    },
+    "clears_when": "the next monthly statement (1st of the month, 15:30) exits 0 or 2 (WARN); if it exits 1 again that is a NEW breach on the then-current book, not this one, and this row expires before it runs",
+    "expires_at": "2026-09-25",
+    "reason": "STALE READING, documented 2026-09-15: exit 1 = the 2026-09-01 statement's CRITICAL (book_beta consumption 231.8% of the 0.6 planning limit on the 09-01 book; logs/rq104/risk_budget_2026-09-01.log). The job is monthly, so launchd reports that exit until 10-01. Recomputed read-only on 2026-09-15 into a scratch out-dir (never the evidence path ~/renquant-data/research/risk_budget): STATUS=WARN - book_beta 86.1%, max_drawdown 48.5%, per_name_concentration 57.2%, sleeve_dd 36.5%. The CRITICAL cleared with the book change (sell-only drain 09-08..09-12, rebuild from 09-14). The documented meaning of exit 1 is correct; the number behind it is 14 days old."
   }
 }
