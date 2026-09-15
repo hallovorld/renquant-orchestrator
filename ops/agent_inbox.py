@@ -121,6 +121,19 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
             "ops/renquant104/run_risk_budget_statement.sh",
             "2 WARN (>80% of any budget)", True),
     },
+    # 2026-09-15: listed as "NO DOCUMENTED MEANING for exit 2" on every
+    # DEGRADED page for weeks while the contract sat one module away — the
+    # weekly APY monitor's own exit codes. Both are the monitor's
+    # alarm-delivered verdicts (a job REPORTING a breach), not crashes.
+    "weekly-apy104": {
+        2: ("APY below the rolling-30d floor — the weekly monitor's own "
+            "alarm-delivered verdict (2026-09-13: -6.9% vs the +25.0% floor)",
+            "src/renquant_orchestrator/weekly_apy_monitor.py",
+            "ctx.exit_code = 2", True),
+        3: ("drawdown streak above the threshold for longer than allowed",
+            "src/renquant_orchestrator/weekly_apy_monitor.py",
+            "ctx.exit_code = 3", True),
+    },
     # The three below were in the UNKNOWN bucket until 2026-08-07. They were
     # never undocumented — my earlier greps looked for `EXIT_X = N` literals and
     # bare `exit N`, and missed both a NAMED constant defined in another module
