@@ -29,7 +29,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WRAPPER = os.path.join(ROOT, "ops", "renquant105", "run_shadow_serving.sh")
 
 
-def _run(tmp_path, *, scores: bool, snapshot: bool, producer_rc: int | None = None):
+def _run(tmp_path, *, scores: bool, snapshot: bool, producer_rc: int | None = None,
+         skipped_sidecar: bool = False):
     """Drive the real wrapper. ``producer_rc`` stubs the snapshot producer so a
     test can choose which half of its exit contract fires: 3 is the expected
     provenance refusal (calm skip), anything else nonzero is the producer
@@ -50,6 +51,11 @@ def _run(tmp_path, *, scores: bool, snapshot: bool, producer_rc: int | None = No
         (rq / "data" / "rq105" / f"batch_scores_{ts}.meta.json").write_text("{}")
     if snapshot:
         (rq / "data" / "rq105" / f"feature_snapshot_{ts}.json").write_text("{}")
+    if skipped_sidecar:
+        # export_batch_scores.py's testimony for a designed skip (2026-09-16):
+        # the prior session was buy-gated, no bundle exists by construction.
+        (rq / "data" / "rq105" / f"batch_scores_{ts}.skipped.json").write_text(
+            '{"session_date": "%s", "reason": "buy_gated"}' % ts)
     env = dict(os.environ, RQ_ROOT=str(rq))
     if producer_rc is not None:
         # Shadow the real producer next to the wrapper, since the wrapper calls
@@ -75,6 +81,26 @@ def test_the_upstream_skip_now_leaves_a_dated_line(tmp_path):
     assert rc == 1                                  # upstream failure stays 1
     assert log is not None, "no dated log written — the defect"
     assert "SKIP upstream" in log
+
+
+def test_an_upstream_skip_with_the_exporters_sidecar_is_a_designed_exit(tmp_path):
+    """2026-09-16: the exporter skipped BY DESIGN (buy-gated prior session) and
+    left its sidecar. The wrapper used to exit 1 here — the same code as the
+    08-28 'job never fired' shape — and paged 'export_batch_scores 06:15
+    failed?'. Now: its own designed exit, a dated line that keeps the
+    'SKIP upstream' marker the liveness check keys on, and says 'by design'."""
+    rc, log = _run(tmp_path, scores=False, snapshot=False, skipped_sidecar=True)
+    assert rc == 6
+    assert log is not None
+    first = log.splitlines()[0]
+    assert "SKIP upstream" in first and "by design" in first
+
+
+def test_a_sidecar_does_not_matter_when_the_bundle_exists(tmp_path):
+    """The sidecar only qualifies a MISSING bundle; with a bundle present the
+    wrapper proceeds exactly as before (here: into the producer stub)."""
+    rc, log = _run(tmp_path, scores=True, snapshot=False, producer_rc=3, skipped_sidecar=True)
+    assert rc == 4 and "producer-refused" in log
 
 
 def test_a_producer_refusal_leaves_a_line_AND_the_distinct_exit_code(tmp_path):
