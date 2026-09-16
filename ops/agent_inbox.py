@@ -92,6 +92,17 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
         # a human", which is what we want. Listing it would make it look
         # designed (S3-P3, orch#1033).
     },
+    "rq105-batch-scores-export": {
+        # 2026-09-16: the 06:15 export refused the 09-15 run because its buy
+        # funnel was gated (SPY below EMA50 → buy_blocked=True), and paged
+        # "FAILED rc=1" — the same code as an unreadable DB. rq105 is
+        # downstream of 104's buy admission; a buy-gated day has no class-A
+        # vector by construction. Now its own code, a status report.
+        3: ("SKIPPED by design — the prior session's run was buy-gated by a "
+            "market-regime rule; no class-A frozen vector exists for that day",
+            "ops/renquant105/export_batch_scores.py", "EXIT_SOURCE_BUY_GATED = 3",
+            False),
+    },
     "rq104-shadow-scorer-sentinel": {
         8: ("alarming — a watched shadow lane is degraded",
             "ops/renquant104/rq104_shadow_scorer_sentinel.py", "EXIT_ALARM = 8",

@@ -95,6 +95,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from batch_scores_bundle import canonical_hash, expected_previous_session  # noqa: E402
 
 RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
+
+#: Exit code for a DESIGNED refusal: the prior session's run is otherwise
+#: class-A clean but its buy funnel was gated (``pipeline_flags.buy_blocked``
+#: / ``skip_buys``) by a market-regime rule — e.g. 2026-09-15 and 2026-07-29,
+#: ``EMA50GateTask: SPY below EMA50 — buys blocked``. No class-A frozen vector
+#: exists for such a day BY CONSTRUCTION (rq105 is downstream of 104's buy
+#: admission, and 104 admitted nothing), so this is not a failure of the
+#: exporter, the DB, or the run. Before this code existed the day paged
+#: ``export FAILED rc=1`` — the same code as an unreadable DB or a lane
+#: mismatch — and the degradation sentinel listed it as an exit with NO
+#: DOCUMENTED MEANING. Everything else still exits 1.
+EXIT_SOURCE_BUY_GATED = 3
+#: The one health gap that means "buy-gated by design" (see _health_gaps).
+BUY_GATED_GAP = "full_buy_run(pipeline_flags)"
 DB = os.path.join(RQ, "data/runs.alpaca.db")
 #: The Step-5 shadow-blend lane DB (daily_104.sh, RENQUANT_READONLY_TAG=
 #: alpaca_shadow_blend) — disjoint from BOTH prod (alpaca) and the legacy
@@ -399,6 +413,19 @@ def main(
     run_id, run_date, run_bundle = selected
 
     health = _health_gaps(run_bundle)
+    if health == [BUY_GATED_GAP]:
+        flags = run_bundle.get("pipeline_flags") or {}
+        print(
+            f"run {run_id} is contract-clean with training provenance but its "
+            f"buy funnel was GATED [{BUY_GATED_GAP}] (pipeline_flags buy_blocked="
+            f"{flags.get('buy_blocked')!r} skip_buys={flags.get('skip_buys')!r}) "
+            "— a market-regime rule (e.g. SPY below EMA50) blocked buys for "
+            "that session, so no class-A frozen vector exists for it by "
+            f"construction; SKIPPED by design (exit {EXIT_SOURCE_BUY_GATED}), "
+            "nothing to repair",
+            file=sys.stderr,
+        )
+        return EXIT_SOURCE_BUY_GATED
     if health:
         print(
             f"run {run_id} fails class-A health evidence: "
