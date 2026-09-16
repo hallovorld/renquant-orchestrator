@@ -109,6 +109,17 @@ RQ = os.environ.get("RQ_ROOT", "/Users/renhao/git/github/RenQuant")
 EXIT_SOURCE_BUY_GATED = 3
 #: The one health gap that means "buy-gated by design" (see _health_gaps).
 BUY_GATED_GAP = "full_buy_run(pipeline_flags)"
+#: Sidecar written next to where the bundle WOULD be on a designed skip:
+#: OUT_DIR/batch_scores_<date>.skipped.json. It is the evidence the rq105
+#: liveness check reads to tell "no bundle because the exporter skipped by
+#: design" from "no bundle because the 06:15 job never fired / crashed" —
+#: without it the whole downstream chain (export_missing, serving_noop, the
+#: pairing collector) paged 🚨 rq105 DOWN on every buy-gated day.
+SKIP_REASON_BUY_GATED = "buy_gated"
+
+
+def skipped_sidecar_path(out_dir: str, today: str) -> str:
+    return os.path.join(out_dir, f"batch_scores_{today}.skipped.json")
 DB = os.path.join(RQ, "data/runs.alpaca.db")
 #: The Step-5 shadow-blend lane DB (daily_104.sh, RENQUANT_READONLY_TAG=
 #: alpaca_shadow_blend) — disjoint from BOTH prod (alpaca) and the legacy
@@ -425,6 +436,19 @@ def main(
             "nothing to repair",
             file=sys.stderr,
         )
+        os.makedirs(out_dir, exist_ok=True)
+        _atomic_write_json(skipped_sidecar_path(out_dir, today), {
+            "session_date": today,
+            "reason": SKIP_REASON_BUY_GATED,
+            "source_run_id": run_id,
+            "source_run_date": run_date,
+            "pipeline_flags": {
+                "buy_blocked": flags.get("buy_blocked"),
+                "skip_buys": flags.get("skip_buys"),
+            },
+            "exit_code": EXIT_SOURCE_BUY_GATED,
+            "written_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        })
         return EXIT_SOURCE_BUY_GATED
     if health:
         print(

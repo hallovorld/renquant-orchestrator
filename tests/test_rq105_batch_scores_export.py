@@ -740,7 +740,8 @@ def test_sell_only_or_buy_blocked_run_is_rejected(tmp_path, capsys):
     assert rc == exporter.EXIT_SOURCE_BUY_GATED
     err = capsys.readouterr().err
     assert "full_buy_run" in err and "skip_buys=True" in err
-    assert not list((tmp_path / "out").glob("*.json")) if (tmp_path / "out").exists() else True
+    out = tmp_path / "out"
+    assert not (out / "batch_scores_2026-07-02.json").exists() and not (out / "batch_scores_2026-07-02.meta.json").exists()
 
 
 def test_panel_contract_not_ok_is_rejected(tmp_path, capsys):
@@ -1030,8 +1031,16 @@ def test_a_buy_gated_but_otherwise_clean_run_is_a_designed_skip_not_a_failure(tm
     assert rc == exporter.EXIT_SOURCE_BUY_GATED == 3
     err = capsys.readouterr().err
     assert "SKIPPED by design" in err and "buy_blocked=True" in err
-    assert not (tmp_path / "out").exists() or not list((tmp_path / "out").glob("*.json")), \
-        "a skip must publish nothing"
+    out = tmp_path / "out"
+    assert not (out / "batch_scores_2026-07-02.json").exists(), "a skip must publish no bundle"
+    assert not (out / "batch_scores_2026-07-02.meta.json").exists()
+    # ... but it leaves its testimony for the liveness check (2026-09-16):
+    sidecar = json.loads((out / "batch_scores_2026-07-02.skipped.json").read_text())
+    assert sidecar["session_date"] == "2026-07-02"
+    assert sidecar["reason"] == exporter.SKIP_REASON_BUY_GATED
+    assert sidecar["source_run_id"] == "r1"
+    assert sidecar["pipeline_flags"] == {"buy_blocked": True, "skip_buys": False}
+    assert sidecar["exit_code"] == 3
 
 
 def test_a_buy_gated_run_with_OTHER_health_gaps_is_still_a_failure(tmp_path, capsys):

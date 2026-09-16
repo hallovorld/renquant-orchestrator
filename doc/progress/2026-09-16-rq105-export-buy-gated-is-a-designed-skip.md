@@ -48,3 +48,39 @@ dropped(29)`, same gate) `[VERIFIED: logs/rq105/batch_scores_export_2026-07-30.l
 It does not export a vector for a buy-gated day (that would be a class-A
 signal 104 itself did not act on) and does not touch the daily's EMA50 gate.
 Live on the next `renquant-orchestrator-run` ff-sync after merge.
+
+## Addendum (14:00 the same day): the liveness check paged 🚨 rq105 DOWN on the same skip
+
+`rq105_liveness_check` (14:00) turned the designed skip into a three-issue
+DOWN page — `export_missing` (no bundle), `serving_noop` (the serving
+wrapper's `SKIP upstream` line), `intraday_pairing_logger` stale (nothing
+served, nothing to pair) `[VERIFIED: 09-16 14:00 page body]`. The check had
+no way to tell "the exporter ran and chose not to publish" from "the 06:15
+job never fired" (the 2026-08-28 boot-missed-slot incident it was built
+for). `launchd_liveness.out` shows `export_missing` fired on every no-export
+day since 09-01 `[VERIFIED: 09-01, 09-02, 09-03, 09-04, 09-08, 09-09, 09-10,
+09-14, 09-16]`.
+
+Second commit:
+
+- Exporter: on the designed skip it now also writes its testimony,
+  `data/rq105/batch_scores_<date>.skipped.json` (`session_date`, `reason`
+  `buy_gated`, source run id/date, the two flags, exit code, timestamp), via
+  the same atomic writer as the bundle. It never publishes a bundle.
+- Liveness: `_designed_export_skip` reads that sidecar — fail-closed: absent,
+  unreadable, another day's `session_date`, or an unknown `reason` all leave
+  the original `export_missing` / `serving_noop` verdicts. When it holds:
+  `check_batch_scores_export` and `check_shadow_serving` return OK with the
+  evidence, the admit-contingent pairing collector is exempt (no vector →
+  nothing to pair; the authoritative 0-admit signal keeps precedence when it
+  holds; non-admit-contingent collectors are unaffected), and the OK line
+  NAMES the skip — `rq105 liveness OK <date> [export SKIPPED by design ...]`
+  — never silent.
+- Tests: the 09-16 state reconstructed → rc 0, no page, named OK line; a
+  sidecar for another day / with an unknown reason / corrupt → still DOWN;
+  the sidecar path and reason are bound to the exporter's own literals; the
+  pairing collector is exempt while a non-admit-contingent collector is not.
+  190 passed across the rq105 export/liveness/inbox files. Anti-vacuity
+  against `origin/main`'s liveness module: the three positive tests fail,
+  the three "does not exempt" tests pass on both (they pin unchanged
+  behaviour). `[VERIFIED]`
