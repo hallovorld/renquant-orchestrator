@@ -84,3 +84,19 @@ Second commit:
   against `origin/main`'s liveness module: the three positive tests fail,
   the three "does not exempt" tests pass on both (they pin unchanged
   behaviour). `[VERIFIED]`
+
+## Addendum 2 (15:00 the same day): the serving wrapper's own exit on the skip
+
+The 15:00 DEGRADED page also listed `com.renquant.rq105-shadow-serving (last
+exit 1) [NO DOCUMENTED MEANING]`: `run_shadow_serving.sh` exits 1 on
+`SKIP upstream` — the same code as the 2026-08-28 "job never fired" shape it
+was written for — and pages `export_batch_scores 06:15 failed?`. Third commit:
+when the exporter's sidecar for today exists the wrapper exits
+`EXIT_UPSTREAM_SKIPPED_BY_DESIGN=6` (listed in `DESIGNED_EXIT_CODES`,
+`actionable=False`), pages `SKIPPED — upstream export skipped by design`, and
+its dated first line keeps the `SKIP upstream` marker (the liveness check keys
+on it, then reads the same sidecar). A missing bundle WITHOUT the sidecar
+still exits 1 and pages as before. Tests: exit 6 + marker + "by design";
+the sidecar does not matter when a bundle exists (producer path unchanged).
+200 passed across the wrapper, inbox, liveness, pythonpath-roots and export
+files; `bash -n` clean. `[VERIFIED]`
