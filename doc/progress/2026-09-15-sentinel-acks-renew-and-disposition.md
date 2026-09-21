@@ -1,5 +1,24 @@
 # 2026-09-15 — ack ledger: renew the two expired rows, disposition three undocumented exits, retire three dead rows; document weekly-apy104's exit codes
 
+STATUS:   delivered, awaiting review — zero reviews at head.
+WHAT:     renews the two expired ack rows (rq104-degradation-sentinel,
+          shadow-ab-daily) with re-diagnosed clearing conditions, dispositions
+          three previously-undocumented-meaning exits (agent-pr-loop,
+          monthly-calibrator-refresh, rq104-risk-budget), documents
+          weekly-apy104's exit codes 2/3, and retires three dead rows whose
+          own retirement conditions were already met.
+WHY/DIR:  every `rq104 DEGRADED` page since 2026-08-17 carried the same five
+          undispositioned lines; nothing here silences a genuine alarm —
+          model freshness, the shadow-scorer sentinel, silent refusal and
+          run-surface drift all stay loud with their documented meanings.
+EVIDENCE: see §4(b) below.
+  artifact:      ops/renquant104/sentinel_acks.json + tests/test_ack_expiry.py + tests/test_ack_ledger_audit.py (208 passed across seven ack/sentinel/inbox files).
+  prod or exp:   prod ledger edit (ops/renquant104/sentinel_acks.json) — a production-touching ack-ledger row change, not a data/model artifact.
+  existing data: ledger audit on the committed ledger at 2026-09-15 — before: 4 findings (three 30-day-expired rows + an expiry cliff); after: expired 0/5, no findings, rc 0.
+  best-known?:   yes — expiries staggered 09-25..09-29, all inside the 14-day backstop; the live-ledger census tests were moved to measured values with dated notes rather than re-asserted against stale exemplar rows.
+  scope:         ops/renquant104/sentinel_acks.json, ops/agent_inbox.py (weekly-apy104 exit-code documentation) and the two ack test files only.
+NEXT:     merge after review; the five rows expire 09-25..09-29 — if the underlying fixes (RenQuant#645, the renquant-model calibrator fix, the 10-01 risk statement) have not landed by then the page goes loud again by design.
+
 ## Conclusion
 
 Every `rq104 DEGRADED` page since 2026-08-17 has carried the same five
