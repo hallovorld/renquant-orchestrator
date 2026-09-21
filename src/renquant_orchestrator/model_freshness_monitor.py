@@ -764,6 +764,10 @@ class TournamentFreshness:
     n_present: int = 0
     n_missing: int = 0
     missing: list[str] = field(default_factory=list)
+    #: watchlist tickers the tournament DECLARES non-trainable (benchmark /
+    #: sector / defensive ETFs) -- not expected, not missing, not aged.
+    n_excluded: int = 0
+    excluded: list[str] = field(default_factory=list)
     min_age_days: int | None = None
     median_age_days: float | None = None
     max_age_days: int | None = None
@@ -778,6 +782,8 @@ class TournamentFreshness:
             "median_age_days": self.median_age_days,
             "min_age_days": self.min_age_days,
             "missing": list(self.missing),
+            "excluded": list(self.excluded),
+            "n_excluded": self.n_excluded,
             "n_expected": self.n_expected,
             "n_missing": self.n_missing,
             "n_present": self.n_present,
@@ -791,16 +797,40 @@ def read_tournament_freshness(
     now: datetime,
     *,
     policy: FreshnessPolicy = PROD_FAST_POLICY,
+    non_trainable: dict[str, str] | None = None,
 ) -> TournamentFreshness:
-    result = TournamentFreshness(n_expected=len(watchlist))
+    """Coverage + age spread over the tickers the tournament is EXPECTED to train.
+
+    ``non_trainable`` (ticker -> reason) is the tournament's own declared
+    exclusion set (see ``non_trainable_from_config``). A declared ticker is
+    neither expected nor missing, and an artifact it happens to have does not
+    enter the age spread -- it is not a tournament admission candidate. The
+    default (``None``) excludes nothing, so callers that do not declare keep
+    the fail-closed "every watchlist name must have an artifact" behaviour.
+    """
+    declared = {
+        str(t).strip().upper(): why for t, why in (non_trainable or {}).items()
+    }
+    excluded = [t for t in watchlist if t in declared]
+    expected = [t for t in watchlist if t not in declared]
+    result = TournamentFreshness(
+        n_expected=len(expected), n_excluded=len(excluded), excluded=excluded,
+    )
     if not watchlist:
         result.tier = TIER_BREACH
         result.detail = "empty watchlist (fail-closed)"
         return result
+    if not expected:
+        result.tier = TIER_BREACH
+        result.detail = (
+            f"no trainable ticker: all {len(excluded)} watchlist ticker(s) are "
+            f"declared non-trainable (fail-closed)"
+        )
+        return result
 
     ages: list[int] = []
     tiers: list[str] = []
-    for ticker in watchlist:
+    for ticker in expected:
         path = models_dir / ticker / f"{ticker}-policy-metadata.json"
         freshness = read_artifact_freshness(
             f"tournament:{ticker}",
@@ -834,7 +864,15 @@ def read_tournament_freshness(
         else "no present ages"
     )
     missing_part = f" missing={len(result.missing)}" if result.missing else ""
-    result.detail = f"{result.n_present}/{result.n_expected} present {age_part}{missing_part}"
+    excluded_part = (
+        f" excluded={len(excluded)} ({', '.join(excluded)}: declared "
+        f"non-trainable by the tournament)"
+        if excluded else ""
+    )
+    result.detail = (
+        f"{result.n_present}/{result.n_expected} present {age_part}"
+        f"{missing_part}{excluded_part}"
+    )
     return result
 
 
@@ -1166,6 +1204,57 @@ def _watchlist_from_config(path: Path) -> list[str]:
     return []
 
 
+def non_trainable_from_config(path: Path) -> dict[str, str]:
+    """Tickers the per-ticker tournament DECLARES it will not train -> reason.
+
+    Mirrors the derivation in RenQuant ``scripts/weekly_tournament_retrain.sh``
+    (``benchmark``, every ``sector_etf_map`` value, ``defensive_tickers`` --
+    each only when it is in the watchlist): that is how the tournament's own
+    100%-coverage gate excludes them and how its
+    ``<date>.expected_non_trainable.json`` receipt is written. This monitor
+    counted the same names as MISSING artifacts, so SPY -- the benchmark,
+    never trained by design -- made the tournament population read
+    ``141/142 present ... missing=1`` = BREACH on every run since the
+    watchlist carried it (measured 2026-09-15: min/median age 12d, the tier
+    could never leave breach on a fully healthy tournament). Unreadable or
+    shapeless config -> {}: nothing is excluded, i.e. fail-closed toward
+    MISSING, never toward silence.
+    """
+    if not path.exists():
+        return {}
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(config, dict):
+        return {}
+    raw_watchlist = config.get("watchlist")
+    if not isinstance(raw_watchlist, list):
+        return {}
+    watchlist = {str(t).strip().upper() for t in raw_watchlist if str(t).strip()}
+    out: dict[str, str] = {}
+    benchmark = config.get("benchmark")
+    if isinstance(benchmark, str) and benchmark.strip().upper() in watchlist:
+        out[benchmark.strip().upper()] = "benchmark index (strategy_config.benchmark)"
+    etf_map = config.get("sector_etf_map")
+    if isinstance(etf_map, dict):
+        for value in etf_map.values():
+            if isinstance(value, str) and value.strip().upper() in watchlist:
+                out.setdefault(
+                    value.strip().upper(),
+                    "sector ETF (strategy_config.sector_etf_map value)",
+                )
+    defensive = config.get("defensive_tickers")
+    if isinstance(defensive, list):
+        for value in defensive:
+            if isinstance(value, str) and value.strip().upper() in watchlist:
+                out.setdefault(
+                    value.strip().upper(),
+                    "defensive/hedge ETF (strategy_config.defensive_tickers)",
+                )
+    return out
+
+
 def _watchlist_from_prod_panel(path: Path) -> list[str]:
     if not path.exists():
         return []
@@ -1257,7 +1346,8 @@ class ComputeFreshnessTask(Task):
         # Per-population policy (NOT one global scalar): tournament + prod panel key on
         # the prod fast axis; the shadow panel keys on RFC #212's 35d + promote status.
         ctx.tournament = read_tournament_freshness(
-            ctx.models_dir, ctx.watchlist, ctx.now, policy=ctx.fast_policy
+            ctx.models_dir, ctx.watchlist, ctx.now, policy=ctx.fast_policy,
+            non_trainable=non_trainable_from_config(ctx.strategy_config_path),
         )
         ctx.prod_panel = read_artifact_freshness(
             "prod-panel", ctx.prod_panel_path, ctx.now, policy=ctx.fast_policy
