@@ -1,5 +1,25 @@
 # 2026-09-15 — shadow-scorer sentinel: a frozen prereg instrument's age is not a fault
 
+STATUS:   delivered, awaiting review — zero reviews at head.
+WHAT:     a `FROZEN_INSTRUMENTS` registry (lane, exact served content_sha256,
+          `until`, authority, reason) reclassifies an all-age-reason DEGRADED
+          record on a registered lane/artifact/date as `FROZEN_AGED` (quiet,
+          named); any other fault on the lane still alarms as before.
+WHY/DIR:  the `topdecile_clf_blend_leg` lane is the instrument of a
+          preregistered 120-session forward ledger (operator-directed
+          activation 2026-07-26, pipeline#213 frozen readout) and retraining
+          it mid-ledger would change what the ledger measures, so its
+          training age is a property of the experiment, not a fault — the
+          producer's generic age axes are the wrong verdict for this one
+          registered lane and repeat the page every session until Feb 2027.
+EVIDENCE: see §4(b) below.
+  artifact:      ops/renquant104/rq104_shadow_scorer_sentinel.py + tests/test_rq104_shadow_scorer_sentinel.py (106 passed, 7 new).
+  prod or exp:   exp on the sentinel only — no producer or served-config change; live on the next `renquant-orchestrator-run` ff-sync after merge.
+  existing data: read-only run against the live health log --as-of 2026-09-15 (RENQUANT_NO_NOTIFY=1) — deployed sentinel ALARMS, this branch reports FROZEN INSTRUMENT and exits 0.
+  best-known?:   yes — the exemption is keyed on the registry (lane + exact artifact hash + until date), not on reason text, so an unregistered lane or a different artifact in the lane still alarms.
+  scope:         ops/renquant104/rq104_shadow_scorer_sentinel.py and its test file only; does not touch the producer or the served config.
+NEXT:     merge after review; until then the DEGRADED page keeps firing daily.
+
 ## Conclusion
 
 Since 2026-09-14 the 14:45 `rq104 SHADOW SCORER DEGRADED [topdecile_clf_blend_leg]`
