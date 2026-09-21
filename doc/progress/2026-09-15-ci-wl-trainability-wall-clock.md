@@ -1,5 +1,23 @@
 # 2026-09-15 — CI: the watchlist-trainability tests read the wall clock; seven went red on 2026-09-13 on every orchestrator PR
 
+STATUS:   delivered, awaiting review — zero reviews at head.
+WHAT:     `undeclared_untrainable(rq_root=None, *, today=None)` and `main --today`
+          add an as-of seam so tests pin a fixed date instead of reading
+          `dt.date.today()`; the default stays the wall clock, unchanged for
+          the live weekly job.
+WHY/DIR:  same shape as #1119's A4-T1 wall-clock read, one file over — a
+          hardcoded 2026-08-23 declaration fixture crossed the module's
+          21-day freshness limit on 2026-09-13, so seven tests plus the
+          exit-code test go red on every orchestrator PR regardless of diff.
+EVIDENCE: see §4(b) below.
+  artifact:      ops/watchlist_trainability_check.py + tests/test_watchlist_trainability_check.py (19 passed on this branch).
+  prod or exp:   prod-adjacent CI fix only, no data/config regen; the live job still reads the wall clock by default.
+  existing data: #1122's CI run (34763396670) 1 failed pre-09-13; #1124's run (35031735785) 8 failed/7170 passed post-09-13 — exactly this module's seven tests plus the unrelated A4-T1 test.
+  best-known?:   yes — anti-vacuity: origin/main's module+test file run in isolation today = 8 failed, 11 passed, matching CI exactly.
+  scope:         ops/watchlist_trainability_check.py and its test file only.
+NEXT:     merge after review; unblocks CI on every open orchestrator PR
+          alongside #1119.
+
 ## Conclusion
 
 `tests/test_watchlist_trainability_check.py` builds a declaration fixture
