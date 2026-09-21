@@ -1,5 +1,29 @@
 # 2026-09-16 — rq105 batch-scores export: a buy-gated source run is a designed skip, not "FAILED rc=1"
 
+STATUS:   delivered (3 commits, 2 addenda below), awaiting review — zero
+          reviews at head; CI red is inherited (#1119 + #1127), not from
+          this diff.
+WHAT:     the buy-gated-day chain now carries a named status end to end:
+          exporter exits `EXIT_SOURCE_BUY_GATED = 3` (writes a `.skipped.json`
+          sidecar, never publishes) instead of rc=1; the liveness check reads
+          that sidecar fail-closed and reports OK-with-evidence instead of a
+          three-issue DOWN page; the serving wrapper exits
+          `EXIT_UPSTREAM_SKIPPED_BY_DESIGN=6` instead of rc=1 when the
+          sidecar is present.
+WHY/DIR:  rq105 is downstream of 104's buy admission — on a day 104's EMA50
+          gate blocks all buys, no class-A frozen vector exists BY
+          CONSTRUCTION, so the exporter's refusal is correct but was
+          indistinguishable (same rc=1, same page text) from a real failure
+          (unreadable DB, lane mismatch, job never fired). Precedent:
+          identical FAILED page on 2026-07-30 for the same EMA50 gate shape.
+EVIDENCE: see §4(b) below.
+  artifact:      ops/renquant105/export_batch_scores.py + rq105_liveness_check.py + run_shadow_serving.sh + the three touched test files (281 + 190 + 200 passed across the three commits' focused runs).
+  prod or exp:   exp on the ops wrapper/exporter/liveness scripts only — no data/config regen; live on the next `renquant-orchestrator-run` ff-sync after merge.
+  existing data: launchd_liveness.out shows export_missing fired on every no-export day since 09-01 (09-01, 09-02, 09-03, 09-04, 09-08, 09-09, 09-10, 09-14, 09-16) — all the same designed-skip shape, none a real outage.
+  best-known?:   yes — anti-vacuity for all three commits: the new positive (designed-skip / OK / SKIPPED) tests fail against origin/main's modules, the unchanged-behaviour tests (other health gaps, non-admit-contingent collectors, no sidecar) pass on both.
+  scope:         ops/renquant105/export_batch_scores.py, rq105_liveness_check.py, run_batch_scores_export.sh, run_shadow_serving.sh, ops/agent_inbox.py (DESIGNED_EXIT_CODES entries) and their test files only. Does not export a vector for a buy-gated day and does not touch 104's EMA50 gate.
+NEXT:     merge after review; unblocks the rq105-DOWN and DEGRADED false pages on every future buy-gated day.
+
 ## Conclusion
 
 The 06:15 page `rq105 batch scores export FAILED rc=1 (2026-09-16)` was not a
