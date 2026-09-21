@@ -103,7 +103,18 @@ def test_the_committed_ledger_has_zero_expired_acks_after_the_ac4_prune():
     # re-diagnosed-not-renewed: new exit code, checkable ref, no bare date push
     ab = ledger["com.renquant.shadow-ab-daily"]
     assert ab["acked_exit_codes"] == [3]
-    assert "orch#747" in ab["clears_when"]
+    # 2026-09-15 re-diagnosis: the orch#747 pin sync landed long ago and did
+    # NOT clear the job — the run manifest it verifies against is itself two
+    # months stale (all 8 checkouts != run_manifest.json pins). The clause
+    # now names that file and the two operator remedies (refresh / retire).
+    assert "run_manifest.json" in ab["clears_when"]
+    assert "PRECHECK" in ab["clears_when"]
+    # 2026-09-15: the three rows that had sat expired 30+ days with their own
+    # conditions MET were retired, the same way daily104 was under #622 AC4.
+    for gone in ("com.renquant.conditional-retrain104",
+                 "com.renquant.monthly-meta-label-retrain",
+                 "com.renquant.rq105-batch-scores-export"):
+        assert gone not in ledger, gone
     for k, (e, w) in dead.items():
         assert "clears_when" in w, f"{k} expired by {w}, expected its own clears_when"
         assert e == D("2026-07-20"), k
@@ -113,9 +124,12 @@ def test_the_re_dispositioned_ack_expires_by_its_OWN_explicit_date():
     """An `expires_at` must win over the 14-day age window — otherwise a considered
     review date silently inherits a blanket one."""
     ledger = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())
-    row = ledger["com.renquant.rq105-batch-scores-export"]
+    # Exemplar moved 2026-09-15 (rq105-batch-scores-export was retired): the
+    # rq104-risk-budget row is acked 09-15 with an explicit 09-25 — four days
+    # inside the 14-day backstop — so it demonstrates the same property.
+    row = ledger["com.renquant.rq104-risk-budget"]
     e, w = sent.ack_expiry(row)
-    assert e == D("2026-08-14")
+    assert e == D("2026-09-25")
     assert w == "expires_at", w
     # The PROPERTY, not the stamp. This asserted `acked_at == "2026-07-31"`,
     # which pinned a value that legitimately moves on every re-review — and it
@@ -135,12 +149,17 @@ def test_the_re_dispositioned_ack_names_a_FALSIFIABLE_clearing_condition():
     """An ack whose clears_when cannot be observed to happen is permanent in
     disguise. This one names a merge, a pin, and an observable session outcome —
     and says what to do if the fix lands and the job still fails."""
+    # Exemplar moved 2026-09-15 (rq105-batch-scores-export was retired): the
+    # monthly-calibrator-refresh row names the observable outcome ('Binding
+    # gate: OK' in the next monthly run's own log), the precondition (the
+    # fit-script fix pinned into the runtime checkout), and what a repeat
+    # means (loud, not acked — the row expires before that run).
     row = json.loads((OPS / "renquant104" / "sentinel_acks.json").read_text())[
-        "com.renquant.rq105-batch-scores-export"]
+        "com.renquant.monthly-calibrator-refresh"]
     cw = row["clears_when"]
-    assert "strategy-104#73" in cw
-    assert "full-buy-funnel run" in cw
-    assert "must be removed, not renewed" in cw
+    assert "Binding gate: OK" in cw
+    assert "pinned into the runtime" in cw
+    assert "loud, not acked" in cw
 
 
 # --- check_launchd_exits: expired acks go LOUD, valid ones stay INFO ---------
