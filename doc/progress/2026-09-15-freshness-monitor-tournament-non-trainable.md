@@ -1,5 +1,25 @@
 # 2026-09-15 — model-freshness monitor: the tournament's declared non-trainable set is not missing coverage
 
+STATUS:   delivered, awaiting review — zero reviews at head.
+WHAT:     `read_tournament_freshness` takes `non_trainable` (ticker -> reason)
+          derived by `non_trainable_from_config` from the tournament's own
+          non-trainable rule (benchmark, sector ETFs, defensive tickers, only
+          when in the watchlist); a declared ticker is neither expected, nor
+          missing, nor aged. Default excludes nothing, so undeclared callers
+          keep the existing fail-closed behaviour.
+WHY/DIR:  the 05:45 BREACH page has carried `tournament: 141/142 present ...
+          missing=1` on every run since the watchlist carried SPY — the
+          "missing" artifact is the benchmark, which the per-ticker
+          tournament never trains BY DESIGN, so the tournament tier could
+          never leave BREACH on a fully healthy tournament.
+EVIDENCE: see §4(b) below.
+  artifact:      src/renquant_orchestrator/model_freshness_monitor.py + tests/test_model_freshness_monitor.py (179 passed across five freshness test files, six new).
+  prod or exp:   exp on the monitor only — no data/config regen; live on the next `renquant-orchestrator-run` ff-sync after merge.
+  existing data: read-only run of the patched monitor against the live tree — before: 141/142 present missing=1 (breach); after: 134/134 present excluded=8 (GLD, SPY, XLE, XLF, XLI, XLK, XLU, XLY), tournament breach now only the genuine 145d CAT artifact.
+  best-known?:   yes — the exclusion mirrors the tournament's own derivation (benchmark/sector_etf_map/defensive_tickers, watchlist-gated), and an all-excluded or unreadable config still fails closed.
+  scope:         src/renquant_orchestrator/model_freshness_monitor.py and its test file only.
+NEXT:     merge after review; the remaining CAT tournament breach (145d, repeated REJECT verdicts) is a separate policy question, recorded not changed here.
+
 ## Conclusion
 
 The 05:45 `RenQuant 104 model freshness BREACH` page has carried
