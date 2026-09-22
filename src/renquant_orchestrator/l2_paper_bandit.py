@@ -83,6 +83,57 @@ def load_paper_marks(db_path: Path) -> dict[str, float]:
     return marks
 
 
+def load_book_identity(db_path: Path) -> dict[str, tuple[float, float | None, int | None]]:
+    """run_date -> (portfolio_value, cash, n_holdings) of the LAST snapshot of
+    each date; cash / n_holdings are None when the DB predates those columns
+    (the older test fixtures do)."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(live_state_snapshots)")}
+        extra = ", cash, n_holdings" if {"cash", "n_holdings"} <= cols else ", NULL, NULL"
+        rows = con.execute(
+            f"SELECT run_date, portfolio_value{extra} FROM live_state_snapshots "
+            "WHERE portfolio_value IS NOT NULL ORDER BY run_date, created_at").fetchall()
+    finally:
+        con.close()
+    out: dict[str, tuple[float, float | None, int | None]] = {}
+    for d, pv, cash, n in rows:
+        if pv and pv > 0:
+            out[str(d)] = (float(pv), None if cash is None else float(cash),
+                           None if n is None else int(n))
+    return out
+
+
+#: Two books whose end-of-day marks agree within SAME_BOOK_PV_TOL on at least
+#: SAME_BOOK_SHARE of their shared dates (>= SAME_BOOK_MIN_DATES) are the SAME
+#: account snapshotted twice, not two paper books: distinct books with their
+#: own positions diverge by percents within days, never stay within 50 bps for
+#: weeks. cash / n_holdings identity is reported as corroboration when present.
+SAME_BOOK_PV_TOL = 0.005
+SAME_BOOK_SHARE = 0.9
+SAME_BOOK_MIN_DATES = 5
+
+
+def same_book_as_champion(champion: dict, arm: dict) -> tuple[bool, str]:
+    """(same, evidence). Judged only on real evidence: fewer than
+    SAME_BOOK_MIN_DATES shared dated snapshots -> not judged (False)."""
+    shared = sorted(set(champion) & set(arm))
+    if len(shared) < SAME_BOOK_MIN_DATES:
+        return False, f"only {len(shared)} shared dated snapshot(s) — not judged"
+    within = sum(1 for d in shared
+                 if abs(arm[d][0] - champion[d][0]) / champion[d][0] <= SAME_BOOK_PV_TOL)
+    same_cash = sum(1 for d in shared
+                    if champion[d][1] is not None and arm[d][1] is not None
+                    and abs(champion[d][1] - arm[d][1]) < 0.005)
+    same_n = sum(1 for d in shared
+                 if champion[d][2] is not None and champion[d][2] == arm[d][2])
+    share = within / len(shared)
+    ev = (f"marks within {SAME_BOOK_PV_TOL:.1%} of the champion's on {within}/{len(shared)} "
+          f"shared dates ({share:.0%}); cash identical to the cent on {same_cash}, "
+          f"n_holdings identical on {same_n}")
+    return share >= SAME_BOOK_SHARE, ev
+
+
 def paper_returns(marks: dict[str, float]) -> dict[str, float]:
     """date -> daily paper return between consecutive MARKED dates."""
     out: dict[str, float] = {}
@@ -290,6 +341,31 @@ def main(argv=None) -> int:
             arm_marks[arm] = load_paper_marks(db)
         if len(arm_marks[CHAMPION]) < 2:
             raise RuntimeError("champion book has fewer than 2 marks — no calendar")
+        # §2 PREMISE CHECK (audit 2026-09-21): the contract prices "expert
+        # PAPER books that the shadow-lane infrastructure already marks
+        # daily". Measured: every shadow lane's live_state_snapshots carries
+        # the LIVE account's cash to the cent and its n_holdings on every
+        # shared date — the read-only lanes snapshot the broker account, they
+        # hold no book of their own. Under that premise the arm values differ
+        # ONLY by coverage (which dates each lane happened to mark), the
+        # "mixture minus champion" series measures nothing about any profile,
+        # and publishing it would be a false negative on the profiles. A
+        # bandit over identical books is void: refuse, name the evidence.
+        champion_id = load_book_identity(data_root / ARMS[CHAMPION])
+        same_book = {}
+        for arm, rel in ARMS.items():
+            if arm == CHAMPION:
+                continue
+            same, ev = same_book_as_champion(champion_id, load_book_identity(data_root / rel))
+            if same:
+                same_book[arm] = ev
+        if same_book:
+            raise RuntimeError(
+                "arms are not distinct paper books — the §2 premise fails: "
+                + "; ".join(f"{a}: {ev}" for a, ev in same_book.items())
+                + ". The shadow lanes snapshot the live account instead of "
+                  "marking a book of their own, so the mixture/regret numbers "
+                  "would be coverage artefacts, not evidence. Nothing appended.")
         rows = replay(arm_marks)
         verified, appended = sync_log(log_dir, rows)
         mrows = mixture_view(arm_marks, rows)

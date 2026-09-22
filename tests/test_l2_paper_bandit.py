@@ -222,3 +222,60 @@ def test_an_intermediate_mark_between_calendar_dates_is_not_a_priced_step():
     assert mrows[0]["held"] == [l2.CHAMPION] and mrows[0]["gap_excluded"] == sorted(others)
     assert mrows[0]["mixture_return"] == pytest.approx(mrows[0]["weights_effective"][l2.CHAMPION] * 0.0201, abs=1e-6)
     assert all(mrows[0]["arm_values_held"][a] == 1.0 for a in others)
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-21 audit: the four live arms were the SAME account snapshotted four
+# times (cash identical to the cent, n_holdings identical, same-day returns
+# within 9 bps); the -3.5% "mixture minus champion" was entirely the dates the
+# shadow lanes had not marked. A bandit over identical books must refuse.
+# ---------------------------------------------------------------------------
+
+def _mk_lane_db_with_identity(path: Path, marks: dict[str, float],
+                              cash: dict[str, float], n: int) -> None:
+    with sqlite3.connect(path) as con:
+        con.execute("CREATE TABLE live_state_snapshots (run_date TEXT, created_at TEXT,"
+                    " portfolio_value REAL, cash REAL, n_holdings INTEGER)")
+        for d, pv in marks.items():
+            con.execute("INSERT INTO live_state_snapshots VALUES (?,?,?,?,?)",
+                        (d, f"{d} 21:00:00", pv, cash[d], n))
+
+
+_DAYS = ["2026-09-%02d" % i for i in range(1, 9)]
+
+
+def test_arms_that_snapshot_the_same_account_are_refused(tmp_path, capsys):
+    (tmp_path / "data").mkdir()
+    marks = {d: 10000.0 + 10 * i for i, d in enumerate(_DAYS)}
+    cash = {d: 2031.17 for d in _DAYS}
+    for arm, rel in l2.ARMS.items():
+        # tiny mark-time noise, identical cash and holdings: the live shape
+        noisy = {d: v + (0.3 if arm != l2.CHAMPION else 0.0) for d, v in marks.items()}
+        _mk_lane_db_with_identity(tmp_path / rel, noisy, cash, 7)
+    rc = l2.main(["--data-root", str(tmp_path), "--log-dir", str(tmp_path / "logs")])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "REFUSED" in out and "not distinct paper books" in out
+    assert "marks within 0.5% of the champion's on 8/8" in out
+    assert not (tmp_path / "logs" / "l2_moe_mixture.jsonl").exists(), "nothing may be published"
+
+
+def test_arms_with_their_own_books_are_priced(tmp_path, capsys):
+    (tmp_path / "data").mkdir()
+    for i, (arm, rel) in enumerate(l2.ARMS.items()):
+        # distinct books drift apart by percents within days
+        marks = {d: 10000.0 * (1.0 + 0.02 * i) ** (k + 1) for k, d in enumerate(_DAYS)}
+        cash = {d: 1000.0 + 250 * i + k for k, d in enumerate(_DAYS)}
+        _mk_lane_db_with_identity(tmp_path / rel, marks, cash, 5 + i)
+    assert l2.main(["--data-root", str(tmp_path), "--log-dir", str(tmp_path / "logs")]) == 0
+    assert (tmp_path / "logs" / "l2_moe_mixture.jsonl").exists()
+
+
+def test_identity_check_is_not_judged_on_too_few_dates_or_missing_columns(tmp_path):
+    a = {d: (10000.0, 2031.17, 7) for d in _DAYS[:3]}
+    same, ev = l2.same_book_as_champion(a, dict(a))
+    assert same is False and "not judged" in ev
+    # fixtures without cash/n_holdings columns still yield marks (judged on marks)
+    _mk_lane_db(tmp_path / "x.db", _BASE)
+    ident = l2.load_book_identity(tmp_path / "x.db")
+    assert set(ident) == set(_BASE) and ident["2026-08-04"][1:] == (None, None)
