@@ -1,5 +1,25 @@
 # 2026-09-21 — MoE L2 paper bandit: the four arms are the same live account; the bandit now refuses
 
+STATUS:    delivered — code + tests in this PR only; the scheduled L2 bandit
+           job will exit 1 (REFUSED) daily until per-lane paper books exist.
+           No live log, DB or config written.
+
+WHAT:      `l2_paper_bandit` refuses to price arms that are the same book as
+           the champion (marks within 0.5% on >= 90% of >= 5 shared dates).
+
+WHY/DIR:   The shadow lanes snapshot the live Alpaca account, so the reported
+           -3.5% "mixture minus champion" was a coverage artefact, not regret.
+
+EVIDENCE:  artifact: scratch `--log-dir` run of the patched module against
+           data/runs.alpaca*.db → REFUSED 39/39, 34/34, 34/34 shared dates.
+           prod or exp: exp (read-only against prod DBs; real log untouched).
+           existing data: yes — existing lane DBs + l2_moe_mixture.jsonl (108 rows).
+           best-known?: yes — identity check at the current snapshot schema.
+           scope: L2 paper bandit only; no scorer / strategy change.
+
+NEXT:      Design PR for per-shadow-lane paper books (allocation machine §2
+           premise repair); re-run the bandit from those books.
+
 ## Conclusion
 
 The L2 paper bandit (`renquant_orchestrator.l2_paper_bandit`, live since
