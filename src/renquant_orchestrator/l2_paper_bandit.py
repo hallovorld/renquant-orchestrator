@@ -83,6 +83,78 @@ def load_paper_marks(db_path: Path) -> dict[str, float]:
     return marks
 
 
+def load_book_identity(db_path: Path) -> dict[str, tuple[float, float | None, int | None]]:
+    """run_date -> (portfolio_value, cash, n_holdings) of the LAST snapshot of
+    each date; cash / n_holdings are None when the DB predates those columns
+    (the older test fixtures do)."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(live_state_snapshots)")}
+        extra = ", cash, n_holdings" if {"cash", "n_holdings"} <= cols else ", NULL, NULL"
+        rows = con.execute(
+            f"SELECT run_date, portfolio_value{extra} FROM live_state_snapshots "
+            "WHERE portfolio_value IS NOT NULL ORDER BY run_date, created_at").fetchall()
+    finally:
+        con.close()
+    out: dict[str, tuple[float, float | None, int | None]] = {}
+    for d, pv, cash, n in rows:
+        if pv and pv > 0:
+            out[str(d)] = (float(pv), None if cash is None else float(cash),
+                           None if n is None else int(n))
+    return out
+
+
+#: Two books are the SAME account snapshotted twice when their latest
+#: SAME_BOOK_MIN_DATES corroborable shared dates (both schemas carry cash) ALL
+#: agree: marks within SAME_BOOK_PV_TOL AND broker cash identical to the cent.
+#: Mark proximity alone is NOT conclusive -- two distinct books can share
+#: starting capital and stay within 50 bps for a week, but they do not carry
+#: the same cash to the cent across days on which it moves by thousands.
+#: n_holdings is reported, not required: the shadow lanes write it from their
+#: OWN state (e.g. 2026-10-02: champion 5, shadow_blend 6, cash 5316.84 in
+#: both), so it is not an account-identity field. The test is on the TRAILING
+#: window because the question is whether the arms are distinct books NOW.
+#: The mark-only path (SAME_BOOK_SHARE of all shared dates) is a fallback for
+#: legacy schemas only, and its evidence says "not demonstrably distinct",
+#: never "same account".
+SAME_BOOK_PV_TOL = 0.005
+SAME_BOOK_SHARE = 0.9
+SAME_BOOK_MIN_DATES = 5
+
+
+def same_book_as_champion(champion: dict, arm: dict) -> tuple[bool, str]:
+    """(same, evidence). Judged only on real evidence: fewer than
+    SAME_BOOK_MIN_DATES shared dated snapshots -> not judged (False)."""
+    shared = sorted(set(champion) & set(arm))
+    if len(shared) < SAME_BOOK_MIN_DATES:
+        return False, f"only {len(shared)} shared dated snapshot(s) — not judged"
+
+    def marks_close(d):
+        return abs(arm[d][0] - champion[d][0]) / champion[d][0] <= SAME_BOOK_PV_TOL
+
+    corroborable = [d for d in shared if None not in (champion[d][1], arm[d][1])]
+    if len(corroborable) >= SAME_BOOK_MIN_DATES:
+        run = 0
+        for d in reversed(corroborable):
+            if not (marks_close(d) and abs(champion[d][1] - arm[d][1]) < 0.005):
+                break
+            run += 1
+        same_n = sum(1 for d in corroborable[len(corroborable) - run:]
+                     if champion[d][2] is not None and champion[d][2] == arm[d][2])
+        return run >= SAME_BOOK_MIN_DATES, (
+            f"SAME ACCOUNT test: marks within {SAME_BOOK_PV_TOL:.1%} AND cash identical "
+            f"to the cent on the latest {run} consecutive corroborable shared date(s) "
+            f"(need {SAME_BOOK_MIN_DATES}; {len(corroborable)} corroborable in total; "
+            f"lane-local n_holdings equal on {same_n} of those)")
+    within = sum(1 for d in shared if marks_close(d))
+    share = within / len(shared)
+    return share >= SAME_BOOK_SHARE, (
+        f"MARK-ONLY fallback (legacy schema: cash on only {len(corroborable)} shared "
+        f"date(s)): marks within {SAME_BOOK_PV_TOL:.1%} on {within}/{len(shared)} "
+        f"shared dates ({share:.0%}) — distinctness NOT established; insufficient "
+        f"to assert the same account")
+
+
 def paper_returns(marks: dict[str, float]) -> dict[str, float]:
     """date -> daily paper return between consecutive MARKED dates."""
     out: dict[str, float] = {}
@@ -290,6 +362,32 @@ def main(argv=None) -> int:
             arm_marks[arm] = load_paper_marks(db)
         if len(arm_marks[CHAMPION]) < 2:
             raise RuntimeError("champion book has fewer than 2 marks — no calendar")
+        # §2 PREMISE CHECK (audit 2026-09-21): the contract prices "expert
+        # PAPER books that the shadow-lane infrastructure already marks
+        # daily". Measured: every shadow lane's live_state_snapshots carries
+        # the LIVE account's cash to the cent and its n_holdings on every
+        # shared date — the read-only lanes snapshot the broker account, they
+        # hold no book of their own. Under that premise the arm values differ
+        # ONLY by coverage (which dates each lane happened to mark), the
+        # "mixture minus champion" series measures nothing about any profile,
+        # and publishing it would be a false negative on the profiles. A
+        # bandit over identical books is void: refuse, name the evidence.
+        champion_id = load_book_identity(data_root / ARMS[CHAMPION])
+        same_book = {}
+        for arm, rel in ARMS.items():
+            if arm == CHAMPION:
+                continue
+            same, ev = same_book_as_champion(champion_id, load_book_identity(data_root / rel))
+            if same:
+                same_book[arm] = ev
+        if same_book:
+            raise RuntimeError(
+                "arms are not distinct paper books — the §2 premise fails: "
+                + "; ".join(f"{a}: {ev}" for a, ev in same_book.items())
+                + ". An arm that is (or cannot be told apart from) the "
+                  "champion's book holds no profile of its own, so the "
+                  "mixture/regret numbers would be coverage artefacts, not "
+                  "evidence. Nothing appended.")
         rows = replay(arm_marks)
         verified, appended = sync_log(log_dir, rows)
         mrows = mixture_view(arm_marks, rows)
