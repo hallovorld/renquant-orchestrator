@@ -891,7 +891,85 @@ def _ledger_append_explains(
     return False, None
 
 
-def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
+#: Reviewed, committed registry of RECORDED incidents: boundaries a human has
+#: already diagnosed and documented, which no promotion receipt, ledger append
+#: or rollback marker can ever explain (e.g. a live-tree pull truncating a
+#: tracked ledger). Relative to this package's repository root.
+INCIDENT_EXPLANATIONS_SUBPATH = ("ops", "renquant104", "scorer_identity_incident_explanations.json")
+INCIDENT_EXPLANATIONS_SCHEMA = 1
+_INCIDENT_REQUIRED = (
+    "lane", "prev_run_id", "curr_run_id", "prev_sha", "curr_sha",
+    "reason", "evidence", "recorded_by", "recorded_at",
+)
+
+
+@dataclass(frozen=True)
+class IncidentExplanation:
+    """One recorded incident, bound to EXACTLY one boundary.
+
+    Every field is a strict equality bind (run ids) or a digest bind on the
+    shorter prefix (``_digest_matches``, ≥ 16 hex): an entry explains the one
+    transition it names and nothing else — no wildcard, no lane-family, no
+    date window. Recording one is a reviewed change to this repository.
+    """
+    lane: str
+    prev_run_id: str
+    curr_run_id: str
+    prev_sha: str
+    curr_sha: str
+    reason: str
+    evidence: str
+    recorded_by: str
+    recorded_at: str
+
+    def matches(self, change: LaneChange, boundary: Boundary) -> bool:
+        return (
+            change.lifecycle is None
+            and change.lane == self.lane
+            and boundary.prev_run.run_id == self.prev_run_id
+            and boundary.curr_run.run_id == self.curr_run_id
+            and _digest_matches(change.prev.artifact_sha, self.prev_sha)
+            and _digest_matches(change.curr.artifact_sha, self.curr_sha)
+        )
+
+    def describe(self) -> str:
+        return (
+            f"incident recorded {self.recorded_at} by {self.recorded_by}: "
+            f"{self.reason} — evidence: {self.evidence}"
+        )
+
+
+def default_incident_explanations_path() -> Path:
+    """The committed registry shipped with THIS checkout of the package."""
+    return Path(__file__).resolve().parents[2].joinpath(*INCIDENT_EXPLANATIONS_SUBPATH)
+
+
+def load_incident_explanations(path: Path | None) -> list[IncidentExplanation]:
+    """Load the registry; anything malformed loads as NOTHING (fail closed:
+    an unreadable registry explains no boundary, so the CRITICAL stands)."""
+    if path is None:
+        return []
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("schema_version") != INCIDENT_EXPLANATIONS_SCHEMA:
+        return []
+    out: list[IncidentExplanation] = []
+    for entry in payload.get("incidents") or []:
+        if not isinstance(entry, dict):
+            continue
+        if any(not isinstance(entry.get(k), str) or not entry.get(k).strip() for k in _INCIDENT_REQUIRED):
+            continue
+        out.append(IncidentExplanation(**{k: entry[k].strip() for k in _INCIDENT_REQUIRED}))
+    return out
+
+
+def explain_boundary(
+    boundary: Boundary,
+    events: list[PromoteEvent],
+    incidents: list[IncidentExplanation] | None = None,
+) -> None:
     """Mark each lane change explained/unexplained in place."""
     window = events_in_window(events, boundary.prev_run, boundary.curr_run)
     for change in boundary.changes:
@@ -908,6 +986,19 @@ def explain_boundary(boundary: Boundary, events: list[PromoteEvent]) -> None:
         if ledger_ok:
             change.explained = True
             change.note = ledger_note
+    # A RECORDED incident (committed registry) explains exactly the one
+    # boundary it names — the 2026-08-31 live-tree pull that truncated the
+    # tracked momentum ledger is a same-path replacement no receipt or append
+    # can legitimize, so without a record the monitor re-pages it every day
+    # (an all-red alarm stops being read). Exact run ids + both digests.
+    for change in boundary.changes:
+        if change.explained:
+            continue
+        for incident in incidents or ():
+            if incident.matches(change, boundary):
+                change.explained = True
+                change.note = incident.describe()
+                break
     # A recorded promotion swaps prod and shadow lanes atomically: an explained
     # prod change legitimizes same-boundary shadow (and calibrator) changes.
     prod_change = next((c for c in boundary.changes if c.lane == LANE_PROD), None)
@@ -972,6 +1063,7 @@ def evaluate(
     events: list[PromoteEvent],
     *,
     max_trained_age_days: int = DEFAULT_MAX_TRAINED_AGE_DAYS,
+    incidents: list[IncidentExplanation] | None = None,
 ) -> dict[str, Any]:
     """Evaluate a chronological run window into the monitor's report dict."""
     fail_closed: list[str] = []
@@ -992,7 +1084,7 @@ def evaluate(
         if not changes:
             continue
         boundary = Boundary(prev_run=prev, curr_run=curr, changes=changes)
-        explain_boundary(boundary, events)
+        explain_boundary(boundary, events, incidents)
         boundaries.append(boundary)
 
     unexplained = [b for b in boundaries if not b.explained]
@@ -1090,9 +1182,11 @@ def build_report(
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     max_trained_age_days: int = DEFAULT_MAX_TRAINED_AGE_DAYS,
     fetch_limit: int = 2000,
+    incident_explanations_path: Path | None = None,
 ) -> dict[str, Any]:
     """Load, extract, and evaluate. DB/read errors fail closed to CRITICAL."""
     resolver = BoosterResolver(prod_artifacts_dir)
+    incidents = load_incident_explanations(incident_explanations_path)
     try:
         rows = load_canonical_runs(
             db_path, run_type=run_type, strategy=strategy, limit=fetch_limit
@@ -1130,13 +1224,19 @@ def build_report(
         promote_log_dir=promote_log_dir,
         shadow_receipt_dir=shadow_receipt_dir,
     )
-    return evaluate(windowed, events, max_trained_age_days=max_trained_age_days)
+    return evaluate(
+        windowed, events, max_trained_age_days=max_trained_age_days, incidents=incidents
+    )
 
 
 # --- backfill timeline ----------------------------------------------------------
 
 
-def format_timeline(runs: list[RunIdentity], events: list[PromoteEvent]) -> list[str]:
+def format_timeline(
+    runs: list[RunIdentity],
+    events: list[PromoteEvent],
+    incidents: list[IncidentExplanation] | None = None,
+) -> list[str]:
     """Segment N runs by identity and render the timeline with boundary
     verdicts (the backfill/replay view)."""
     lines: list[str] = []
@@ -1166,7 +1266,7 @@ def format_timeline(runs: list[RunIdentity], events: list[PromoteEvent]) -> list
         if index + 1 < len(segments):
             prev, curr = segment[-1], segments[index + 1][0]
             boundary = Boundary(prev, curr, diff_runs(prev, curr))
-            explain_boundary(boundary, events)
+            explain_boundary(boundary, events, incidents)
             verdict = "explained" if boundary.explained else "*** UNEXPLAINED ***"
             lines.append(f"BOUNDARY {prev.run_id} -> {curr.run_id}  {verdict}")
             for change in boundary.changes:
@@ -1190,8 +1290,10 @@ def build_backfill_lines(
     run_type: str = DEFAULT_RUN_TYPE,
     strategy: str = DEFAULT_STRATEGY,
     n_runs: int = DEFAULT_BACKFILL_RUNS,
+    incident_explanations_path: Path | None = None,
 ) -> list[str]:
     resolver = BoosterResolver(prod_artifacts_dir)
+    incidents = load_incident_explanations(incident_explanations_path)
     rows = load_canonical_runs(db_path, run_type=run_type, strategy=strategy, limit=n_runs)
     runs = [
         extract_identity(
@@ -1208,7 +1310,7 @@ def build_backfill_lines(
         promote_log_dir=promote_log_dir,
         shadow_receipt_dir=shadow_receipt_dir,
     )
-    return format_timeline(runs, events)
+    return format_timeline(runs, events, incidents)
 
 
 # --- alerting / CLI ---------------------------------------------------------------
@@ -1252,6 +1354,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="N",
         help="replay the last N canonical runs and print the identity timeline (report-only, exit 0)",
     )
+    parser.add_argument(
+        "--incident-explanations",
+        type=Path,
+        default=None,
+        help=(
+            "recorded-incident registry (default: this package's committed "
+            "ops/renquant104/scorer_identity_incident_explanations.json); pass "
+            "/dev/null to disable"
+        ),
+    )
     parser.add_argument("--topic", default=DEFAULT_NTFY_TOPIC)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--notify", action="store_true", help="post ntfy alerts on CRITICAL/WARN")
@@ -1271,6 +1383,9 @@ def _resolved_paths(args: argparse.Namespace) -> dict[str, Path]:
         ).expanduser(),
         "shadow_receipt_dir": (
             args.shadow_receipt_dir or repo_root.joinpath(*SHADOW_RECEIPT_SUBDIR)
+        ).expanduser(),
+        "incident_explanations_path": (
+            args.incident_explanations or default_incident_explanations_path()
         ).expanduser(),
     }
 
@@ -1311,6 +1426,7 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "Boundary",
     "BoosterResolver",
+    "IncidentExplanation",
     "LaneChange",
     "LaneIdentity",
     "PromoteEvent",
