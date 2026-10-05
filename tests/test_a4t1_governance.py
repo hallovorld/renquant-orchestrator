@@ -380,6 +380,13 @@ sys.exit(main(argv))
 def _sub_env(env: Env) -> dict:
     e = dict(os.environ)
     e["RENQUANT_DATA_ROOT"] = str(env.root)
+    # The exception window [2026-08-31, 2026-09-07] is a WALL-CLOCK bound in
+    # the committed authorization record, so a subprocess test that lets the
+    # CLI resolve `today` passes until the window closes and then fails every
+    # day after — which is exactly what happened on 2026-09-08 (one day past
+    # the bound), turning `test` red on every orchestrator PR, doc-only ones
+    # included. Pin the date the same way the in-process tests already do.
+    e["RQ_A4T1_AS_OF"] = A4T1_AS_OF.isoformat()
     return e
 
 
@@ -425,6 +432,37 @@ def test_bash_wrapper_rejects_bad_arguments_before_python():
     assert r.returncode == 2 and "YYYYMMDDTHHMMSSZ" in r.stderr
     r = subprocess.run(["bash", str(WRAPPER), RUN_ID], capture_output=True, text=True)
     assert r.returncode == 2 and "usage" in r.stderr
+
+
+def test_wrapper_as_of_seam_is_validated_and_absent_in_production(env):
+    """`RQ_A4T1_AS_OF` is a TEST seam: it must be shape-checked before python
+    runs, and its absence must leave the production command untouched (the CLI
+    then resolves the wall clock, which is what the temporal bound judges)."""
+    runner = _runner(env.tmp, env.digest, env.auth)
+    d = env.tmp / "seam"
+    staging, _ = _candidate_staging(d)
+    prod = _prod(d)
+    base = _sub_env(env)
+    base.update({"PYTHON": str(runner), "LOG_DIR": str(env.tmp / "seam-logs")})
+
+    bad = dict(base, RQ_A4T1_AS_OF="2026/09/01")
+    r = subprocess.run(["bash", str(WRAPPER), RUN_ID, str(prod), str(staging)],
+                       capture_output=True, text=True, env=bad)
+    assert r.returncode == 2 and "RQ_A4T1_AS_OF must be YYYY-MM-DD" in r.stderr
+    assert not (env.tmp / "seam-logs" / f"{RUN_ID}.a4t1_promote.json").exists()
+
+    # unset → the wrapper forwards no --as-of at all; the CLI's own default
+    # (today) then applies, so today's real date decides — outside the window
+    # that is a temporal_bounds refusal, which is the production contract.
+    unset = {k: v for k, v in base.items() if k != "RQ_A4T1_AS_OF"}
+    r = subprocess.run(["bash", str(WRAPPER), RUN_ID, str(prod), str(staging)],
+                       capture_output=True, text=True, env=unset)
+    verdict = json.loads((env.tmp / "seam-logs" / f"{RUN_ID}.a4t1_promote.json").read_text())
+    in_window = dt.date.fromisoformat("2026-08-31") <= dt.date.today() <= dt.date.fromisoformat("2026-09-07")
+    if in_window:
+        assert r.returncode == 0 and verdict["status"] == "PROMOTED"
+    else:
+        assert r.returncode == 1 and verdict["refused_on"] == "temporal_bounds"
 
 
 def test_bash_wrapper_end_to_end_records_the_verdict(env):
