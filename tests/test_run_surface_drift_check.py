@@ -912,3 +912,73 @@ class TestLaunchdIntents:
             assert drift.read_plist_intents(str(plist))["run_at_load"] is True, label
             assert drift.program_args_digest(drift.read_plist_program_args(str(plist))) \
                 == jobs[label]["program_args_sha256"], label
+
+
+class TestPinLineage:
+    """A deployed pin must be an ancestor of the runtime repo's origin/main.
+
+    The 2026-09-12 containment (two unmerged PR heads pinned in the LIVE lock,
+    runtime re-aligned, lock edit uncommitted) passed every checkout check and
+    the umbrella branch/lag checks — nothing in this scan could see it.
+    Lineage is the property that separates a reviewed pin from a contained one.
+    """
+
+    def test_pin_on_origin_main_is_silent(self, tmp_path):
+        repo = _make_repo(tmp_path, "r1")
+        head = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "update-ref", "refs/remotes/origin/main", head)
+        problems, infos = drift.check_pin_lineage(str(repo), head, "runtime/r1")
+        assert problems == [] and infos == []
+
+    def test_pin_off_origin_main_alarms(self, tmp_path):
+        repo = _make_repo(tmp_path, "r1")
+        c1 = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "update-ref", "refs/remotes/origin/main", c1)
+        (repo / "f.txt").write_text("pr head\n")
+        _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "pr")
+        c2 = _git(repo, "rev-parse", "HEAD")
+        problems, _ = drift.check_pin_lineage(str(repo), c2, "runtime/r1")
+        assert len(problems) == 1
+        assert "NOT on origin/main" in problems[0] and c2[:12] in problems[0]
+        # the aligned checkout itself is clean and at its pin — the OLD checks stay silent
+        clean, _ = drift.check_checkout(str(repo), c2, "runtime/r1")
+        assert clean == []
+
+    def test_missing_origin_main_is_info_not_alarm(self, tmp_path):
+        repo = _make_repo(tmp_path, "r1")
+        head = _git(repo, "rev-parse", "HEAD")
+        problems, infos = drift.check_pin_lineage(str(repo), head, "runtime/r1")
+        assert problems == []
+        assert any("origin/main not present" in i for i in infos)
+
+    def test_no_commit_or_missing_repo_is_silent(self, tmp_path):
+        assert drift.check_pin_lineage(str(tmp_path / "nope"), "0" * 40, "runtime/x") == ([], [])
+        repo = _make_repo(tmp_path, "r1")
+        assert drift.check_pin_lineage(str(repo), None, "runtime/r1") == ([], [])
+
+    def test_git_surfaces_wires_lineage_for_runtime_repos(self, tmp_path, monkeypatch):
+        """The containment shape end to end: lock pins an off-main commit,
+        runtime aligned and clean → check_git_surfaces must raise it."""
+        runtime = tmp_path / "runtime"
+        runtime.mkdir()
+        repo = _make_repo(runtime, "renquant-x")
+        c1 = _git(repo, "rev-parse", "HEAD")
+        _git(repo, "update-ref", "refs/remotes/origin/main", c1)
+        (repo / "f.txt").write_text("contained\n")
+        _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "contained")
+        c2 = _git(repo, "rev-parse", "HEAD")
+        lock = tmp_path / "subrepos.lock.json"
+        lock.write_text(json.dumps({"subrepos": [{"name": "renquant-x", "commit": c2}]}))
+        orch = _make_repo(tmp_path, "orch-run")
+        _git(orch, "update-ref", "refs/remotes/origin/main", _git(orch, "rev-parse", "HEAD"))
+        monkeypatch.setattr(drift, "LOCK_FILE", str(lock))
+        monkeypatch.setattr(drift, "RUNTIME_ROOT", str(runtime))
+        monkeypatch.setattr(drift, "ORCH_RUN", str(orch))
+        problems, _ = drift.check_git_surfaces()
+        assert [p for p in problems if "NOT on origin/main" in p], problems
+        assert not [p for p in problems if "!= expected" in p or "uncommitted" in p], problems
+        # and the same lock with the pin moved back onto main is silent
+        lock.write_text(json.dumps({"subrepos": [{"name": "renquant-x", "commit": c1}]}))
+        _git(repo, "checkout", "-q", c1)
+        problems, _ = drift.check_git_surfaces()
+        assert problems == [], problems
