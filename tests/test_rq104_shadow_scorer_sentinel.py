@@ -1744,3 +1744,124 @@ def test_a_UTC_repo_whose_git_emits_Z_is_parsed(tmp_path):
     got = sentinel.lane_declared_since(lane, str(cfg), why)
     assert got == dt.date(2026, 8, 2), why
     assert not any("unparseable" in w for w in why), why
+
+
+# ---------------------------------------------------------------------------
+# frozen instruments (2026-09-15): the clf lane's age is a property of the
+# 120-session forward ledger it instruments, not a fault. Verbatim reasons
+# from backtesting/renquant_104/logs/shadow_scorer_health.jsonl, 2026-09-15.
+# ---------------------------------------------------------------------------
+
+CLF = "topdecile_clf_blend_leg"
+CLF_SHA = "sha256:1e644354e0981f47"
+AGE_REASONS = ["cutoff_lag_140d_over_112d(floor_84d+slack_28d)", "trained_49d_limit_28d"]
+
+
+def _clf_degraded(run_date, **kw):
+    base = dict(shadow_name=CLF, status="fault", state="degraded", loaded=True,
+                n_candidates=68, n_scored=68, coverage_frac=1.0,
+                effective_train_cutoff_date="2026-04-28", staleness_days=140,
+                content_sha256=CLF_SHA, reasons=list(AGE_REASONS))
+    base.update(kw)
+    return _record(run_date, **base)
+
+
+def _patrol_clf(tmp_path, monkeypatch, recs):
+    jsonl = tmp_path / "health.jsonl"
+    jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+    monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+    sent: list = []
+    monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+    clf = sentinel.WatchedLane(name=CLF, runs_db=None, purpose="the certified line")
+    out: list = []
+    rc = sentinel._patrol_lane(clf, [D1, D0], D0, out)
+    return rc, out, sent
+
+
+class TestFrozenInstrument:
+    def test_age_only_degradation_on_the_frozen_artifact_is_quiet_and_named(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        rc, out, sent = _patrol_clf(
+            tmp_path, monkeypatch,
+            [_clf_degraded(D1.isoformat()), _clf_degraded(D0.isoformat())])
+        assert rc == 0 and out == [] and sent == []
+        printed = capsys.readouterr().out
+        assert "FROZEN INSTRUMENT" in printed
+        assert "2027-02-28" in printed
+        assert "non-age faults on this lane still alarm" in printed
+
+    def test_the_same_reasons_on_an_unregistered_lane_still_alarm(
+        self, tmp_path, monkeypatch
+    ):
+        """The mirror: the exemption is keyed on the registry, not on the reason text."""
+        jsonl = tmp_path / "health.jsonl"
+        recs = [_clf_degraded(D1.isoformat(), shadow_name="momentum_fast_v1_shadow"),
+                _clf_degraded(D0.isoformat(), shadow_name="momentum_fast_v1_shadow")]
+        jsonl.write_text("\n".join(json.dumps(r) for r in recs) + "\n")
+        monkeypatch.setattr(sentinel, "SHADOW_HEALTH_JSONL", str(jsonl))
+        sent: list = []
+        monkeypatch.setattr(sentinel, "alert", lambda t, b, **kw: sent.append((t, b)))
+        lane = sentinel.WatchedLane(name="momentum_fast_v1_shadow", runs_db=None)
+        out: list = []
+        rc = sentinel._patrol_lane(lane, [D1, D0], D0, out)
+        assert rc == sentinel.EXIT_ALARM and sent
+
+    def test_a_non_age_fault_on_the_frozen_lane_still_alarms(self, tmp_path, monkeypatch):
+        recs = [_clf_degraded(D1.isoformat(),
+                              reasons=AGE_REASONS + ["coverage_0.40_below_floor_0.90"],
+                              n_scored=27, coverage_frac=0.40),
+                _clf_degraded(D0.isoformat(),
+                              reasons=AGE_REASONS + ["coverage_0.40_below_floor_0.90"],
+                              n_scored=27, coverage_frac=0.40)]
+        rc, out, sent = _patrol_clf(tmp_path, monkeypatch, recs)
+        assert rc == sentinel.EXIT_ALARM and sent
+        assert "coverage_0.40_below_floor_0.90" in sent[0][1]
+
+    def test_a_different_artifact_in_the_frozen_lane_must_meet_the_age_bar(
+        self, tmp_path, monkeypatch
+    ):
+        """Someone retrained the lane: the new artifact is not the registered
+        instrument, so its age is judged like any other lane's."""
+        recs = [_clf_degraded(D1.isoformat(), content_sha256="sha256:deadbeef00000000"),
+                _clf_degraded(D0.isoformat(), content_sha256="sha256:deadbeef00000000")]
+        rc, out, sent = _patrol_clf(tmp_path, monkeypatch, recs)
+        assert rc == sentinel.EXIT_ALARM and sent
+
+    def test_past_until_the_freeze_lapses(self, tmp_path, monkeypatch):
+        fi = sentinel.FROZEN_INSTRUMENTS[0]
+        lapsed = sentinel.FrozenInstrument(
+            lane=fi.lane, content_sha256=fi.content_sha256,
+            until=D1 - dt.timedelta(days=1), authority=fi.authority, reason=fi.reason)
+        monkeypatch.setattr(sentinel, "FROZEN_INSTRUMENTS", (lapsed,))
+        rc, out, sent = _patrol_clf(
+            tmp_path, monkeypatch,
+            [_clf_degraded(D1.isoformat()), _clf_degraded(D0.isoformat())])
+        assert rc == sentinel.EXIT_ALARM and sent
+
+    def test_a_mixed_window_frozen_then_load_failure_is_not_a_degraded_streak(
+        self, tmp_path, monkeypatch
+    ):
+        """One frozen-aged day + one load failure: neither streak check owns a
+        two-day window here, exactly as one healthy day + one failure would not."""
+        recs = [_clf_degraded(D1.isoformat()),
+                _clf_degraded(D0.isoformat(), loaded=False, n_scored=0, coverage_frac=0.0,
+                              load_error="artifact_not_found",
+                              reasons=["artifact_unresolved"])]
+        rc, out, sent = _patrol_clf(tmp_path, monkeypatch, recs)
+        assert rc == 0 and sent == []
+
+    def test_registry_entries_name_watched_lanes_and_real_reason_shapes(self):
+        watched = {lane.name for lane in sentinel.watched_lanes()}
+        for fi in sentinel.FROZEN_INSTRUMENTS:
+            assert fi.lane in watched, fi.lane
+            assert isinstance(fi.until, dt.date)
+            assert fi.content_sha256.startswith("sha256:")
+            assert fi.authority and fi.reason
+        # the producer's vocabulary is matched; non-age faults are not
+        assert sentinel.is_age_only_degradation(AGE_REASONS)
+        assert sentinel.is_age_only_degradation(
+            ["stale_622d_limit_28d", "no_declared_lookahead_single_axis"])
+        assert not sentinel.is_age_only_degradation([])
+        assert not sentinel.is_age_only_degradation(AGE_REASONS + ["artifact_unresolved"])
+        assert not sentinel.is_age_only_degradation(["coverage_0.40_below_floor_0.90"])
