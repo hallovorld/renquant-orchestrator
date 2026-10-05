@@ -190,6 +190,7 @@
     "sec_edgar_harvester",
     "serving_bundle_provenance",
     "serving_features_provenance",
+    "serving_window_monitor",
     "shadow_ab_epoch_telemetry",
     "shadow_ab_runner",
     "shadow_realtime_serving",

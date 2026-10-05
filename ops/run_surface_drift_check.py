@@ -13,9 +13,11 @@ Two invisible-divergence classes enabled the 2026-07-16 incident:
 This checker makes both loud within one scheduled firing:
 
   a. git checkouts: every subrepos.lock.json runtime repo must sit exactly
-     at its pinned commit and be clean; the orchestrator-run checkout must
-     sit on origin/main (fetched ref as of the last fetch) and be clean.
-     Tracked modifications alarm; untracked files are reported as info.
+     at its pinned commit and be clean, and that pin must be an ancestor of
+     the repo's origin/main (an unmerged commit deployed as a pin is a
+     containment and must alarm); the orchestrator-run checkout must sit on
+     origin/main (fetched ref as of the last fetch) and be clean. Tracked
+     modifications alarm; untracked files are reported as info.
   b. launchd surface: the ProgramArguments of every com.renquant.* plist
      in ~/Library/LaunchAgents must match the committed manifest
      (ops/launchd_manifest.json). A swapped program, a new unmanifested
@@ -123,6 +125,67 @@ def check_checkout(repo: str, expected_commit: str | None, label: str) -> tuple[
     return problems, infos
 
 
+def _git_rc(repo: str, *args: str) -> int | None:
+    """Read-only git query returning the EXIT CODE (None if git could not run).
+
+    `_git` folds every non-zero exit into None, which is right for queries
+    whose answer is stdout. `merge-base --is-ancestor` answers WITH its exit
+    code (0 = ancestor, 1 = not an ancestor, anything else = could not tell),
+    so the three outcomes must stay distinguishable.
+    """
+    try:
+        res = subprocess.run(
+            ["git", "-C", repo, *args],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    return res.returncode
+
+
+def check_pin_lineage(repo: str, commit: str | None, label: str) -> tuple[list[str], list[str]]:
+    """Alarm when a deployed pin is a commit that is NOT on the repo's origin/main.
+
+    2026-09-12: two unmerged PR heads (pipeline#310, strategy-104#107) were
+    deployed to the live runtime under CLAUDE.md §5 containment by editing the
+    LIVE `subrepos.lock.json` and re-aligning the runtime. Every existing check
+    passed: the runtime sat exactly at the (edited) lock, clean; the umbrella
+    was on `main` at origin/main because the lock edit was uncommitted; and
+    this scan reads the umbrella's git metadata as files, so it cannot see an
+    uncommitted lock. The containment was therefore INVISIBLE to the daily
+    scan that §5(c) names as the designed reminder to lift or legitimize it.
+
+    The property that actually distinguishes that state is lineage: a pin the
+    review gate produced is an ancestor of `origin/main`; a containment pin is
+    not. `origin/main` here is whatever the pin-align step last fetched into
+    the runtime checkout (`subrepo_assemble.py --sync` fetches before it
+    detaches), so a PR merged AFTER that fetch reads as off-main until the
+    next align — one morning of alarm, then it clears by itself. No fetch is
+    performed here: this scan stays read-only.
+    """
+    problems: list[str] = []
+    infos: list[str] = []
+    if not commit or not os.path.isdir(repo):
+        return problems, infos
+    origin_main = _git(repo, "rev-parse", "--verify", "--quiet", "origin/main")
+    if not origin_main:
+        infos.append(f"{label}: origin/main not present in the checkout — pin lineage not checked")
+        return problems, infos
+    rc = _git_rc(repo, "merge-base", "--is-ancestor", commit, "origin/main")
+    if rc == 0:
+        return problems, infos
+    if rc == 1:
+        problems.append(
+            f"{label}: pinned commit {commit[:12]} is NOT on origin/main "
+            f"({origin_main[:12]}) — an unmerged commit is deployed (containment "
+            f"or a PR head); lift it by merging its PR and re-aligning, or revert "
+            f"the pin"
+        )
+    else:
+        problems.append(f"{label}: pin lineage check failed (git rc={rc})")
+    return problems, infos
+
+
 def check_git_surfaces() -> tuple[list[str], list[str]]:
     problems: list[str] = []
     infos: list[str] = []
@@ -141,6 +204,9 @@ def check_git_surfaces() -> tuple[list[str], list[str]]:
             # not every locked repo is materialized in the runtime root
             continue
         p, i = check_checkout(repo, commit, f"runtime/{name}")
+        problems += p
+        infos += i
+        p, i = check_pin_lineage(repo, commit, f"runtime/{name}")
         problems += p
         infos += i
 

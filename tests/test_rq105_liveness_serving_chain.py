@@ -114,6 +114,18 @@ class Root:
         (self.logs / f"shadow_serving_{self.iso}.log").write_text(INCIDENT_SKIP_LINE + "\n")
         return self
 
+    def designed_skip(self, *, session_date: str | None = None, reason: str = "buy_gated") -> "Root":
+        """The exporter's own sidecar for a buy-gated prior session (2026-09-16
+        shape): no bundle, a wrapper log saying SKIPPED, and the sidecar."""
+        (self.data / f"batch_scores_{self.iso}.skipped.json").write_text(json.dumps({
+            "session_date": session_date or self.iso, "reason": reason,
+            "source_run_id": "2026-09-15-live-44218d69", "source_run_date": "2026-09-15",
+            "pipeline_flags": {"buy_blocked": True, "skip_buys": False},
+            "exit_code": 3, "written_at": "2026-09-16T13:15:10+00:00"}))
+        (self.logs / f"batch_scores_export_{self.iso}.log").write_text(
+            "run 2026-09-15-live-44218d69 is contract-clean ... SKIPPED by design (exit 3)\n")
+        return self
+
     # -- scheduler -----------------------------------------------------------
     def scheduler_rows(self, *session_dates: str, kind: str = "intraday_decision_shadow_tick") -> "Root":
         with open(self.pilot / "intraday_decisions_shadow.jsonl", "a", encoding="utf-8") as fh:
@@ -661,3 +673,96 @@ def test_plists_carry_run_at_load_and_stay_weekday_calendar_jobs():
             plist = plistlib.load(fh)
         assert plist.get("RunAtLoad") is True, name
         assert {d["Weekday"] for d in plist["StartCalendarInterval"]} == {1, 2, 3, 4, 5}
+
+
+# ─────────── 2026-09-16: a designed export skip is not DOWN ───────────
+
+def test_a_buy_gated_day_with_the_exporters_sidecar_is_OK_and_named(tmp_path, monkeypatch, capsys):
+    """Reconstruct 09-16: no bundle, exporter wrote its skipped sidecar (prior
+    session buy-gated by EMA50), serving log = SKIP upstream, serving jsonl
+    last row 09-15, scheduler disarmed. Before: 🚨 rq105 DOWN — 3 issue(s).
+    Now: OK, with the designed skip NAMED in the OK line (never silent)."""
+    calls = _fake_send(monkeypatch)
+    r = Root(tmp_path, monkeypatch)
+    r.designed_skip()
+    r.serving_skipped_upstream()
+    with open(r.pilot / "shadow_realtime_serving.jsonl", "w") as fh:
+        fh.write(json.dumps({"record_kind": "shadow_realtime_score", "session_date": "2026-08-27",
+                             "ticker": "AAPL"}) + "\n")
+    rc = liveness.main(INCIDENT_DAY)
+    assert rc == 0
+    assert calls == [], "a designed skip must not page"
+    out = capsys.readouterr().out
+    assert "rq105 liveness OK" in out
+    assert "SKIPPED by design" in out and "buy_blocked=True" in out
+    assert "scheduler DISARMED" in out
+
+
+def test_a_sidecar_for_another_day_does_not_exempt(tmp_path, monkeypatch):
+    calls = _fake_send(monkeypatch)
+    r = Root(tmp_path, monkeypatch)
+    r.designed_skip(session_date="2026-08-27")
+    r.serving_skipped_upstream()
+    rc = liveness.main(INCIDENT_DAY)
+    assert rc == 1
+    assert _codes(calls) == {liveness.FAIL_EXPORT_MISSING, liveness.FAIL_SERVING_NOOP}
+
+
+def test_a_sidecar_with_an_unknown_reason_does_not_exempt(tmp_path, monkeypatch):
+    calls = _fake_send(monkeypatch)
+    r = Root(tmp_path, monkeypatch)
+    r.designed_skip(reason="operator_said_so")
+    r.serving_skipped_upstream()
+    rc = liveness.main(INCIDENT_DAY)
+    assert rc == 1
+    assert _codes(calls) == {liveness.FAIL_EXPORT_MISSING, liveness.FAIL_SERVING_NOOP}
+
+
+def test_a_corrupt_sidecar_does_not_exempt(tmp_path, monkeypatch):
+    calls = _fake_send(monkeypatch)
+    r = Root(tmp_path, monkeypatch)
+    (r.data / f"batch_scores_{r.iso}.skipped.json").write_text("{not json")
+    r.serving_skipped_upstream()
+    rc = liveness.main(INCIDENT_DAY)
+    assert rc == 1
+    assert liveness.FAIL_EXPORT_MISSING in _codes(calls)
+
+
+def test_the_sidecar_path_and_reason_are_the_exporters_own(tmp_path):
+    """Bind the check to the exporter's literals so neither can drift alone."""
+    sys.path.insert(0, str(OPS))
+    import export_batch_scores as exporter  # noqa: E402
+    d = tmp_path / "RenQuant"
+    (d / "data" / "rq105").mkdir(parents=True)
+    expected = exporter.skipped_sidecar_path(str(d / "data" / "rq105"), "2026-09-16")
+    assert Path(expected) == d / "data" / "rq105" / "batch_scores_2026-09-16.skipped.json"
+    assert exporter.SKIP_REASON_BUY_GATED in liveness._DESIGNED_SKIP_REASONS
+    Path(expected).write_text(json.dumps({"session_date": "2026-09-16",
+                                          "reason": exporter.SKIP_REASON_BUY_GATED,
+                                          "pipeline_flags": {"buy_blocked": True, "skip_buys": False}}))
+    designed, evidence = liveness._designed_export_skip(d, "2026-09-16")
+    assert designed and "SKIPPED by design" in evidence
+
+
+def test_pairing_collector_is_exempt_on_a_designed_skip_day(tmp_path, monkeypatch):
+    """No vector -> no serving -> nothing to pair: the admit-contingent
+    collector's stale row-date is expected. Non-admit-contingent collectors
+    are NOT exempted by the sidecar."""
+    d = tmp_path / "RenQuant"
+    (d / "data" / "rq105").mkdir(parents=True)
+    (d / "data" / "rq105" / "batch_scores_2026-09-16.skipped.json").write_text(json.dumps({
+        "session_date": "2026-09-16", "reason": "buy_gated",
+        "pipeline_flags": {"buy_blocked": True, "skip_buys": False}}))
+    stale = d / "paired.jsonl"
+    stale.write_text(json.dumps({"date": "2026-09-15", "ticker": "AAPL"}) + "\n")
+    other = d / "quotes.jsonl"
+    other.write_text(json.dumps({"date": "2026-09-15", "ticker": "AAPL"}) + "\n")
+    monkeypatch.setattr(liveness, "_data_outputs", lambda root: [
+        ("intraday_pairing_logger", stale, lambda row: None, liveness._FILE_MTIME, True),
+        ("entry_timing_shadow", other, lambda row: None, liveness._FILE_MTIME, False),
+    ])
+    monkeypatch.setattr(liveness, "_completed_session_zero_admits",
+                        lambda as_of, root: (False, "no session manifest"))
+    out = liveness.check_collector_data_outputs(d, dt.date(2026, 9, 16))
+    assert out["intraday_pairing_logger"]["status"] == "ok"
+    assert out["entry_timing_shadow"]["status"] == "stale_or_missing"

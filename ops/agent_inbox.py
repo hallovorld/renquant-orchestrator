@@ -86,11 +86,29 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
         4: ("snapshot unavailable — the producer refused (fail-closed "
             "provenance) or wrote nothing; serving skipped, production intact",
             "ops/renquant105/run_shadow_serving.sh", "EXIT_NOT_WIRED=4", False),
+        # 2026-09-16: the upstream exporter skipped BY DESIGN (buy-gated prior
+        # session, exit 3, sidecar present) — nothing to replay. Exit 1 stays
+        # for a missing bundle WITHOUT the sidecar (the 08-28 boot shape).
+        6: ("upstream export skipped by design (buy-gated prior session) — "
+            "no vector to replay today; serving skipped, production intact",
+            "ops/renquant105/run_shadow_serving.sh",
+            "EXIT_UPSTREAM_SKIPPED_BY_DESIGN=6", False),
         # 5 (EXIT_PRODUCER_FAILED) is deliberately NOT listed. The producer
         # failing for a reason that is not a provenance refusal is OUR bug, and
         # an unlisted code is UNKNOWN here by construction — default "this needs
         # a human", which is what we want. Listing it would make it look
         # designed (S3-P3, orch#1033).
+    },
+    "rq105-batch-scores-export": {
+        # 2026-09-16: the 06:15 export refused the 09-15 run because its buy
+        # funnel was gated (SPY below EMA50 → buy_blocked=True), and paged
+        # "FAILED rc=1" — the same code as an unreadable DB. rq105 is
+        # downstream of 104's buy admission; a buy-gated day has no class-A
+        # vector by construction. Now its own code, a status report.
+        3: ("SKIPPED by design — the prior session's run was buy-gated by a "
+            "market-regime rule; no class-A frozen vector exists for that day",
+            "ops/renquant105/export_batch_scores.py", "EXIT_SOURCE_BUY_GATED = 3",
+            False),
     },
     "rq104-shadow-scorer-sentinel": {
         8: ("alarming — a watched shadow lane is degraded",
@@ -120,6 +138,19 @@ DESIGNED_EXIT_CODES: dict[str, dict[int, tuple[str, str, str, bool]]] = {
         2: ("WARN — a budget is over 80%",
             "ops/renquant104/run_risk_budget_statement.sh",
             "2 WARN (>80% of any budget)", True),
+    },
+    # 2026-09-15: listed as "NO DOCUMENTED MEANING for exit 2" on every
+    # DEGRADED page for weeks while the contract sat one module away — the
+    # weekly APY monitor's own exit codes. Both are the monitor's
+    # alarm-delivered verdicts (a job REPORTING a breach), not crashes.
+    "weekly-apy104": {
+        2: ("APY below the rolling-30d floor — the weekly monitor's own "
+            "alarm-delivered verdict (2026-09-13: -6.9% vs the +25.0% floor)",
+            "src/renquant_orchestrator/weekly_apy_monitor.py",
+            "ctx.exit_code = 2", True),
+        3: ("drawdown streak above the threshold for longer than allowed",
+            "src/renquant_orchestrator/weekly_apy_monitor.py",
+            "ctx.exit_code = 3", True),
     },
     # The three below were in the UNKNOWN bucket until 2026-08-07. They were
     # never undocumented — my earlier greps looked for `EXIT_X = N` literals and

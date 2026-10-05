@@ -227,7 +227,17 @@ def test_cli_reports_a_harness_failure_distinctly(tmp_path):
     """A tool that cannot run must not be indistinguishable from a clean run."""
     outside = tmp_path / "not-a-repo"
     outside.mkdir()
-    r = subprocess.run([sys.executable, MOD_PATH, "--today", "2026-07-25"],
+    # Point the CLI at a ledger with NO git history. Before 2026-09-15 this
+    # test ran the CLI against the committed ledger and passed only because
+    # that ledger happened to carry findings at 2026-07-25 (EXIT_FINDINGS);
+    # the first clean ledger exposed the vacuity (EXIT_OK is not in the set).
+    # A history-less ledger is a harness failure by construction
+    # (`last_edit_dates` refuses a file with no history), on any host.
+    ledger = outside / "sentinel_acks.json"
+    ledger.write_text('{"com.renquant.j": {"acked_at": "2026-07-20", '
+                      '"acked_exit_codes": [1], "reason": "r", "clears_when": "c"}}')
+    r = subprocess.run([sys.executable, MOD_PATH, "--today", "2026-07-25",
+                        "--ledger", str(ledger)],
                        cwd=str(outside), capture_output=True, text=True,
                        env=dict(os.environ, GIT_CEILING_DIRECTORIES=str(tmp_path)))
     assert r.returncode in (A.EXIT_HARNESS, A.EXIT_FINDINGS)
@@ -254,6 +264,16 @@ def test_the_live_ledger_is_measured_not_asserted():
     # fallback promotion lands" and the 11:31 PT manual promote stamped
     # promotion_basis=freshness_fallback_rfc210 into the ACTIVE artifact —
     # the named event, measured, not an expiry.
+    # 5 again after the 2026-09-15 refresh (ops/sentinel-acks-renew-20260915):
+    # the three rows that had sat EXPIRED for 30+ days with their conditions
+    # MET (conditional-retrain104 EXPIRED_CONDITION_MET, rq105-batch-scores-
+    # export EXPIRED_CLAUSE_MET, monthly-meta-label-retrain MANUAL_EXPIRED —
+    # none of the three jobs is in today's nonzero-exit list) were RETIRED,
+    # the two live-but-expired rows (the sentinel's own, shadow-ab-daily) were
+    # RE-DIAGNOSED from their own logs and re-stamped, and three undocumented
+    # exits (agent-pr-loop 1, monthly-calibrator-refresh 1, rq104-risk-budget
+    # 1) were dispositioned with a diagnosis each. 5 rows, all clocks 09-15,
+    # explicit expiries staggered 09-25..09-29 inside the 14-day backstop.
     assert R["n_acks"] == 5
     # SIX of ten. `com.renquant.rq105-batch-scores-export` was re-stamped
     # on 2026-07-31 by a32f397c ("the batch-export ack described a failure that is no
@@ -323,10 +343,12 @@ def test_the_live_ledger_is_measured_not_asserted():
     # retrain-panel104 + weekly-wf-promote left the ledger 2026-08-04 (their
     # clears_when event — an RFC#210 fallback promotion — happened and was
     # measured in the ACTIVE artifact's promotion_basis stamp).
-    assert fresh == {"com.renquant.conditional-retrain104": 0,
-                     "com.renquant.monthly-meta-label-retrain": 0,
+    # 2026-09-15 refresh: every row was written (re-diagnosed or first
+    # dispositioned) in the same commit that stamps it, so all five are fresh.
+    assert fresh == {"com.renquant.agent-pr-loop": 0,
+                     "com.renquant.monthly-calibrator-refresh": 0,
                      "com.renquant.rq104-degradation-sentinel": 0,
-                     "com.renquant.rq105-batch-scores-export": 0,
+                     "com.renquant.rq104-risk-budget": 0,
                      "com.renquant.shadow-ab-daily": 0}, fresh
     assert set(stale) | set(fresh) == set(lags), "a row was silently dropped"
 
@@ -470,8 +492,13 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     by = {r["job"]: r["clears_when_buckets"] for r in R["rows"]}
     # 10 after the #622 AC4 prune; shadow-ab-daily's re-stamp is bucket ['ref']
     # (binds to orch#747 item 5) — one more checkable row than the survey counted.
-    assert len(by) == 5  # 2026-08-04: 105 pair + RFC#210 promotion pair cleared
-    assert by["com.renquant.shadow-ab-daily"] == [A.BUCKET_REF]
+    assert len(by) == 5  # 2026-09-15: 3 dead rows retired, 3 new dispositions
+    # 2026-09-15 re-stamp: the clause now binds to the manifest FILE the job
+    # verifies against and the launchd manifest it could be retired from
+    # (bucket artifact), no longer to orch#747 item 5 (that pin sync landed
+    # long ago and did not clear the job — the run manifest itself is stale).
+    assert by["com.renquant.shadow-ab-daily"] == [A.BUCKET_ARTIFACT]
+    assert by["com.renquant.agent-pr-loop"] == [A.BUCKET_REF]  # RenQuant#645
     narrative = {j for j, b in by.items()
                  if not any(x in (A.BUCKET_DATE, A.BUCKET_REF, A.BUCKET_ARTIFACT)
                             for x in b)}
@@ -480,9 +507,16 @@ def test_the_live_ledgers_checkability_is_measured_not_asserted():
     # (all bucket ref), and rq104-liveness was retired. The two remaining narrative
     # rows are the genuinely unbindable ones: an anomaly-gated chain and a
     # self-referential detection job.
+    # 3 after the 2026-09-15 refresh: the self-referential sentinel row stays;
+    # conditional-retrain104 was retired (condition met, 30d expired); the two
+    # new monthly rows name the NEXT scheduled run as their clearing event —
+    # a date nobody should pin as ISO in prose (the earliest-date rule would
+    # expire the row on it), so they are narrative by construction and carry a
+    # launchctl_exit_zero clears_check instead.
     assert narrative == {
-        "com.renquant.conditional-retrain104",
+        "com.renquant.monthly-calibrator-refresh",
         "com.renquant.rq104-degradation-sentinel",
+        "com.renquant.rq104-risk-budget",
     }, narrative
     # rq105-batch-scores-export legitimately contains BOTH a qualified ref and a later
     # bare "#73" — the bucket records it, the finding's REF-guard keeps it quiet. The
@@ -777,20 +811,23 @@ def test_the_live_ledgers_clears_check_states_are_measured_not_asserted():
     on every live row."""
     R = A.audit(dt.date(2026, 8, 2))
     kinds = {r["job"]: r["check_kind"] for r in R["rows"]}
+    # 2026-09-15 ledger refresh: 3 dead rows retired, 3 dispositions added —
+    # four launchctl rows (all clause-scoped: each names a condition beyond
+    # "exits zero once") and the self-referential manual row.
     assert kinds == {
-        "com.renquant.conditional-retrain104": A.CHECK_LAUNCHCTL,
-        "com.renquant.monthly-meta-label-retrain": A.CHECK_MANUAL,
+        "com.renquant.agent-pr-loop": A.CHECK_LAUNCHCTL,
+        "com.renquant.monthly-calibrator-refresh": A.CHECK_LAUNCHCTL,
         "com.renquant.rq104-degradation-sentinel": A.CHECK_MANUAL,
-        "com.renquant.rq105-batch-scores-export": A.CHECK_LAUNCHCTL,
+        "com.renquant.rq104-risk-budget": A.CHECK_LAUNCHCTL,
         "com.renquant.shadow-ab-daily": A.CHECK_LAUNCHCTL,
     }, kinds
 
     scopes = {r["job"]: r["check_scope"] for r in R["rows"]}
     assert scopes == {
-        "com.renquant.conditional-retrain104": A.SCOPE_FULL,
-        "com.renquant.monthly-meta-label-retrain": None,
+        "com.renquant.agent-pr-loop": A.SCOPE_CLAUSE,
+        "com.renquant.monthly-calibrator-refresh": A.SCOPE_CLAUSE,
         "com.renquant.rq104-degradation-sentinel": None,
-        "com.renquant.rq105-batch-scores-export": A.SCOPE_CLAUSE,
+        "com.renquant.rq104-risk-budget": A.SCOPE_CLAUSE,
         "com.renquant.shadow-ab-daily": A.SCOPE_CLAUSE,
     }, scopes
 

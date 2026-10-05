@@ -46,7 +46,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from renquant_common.notify import send as post_ntfy  # canonical sender (campaign B6)
+
 from .runtime_paths import default_data_root
+
+#: Operator alert topic — the same one every other 104 job posts to.
+DEFAULT_NTFY_TOPIC = "renquant"
 
 ETA = 0.21
 CLIP = 0.05
@@ -81,6 +86,78 @@ def load_paper_marks(db_path: Path) -> dict[str, float]:
         if pv and pv > 0:
             marks[str(d)] = float(pv)
     return marks
+
+
+def load_book_identity(db_path: Path) -> dict[str, tuple[float, float | None, int | None]]:
+    """run_date -> (portfolio_value, cash, n_holdings) of the LAST snapshot of
+    each date; cash / n_holdings are None when the DB predates those columns
+    (the older test fixtures do)."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(live_state_snapshots)")}
+        extra = ", cash, n_holdings" if {"cash", "n_holdings"} <= cols else ", NULL, NULL"
+        rows = con.execute(
+            f"SELECT run_date, portfolio_value{extra} FROM live_state_snapshots "
+            "WHERE portfolio_value IS NOT NULL ORDER BY run_date, created_at").fetchall()
+    finally:
+        con.close()
+    out: dict[str, tuple[float, float | None, int | None]] = {}
+    for d, pv, cash, n in rows:
+        if pv and pv > 0:
+            out[str(d)] = (float(pv), None if cash is None else float(cash),
+                           None if n is None else int(n))
+    return out
+
+
+#: Two books are the SAME account snapshotted twice when their latest
+#: SAME_BOOK_MIN_DATES corroborable shared dates (both schemas carry cash) ALL
+#: agree: marks within SAME_BOOK_PV_TOL AND broker cash identical to the cent.
+#: Mark proximity alone is NOT conclusive -- two distinct books can share
+#: starting capital and stay within 50 bps for a week, but they do not carry
+#: the same cash to the cent across days on which it moves by thousands.
+#: n_holdings is reported, not required: the shadow lanes write it from their
+#: OWN state (e.g. 2026-10-02: champion 5, shadow_blend 6, cash 5316.84 in
+#: both), so it is not an account-identity field. The test is on the TRAILING
+#: window because the question is whether the arms are distinct books NOW.
+#: The mark-only path (SAME_BOOK_SHARE of all shared dates) is a fallback for
+#: legacy schemas only, and its evidence says "not demonstrably distinct",
+#: never "same account".
+SAME_BOOK_PV_TOL = 0.005
+SAME_BOOK_SHARE = 0.9
+SAME_BOOK_MIN_DATES = 5
+
+
+def same_book_as_champion(champion: dict, arm: dict) -> tuple[bool, str]:
+    """(same, evidence). Judged only on real evidence: fewer than
+    SAME_BOOK_MIN_DATES shared dated snapshots -> not judged (False)."""
+    shared = sorted(set(champion) & set(arm))
+    if len(shared) < SAME_BOOK_MIN_DATES:
+        return False, f"only {len(shared)} shared dated snapshot(s) — not judged"
+
+    def marks_close(d):
+        return abs(arm[d][0] - champion[d][0]) / champion[d][0] <= SAME_BOOK_PV_TOL
+
+    corroborable = [d for d in shared if None not in (champion[d][1], arm[d][1])]
+    if len(corroborable) >= SAME_BOOK_MIN_DATES:
+        run = 0
+        for d in reversed(corroborable):
+            if not (marks_close(d) and abs(champion[d][1] - arm[d][1]) < 0.005):
+                break
+            run += 1
+        same_n = sum(1 for d in corroborable[len(corroborable) - run:]
+                     if champion[d][2] is not None and champion[d][2] == arm[d][2])
+        return run >= SAME_BOOK_MIN_DATES, (
+            f"SAME ACCOUNT test: marks within {SAME_BOOK_PV_TOL:.1%} AND cash identical "
+            f"to the cent on the latest {run} consecutive corroborable shared date(s) "
+            f"(need {SAME_BOOK_MIN_DATES}; {len(corroborable)} corroborable in total; "
+            f"lane-local n_holdings equal on {same_n} of those)")
+    within = sum(1 for d in shared if marks_close(d))
+    share = within / len(shared)
+    return share >= SAME_BOOK_SHARE, (
+        f"MARK-ONLY fallback (legacy schema: cash on only {len(corroborable)} shared "
+        f"date(s)): marks within {SAME_BOOK_PV_TOL:.1%} on {within}/{len(shared)} "
+        f"shared dates ({share:.0%}) — distinctness NOT established; insufficient "
+        f"to assert the same account")
 
 
 def paper_returns(marks: dict[str, float]) -> dict[str, float]:
@@ -273,12 +350,68 @@ def write_mixture(log_dir: Path, mrows: list[dict]) -> Path:
     return out
 
 
+def format_notification(
+    status: str,
+    *,
+    latest: dict | None = None,
+    mix_latest: dict | None = None,
+    appended: int = 0,
+    why: str | None = None,
+) -> tuple[str, str, int]:
+    """``(title, body, priority)`` for the operator alert. Pure — no I/O.
+
+    The engine ran daily from 2026-09-03 with NO alert path of any kind: its
+    only outputs were two JSONL files and a launchd stdout log nobody reads,
+    so the operator asked repeatedly where the MoE messages were. Both
+    outcomes are reported here — a SYNCED row (what the mixture did) and a
+    REFUSED run (the self-verifying log found a divergence and will now
+    refuse forever, which is exactly the state that must not stay silent).
+    """
+    if status != "SYNCED":
+        return (
+            "RenQuant MoE L2 REFUSED",
+            f"l2_paper_bandit refused and appended NOTHING: {why}\n"
+            "The log is self-verifying: every run replays the full history and "
+            "refuses while any existing row diverges, so this repeats until the "
+            "divergence is explained. No arm weight advanced today.",
+            4,
+        )
+    latest = latest or {}
+    mix_latest = mix_latest or {}
+    weights = latest.get("weights") or {}
+    returns = latest.get("returns") or {}
+    asof = latest.get("asof") or mix_latest.get("asof") or "unknown"
+    lines = [f"{appended} row(s) appended | arms marked: {len(weights)}"]
+    for arm in sorted(weights, key=lambda a: -weights[a]):
+        ret = returns.get(arm)
+        ret_txt = f"{ret:+.4%}" if isinstance(ret, (int, float)) else "unmarked"
+        lines.append(f"{arm:<22} w={weights[arm]:.4f}  r={ret_txt}")
+    mv, cv = mix_latest.get("mixture_value"), mix_latest.get("champion_value")
+    if isinstance(mv, (int, float)) and isinstance(cv, (int, float)):
+        lines.append(
+            f"mixture {mv:.6f} vs champion {cv:.6f} "
+            f"({mix_latest.get('mixture_minus_champion', float('nan')):+.5f}; "
+            f"best fixed arm {mix_latest.get('best_fixed_arm')})")
+    lines.append(
+        "Hedge over 4 PAPER books: regret vs the champion, not a profitability "
+        "claim, and no order is placed from this lane.")
+    return (f"RenQuant MoE L2 paper-bandit {asof}", "\n".join(lines), 3)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-root", type=Path, default=None,
                     help="overrides default_data_root() resolution")
     ap.add_argument("--log-dir", type=Path, default=None)
+    ap.add_argument("--topic", default=DEFAULT_NTFY_TOPIC)
+    # Default: notify on the PRODUCTION run only. A run with an explicit
+    # --log-dir is a dry run into scratch (the documented way to exercise the
+    # engine before 14:30 without poisoning the real log), and must stay
+    # silent; --notify/--no-notify override either way.
+    ap.add_argument("--notify", dest="notify", action="store_true", default=None)
+    ap.add_argument("--no-notify", dest="notify", action="store_false")
     args = ap.parse_args(argv)
+    notify = (args.log_dir is None) if args.notify is None else args.notify
     data_root = args.data_root or default_data_root()
     log_dir = args.log_dir or data_root.joinpath(*DEFAULT_LOG_SUBDIR)
     try:
@@ -290,21 +423,61 @@ def main(argv=None) -> int:
             arm_marks[arm] = load_paper_marks(db)
         if len(arm_marks[CHAMPION]) < 2:
             raise RuntimeError("champion book has fewer than 2 marks — no calendar")
+        # §2 PREMISE CHECK (audit 2026-09-21): the contract prices "expert
+        # PAPER books that the shadow-lane infrastructure already marks
+        # daily". Measured: every shadow lane's live_state_snapshots carries
+        # the LIVE account's cash to the cent and its n_holdings on every
+        # shared date — the read-only lanes snapshot the broker account, they
+        # hold no book of their own. Under that premise the arm values differ
+        # ONLY by coverage (which dates each lane happened to mark), the
+        # "mixture minus champion" series measures nothing about any profile,
+        # and publishing it would be a false negative on the profiles. A
+        # bandit over identical books is void: refuse, name the evidence.
+        champion_id = load_book_identity(data_root / ARMS[CHAMPION])
+        same_book = {}
+        for arm, rel in ARMS.items():
+            if arm == CHAMPION:
+                continue
+            same, ev = same_book_as_champion(champion_id, load_book_identity(data_root / rel))
+            if same:
+                same_book[arm] = ev
+        if same_book:
+            raise RuntimeError(
+                "arms are not distinct paper books — the §2 premise fails: "
+                + "; ".join(f"{a}: {ev}" for a, ev in same_book.items())
+                + ". An arm that is (or cannot be told apart from) the "
+                  "champion's book holds no profile of its own, so the "
+                  "mixture/regret numbers would be coverage artefacts, not "
+                  "evidence. Nothing appended.")
         rows = replay(arm_marks)
         verified, appended = sync_log(log_dir, rows)
         mrows = mixture_view(arm_marks, rows)
         write_mixture(log_dir, mrows)
     except Exception as exc:  # noqa: BLE001 — fail-closed with the reason
-        print(json.dumps({"status": "REFUSED", "why": str(exc)}, indent=2))
+        title, body, prio = format_notification("REFUSED", why=str(exc))
+        if notify:
+            post_ntfy(title, body, args.topic, priority=prio)
+        # stdout stays ONE parseable JSON object (the launchd log and the
+        # existing CLI contract both read it that way); the alert text rides
+        # inside it so the operator sees the same words in both places.
+        print(json.dumps({"status": "REFUSED", "why": str(exc),
+                          "notification": {"title": title, "body": body,
+                                           "sent": bool(notify)}}, indent=2))
         return 1
     latest = rows[-1] if rows else {}
     mix_latest = mrows[-1] if mrows else {}
+    title, body, prio = format_notification(
+        "SYNCED", latest=latest, mix_latest=mix_latest, appended=appended)
+    if notify:
+        post_ntfy(title, body, args.topic, priority=prio)
     print(json.dumps({"status": "SYNCED", "rows_verified": verified,
                       "rows_appended": appended,
                       "latest": latest,
                       "mixture_latest": {k: mix_latest.get(k) for k in (
                           "asof", "mixture_value", "champion_value", "best_fixed_arm",
-                          "best_fixed_arm_value", "mixture_minus_champion")}},
+                          "best_fixed_arm_value", "mixture_minus_champion")},
+                      "notification": {"title": title, "body": body,
+                                       "sent": bool(notify)}},
                      indent=2))
     return 0
 
