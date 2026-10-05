@@ -774,6 +774,46 @@ def _first_line(path: Path) -> str:
     return ""
 
 
+#: export_batch_scores.py writes this next to where the bundle would be when
+#: it SKIPS BY DESIGN (the prior session's run was buy-gated by a market-regime
+#: rule, e.g. EMA50GateTask on 2026-09-15 / 2026-07-29 — rq105 is downstream of
+#: 104's buy admission, so no class-A vector exists for that day). Bound to the
+#: exporter's `skipped_sidecar_path` / `SKIP_REASON_BUY_GATED` by tests.
+_DESIGNED_SKIP_REASONS = frozenset({"buy_gated"})
+
+
+def _designed_export_skip(data_root: Path, today_iso: str) -> tuple[bool, str]:
+    """(designed, evidence). True ONLY when the exporter's own sidecar for TODAY
+    exists, is a JSON object, names today's session_date, and carries a known
+    designed reason. Anything else — absent, unreadable, another day's date, an
+    unknown reason — is False: a missing bundle stays `export_missing`. This is
+    the exporter's testimony that it ran and chose not to publish; it never
+    stands in for a bundle and never covers a job that did not fire."""
+    d = data_root / "data" / "rq105"
+    sidecar = d / f"batch_scores_{today_iso}.skipped.json"
+    if not sidecar.exists():
+        return False, f"no designed-skip sidecar ({sidecar})"
+    try:
+        with open(sidecar, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return False, f"designed-skip sidecar unreadable ({sidecar}: {exc})"
+    if not isinstance(payload, dict):
+        return False, f"designed-skip sidecar {sidecar} is not a JSON object"
+    if payload.get("session_date") != today_iso:
+        return False, (f"designed-skip sidecar session_date={payload.get('session_date')!r} "
+                       f"!= {today_iso!r} ({sidecar})")
+    reason = payload.get("reason")
+    if reason not in _DESIGNED_SKIP_REASONS:
+        return False, f"designed-skip sidecar reason={reason!r} is not a designed reason ({sidecar})"
+    flags = payload.get("pipeline_flags") or {}
+    return True, (
+        f"export SKIPPED by design for {today_iso}: prior session "
+        f"{payload.get('source_run_date')!r} run {payload.get('source_run_id')!r} was "
+        f"buy-gated (buy_blocked={flags.get('buy_blocked')!r} skip_buys={flags.get('skip_buys')!r}) "
+        f"— no class-A vector exists for that day by construction ({sidecar.name})")
+
+
 def check_batch_scores_export(data_root: Path, logs_dir: str, today_iso: str) -> tuple[bool, str]:
     """(ok, reason). FAIL export_missing unless BOTH bundle files exist and the
     meta's session_date is today. The wrapper log's presence is reported in the
@@ -786,6 +826,9 @@ def check_batch_scores_export(data_root: Path, logs_dir: str, today_iso: str) ->
         "(boot after the slot? StartCalendarInterval is not backfilled across a boot)")
     absent = [str(p) for p in (scores, meta) if not os.path.exists(p)]
     if absent:
+        designed, evidence = _designed_export_skip(data_root, today_iso)
+        if designed:
+            return True, evidence
         return False, f"batch-score bundle missing for {today_iso}: {', '.join(absent)} [{fired}]"
     try:
         with open(meta, encoding="utf-8") as fh:
@@ -811,6 +854,9 @@ def check_shadow_serving(data_root: Path, logs_dir: str, today_iso: str) -> tupl
         return False, f"shadow_serving_{today_iso}.log missing ({log}) — the 13:45 serving job never fired"
     first = _first_line(log)
     if _SERVING_SKIP_UPSTREAM_MARKER in first:
+        designed, evidence = _designed_export_skip(data_root, today_iso)
+        if designed:
+            return True, f"serving no-op by design (upstream {evidence})"
         return False, (
             f"shadow serving skipped upstream for {today_iso}: {first[:200]!r} "
             f"(no frozen batch-score export — the serving chain no-op'd)")
@@ -947,11 +993,16 @@ def main(today: dt.date | None = None) -> int:
     # Serving chain (orch#1085). Same alert path, same exit code: a no-op'd
     # serving chain is rq105 DOWN exactly as a dead collector is.
     scheduler_note = ""
+    designed_note = ""
     for name, result in check_serving_chain(data_root, LOGS, today).items():
         if result["status"] != "ok":
             missing.append(f"{result['code']}: {name}: {result['reason']}")
         elif result.get("scheduler"):
             scheduler_note = f" [scheduler {result['scheduler']}: {result['reason']}]"
+        elif name == "batch_scores_export" and "SKIPPED by design" in result["reason"]:
+            # named in the OK line, never silent: "OK" on a buy-gated day means
+            # "the chain correctly had nothing to do", not "it served".
+            designed_note = f" [{result['reason']}]"
 
     if missing:
         body = "\n".join(missing) + (f"\nscheduler:{scheduler_note}" if scheduler_note else "")
@@ -961,7 +1012,7 @@ def main(today: dt.date | None = None) -> int:
     # The scheduler's state is ALWAYS in the OK line: a disarmed scheduler is
     # expected dark, but "expected" is a claim the operator must be able to
     # see, not something this check keeps to itself.
-    print(f"rq105 liveness OK {today_iso}{scheduler_note}")
+    print(f"rq105 liveness OK {today_iso}{designed_note}{scheduler_note}")
     return 0
 
 
@@ -997,6 +1048,13 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
     # EXPECTED for it (one row per admitted name → zero admits = zero rows), never
     # a collector failure. Non-admit-contingent collectors get ``None`` (unchanged).
     zero_admit_today = _completed_session_zero_admits(as_of, data_root)
+    # An admit-contingent collector also legitimately writes nothing when the
+    # exporter skipped by design: no vector -> no serving -> nothing to pair.
+    # The exporter's own sidecar is the evidence; the authoritative 0-admit
+    # signal keeps precedence when it holds.
+    designed_skip = _designed_export_skip(data_root, today_iso)
+    admit_exempt = zero_admit_today if (zero_admit_today[0] or not designed_skip[0]) else (
+        True, f"no admissions to pair — {designed_skip[1]}")
     for entry in _data_outputs(data_root):
         # Tolerate both the current 5-tuple (..., admit_contingent) and any
         # legacy/mocked 4-tuple shape — this function promises callers that
@@ -1007,7 +1065,7 @@ def check_collector_data_outputs(data_root: Path, as_of: dt.date) -> dict[str, d
         ok, reason, row = _data_output_fresh(
             str(full_path), today_iso, extract_ts, freshness_basis,
             session_close_utc=session_close_utc,
-            no_admit_exempt=zero_admit_today if admit_contingent else None,
+            no_admit_exempt=admit_exempt if admit_contingent else None,
         )
         row_hash = (
             hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode("utf-8")).hexdigest()

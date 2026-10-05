@@ -64,7 +64,15 @@ export RQ105_SCORE_SOURCE="${RQ105_SCORE_SOURCE:-prod}"
 "$RQ_ROOT/.venv/bin/python" "$RQ105_ORCH_ROOT/ops/renquant105/export_batch_scores.py" \
   >> "$LOG_DIR/batch_scores_export_$TS.log" 2>&1
 RC=$?
-if [ $RC -ne 0 ]; then
+if [ $RC -eq 3 ]; then
+  # EXIT_SOURCE_BUY_GATED (export_batch_scores.py): the prior session's run
+  # was buy-gated by a market-regime rule (SPY below EMA50 on 2026-07-29 and
+  # 2026-09-15). No class-A vector exists for such a day by construction —
+  # a status report, not a failure; the title must not say FAILED.
+  . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq105 batch scores export SKIPPED — prior session buy-gated by design ($TS)" \
+    "see logs/rq105/batch_scores_export_$TS.log" || true
+elif [ $RC -ne 0 ]; then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
   rq_notify "rq105 batch scores export FAILED rc=$RC ($TS)" \
     "see logs/rq105/batch_scores_export_$TS.log" || true

@@ -32,13 +32,31 @@ EXIT_NOT_WIRED=4
 #: ops/agent_inbox.py DESIGNED_EXIT_CODES: an unlisted code is UNKNOWN there by
 #: construction, defaulting to "this needs a human" — correct for our own bug.
 EXIT_PRODUCER_FAILED=5
+#: The upstream exporter ran and SKIPPED BY DESIGN (the prior session's run was
+#: buy-gated by a market-regime rule; export_batch_scores.py exit 3) and left
+#: its sidecar batch_scores_<date>.skipped.json. No vector exists for today by
+#: construction, so there is nothing to replay: a status report, not a failure.
+#: Listed in ops/agent_inbox.py DESIGNED_EXIT_CODES (actionable=False). Exit 1
+#: stays for a MISSING bundle WITHOUT the sidecar — the 2026-08-28 shape (the
+#: 06:15 job never fired), which is a real problem.
+EXIT_UPSTREAM_SKIPPED_BY_DESIGN=6
 TS="$(date +%Y-%m-%d)"
 SCORES="$RQ_ROOT/data/rq105/batch_scores_$TS.json"
 META="$RQ_ROOT/data/rq105/batch_scores_$TS.meta.json"
+SKIPPED_SIDECAR="$RQ_ROOT/data/rq105/batch_scores_$TS.skipped.json"
 FEATURE_SNAPSHOT="$RQ_ROOT/data/rq105/feature_snapshot_$TS.json"
 if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
   # Canonical sender (campaign B6): topic/.env resolution + RENQUANT_NO_NOTIFY live there.
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
+  if [ -f "$SKIPPED_SIDECAR" ]; then
+    # The liveness check keys on the "SKIP upstream" marker in this first line
+    # (rq105_liveness_check._SERVING_SKIP_UPSTREAM_MARKER) and then reads the
+    # same sidecar to decide "by design" — keep the marker verbatim.
+    rq_notify "rq105 shadow serving SKIPPED — upstream export skipped by design ($TS)" \
+      "the prior session's run was buy-gated; no class-A vector exists for $TS by construction (see $SKIPPED_SIDECAR)" || true
+    skip_log "SKIP upstream (by design): no frozen batch-score export — exporter sidecar present ($SKIPPED_SIDECAR)"
+    exit "$EXIT_UPSTREAM_SKIPPED_BY_DESIGN"
+  fi
   rq_notify "rq105 shadow serving SKIPPED ($TS)" \
     "no frozen batch-score export for today (export_batch_scores 06:15 failed?)" || true
   skip_log "SKIP upstream: no frozen batch-score export ($SCORES / $META missing)"

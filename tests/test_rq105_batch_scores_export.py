@@ -727,14 +727,21 @@ def test_preoperational_cluster_shape_is_rejected(tmp_path, capsys):
 
 def test_sell_only_or_buy_blocked_run_is_rejected(tmp_path, capsys):
     """A containment/sell-only run never executed the buy funnel its frozen
-    vector is meant to represent (e.g. the 2026-07-16 20:55 guard run)."""
+    vector is meant to represent (e.g. the 2026-07-16 20:55 guard run).
+    Still REFUSED (nothing is published) — since 2026-09-16 with its own exit
+    code, because a run whose only defect is 'no buy funnel' is a status the
+    sentinel can name, not a failure of the exporter (see
+    test_a_buy_gated_but_otherwise_clean_run_is_a_designed_skip_not_a_failure)."""
     db = _make_db(tmp_path)
     _insert_run(db, "2026-07-01-live-sellonly",
                 run_bundle=_bundle_without(
                     pipeline_flags={"buy_blocked": True, "skip_buys": True}))
     rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
-    assert rc == 1
-    assert "full_buy_run" in capsys.readouterr().err
+    assert rc == exporter.EXIT_SOURCE_BUY_GATED
+    err = capsys.readouterr().err
+    assert "full_buy_run" in err and "skip_buys=True" in err
+    out = tmp_path / "out"
+    assert not (out / "batch_scores_2026-07-02.json").exists() and not (out / "batch_scores_2026-07-02.meta.json").exists()
 
 
 def test_panel_contract_not_ok_is_rejected(tmp_path, capsys):
@@ -1007,3 +1014,43 @@ def test_the_scheduled_entry_point_is_the_wrapper_not_the_module():
     assert not any(a.endswith("export_batch_scores.py") for a in args), (
         "invoking the module directly bypasses RQ105_SCORE_SOURCE=blend"
     )
+
+
+# ─────────────── 2026-09-16: buy-gated source run is a designed skip ───────────────
+
+def test_a_buy_gated_but_otherwise_clean_run_is_a_designed_skip_not_a_failure(tmp_path, capsys):
+    """2026-09-15: EMA50GateTask blocked buys (SPY below EMA50); the run was
+    contract-clean with provenance, buys=0 by regime rule. The 06:15 export
+    paged 'FAILED rc=1' — indistinguishable from an unreadable DB. rq105 is
+    downstream of 104's buy admission, so no class-A vector exists for such a
+    day by construction: its own exit code, a status report, nothing to repair."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "r1", run_bundle=dict(_GOOD_BUNDLE,
+                    pipeline_flags={"buy_blocked": True, "skip_buys": False}))
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == exporter.EXIT_SOURCE_BUY_GATED == 3
+    err = capsys.readouterr().err
+    assert "SKIPPED by design" in err and "buy_blocked=True" in err
+    out = tmp_path / "out"
+    assert not (out / "batch_scores_2026-07-02.json").exists(), "a skip must publish no bundle"
+    assert not (out / "batch_scores_2026-07-02.meta.json").exists()
+    # ... but it leaves its testimony for the liveness check (2026-09-16):
+    sidecar = json.loads((out / "batch_scores_2026-07-02.skipped.json").read_text())
+    assert sidecar["session_date"] == "2026-07-02"
+    assert sidecar["reason"] == exporter.SKIP_REASON_BUY_GATED
+    assert sidecar["source_run_id"] == "r1"
+    assert sidecar["pipeline_flags"] == {"buy_blocked": True, "skip_buys": False}
+    assert sidecar["exit_code"] == 3
+
+
+def test_a_buy_gated_run_with_OTHER_health_gaps_is_still_a_failure(tmp_path, capsys):
+    """The designed skip covers exactly one gap. A buy-gated run that ALSO
+    lacks provenance or a clean panel contract is a real problem and keeps
+    exit 1 — otherwise 'gated' would silence every other health defect."""
+    db = _make_db(tmp_path)
+    bundle = dict(_GOOD_BUNDLE, pipeline_flags={"buy_blocked": True, "skip_buys": False})
+    bundle.pop("training_cutoff")
+    _insert_run(db, "r1", run_bundle=bundle)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert "health evidence" in capsys.readouterr().err
