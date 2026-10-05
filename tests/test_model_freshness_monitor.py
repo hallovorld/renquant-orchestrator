@@ -1172,3 +1172,82 @@ def test_frozen_metadata_cutoff_still_breaches_despite_widening(tmp_path: Path) 
     fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
     assert fresh.binding_field == "metadata.data_cutoff_date"
     assert fresh.tier == mod.TIER_BREACH
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-15: the tournament's declared non-trainable set (benchmark / sector /
+# defensive ETFs) is not coverage. SPY made the population read "141/142
+# present missing=1" = BREACH on every run since the watchlist carried it.
+# --------------------------------------------------------------------------- #
+def test_tournament_declared_non_trainable_absent_is_not_missing(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    _write_policy(models, "AAPL", live_train_end="2026-06-20")  # 10d healthy
+    # SPY: the benchmark. Never trained by design; no artifact exists.
+    tf = mod.read_tournament_freshness(
+        models, ["AAPL", "SPY"], AS_OF, non_trainable={"SPY": "benchmark"}
+    )
+    assert tf.n_expected == 1
+    assert tf.n_present == 1
+    assert tf.n_missing == 0 and tf.missing == []
+    assert tf.excluded == ["SPY"] and tf.n_excluded == 1
+    assert tf.tier == mod.TIER_HEALTHY
+    assert "excluded=1" in tf.detail and "SPY" in tf.detail
+    assert tf.as_dict()["excluded"] == ["SPY"]
+    assert tf.as_dict()["n_excluded"] == 1
+
+
+def test_tournament_without_the_declaration_still_fails_closed_on_the_benchmark(
+    tmp_path: Path,
+) -> None:
+    """The default is unchanged: nothing is excluded unless the config declares it."""
+    models = tmp_path / "models"
+    _write_policy(models, "AAPL", live_train_end="2026-06-20")
+    tf = mod.read_tournament_freshness(models, ["AAPL", "SPY"], AS_OF)
+    assert tf.missing == ["SPY"]
+    assert tf.tier == mod.TIER_BREACH
+
+
+def test_tournament_excluded_ticker_with_an_artifact_does_not_skew_ages(tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    _write_policy(models, "AAPL", live_train_end="2026-06-20")  # 10d
+    _write_policy(models, "XLE", live_train_end="2025-12-01")   # ancient, but excluded
+    tf = mod.read_tournament_freshness(
+        models, ["AAPL", "XLE"], AS_OF, non_trainable={"XLE": "sector ETF"}
+    )
+    assert tf.n_present == 1
+    assert tf.max_age_days == 10
+    assert tf.tier == mod.TIER_HEALTHY
+
+
+def test_tournament_all_excluded_fails_closed(tmp_path: Path) -> None:
+    tf = mod.read_tournament_freshness(
+        tmp_path / "models", ["SPY"], AS_OF, non_trainable={"SPY": "benchmark"}
+    )
+    assert tf.tier == mod.TIER_BREACH
+    assert "no trainable ticker" in tf.detail
+
+
+def test_non_trainable_from_config_mirrors_the_tournament_derivation(tmp_path: Path) -> None:
+    cfg = tmp_path / "strategy_config.json"
+    _write_json(cfg, {
+        "watchlist": ["AAPL", "SPY", "XLE", "TLT", "gld"],
+        "benchmark": "SPY",
+        "sector_etf_map": {"Energy": "XLE", "Materials": "XLB"},  # XLB not in watchlist
+        "defensive_tickers": ["TLT", "GLD"],
+    })
+    nt = mod.non_trainable_from_config(cfg)
+    assert set(nt) == {"SPY", "XLE", "TLT", "GLD"}
+    assert "benchmark" in nt["SPY"]
+    assert "sector" in nt["XLE"]
+    assert "defensive" in nt["TLT"]
+    assert "XLB" not in nt  # only names the tournament sees in ITS watchlist
+
+
+def test_non_trainable_from_config_unreadable_excludes_nothing(tmp_path: Path) -> None:
+    assert mod.non_trainable_from_config(tmp_path / "missing.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    assert mod.non_trainable_from_config(bad) == {}
+    no_watchlist = tmp_path / "nowl.json"
+    _write_json(no_watchlist, {"benchmark": "SPY"})
+    assert mod.non_trainable_from_config(no_watchlist) == {}
