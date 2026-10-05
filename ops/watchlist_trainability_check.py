@@ -159,19 +159,30 @@ def _declared(rq_root: Path, trained: set[str],
              for k, v in data.items() if str(v).strip()}, newest)
 
 
-def undeclared_untrainable(rq_root: Path | None = None) -> tuple[list[str], dict]:
-    """(offending tickers, evidence). Empty list == the invariant holds."""
+def undeclared_untrainable(rq_root: Path | None = None, *,
+                           today: dt.date | None = None) -> tuple[list[str], dict]:
+    """(offending tickers, evidence). Empty list == the invariant holds.
+
+    `today` is the as-of date for the declaration's age (default: the wall
+    clock, which is what the scheduled job wants). It is a SEAM, not a
+    behaviour change: the declaration-age rule read `dt.date.today()` twice
+    inside this function, so every test that built a dated fixture measured
+    the runner's clock — and on 2026-09-13 the 2026-08-23 fixture crossed the
+    21-day limit and seven tests went red on every orchestrator PR (the same
+    shape as #1119's A4-T1 wall-clock read). Tests pass a fixed date.
+    """
     root = rq_root or RQ_ROOT
+    as_of = today or dt.date.today()
     served = _watchlist(root / SERVED_CONFIG, "served")
     trained = _watchlist(root / TOURNAMENT_CONFIG, "tournament")
-    declared, decl_path = _declared(root, trained)
+    declared, decl_path = _declared(root, trained, today=as_of)
     offenders = sorted(served - trained - set(declared))
     return offenders, {
         "served_n": len(served),
         "tournament_n": len(trained),
         "declared_n": len(declared),
         "declaration_file": str(decl_path),
-        "declaration_age_days": (dt.date.today() - dt.date.fromisoformat(
+        "declaration_age_days": (as_of - dt.date.fromisoformat(
             Path(decl_path).name.split(".")[0])).days,
         "served_minus_tournament": sorted(served - trained),
     }
@@ -181,10 +192,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--rq-root", default=str(RQ_ROOT))
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--today", default=None,
+                    help="ISO as-of date for the declaration's age "
+                         "(default: today; tests pass a fixed date)")
     args = ap.parse_args(argv)
 
     try:
-        offenders, evidence = undeclared_untrainable(Path(args.rq_root))
+        today = dt.date.fromisoformat(args.today) if args.today else None
+        offenders, evidence = undeclared_untrainable(Path(args.rq_root), today=today)
     except InputMissing as exc:
         print(f"FAIL (input): {exc}", file=sys.stderr)
         return 2
