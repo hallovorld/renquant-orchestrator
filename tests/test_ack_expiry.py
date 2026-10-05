@@ -129,7 +129,8 @@ def test_the_re_dispositioned_ack_expires_by_its_OWN_explicit_date():
     # inside the 14-day backstop — so it demonstrates the same property.
     row = ledger["com.renquant.rq104-risk-budget"]
     e, w = sent.ack_expiry(row)
-    assert e == D("2026-09-25")
+    # Re-reviewed 2026-10-04 (rows had expired unmerged): acked 10-04, explicit 10-14.
+    assert e == D("2026-10-14")
     assert w == "expires_at", w
     # The PROPERTY, not the stamp. This asserted `acked_at == "2026-07-31"`,
     # which pinned a value that legitimately moves on every re-review — and it

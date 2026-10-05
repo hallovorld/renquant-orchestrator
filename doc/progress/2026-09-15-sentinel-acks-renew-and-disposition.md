@@ -72,3 +72,11 @@ label-retrain` (MANUAL_EXPIRED), `rq105-batch-scores-export`
 - The five rows expire 09-25..09-29 by design: if the underlying fixes have
   not landed by then the page goes loud again, which is the ledger's
   purpose.
+
+## 2026-10-04 re-review
+
+The five rows expired 09-25..09-29 while this PR sat unmerged (codex quota). Each was
+re-read against the job's last exit on 2026-10-04 [VERIFIED: `launchctl list`, same exit codes;
+agent-pr-loop stderr tail still the codex usage limit; model#230 merged 10-03 but not yet pinned
+into the runtime checkout]. `acked_at` moved to 2026-10-04 and each `expires_at` by the same 19
+days (10-14..10-18), preserving the stagger and the no-later-than-14d property.
