@@ -80,6 +80,9 @@ class TestUnmissableAlert:
         monkeypatch.setattr(
             liveness, "check_collector_data_outputs", lambda data_root, as_of: {}
         )
+        # orch#1085: the serving-chain checks read under RQ; keep this test
+        # about the alert shape, hermetic from the operator's disk.
+        monkeypatch.setattr(liveness, "check_serving_chain", lambda *a, **k: {})
 
         rc = liveness.main()
 

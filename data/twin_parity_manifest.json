@@ -8,13 +8,13 @@
       "execution_path": "src/renquant_execution/alpaca_broker.py",
       "execution_sha256": "1ab378e209c4a23a5bde25a5a260f17cff6bb250fe308ef8ee6ccba1b1041164",
       "umbrella_path": "live/alpaca_broker.py",
-      "umbrella_sha256": "8be6d5298180e81662114e7b3677f5adb11c1749a890047e833635cc5ab9e7fa"
+      "umbrella_sha256": "bc7db710810eeddfddfdd9b280e288426958097a330c34e85bb5d8baa750a1d9"
     },
     "broker": {
       "execution_path": "src/renquant_execution/broker.py",
       "execution_sha256": "9d352f00a996ec3278e9c1e6f14a04590fcd007cd02e8d0ad304a2f9de34eca2",
       "umbrella_path": "live/broker.py",
-      "umbrella_sha256": "7c1595fbc12f4a91507744d5eae57fe9a8c48378b8c2fc60b45fbf360cca26a2"
+      "umbrella_sha256": "53c5126dbceef3f0fe46d0599d3cf4f5ff3b44bbb5532080b772f358ba7f1aa8"
     },
     "paper_broker": {
       "execution_path": "src/renquant_execution/paper_broker.py",
@@ -26,7 +26,7 @@
       "execution_path": "src/renquant_execution/readonly_broker.py",
       "execution_sha256": "fb4a1179557d69e863042125dad7d066a5818b701d46565fad11c341ce5331f6",
       "umbrella_path": "live/broker_readonly.py",
-      "umbrella_sha256": "75373e85f627d3b5523a16041fc440d0c2c7fe59a79d5d678930bf51a0568121"
+      "umbrella_sha256": "32dc66dde2263c18527b005f0523d1a18b44405dcfbbf1b98d2bf9e3175e68c8"
     }
   },
   "function_pins": {

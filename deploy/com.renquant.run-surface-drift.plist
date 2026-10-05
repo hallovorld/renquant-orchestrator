@@ -2,15 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <!-- TEMPLATE (GOAL-5 AC2) - installation is an operator-gated landing action.
-     Daily 07:00 PT: catches overnight run-surface drift before the session. -->
+     Daily 07:00 PT, EVERY calendar day (no Weekday key: run-surface drift is
+     not session-bound): catches overnight run-surface drift before the session.
+     2026-08-30: ProgramArguments now runs the wrapper ops/run_surface_drift_scan.sh
+     instead of the checker directly, and RunAtLoad is true — a slot missed
+     across a BOOT is never backfilled by launchd (2026-08-28: host up 10:38,
+     zero 2026-08-28 lines in launchd_run_surface_drift.out). The wrapper's
+     shared catch-up guard (ops/catchup_guard.sh, literal 2400 cutoff) runs the
+     scan at load only when 07:00 <= local time and today's dated scan log
+     run_surface_drift_<date>.log is missing. -->
 <dict>
     <key>Label</key>
     <string>com.renquant.run-surface-drift</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/renhao/git/github/RenQuant/.venv/bin/python</string>
-        <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_check.py</string>
+        <string>/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_scan.sh</string>
     </array>
+    <key>RunAtLoad</key>
+    <true/>
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>

@@ -21,6 +21,13 @@
       ],
       "program_args_sha256": "9bbafda64b9daa435779cec0d5683b13e75eb2cfd7422617c3028e0efa666c3c"
     },
+    "com.renquant.daily-earnings-surprise": {
+      "_schedule_comment": "Mon-Fri 06:00 PT (scripts/launchd/com.renquant.daily-earnings-surprise.plist in the umbrella). WHY THIS SLOT: refreshes PEAD/SUE only for tickers with a print in the last 7 days, selected from the prod earnings calendar that com.renquant.earnings-calendar-refresh rewrites at 05:40 the same morning; finishes before the 06:05 dawn preflight. The Saturday 04:00 weekly-fundamental-refresh full pass stays authoritative for the whole watchlist. 2026-08-30 data-audit fix: weekly-only cadence left PEAD/SUE median-imputed for up to a week after a print.",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/daily_earnings_surprise_refresh.sh"
+      ],
+      "program_args_sha256": "bac22ae731521374cb6572a563ee0c30813a97807d65368c5438757c03f80e10"
+    },
     "com.renquant.daily-iv-snapshot": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/daily_iv_snapshot.sh"
@@ -41,6 +48,13 @@
       ],
       "program_args_sha256": "1f53fac91b8c9223b0fe68926d1dd5aed4a4083f351591264326fe580f5f8129"
     },
+    "com.renquant.earnings-calendar-refresh": {
+      "_schedule_comment": "Mon-Fri 05:40 PT + Sat 04:40 PT (scripts/launchd/com.renquant.earnings-calendar-refresh.plist in the umbrella). WHY THIS SLOT: every session morning before the 06:00 earnings-surprise refresh (which selects on this calendar) and the 06:05 dawn preflight; the Saturday anchor sits clear of weekly-fundamental-refresh (04:00). 2026-08-30 data-audit fix: the calendar producer was never scheduled — the prod artifact froze at 2026-04-24 (last date 2026-07-24) and the pre/post-earnings buffer silently could not fire for any later print.",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/scripts/refresh_earnings_calendar.sh"
+      ],
+      "program_args_sha256": "f13d8d6f76e9844de60f0b4e1efc2c9aa2b3369cd34d375b2a590793eeca0d39"
+    },
     "com.renquant.intraday104": {
       "_evidence_glob_comment": "the job writes a dated file per session; its StandardOutPath is a stale proxy and scoring it there produced a FALSE stale reading. Log dir verified to be used by this job ALONE (2026-07-30), so the glob cannot pick up another job's evidence.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/intraday_104/20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].log",
@@ -56,6 +70,17 @@
         "renquant_orchestrator.l1_exposure_shadow"
       ],
       "program_args_sha256": "38a9fa00c579d558d569180316cb3f4b03499ffe376a2fec0e745bf3d79ca7b3"
+    },
+    "com.renquant.l2-paper-bandit": {
+      "_schedule_comment": "weekdays 15:45 local. AFTER daily104 (13:55 + runtime) writes the champion post-close mark and AFTER shadow-ab-daily (~14:20, measured from profile DB mtimes 2026-09-02 14:14-14:20) marks the three profile books; AFTER l1-exposure-shadow (15:30) for ordering only. The engine's self-verifying replay REFUSES a log whose rows no longer match the DB marks, so the day's marks must be FINAL when this fires (RunAtLoad=false for the same reason). PYTHONPATH = renquant-orchestrator-run/src (operator-synced main), not the dev checkout.",
+      "_evidence_glob_comment": "The engine keeps ONE append-only log (l2_paper_bandit.jsonl) rather than a dated file per firing, and appends only on a SYNCED run (a REFUSED replay never touches it), so the newest match's mtime is the last GOOD row, not merely the last firing. The wildcard is required by tests/test_manifest_evidence_globs.py (a fixed path is not a glob); it matches exactly that file today.",
+      "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/l2_paper_bandit/*.jsonl",
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "-m",
+        "renquant_orchestrator.l2_paper_bandit"
+      ],
+      "program_args_sha256": "ff49d683a1f8bd57682043d60d2fa4d4fc3d982863ba7279f5bafc6c013a8ba8"
     },
     "com.renquant.momentum-train-weekly": {
       "_evidence_glob_comment": "dated file per firing; StandardOutPath is a stale proxy for any wrapper that redirects (#627). This wrapper exec-redirects FIRST (the conditional-retrain silent-pre-exec-death lesson, orch#754 trail): every refusal lands in the dated log with an explicit REFUSED marker and every exit path writes a terminal marker, so log EXISTENCE proves the wrapper fired and log CONTENT carries the verdict.",
@@ -136,10 +161,12 @@
       "program_args_sha256": "cb1211fff6b1812d8397f9f8cbfb7266ed1693778e96bbab8eb3ffc6044efd2c"
     },
     "com.renquant.rq104-dawn-preflight": {
+      "_run_at_load_comment": "2026-08-30: reviewed intent — the installed plist must carry RunAtLoad=true so a 06:05 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, no dawn_pin_identity_2026-08-28.json, no probe). The wrapper's shared catch-up guard (ops/catchup_guard.sh, session mode via ops/catchup_cutoff.py) bounds the load-time run to NYSE session days, 06:05..that session's ACTUAL local close, today's probe log missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed deploy/ plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review. LANDED 2026-08-30 11:29 PT: the operator ran bootout / cp / bootstrap of this reviewed plist (`launchctl print` shows RunAtLoad and runs=1); the read-only drift scan of 11:47 PT reports no issue on this key. The PENDING_INTENT_INSTALL entry that named the not-yet-installed state left tests/test_run_surface_drift_check.py in the same change; the fixture test test_declared_intent_absent_from_installed_plist_alarms replays the pre-landing plist and asserts the alarm, so a rollback of the install is caught.",
       "program_args": [
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant104/dawn_funnel_preflight.sh"
       ],
-      "program_args_sha256": "743f3a9ebd33839d356f3258ad5ba6f8c132bffe5a034544a852a6c1e80f58e7"
+      "program_args_sha256": "743f3a9ebd33839d356f3258ad5ba6f8c132bffe5a034544a852a6c1e80f58e7",
+      "run_at_load": true
     },
     "com.renquant.rq104-degradation-sentinel": {
       "program_args": [
@@ -197,12 +224,14 @@
     },
     "com.renquant.rq105-batch-scores-export": {
       "_evidence_glob_comment": "Derived from the job's own script, not guessed: renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh writes $LOG_DIR/batch_scores_export_$TS.log. Without it this job has no per-job evidence surface, and launchd_liveness_scan falls back to a StandardOutPath shared with five other jobs -- unattributable, which is not the same as healthy.",
+      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:15 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/catchup_guard.sh, shared since 2026-08-30) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (ops/catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review. LANDED 2026-08-30 11:29 PT: the operator ran bootout / cp / bootstrap of this reviewed plist (`launchctl print` shows RunAtLoad and runs=1); the read-only drift scan of 11:47 PT reports no issue on this key. The PENDING_INTENT_INSTALL entry that named the not-yet-installed state left tests/test_run_surface_drift_check.py in the same change; the fixture test test_declared_intent_absent_from_installed_plist_alarms replays the pre-landing plist and asserts the alarm, so a rollback of the install is caught.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/batch_scores_export_*.log",
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_batch_scores_export.sh"
       ],
-      "program_args_sha256": "ab2385c2a7e3e0c62537d49b0eb74826910ab079b6f5905e089b3134b5ff4334"
+      "program_args_sha256": "ab2385c2a7e3e0c62537d49b0eb74826910ab079b6f5905e089b3134b5ff4334",
+      "run_at_load": true
     },
     "com.renquant.rq105-liveness": {
       "program_args": [
@@ -235,12 +264,14 @@
     },
     "com.renquant.rq105-session-scheduler": {
       "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
+      "_run_at_load_comment": "orch#1085 (2026-08-29): reviewed intent — the installed plist must carry RunAtLoad=true so a 06:25 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38, launchd never fired the slot, the serving chain no-op'd and the liveness check said OK). The wrapper's catch-up guard (ops/catchup_guard.sh, shared since 2026-08-30) bounds the load-time run to NYSE session days, slot..that session's ACTUAL local close (ops/catchup_cutoff.py, early-close/holiday aware — r2), output missing. ProgramArguments is UNCHANGED so program_args_sha256 stays valid; the drift scan compares this run_at_load intent against the installed plist and alarms until the operator bootouts/bootstraps the reviewed plist (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review. LANDED 2026-08-30 11:29 PT: the operator ran bootout / cp / bootstrap of this reviewed plist (`launchctl print` shows RunAtLoad and runs=1); the read-only drift scan of 11:47 PT reports no issue on this key. The PENDING_INTENT_INSTALL entry that named the not-yet-installed state left tests/test_run_surface_drift_check.py in the same change; the fixture test test_declared_intent_absent_from_installed_plist_alarms replays the pre-landing plist and asserts the alarm, so a rollback of the install is caught.",
       "evidence_glob": "/Users/renhao/git/github/RenQuant/logs/rq105/session_scheduler_*.log",
       "program_args": [
         "/bin/zsh",
         "/Users/renhao/git/github/renquant-orchestrator-run/ops/renquant105/run_session_scheduler.sh"
       ],
-      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42"
+      "program_args_sha256": "4321312e29afe58e26a1e9cf83f869597895a8f900f8d819ca94dd5a25b2cd42",
+      "run_at_load": true
     },
     "com.renquant.rq105-shadow-serving": {
       "_evidence_glob_comment": "the job writes a dated file per firing; its StandardOutPath is untouched, and scoring it there produced a FALSE '18-19 missed firings' reading — see the 2026-07-30 correction on issue #621",
@@ -252,11 +283,13 @@
       "program_args_sha256": "3e11ca9c1164dd82948183c51a7521b261824052b35e1fda7e8211c957a0ff9c"
     },
     "com.renquant.run-surface-drift": {
+      "_program_args_comment": "2026-08-30: the job now runs the wrapper ops/run_surface_drift_scan.sh (previously `.venv/bin/python ops/run_surface_drift_check.py` directly, sha256 bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2). The wrapper applies the shared boot catch-up guard (ops/catchup_guard.sh, literal 2400 cutoff so the scan keeps running every calendar day) and tees the scan into the dated logs/rq104/run_surface_drift_<date>.log; the scan itself is unchanged. Until the operator installs the reviewed deploy/ plist the daily scan alarms `ProgramArguments CHANGED` on ITSELF (containment protocol c) — that alarm is the designed reminder, never silence it by editing this file outside review. LANDED 2026-08-30 11:29 PT: the reviewed deploy/ plist was bootstrapped by the operator; the installed ProgramArguments digest equals program_args_sha256 and the 11:47 PT read-only scan is clean on this key. The PENDING_PROGRAM_ARGS_INSTALL entry (previous digest bbd8f472\u2026) left tests/test_run_surface_drift_check.py in the same change; test_previous_drift_definition_on_disk_alarms_as_changed replays the previous definition and asserts `ProgramArguments CHANGED`.",
+      "_run_at_load_comment": "2026-08-30: reviewed intent — the installed plist must carry RunAtLoad=true so a 07:00 StartCalendarInterval slot missed across a boot is caught up at bootstrap (2026-08-28: host booted 10:38; zero 2026-08-28 lines in launchd_run_surface_drift.out while 08-27 and 08-29 carry ~40 each). Same mechanism as the two rq105 jobs (orch#1087); the guard runs the scan at load only when 07:00 <= local time and today's dated scan log is missing. LANDED 2026-08-30 11:29 PT: the operator ran bootout / cp / bootstrap of this reviewed plist (`launchctl print` shows RunAtLoad and runs=1); the read-only drift scan of 11:47 PT reports no issue on this key. The PENDING_INTENT_INSTALL entry that named the not-yet-installed state left tests/test_run_surface_drift_check.py in the same change; the fixture test test_declared_intent_absent_from_installed_plist_alarms replays the pre-landing plist and asserts the alarm, so a rollback of the install is caught.",
       "program_args": [
-        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
-        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_check.py"
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/run_surface_drift_scan.sh"
       ],
-      "program_args_sha256": "bbd8f4724cd00a51d3b6322913361816653f429dcc404f86853fc1f24ebf0bb2"
+      "program_args_sha256": "97ef0267634342953eff92f1c89047ff36ebb1448d647e0722bad630676327dd",
+      "run_at_load": true
     },
     "com.renquant.screen-watchlist": {
       "program_args": [

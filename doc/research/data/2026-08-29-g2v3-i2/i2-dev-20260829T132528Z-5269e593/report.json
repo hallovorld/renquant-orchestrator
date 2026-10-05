@@ -1,0 +1,2245 @@
+{
+ "stage": "GOAL-2v3 Stage I-2",
+ "run_status": "DEV_RUN",
+ "run_id": "i2-dev-20260829T132528Z-5269e593",
+ "generated_at": "2026-08-29T13:33:39+00:00",
+ "spec": "doc/design/2026-08-29-goal2v3-stage-i2-prereg.md",
+ "i1_spec": "doc/design/2026-08-27-goal2v3-intraday-granularity.md#stage-i-1",
+ "versions": {
+  "python": "3.10.20",
+  "xgboost": "2.1.4",
+  "numpy": "2.0.2",
+  "pandas": "2.3.3",
+  "scipy": "1.13.1"
+ },
+ "frozen": {
+  "spec": "doc/design/2026-08-29-goal2v3-stage-i2-prereg.md",
+  "i1": {
+   "h": 13,
+   "slots": 39,
+   "screen_slots": [
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25
+   ],
+   "dev_window": [
+    "2020-08-01",
+    "2024-06-30"
+   ],
+   "seed_base": 20260828,
+   "seed_formula": "20260828 + 1000*fold_index + 100*base_code + state_index",
+   "xgb_params": {
+    "objective": "reg:squarederror",
+    "max_depth": 3,
+    "n_estimators": 300,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 20,
+    "tree_method": "hist",
+    "random_state": 20260828,
+    "n_jobs": 8
+   },
+   "row_cap": 4000000,
+   "base_codes": {
+    "B0": 0,
+    "B1": 1,
+    "B2": 2,
+    "B3": 3
+   },
+   "min_sector_rows": 50000,
+   "folds": [
+    [
+     "2021-12-31",
+     "2022-01-01",
+     "2022-06-30"
+    ],
+    [
+     "2022-06-30",
+     "2022-07-01",
+     "2022-12-31"
+    ],
+    [
+     "2022-12-31",
+     "2023-01-01",
+     "2023-06-30"
+    ],
+    [
+     "2023-06-30",
+     "2023-07-01",
+     "2023-12-31"
+    ],
+    [
+     "2023-12-31",
+     "2024-01-01",
+     "2024-06-30"
+    ]
+   ],
+   "purge_bars": 13,
+   "min_names_per_ic": 100,
+   "min_pairs": 8,
+   "life_bar_t": 1.0,
+   "secondary_horizons": [
+    1,
+    3,
+    39
+   ],
+   "features": [
+    "r1",
+    "r3",
+    "r13",
+    "rv13",
+    "rng13",
+    "vz",
+    "gap",
+    "slot",
+    "m13",
+    "sec13",
+    "rel13"
+   ],
+   "b1_state_lag_sessions": 1,
+   "vz_trailing_sessions": 60,
+   "vz_min_present": 48,
+   "b3_slow_sessions": 60,
+   "b3_fast_lag_slots": 39,
+   "k5_regimes": [
+    "BEAR",
+    "BULL_CALM",
+    "BULL_VOLATILE",
+    "CHOPPY"
+   ],
+   "b3_labels": [
+    "S+F+",
+    "S+F-",
+    "S-F+",
+    "S-F-"
+   ]
+  },
+  "accepted_i1_bundle": {
+   "dir": "doc/research/data/2026-08-29-g2v3-i1/i1-dev-20260829T113813Z-666484a7",
+   "report_file": "report.json",
+   "audit_file": "g2v3_stage_i1_audit.json.gz",
+   "run_id": "i1-dev-20260829T113813Z-666484a7",
+   "source_commit": "666484a7ab37dc9f88dd5692f8d9e90f3aab9332",
+   "run_status": "DEV_RUN",
+   "stage": "GOAL-2v3 Stage I-1",
+   "report_sha256": "666d9c6a9a2286af4215399aebbd07a2fda8efafc6b5440d8d39ea6b9e1e1542",
+   "audit_sha256": "d124d8f2a8766edf7d4a6f767206444467f05fa3bb8dec1818a76b01b2cd3082",
+   "consumed_bar_aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "consumed_bar_count": 1508,
+   "gate_run_id": "i0-gate-20260829-f3d5bf7b",
+   "stage_i2_trigger_fired": true,
+   "n_observations": 10487004,
+   "n_oof_observations": 7097590,
+   "s0_block_t": 4.1861,
+   "s0_n_blocks": 622
+  },
+  "i1_harness_sha256": "13c31d1266e6753bbf2890862fd8afe66081d7c351746177360d770a22775e20",
+  "expected_i1_block_t": {
+   "B0": 3.5042,
+   "B1": 3.1837,
+   "B2": 3.5915,
+   "B3": 3.2394
+  },
+  "expected_i1_n_blocks": {
+   "B0": 622,
+   "B1": 511,
+   "B2": 622,
+   "B3": 619
+  },
+  "determinism_decimals": 4,
+  "surviving_bases": [
+   "B0",
+   "B1",
+   "B2",
+   "B3"
+  ],
+  "meta_folds": [
+   {
+    "name": "M1",
+    "meta_fold": 1,
+    "train_base_folds": [
+     0
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2022-06-30",
+    "oof_base_fold": 1,
+    "oof_start": "2022-07-01",
+    "oof_end": "2022-12-31"
+   },
+   {
+    "name": "M2",
+    "meta_fold": 2,
+    "train_base_folds": [
+     0,
+     1
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2022-12-31",
+    "oof_base_fold": 2,
+    "oof_start": "2023-01-01",
+    "oof_end": "2023-06-30"
+   },
+   {
+    "name": "M3",
+    "meta_fold": 3,
+    "train_base_folds": [
+     0,
+     1,
+     2
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2023-06-30",
+    "oof_base_fold": 3,
+    "oof_start": "2023-07-01",
+    "oof_end": "2023-12-31"
+   },
+   {
+    "name": "M4",
+    "meta_fold": 4,
+    "train_base_folds": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2023-12-31",
+    "oof_base_fold": 4,
+    "oof_start": "2024-01-01",
+    "oof_end": "2024-06-30"
+   }
+  ],
+  "meta_oof_period": [
+   "2022-07-01",
+   "2024-06-30"
+  ],
+  "meta_purge_bars": 13,
+  "meta_seed_base": 20260829,
+  "meta_seed_formula": "20260829 + 1000*meta_fold (meta_fold = the M-number 1..4)",
+  "meta_xgb_params": {
+   "objective": "reg:squarederror",
+   "max_depth": 2,
+   "n_estimators": 200,
+   "learning_rate": 0.05,
+   "subsample": 0.8,
+   "colsample_bytree": 1.0,
+   "min_child_weight": 50,
+   "tree_method": "hist",
+   "random_state": 20260829,
+   "n_jobs": 8
+  },
+  "meta_row_cap": 4000000,
+  "meta_features": [
+   "p_B0",
+   "p_B1",
+   "p_B2",
+   "p_B3",
+   "n_abstain",
+   "regime_BEAR",
+   "regime_BULL_CALM",
+   "regime_BULL_VOLATILE",
+   "regime_CHOPPY",
+   "b3_slow_sign",
+   "slot"
+  ],
+  "meta_label_horizon": 13,
+  "secondary_horizons": [
+   1,
+   3
+  ],
+  "p1_life_bar_t": 1.0,
+  "p1_bear_min_n_eff_adj": 30.0,
+  "series": [
+   "M_xgb",
+   "M0",
+   "B0",
+   "B1",
+   "B2",
+   "B3",
+   "s0"
+  ],
+  "outcome_register": {
+   "PASS": {
+    "condition": "P1 \u2227 P2 \u2227 P3",
+    "consequence": "graduate: write the confirmatory prereg against the SEALED window 2024-07-01..2026-06-30 (its own PR; the window stays untouched until that prereg is merged)"
+   },
+   "FAIL-A": {
+    "condition": "P1 \u2227 P2 \u2227 \u00acP3",
+    "consequence": "stacking works but nothing in this line beats \u2212r13 at h=13; record as a failed attempt; line PAUSES for an operator decision (candidates for that decision, not for this run: promote s\u2080 itself to a confirmatory prereg, or close the line)"
+   },
+   "FAIL-B": {
+    "condition": "\u00ac(P1 \u2227 P2)",
+    "consequence": "record as a failed attempt; line pauses for an operator decision"
+   },
+   "REFUSED": {
+    "condition": "any fail-closed guard (\u00a71 binding, determinism, dirty tree, store manifest)",
+    "consequence": "no result; defect fixed, new attempt"
+   }
+  }
+ },
+ "inputs": {
+  "census_audit": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz",
+  "bar_store": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars",
+  "spy_daily": "/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet",
+  "gate_run_id": "i0-gate-20260829-f3d5bf7b",
+  "i1_run_id": "i1-dev-20260829T113813Z-666484a7",
+  "n_sessions": 983,
+  "n_names": 1508,
+  "n_observations": 10487004,
+  "n_oof_observations": 7097590,
+  "n_meta_oof_observations": 5578562,
+  "missing_store_files": [],
+  "absent_from_audit": [
+   "TLT",
+   "XLC",
+   "XLRE",
+   "XLV"
+  ],
+  "sec13_etf_available_by_sector": {
+   "tech": true,
+   "giant_tech": true,
+   "ai_chip": true,
+   "datacenter_hw": true,
+   "software": true,
+   "finance": true,
+   "healthcare": false,
+   "energy": true,
+   "industrial": true,
+   "consumer": true,
+   "benchmark": true,
+   "commodity": true,
+   "bond": false,
+   "defensive_bonds": false,
+   "utility": true,
+   "real_estate": false,
+   "telecom": false
+  },
+  "consumed_bar_check": {
+   "aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "count": 1508,
+   "expected": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "matches_i1_bundle": true
+  }
+ },
+ "base_refit": {
+  "fold_row_counts": [
+   {
+    "fold_index": 0,
+    "train_end": "2021-12-31",
+    "oof_start": "2022-01-01",
+    "oof_end": "2022-06-30",
+    "n_train_rows": 3389414,
+    "n_oof_rows": 1519028
+   },
+   {
+    "fold_index": 1,
+    "train_end": "2022-06-30",
+    "oof_start": "2022-07-01",
+    "oof_end": "2022-12-31",
+    "n_train_rows": 4908442,
+    "n_oof_rows": 1524217
+   },
+   {
+    "fold_index": 2,
+    "train_end": "2022-12-31",
+    "oof_start": "2023-01-01",
+    "oof_end": "2023-06-30",
+    "n_train_rows": 6432659,
+    "n_oof_rows": 1461308
+   },
+   {
+    "fold_index": 3,
+    "train_end": "2023-06-30",
+    "oof_start": "2023-07-01",
+    "oof_end": "2023-12-31",
+    "n_train_rows": 7893967,
+    "n_oof_rows": 1300424
+   },
+   {
+    "fold_index": 4,
+    "train_end": "2023-12-31",
+    "oof_start": "2024-01-01",
+    "oof_end": "2024-06-30",
+    "n_train_rows": 9194391,
+    "n_oof_rows": 1292613
+   }
+  ],
+  "bases": {
+   "B0": {
+    "horizon": 13,
+    "overall": {
+     "n_blocks": 622,
+     "n_episodes": 48,
+     "pairs": 574,
+     "mean_block_ic": 0.010911,
+     "sd_block_ic": 0.077655,
+     "rho1_raw": -0.0281,
+     "rho1_used": 0.0,
+     "n_eff_adj": 622.0,
+     "block_t": 3.5042,
+     "estimator": "ok"
+    },
+    "per_regime": {
+     "BEAR": {
+      "n_blocks": 191,
+      "n_episodes": 11,
+      "pairs": 180,
+      "mean_block_ic": 0.010525,
+      "sd_block_ic": 0.09307,
+      "rho1_raw": -0.0678,
+      "rho1_used": 0.0,
+      "n_eff_adj": 191.0,
+      "block_t": 1.5629,
+      "estimator": "ok"
+     },
+     "BULL_CALM": {
+      "n_blocks": 290,
+      "n_episodes": 13,
+      "pairs": 277,
+      "mean_block_ic": 0.009472,
+      "sd_block_ic": 0.060873,
+      "rho1_raw": 0.0087,
+      "rho1_used": 0.0087,
+      "n_eff_adj": 285.0,
+      "block_t": 2.6269,
+      "estimator": "ok"
+     },
+     "BULL_VOLATILE": {
+      "n_blocks": 94,
+      "n_episodes": 14,
+      "pairs": 80,
+      "mean_block_ic": 0.016393,
+      "sd_block_ic": 0.09138,
+      "rho1_raw": -0.0297,
+      "rho1_used": 0.0,
+      "n_eff_adj": 94.0,
+      "block_t": 1.7393,
+      "estimator": "ok"
+     },
+     "CHOPPY": {
+      "n_blocks": 47,
+      "n_episodes": 10,
+      "pairs": 37,
+      "mean_block_ic": 0.010392,
+      "sd_block_ic": 0.073435,
+      "rho1_raw": 0.0818,
+      "rho1_used": 0.0818,
+      "n_eff_adj": 39.9,
+      "block_t": 0.8938,
+      "estimator": "ok"
+     }
+    },
+    "passes_life_bar": true,
+    "life_bar": "block-t >= 1.0 overall @ h=13 on dependence-adjusted units",
+    "n_scored_rows": 7097590,
+    "secondary_horizons_DIAGNOSTIC_ONLY": {
+     "h=1": {
+      "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+      "overall": {
+       "n_blocks": 622,
+       "n_episodes": 48,
+       "pairs": 574,
+       "mean_block_ic": 0.015029,
+       "sd_block_ic": 0.033087,
+       "rho1_raw": 0.02,
+       "rho1_used": 0.02,
+       "n_eff_adj": 597.7,
+       "block_t": 11.1047,
+       "estimator": "ok"
+      }
+     },
+     "h=3": {
+      "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+      "overall": {
+       "n_blocks": 622,
+       "n_episodes": 48,
+       "pairs": 574,
+       "mean_block_ic": 0.012746,
+       "sd_block_ic": 0.051963,
+       "rho1_raw": 0.0066,
+       "rho1_used": 0.0066,
+       "n_eff_adj": 613.8,
+       "block_t": 6.0774,
+       "estimator": "ok"
+      }
+     },
+     "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+    }
+   },
+   "B1": {
+    "horizon": 13,
+    "overall": {
+     "n_blocks": 511,
+     "n_episodes": 42,
+     "pairs": 469,
+     "mean_block_ic": 0.010403,
+     "sd_block_ic": 0.073539,
+     "rho1_raw": 0.0044,
+     "rho1_used": 0.0044,
+     "n_eff_adj": 506.5,
+     "block_t": 3.1837,
+     "estimator": "ok"
+    },
+    "per_regime": {
+     "BEAR": {
+      "n_blocks": 105,
+      "n_episodes": 8,
+      "pairs": 97,
+      "mean_block_ic": 0.008295,
+      "sd_block_ic": 0.079887,
+      "rho1_raw": -0.0309,
+      "rho1_used": 0.0,
+      "n_eff_adj": 105.0,
+      "block_t": 1.064,
+      "estimator": "ok"
+     },
+     "BULL_CALM": {
+      "n_blocks": 290,
+      "n_episodes": 13,
+      "pairs": 277,
+      "mean_block_ic": 0.009157,
+      "sd_block_ic": 0.070308,
+      "rho1_raw": 0.0081,
+      "rho1_used": 0.0081,
+      "n_eff_adj": 285.3,
+      "block_t": 2.2,
+      "estimator": "ok"
+     },
+     "BULL_VOLATILE": {
+      "n_blocks": 89,
+      "n_episodes": 12,
+      "pairs": 77,
+      "mean_block_ic": 0.009665,
+      "sd_block_ic": 0.07776,
+      "rho1_raw": 0.0749,
+      "rho1_used": 0.0749,
+      "n_eff_adj": 76.6,
+      "block_t": 1.0878,
+      "estimator": "ok"
+     },
+     "CHOPPY": {
+      "n_blocks": 27,
+      "n_episodes": 9,
+      "pairs": 18,
+      "mean_block_ic": 0.034412,
+      "sd_block_ic": 0.067121,
+      "rho1_raw": -0.2675,
+      "rho1_used": 0.0,
+      "n_eff_adj": 27.0,
+      "block_t": 2.664,
+      "estimator": "ok"
+     }
+    },
+    "passes_life_bar": true,
+    "life_bar": "block-t >= 1.0 overall @ h=13 on dependence-adjusted units",
+    "n_scored_rows": 5732324,
+    "secondary_horizons_DIAGNOSTIC_ONLY": {
+     "h=1": {
+      "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+      "overall": {
+       "n_blocks": 511,
+       "n_episodes": 42,
+       "pairs": 469,
+       "mean_block_ic": 0.012907,
+       "sd_block_ic": 0.03197,
+       "rho1_raw": 0.1969,
+       "rho1_used": 0.1969,
+       "n_eff_adj": 342.9,
+       "block_t": 7.4756,
+       "estimator": "ok"
+      }
+     },
+     "h=3": {
+      "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+      "overall": {
+       "n_blocks": 511,
+       "n_episodes": 42,
+       "pairs": 469,
+       "mean_block_ic": 0.011316,
+       "sd_block_ic": 0.047547,
+       "rho1_raw": 0.0886,
+       "rho1_used": 0.0886,
+       "n_eff_adj": 427.8,
+       "block_t": 4.9224,
+       "estimator": "ok"
+      }
+     },
+     "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+    }
+   },
+   "B2": {
+    "horizon": 13,
+    "overall": {
+     "n_blocks": 622,
+     "n_episodes": 48,
+     "pairs": 574,
+     "mean_block_ic": 0.009603,
+     "sd_block_ic": 0.066687,
+     "rho1_raw": -0.0235,
+     "rho1_used": 0.0,
+     "n_eff_adj": 622.0,
+     "block_t": 3.5915,
+     "estimator": "ok"
+    },
+    "per_regime": {
+     "BEAR": {
+      "n_blocks": 191,
+      "n_episodes": 11,
+      "pairs": 180,
+      "mean_block_ic": 0.010117,
+      "sd_block_ic": 0.081132,
+      "rho1_raw": -0.0332,
+      "rho1_used": 0.0,
+      "n_eff_adj": 191.0,
+      "block_t": 1.7233,
+      "estimator": "ok"
+     },
+     "BULL_CALM": {
+      "n_blocks": 290,
+      "n_episodes": 13,
+      "pairs": 277,
+      "mean_block_ic": 0.008285,
+      "sd_block_ic": 0.05331,
+      "rho1_raw": 0.0069,
+      "rho1_used": 0.0069,
+      "n_eff_adj": 286.0,
+      "block_t": 2.6283,
+      "estimator": "ok"
+     },
+     "BULL_VOLATILE": {
+      "n_blocks": 94,
+      "n_episodes": 14,
+      "pairs": 80,
+      "mean_block_ic": 0.012052,
+      "sd_block_ic": 0.074341,
+      "rho1_raw": -0.0884,
+      "rho1_used": 0.0,
+      "n_eff_adj": 94.0,
+      "block_t": 1.5718,
+      "estimator": "ok"
+     },
+     "CHOPPY": {
+      "n_blocks": 47,
+      "n_episodes": 10,
+      "pairs": 37,
+      "mean_block_ic": 0.010754,
+      "sd_block_ic": 0.061607,
+      "rho1_raw": 0.0815,
+      "rho1_used": 0.0815,
+      "n_eff_adj": 39.9,
+      "block_t": 1.1028,
+      "estimator": "ok"
+     }
+    },
+    "passes_life_bar": true,
+    "life_bar": "block-t >= 1.0 overall @ h=13 on dependence-adjusted units",
+    "n_scored_rows": 7097590,
+    "secondary_horizons_DIAGNOSTIC_ONLY": {
+     "h=1": {
+      "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+      "overall": {
+       "n_blocks": 622,
+       "n_episodes": 48,
+       "pairs": 574,
+       "mean_block_ic": 0.012869,
+       "sd_block_ic": 0.0303,
+       "rho1_raw": 0.0086,
+       "rho1_used": 0.0086,
+       "n_eff_adj": 611.4,
+       "block_t": 10.5016,
+       "estimator": "ok"
+      }
+     },
+     "h=3": {
+      "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+      "overall": {
+       "n_blocks": 622,
+       "n_episodes": 48,
+       "pairs": 574,
+       "mean_block_ic": 0.01059,
+       "sd_block_ic": 0.046413,
+       "rho1_raw": -0.0035,
+       "rho1_used": 0.0,
+       "n_eff_adj": 622.0,
+       "block_t": 5.6905,
+       "estimator": "ok"
+      }
+     },
+     "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+    }
+   },
+   "B3": {
+    "horizon": 13,
+    "overall": {
+     "n_blocks": 619,
+     "n_episodes": 48,
+     "pairs": 571,
+     "mean_block_ic": 0.009506,
+     "sd_block_ic": 0.073007,
+     "rho1_raw": -0.0364,
+     "rho1_used": 0.0,
+     "n_eff_adj": 619.0,
+     "block_t": 3.2394,
+     "estimator": "ok"
+    },
+    "per_regime": {
+     "BEAR": {
+      "n_blocks": 190,
+      "n_episodes": 11,
+      "pairs": 179,
+      "mean_block_ic": 0.002845,
+      "sd_block_ic": 0.087778,
+      "rho1_raw": -0.019,
+      "rho1_used": 0.0,
+      "n_eff_adj": 190.0,
+      "block_t": 0.4468,
+      "estimator": "ok"
+     },
+     "BULL_CALM": {
+      "n_blocks": 288,
+      "n_episodes": 13,
+      "pairs": 275,
+      "mean_block_ic": 0.010891,
+      "sd_block_ic": 0.059069,
+      "rho1_raw": 0.0004,
+      "rho1_used": 0.0004,
+      "n_eff_adj": 287.8,
+      "block_t": 3.128,
+      "estimator": "ok"
+     },
+     "BULL_VOLATILE": {
+      "n_blocks": 94,
+      "n_episodes": 14,
+      "pairs": 80,
+      "mean_block_ic": 0.012169,
+      "sd_block_ic": 0.083169,
+      "rho1_raw": -0.1053,
+      "rho1_used": 0.0,
+      "n_eff_adj": 94.0,
+      "block_t": 1.4186,
+      "estimator": "ok"
+     },
+     "CHOPPY": {
+      "n_blocks": 47,
+      "n_episodes": 10,
+      "pairs": 37,
+      "mean_block_ic": 0.022612,
+      "sd_block_ic": 0.061729,
+      "rho1_raw": -0.2418,
+      "rho1_used": 0.0,
+      "n_eff_adj": 47.0,
+      "block_t": 2.5112,
+      "estimator": "ok"
+     }
+    },
+    "passes_life_bar": true,
+    "life_bar": "block-t >= 1.0 overall @ h=13 on dependence-adjusted units",
+    "n_scored_rows": 7089746,
+    "secondary_horizons_DIAGNOSTIC_ONLY": {
+     "h=1": {
+      "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+      "overall": {
+       "n_blocks": 619,
+       "n_episodes": 48,
+       "pairs": 571,
+       "mean_block_ic": 0.013825,
+       "sd_block_ic": 0.030385,
+       "rho1_raw": 0.0214,
+       "rho1_used": 0.0214,
+       "n_eff_adj": 593.0,
+       "block_t": 11.0802,
+       "estimator": "ok"
+      }
+     },
+     "h=3": {
+      "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+      "overall": {
+       "n_blocks": 619,
+       "n_episodes": 48,
+       "pairs": 571,
+       "mean_block_ic": 0.01105,
+       "sd_block_ic": 0.044816,
+       "rho1_raw": -0.025,
+       "rho1_used": 0.0,
+       "n_eff_adj": 619.0,
+       "block_t": 6.1344,
+       "estimator": "ok"
+      }
+     },
+     "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+    }
+   }
+  },
+  "s0_reference": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 622,
+    "n_episodes": 48,
+    "pairs": 574,
+    "mean_block_ic": 0.014444,
+    "sd_block_ic": 0.086051,
+    "rho1_raw": -0.0111,
+    "rho1_used": 0.0,
+    "n_eff_adj": 622.0,
+    "block_t": 4.1861,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 191,
+     "n_episodes": 11,
+     "pairs": 180,
+     "mean_block_ic": 0.021077,
+     "sd_block_ic": 0.10056,
+     "rho1_raw": -0.0573,
+     "rho1_used": 0.0,
+     "n_eff_adj": 191.0,
+     "block_t": 2.8967,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 290,
+     "n_episodes": 13,
+     "pairs": 277,
+     "mean_block_ic": 0.006389,
+     "sd_block_ic": 0.071817,
+     "rho1_raw": 0.0678,
+     "rho1_used": 0.0678,
+     "n_eff_adj": 253.2,
+     "block_t": 1.4156,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 94,
+     "n_episodes": 14,
+     "pairs": 80,
+     "mean_block_ic": 0.015419,
+     "sd_block_ic": 0.095588,
+     "rho1_raw": -0.0532,
+     "rho1_used": 0.0,
+     "n_eff_adj": 94.0,
+     "block_t": 1.564,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 47,
+     "n_episodes": 10,
+     "pairs": 37,
+     "mean_block_ic": 0.03523,
+     "sd_block_ic": 0.079284,
+     "rho1_raw": -0.1844,
+     "rho1_used": 0.0,
+     "n_eff_adj": 47.0,
+     "block_t": 3.0463,
+     "estimator": "ok"
+    }
+   },
+   "passes_life_bar": true,
+   "life_bar": "block-t >= 1.0 overall @ h=13 on dependence-adjusted units",
+   "n_scored_rows": 7097590,
+   "secondary_horizons_DIAGNOSTIC_ONLY": {
+    "h=1": {
+     "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+     "overall": {
+      "n_blocks": 622,
+      "n_episodes": 48,
+      "pairs": 574,
+      "mean_block_ic": 0.009311,
+      "sd_block_ic": 0.035863,
+      "rho1_raw": 0.0368,
+      "rho1_used": 0.0368,
+      "n_eff_adj": 577.9,
+      "block_t": 6.2414,
+      "estimator": "ok"
+     }
+    },
+    "h=3": {
+     "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+     "overall": {
+      "n_blocks": 622,
+      "n_episodes": 48,
+      "pairs": 574,
+      "mean_block_ic": 0.007117,
+      "sd_block_ic": 0.05641,
+      "rho1_raw": 0.0364,
+      "rho1_used": 0.0364,
+      "n_eff_adj": 578.3,
+      "block_t": 3.0342,
+      "estimator": "ok"
+     }
+    },
+    "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+   }
+  },
+  "determinism_guard": {
+   "status": "PASS",
+   "tolerance": "block-t equal to 4 decimals and n_blocks equal",
+   "per_series": {
+    "B0": {
+     "expected_block_t": 3.5042,
+     "observed_block_t": 3.5042,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    },
+    "B1": {
+     "expected_block_t": 3.1837,
+     "observed_block_t": 3.1837,
+     "expected_n_blocks": 511,
+     "observed_n_blocks": 511,
+     "match": true
+    },
+    "B2": {
+     "expected_block_t": 3.5915,
+     "observed_block_t": 3.5915,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    },
+    "B3": {
+     "expected_block_t": 3.2394,
+     "observed_block_t": 3.2394,
+     "expected_n_blocks": 619,
+     "observed_n_blocks": 619,
+     "match": true
+    },
+    "s0": {
+     "expected_block_t": 4.1861,
+     "observed_block_t": 4.1861,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    }
+   }
+  },
+  "note": "the I-1 bases re-fitted with the I-1 harness (same constants, seeds, folds, row cap, store); scored on all I-1 OOF rows exactly as I-1 did, for the \u00a71.1 guard"
+ },
+ "meta": {
+  "folds": [
+   {
+    "name": "M1",
+    "meta_fold": 1,
+    "train_base_folds": [
+     0
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2022-06-30",
+    "oof_base_fold": 1,
+    "oof_start": "2022-07-01",
+    "oof_end": "2022-12-31",
+    "seed": 20261829,
+    "n_train_raw": 1519028,
+    "n_purged": 0,
+    "n_oof": 1524217,
+    "n_train_used": 1519028,
+    "capped": false,
+    "fitted": true
+   },
+   {
+    "name": "M2",
+    "meta_fold": 2,
+    "train_base_folds": [
+     0,
+     1
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2022-12-31",
+    "oof_base_fold": 2,
+    "oof_start": "2023-01-01",
+    "oof_end": "2023-06-30",
+    "seed": 20262829,
+    "n_train_raw": 3043245,
+    "n_purged": 0,
+    "n_oof": 1461308,
+    "n_train_used": 3043245,
+    "capped": false,
+    "fitted": true
+   },
+   {
+    "name": "M3",
+    "meta_fold": 3,
+    "train_base_folds": [
+     0,
+     1,
+     2
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2023-06-30",
+    "oof_base_fold": 3,
+    "oof_start": "2023-07-01",
+    "oof_end": "2023-12-31",
+    "seed": 20263829,
+    "n_train_raw": 4504553,
+    "n_purged": 0,
+    "n_oof": 1300424,
+    "n_train_used": 4000000,
+    "capped": true,
+    "fitted": true
+   },
+   {
+    "name": "M4",
+    "meta_fold": 4,
+    "train_base_folds": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "train_start": "2022-01-01",
+    "train_end": "2023-12-31",
+    "oof_base_fold": 4,
+    "oof_start": "2024-01-01",
+    "oof_end": "2024-06-30",
+    "seed": 20264829,
+    "n_train_raw": 5804977,
+    "n_purged": 0,
+    "n_oof": 1292613,
+    "n_train_used": 4000000,
+    "capped": true,
+    "fitted": true
+   }
+  ],
+  "features": [
+   "p_B0",
+   "p_B1",
+   "p_B2",
+   "p_B3",
+   "n_abstain",
+   "regime_BEAR",
+   "regime_BULL_CALM",
+   "regime_BULL_VOLATILE",
+   "regime_CHOPPY",
+   "b3_slow_sign",
+   "slot"
+  ],
+  "feature_nan_counts_on_meta_oof": {
+   "p_B0": 0,
+   "p_B1": 265468,
+   "p_B2": 0,
+   "p_B3": 7844,
+   "n_abstain": 0,
+   "regime_BEAR": 0,
+   "regime_BULL_CALM": 0,
+   "regime_BULL_VOLATILE": 0,
+   "regime_CHOPPY": 0,
+   "b3_slow_sign": 0,
+   "slot": 0
+  },
+  "regime_undefined_rows": 0,
+  "b3_slow_missing_rows": 0,
+  "b2_oof_states_by_fold": {
+   "fold_0": [
+    "OTHER",
+    "ai_chip",
+    "consumer",
+    "finance",
+    "industrial",
+    "software"
+   ],
+   "fold_1": [
+    "OTHER",
+    "ai_chip",
+    "consumer",
+    "finance",
+    "industrial",
+    "software"
+   ],
+   "fold_2": [
+    "OTHER",
+    "ai_chip",
+    "consumer",
+    "datacenter_hw",
+    "energy",
+    "finance",
+    "giant_tech",
+    "healthcare",
+    "industrial",
+    "software"
+   ],
+   "fold_3": [
+    "OTHER",
+    "ai_chip",
+    "consumer",
+    "datacenter_hw",
+    "energy",
+    "finance",
+    "giant_tech",
+    "healthcare",
+    "industrial",
+    "software",
+    "utility"
+   ],
+   "fold_4": [
+    "OTHER",
+    "ai_chip",
+    "consumer",
+    "datacenter_hw",
+    "energy",
+    "finance",
+    "giant_tech",
+    "healthcare",
+    "industrial",
+    "software",
+    "utility"
+   ]
+  },
+  "n_meta_oof_rows": 5578562,
+  "s0_is_a_feature": false
+ },
+ "common_sample": {
+  "n_meta_oof_rows": 5578562,
+  "n_mxgb_scored_rows": 5578562,
+  "n_common": 5305250,
+  "n_excluded": 273312,
+  "excluded_fraction": 0.048993,
+  "excluded_by_series": {
+   "p_B0": 0,
+   "p_B1": 265468,
+   "p_B2": 0,
+   "p_B3": 7844,
+   "s0": 0
+  },
+  "n_common_m0": 5305250,
+  "m0_only_extra_excluded": 0,
+  "m0_only_extra_excluded_fraction": 0.0,
+  "rule": "common sample = meta-OOF rows where M_xgb, every base and s0 all have a prediction; every series in the P1/P2/P3 comparison is scored on exactly these rows (interpretation 2); M0's diagnostic line drops rows without an M0 value (interpretation 4)"
+ },
+ "series": {
+  "M_xgb": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": -0.002451,
+    "sd_block_ic": 0.048154,
+    "rho1_raw": -0.0442,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": -1.1058,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.000876,
+     "sd_block_ic": 0.056059,
+     "rho1_raw": -0.217,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 0.1547,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": -0.004818,
+     "sd_block_ic": 0.046102,
+     "rho1_raw": 0.0257,
+     "rho1_used": 0.0257,
+     "n_eff_adj": 273.6,
+     "block_t": -1.7284,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": -0.011268,
+     "sd_block_ic": 0.037799,
+     "rho1_raw": -0.1632,
+     "rho1_used": 0.0,
+     "n_eff_adj": 59.0,
+     "block_t": -2.2898,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.029986,
+     "sd_block_ic": 0.047546,
+     "rho1_raw": -0.2571,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 3.2771,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "secondary_horizons_DIAGNOSTIC_ONLY": {
+    "h=1": {
+     "note": "h=13-trained prediction ranked against the within-session forward 1-bar label; not gating",
+     "overall": {
+      "n_blocks": 472,
+      "n_episodes": 35,
+      "pairs": 437,
+      "mean_block_ic": -0.000632,
+      "sd_block_ic": 0.023507,
+      "rho1_raw": 0.0994,
+      "rho1_used": 0.0994,
+      "n_eff_adj": 386.7,
+      "block_t": -0.5288,
+      "estimator": "ok"
+     }
+    },
+    "h=3": {
+     "note": "h=13-trained prediction ranked against the within-session forward 3-bar label; not gating",
+     "overall": {
+      "n_blocks": 472,
+      "n_episodes": 35,
+      "pairs": 437,
+      "mean_block_ic": -0.000354,
+      "sd_block_ic": 0.033881,
+      "rho1_raw": 0.0558,
+      "rho1_used": 0.0558,
+      "n_eff_adj": 422.1,
+      "block_t": -0.2146,
+      "estimator": "ok"
+     }
+    },
+    "h=39": "not computed: no within-session 39-bar forward window on the 39-slot grid"
+   },
+   "sample": "common",
+   "gating": true,
+   "passes_life_bar_DIAGNOSTIC_ONLY": false
+  },
+  "M_xgb_full_meta_oof_DIAGNOSTIC_ONLY": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 498,
+    "n_episodes": 37,
+    "pairs": 461,
+    "mean_block_ic": -0.00173,
+    "sd_block_ic": 0.048013,
+    "rho1_raw": -0.0284,
+    "rho1_used": 0.0,
+    "n_eff_adj": 498.0,
+    "block_t": -0.8043,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 102,
+     "n_episodes": 6,
+     "pairs": 96,
+     "mean_block_ic": 0.001046,
+     "sd_block_ic": 0.055328,
+     "rho1_raw": -0.21,
+     "rho1_used": 0.0,
+     "n_eff_adj": 102.0,
+     "block_t": 0.1909,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 290,
+     "n_episodes": 13,
+     "pairs": 277,
+     "mean_block_ic": -0.004966,
+     "sd_block_ic": 0.045983,
+     "rho1_raw": 0.0282,
+     "rho1_used": 0.0282,
+     "n_eff_adj": 274.1,
+     "block_t": -1.7877,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": -0.011268,
+     "sd_block_ic": 0.037799,
+     "rho1_raw": -0.1632,
+     "rho1_used": 0.0,
+     "n_eff_adj": 59.0,
+     "block_t": -2.2898,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 47,
+     "n_episodes": 10,
+     "pairs": 37,
+     "mean_block_ic": 0.02418,
+     "sd_block_ic": 0.04705,
+     "rho1_raw": -0.0387,
+     "rho1_used": 0.0,
+     "n_eff_adj": 47.0,
+     "block_t": 3.5233,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5578562,
+   "sample": "all meta-OOF rows (diagnostic; the pass bar uses the common sample)",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": false
+  },
+  "M0": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.012307,
+    "sd_block_ic": 0.066065,
+    "rho1_raw": -0.0159,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": 4.0471,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.011747,
+     "sd_block_ic": 0.080488,
+     "rho1_raw": -0.0469,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 1.4448,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.010592,
+     "sd_block_ic": 0.060962,
+     "rho1_raw": -0.0008,
+     "rho1_used": 0.0,
+     "n_eff_adj": 288.0,
+     "block_t": 2.9486,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.014559,
+     "sd_block_ic": 0.063932,
+     "rho1_raw": 0.0573,
+     "rho1_used": 0.0573,
+     "n_eff_adj": 52.6,
+     "block_t": 1.6517,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.027706,
+     "sd_block_ic": 0.066814,
+     "rho1_raw": -0.2189,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 2.1547,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  },
+  "B0": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.00822,
+    "sd_block_ic": 0.069542,
+    "rho1_raw": -0.0272,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": 2.5681,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.004437,
+     "sd_block_ic": 0.093081,
+     "rho1_raw": -0.1214,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 0.4719,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.008993,
+     "sd_block_ic": 0.060783,
+     "rho1_raw": 0.0134,
+     "rho1_used": 0.0134,
+     "n_eff_adj": 280.4,
+     "block_t": 2.4776,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.008508,
+     "sd_block_ic": 0.065328,
+     "rho1_raw": 0.1911,
+     "rho1_used": 0.1911,
+     "n_eff_adj": 40.1,
+     "block_t": 0.8244,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.013079,
+     "sd_block_ic": 0.069965,
+     "rho1_raw": -0.1458,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 0.9714,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  },
+  "B1": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.012098,
+    "sd_block_ic": 0.069098,
+    "rho1_raw": -0.009,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": 3.8038,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.013215,
+     "sd_block_ic": 0.068083,
+     "rho1_raw": -0.0599,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 1.9215,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.008727,
+     "sd_block_ic": 0.070361,
+     "rho1_raw": 0.0217,
+     "rho1_used": 0.0217,
+     "n_eff_adj": 275.8,
+     "block_t": 2.0597,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.016483,
+     "sd_block_ic": 0.064755,
+     "rho1_raw": -0.0455,
+     "rho1_used": 0.0,
+     "n_eff_adj": 59.0,
+     "block_t": 1.9553,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.034412,
+     "sd_block_ic": 0.067121,
+     "rho1_raw": -0.2675,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 2.664,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  },
+  "B2": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.0067,
+    "sd_block_ic": 0.060667,
+    "rho1_raw": -0.0115,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": 2.3995,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.004358,
+     "sd_block_ic": 0.080606,
+     "rho1_raw": -0.0623,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 0.5353,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.007865,
+     "sd_block_ic": 0.053224,
+     "rho1_raw": 0.0079,
+     "rho1_used": 0.0079,
+     "n_eff_adj": 283.5,
+     "block_t": 2.4879,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.001932,
+     "sd_block_ic": 0.057453,
+     "rho1_raw": 0.1036,
+     "rho1_used": 0.1036,
+     "n_eff_adj": 47.9,
+     "block_t": 0.2328,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.013202,
+     "sd_block_ic": 0.060579,
+     "rho1_raw": -0.037,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 1.1324,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  },
+  "B3": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.012289,
+    "sd_block_ic": 0.062675,
+    "rho1_raw": -0.0006,
+    "rho1_used": 0.0,
+    "n_eff_adj": 472.0,
+    "block_t": 4.26,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.013266,
+     "sd_block_ic": 0.070821,
+     "rho1_raw": 0.0471,
+     "rho1_used": 0.0471,
+     "n_eff_adj": 89.2,
+     "block_t": 1.769,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.010891,
+     "sd_block_ic": 0.059069,
+     "rho1_raw": 0.0004,
+     "rho1_used": 0.0004,
+     "n_eff_adj": 287.8,
+     "block_t": 3.128,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.015738,
+     "sd_block_ic": 0.063669,
+     "rho1_raw": -0.1303,
+     "rho1_used": 0.0,
+     "n_eff_adj": 59.0,
+     "block_t": 1.8986,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.016121,
+     "sd_block_ic": 0.069452,
+     "rho1_raw": -0.0262,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 1.2061,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  },
+  "s0": {
+   "horizon": 13,
+   "overall": {
+    "n_blocks": 472,
+    "n_episodes": 35,
+    "pairs": 437,
+    "mean_block_ic": 0.010194,
+    "sd_block_ic": 0.074771,
+    "rho1_raw": 0.0262,
+    "rho1_used": 0.0262,
+    "n_eff_adj": 447.9,
+    "block_t": 2.8854,
+    "estimator": "ok"
+   },
+   "per_regime": {
+    "BEAR": {
+     "n_blocks": 98,
+     "n_episodes": 5,
+     "pairs": 93,
+     "mean_block_ic": 0.022663,
+     "sd_block_ic": 0.088445,
+     "rho1_raw": -0.0455,
+     "rho1_used": 0.0,
+     "n_eff_adj": 98.0,
+     "block_t": 2.5366,
+     "estimator": "ok"
+    },
+    "BULL_CALM": {
+     "n_blocks": 288,
+     "n_episodes": 13,
+     "pairs": 275,
+     "mean_block_ic": 0.005803,
+     "sd_block_ic": 0.071717,
+     "rho1_raw": 0.0768,
+     "rho1_used": 0.0768,
+     "n_eff_adj": 246.9,
+     "block_t": 1.2715,
+     "estimator": "ok"
+    },
+    "BULL_VOLATILE": {
+     "n_blocks": 59,
+     "n_episodes": 8,
+     "pairs": 51,
+     "mean_block_ic": 0.006138,
+     "sd_block_ic": 0.057443,
+     "rho1_raw": -0.0878,
+     "rho1_used": 0.0,
+     "n_eff_adj": 59.0,
+     "block_t": 0.8207,
+     "estimator": "ok"
+    },
+    "CHOPPY": {
+     "n_blocks": 27,
+     "n_episodes": 9,
+     "pairs": 18,
+     "mean_block_ic": 0.020645,
+     "sd_block_ic": 0.083708,
+     "rho1_raw": -0.1823,
+     "rho1_used": 0.0,
+     "n_eff_adj": 27.0,
+     "block_t": 1.2815,
+     "estimator": "ok"
+    }
+   },
+   "n_scored_rows": 5305250,
+   "sample": "common",
+   "gating": false,
+   "passes_life_bar_DIAGNOSTIC_ONLY": true
+  }
+ },
+ "pass_bar": {
+  "P1": {
+   "passes": false,
+   "rule": "M_xgb block-t >= 1.0 overall @ h=13 on dependence-adjusted units AND BEAR n_eff_adj >= 30 on M_xgb's own OOF IC",
+   "block_t": -1.1058,
+   "life_bar_t": 1.0,
+   "margin_block_t": -2.1058,
+   "bear_n_eff_adj": 98.0,
+   "bear_min": 30.0,
+   "margin_bear": 68.0,
+   "life": false,
+   "bear_ok": true
+  },
+  "P2": {
+   "passes": false,
+   "rule": "M_xgb block-t > max(B0, B1, B2, B3 block-t) on the common sample",
+   "block_t": -1.1058,
+   "base_block_t": {
+    "B0": 2.5681,
+    "B1": 3.8038,
+    "B2": 2.3995,
+    "B3": 4.26
+   },
+   "best_base": "B3",
+   "best_base_block_t": 4.26,
+   "margin": -5.3658,
+   "all_bases_established": true
+  },
+  "P3": {
+   "passes": false,
+   "rule": "M_xgb block-t > s0 block-t on the common sample",
+   "block_t": -1.1058,
+   "s0_block_t": 2.8854,
+   "margin": -3.9912
+  },
+  "stage_i2_pass": false,
+  "note": "strict inequalities on point estimates; no margin is claimed and none is required (\u00a74)"
+ },
+ "outcome": {
+  "verdict": "FAIL-B",
+  "P1": false,
+  "P2": false,
+  "P3": false,
+  "condition": "\u00ac(P1 \u2227 P2)",
+  "consequence": "record as a failed attempt; line pauses for an operator decision",
+  "register_row": "| FAIL-B | \u00ac(P1 \u2227 P2) | record as a failed attempt; line pauses for an operator decision |",
+  "register": "doc/design/2026-08-29-goal2v3-stage-i2-prereg.md \u00a74.4",
+  "binding": true
+ },
+ "prereg_interpretations": [
+  "\"Surviving bases\" = every base whose I-1 `passes_life_bar` is true; all four survived, so all four enter the stack.",
+  "Base abstain rows (I-1 interpretation 8) become NaN meta-features, never imputed; `n_abstain` carries the count; the common-sample comparison excludes rows where *any* series lacks a prediction.",
+  "Sector code for the slow state = the B2 post-fold mapping of the fold in which the row is OOF (the mapping the base actually used).",
+  "M0's per-row z-scoring uses the cross-section of names present at that session\u00d7slot; a row with fewer than `MIN_NAMES_PER_IC` names in its cross-section has no M0 value (and is therefore excluded from the common sample for M0's diagnostic line only).",
+  "Determinism guard tolerance: block-t equal to 4 decimals and n_blocks equal; any drift beyond that refuses the run (XGBoost `hist` with fixed seeds and single-process fitting is deterministic on one machine; a cross-machine rerun is a new attempt).",
+  "Secondary horizons h=1, h=3 are reported for M_xgb exactly as in I-1 \u2014 diagnostic only, never gating."
+ ],
+ "harness_interpretations": [
+  "[harness 7] `meta_fold` in the seed formula 20260829 + 1000\u00b7meta_fold is the M-number (M1 -> 1 ... M4 -> 4): seeds 20261829, 20262829, 20263829, 20264829; META_XGB_PARAMS.random_state stays 20260829 for every meta-fit (the seed formula governs the row-cap subsample, as in I-1).",
+  "[harness 8] The determinism guard additionally requires: the s0 reference to reproduce the I-1 bundle (block-t 4.1861, n_blocks 622 \u2014 no fit is involved, so a mismatch there is a row-set defect, not fit non-determinism, and still REFUSES); the bars consumed by the re-fit to aggregate to the I-1 bundle's consumed-bar manifest (checked after the store is read, before any fit); and the imported I-1 harness to be byte-identical to the blob at the bundle's source commit (I1_HARNESS_SHA256).",
+  "[harness 9] Regime one-hot: a row whose prior-close K5 regime is undefined (I-1 code -1; only possible before 200 SPY sessions of history, never inside the development window) gets all four indicators 0; `b3_slow_sign` NaN (fewer than 61 daily closes strictly before D) is passed to XGBoost as missing. Both counts are reported.",
+  "[harness 10] Meta-training rows = every base-OOF row of the training halves (the h=13 label always exists by the A1 existence rule; meta-features may be NaN); no row is dropped for abstains. The 13-bar purge is applied literally through the I-1 machinery (`apply_purge`) and is inert on the A1 grid.",
+  "[harness 11] M0: for each base, z = (p - mean) / sd over that base's FINITE predictions among the rows present at the session\u00d7slot; a base with fewer than 2 finite values or zero spread contributes nothing to that cross-section; M0 = the plain sum of the available z's (unweighted, not divided by their count). The MIN_NAMES_PER_IC cross-section minimum counts the rows present, and a row with no available z has no M0.",
+  "[harness 12] P1 (life bar AND the BEAR n_eff_adj >= 30 re-check) is evaluated on the common sample \u2014 the identical row set P2/P3 use (\u00a74 'all series ... on the identical meta-OOF row set'); M_xgb on its full meta-OOF rows is reported beside it, never gating. A series whose block-t is unestablished (the fail-closed AR(1) estimator) fails the corresponding P; a BEAR n_eff_adj of 'unestablished' fails P1.",
+  "[harness 13] The sector code of \u00a71.2 is carried in the audit as the per-fold list of post-fold B2 OOF states from the re-fit (the mapping B2 actually used); it enters the stack only through p_B2 (\u00a73).",
+  "[harness 14] The excluded fraction is reported over the meta-OOF rows where M_xgb has a prediction (every meta-OOF row: XGBoost scores NaN features natively), attributed per base by its abstain count; the M0-only extra exclusion is reported separately."
+ ],
+ "interpretations": [
+  "\"Surviving bases\" = every base whose I-1 `passes_life_bar` is true; all four survived, so all four enter the stack.",
+  "Base abstain rows (I-1 interpretation 8) become NaN meta-features, never imputed; `n_abstain` carries the count; the common-sample comparison excludes rows where *any* series lacks a prediction.",
+  "Sector code for the slow state = the B2 post-fold mapping of the fold in which the row is OOF (the mapping the base actually used).",
+  "M0's per-row z-scoring uses the cross-section of names present at that session\u00d7slot; a row with fewer than `MIN_NAMES_PER_IC` names in its cross-section has no M0 value (and is therefore excluded from the common sample for M0's diagnostic line only).",
+  "Determinism guard tolerance: block-t equal to 4 decimals and n_blocks equal; any drift beyond that refuses the run (XGBoost `hist` with fixed seeds and single-process fitting is deterministic on one machine; a cross-machine rerun is a new attempt).",
+  "Secondary horizons h=1, h=3 are reported for M_xgb exactly as in I-1 \u2014 diagnostic only, never gating.",
+  "[harness 7] `meta_fold` in the seed formula 20260829 + 1000\u00b7meta_fold is the M-number (M1 -> 1 ... M4 -> 4): seeds 20261829, 20262829, 20263829, 20264829; META_XGB_PARAMS.random_state stays 20260829 for every meta-fit (the seed formula governs the row-cap subsample, as in I-1).",
+  "[harness 8] The determinism guard additionally requires: the s0 reference to reproduce the I-1 bundle (block-t 4.1861, n_blocks 622 \u2014 no fit is involved, so a mismatch there is a row-set defect, not fit non-determinism, and still REFUSES); the bars consumed by the re-fit to aggregate to the I-1 bundle's consumed-bar manifest (checked after the store is read, before any fit); and the imported I-1 harness to be byte-identical to the blob at the bundle's source commit (I1_HARNESS_SHA256).",
+  "[harness 9] Regime one-hot: a row whose prior-close K5 regime is undefined (I-1 code -1; only possible before 200 SPY sessions of history, never inside the development window) gets all four indicators 0; `b3_slow_sign` NaN (fewer than 61 daily closes strictly before D) is passed to XGBoost as missing. Both counts are reported.",
+  "[harness 10] Meta-training rows = every base-OOF row of the training halves (the h=13 label always exists by the A1 existence rule; meta-features may be NaN); no row is dropped for abstains. The 13-bar purge is applied literally through the I-1 machinery (`apply_purge`) and is inert on the A1 grid.",
+  "[harness 11] M0: for each base, z = (p - mean) / sd over that base's FINITE predictions among the rows present at the session\u00d7slot; a base with fewer than 2 finite values or zero spread contributes nothing to that cross-section; M0 = the plain sum of the available z's (unweighted, not divided by their count). The MIN_NAMES_PER_IC cross-section minimum counts the rows present, and a row with no available z has no M0.",
+  "[harness 12] P1 (life bar AND the BEAR n_eff_adj >= 30 re-check) is evaluated on the common sample \u2014 the identical row set P2/P3 use (\u00a74 'all series ... on the identical meta-OOF row set'); M_xgb on its full meta-OOF rows is reported beside it, never gating. A series whose block-t is unestablished (the fail-closed AR(1) estimator) fails the corresponding P; a BEAR n_eff_adj of 'unestablished' fails P1.",
+  "[harness 13] The sector code of \u00a71.2 is carried in the audit as the per-fold list of post-fold B2 OOF states from the re-fit (the mapping B2 actually used); it enters the stack only through p_B2 (\u00a73).",
+  "[harness 14] The excluded fraction is reported over the meta-OOF rows where M_xgb has a prediction (every meta-OOF row: XGBoost scores NaN features natively), attributed per base by its abstain count; the M0-only extra exclusion is reported separately."
+ ],
+ "provenance": {
+  "run_id": "i2-dev-20260829T132528Z-5269e593",
+  "run_status": "DEV_RUN",
+  "outputs": {
+   "root": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i2",
+   "bundle_dir": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593",
+   "report": "report.json",
+   "audit": "g2v3_stage_i2_audit.json.gz",
+   "policy": "DEV_RUN: bundle_dir = <root>/<run_id>/, refused if it already exists; SMOKE: bundle_dir = root, overwritten"
+  },
+  "source": {
+   "repo_root": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run",
+   "commit": "5269e5939e239c32f79f3c907782356aa0b7d578",
+   "clean_tree": true,
+   "n_dirty": 0,
+   "dirty_entries": [],
+   "ignored": [
+    "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars",
+    "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i2"
+   ],
+   "clean_tree_note": "git status --porcelain --untracked-files=all, ignoring the listed paths"
+  },
+  "invocation": {
+   "argv": [
+    "scripts/experiments/g2v3_stage_i2_stack.py",
+    "--dev-run"
+   ],
+   "cwd": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run",
+   "python": "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+   "env": {
+    "G2V3_BAR_STORE": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars"
+   }
+  },
+  "timestamps_utc": {
+   "start": "2026-08-29T13:25:28Z",
+   "end": "2026-08-29T13:33:39Z",
+   "derivation": "logged by this process's own clock (datetime.now(UTC)): start at entry to run_stage_i2, end immediately before the report is written"
+  },
+  "gate_bundle": {
+   "dir": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i0-gate-run",
+   "run_id": "i0-gate-20260829-f3d5bf7b",
+   "frozen_source_commit": "f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779",
+   "gate_verdict": "PASS",
+   "report_sha256": "da41a706f31b3f39b9ccc9631b93a76a6cb994c8877f112ce49989916634cf44",
+   "audit_sha256": "dd5127d7326919b777acd0a6bf819dcc158c9cd02a44cd76ef7ca71fa844f3a9",
+   "provenance_sha256": "6103cb25a05d861a8a58dfaeb0b3fe0fc416b217e7ab822daa109e4ab0169002",
+   "input_manifest_aggregate_sha256": "a878f1caeaee863cc06c2f9b3ab0d6eba4389d656a4b4dabd731a1844cdfd4d9",
+   "input_manifest_count": 2124,
+   "bear_n_eff_adj": 191.0
+  },
+  "i1_bundle": {
+   "dir": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i1/i1-dev-20260829T113813Z-666484a7",
+   "run_id": "i1-dev-20260829T113813Z-666484a7",
+   "source_commit": "666484a7ab37dc9f88dd5692f8d9e90f3aab9332",
+   "report_sha256": "666d9c6a9a2286af4215399aebbd07a2fda8efafc6b5440d8d39ea6b9e1e1542",
+   "audit_sha256": "d124d8f2a8766edf7d4a6f767206444467f05fa3bb8dec1818a76b01b2cd3082",
+   "consumed_bar_aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "consumed_bar_count": 1508,
+   "harness_sha256": "13c31d1266e6753bbf2890862fd8afe66081d7c351746177360d770a22775e20",
+   "expected_block_t": {
+    "B0": 3.5042,
+    "B1": 3.1837,
+    "B2": 3.5915,
+    "B3": 3.2394
+   },
+   "expected_n_blocks": {
+    "B0": 622,
+    "B1": 511,
+    "B2": 622,
+    "B3": 619
+   },
+   "surviving_bases": [
+    "B0",
+    "B1",
+    "B2",
+    "B3"
+   ]
+  },
+  "inputs": {
+   "census_audit": {
+    "path": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-i2run/doc/research/data/2026-08-29-g2v3-i0-gate-run/g2v3_stage_i0_audit.json.gz",
+    "sha256": "dd5127d7326919b777acd0a6bf819dcc158c9cd02a44cd76ef7ca71fa844f3a9"
+   },
+   "strategy_config": {
+    "path": "/Users/renhao/git/github/RenQuant/.subrepo_runtime/repos/renquant-strategy-104/configs/strategy_config.json",
+    "sha256": "78e0d727ab3facd554ab2dfa20ab42c13f00b34e08b804921ced951ac9006d45"
+   },
+   "sector_map_sha256": "43e919e2c9d69aa1289cca9bdaf7d64c0c7e77d6d784bd71f494b4512f63e237",
+   "sector_etf_map_sha256": "29dd6259bb85b4eb8e0975bf75fb4edd317db61cfcc261a09632c28a60367cff",
+   "spy_daily": {
+    "path": "/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet",
+    "sha256": "763580bde0075340c2cc00fc1949419376692bcdd4a47c693befb74669b25c91"
+   },
+   "bar_store": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars"
+  },
+  "store_manifest_check": {
+   "strict": true,
+   "n_needed": 1512,
+   "n_required_in_audit": 1508,
+   "n_hashed": 1508,
+   "missing_files": [],
+   "absent_from_audit": [
+    "TLT",
+    "XLC",
+    "XLRE",
+    "XLV"
+   ],
+   "expected_absent_from_audit": [
+    "TLT",
+    "XLC",
+    "XLRE",
+    "XLV"
+   ],
+   "rule": "every needed file the gate audit carries must exist and hash-match before any bar is read; DEV_RUN refuses on any missing/mismatched/unaudited file or on an absent-ETF set != EXPECTED_ABSENT_FROM_AUDIT"
+  },
+  "frozen_parameters": {
+   "spec": "doc/design/2026-08-29-goal2v3-stage-i2-prereg.md",
+   "i1": {
+    "h": 13,
+    "slots": 39,
+    "screen_slots": [
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25
+    ],
+    "dev_window": [
+     "2020-08-01",
+     "2024-06-30"
+    ],
+    "seed_base": 20260828,
+    "seed_formula": "20260828 + 1000*fold_index + 100*base_code + state_index",
+    "xgb_params": {
+     "objective": "reg:squarederror",
+     "max_depth": 3,
+     "n_estimators": 300,
+     "learning_rate": 0.05,
+     "subsample": 0.8,
+     "colsample_bytree": 0.8,
+     "min_child_weight": 20,
+     "tree_method": "hist",
+     "random_state": 20260828,
+     "n_jobs": 8
+    },
+    "row_cap": 4000000,
+    "base_codes": {
+     "B0": 0,
+     "B1": 1,
+     "B2": 2,
+     "B3": 3
+    },
+    "min_sector_rows": 50000,
+    "folds": [
+     [
+      "2021-12-31",
+      "2022-01-01",
+      "2022-06-30"
+     ],
+     [
+      "2022-06-30",
+      "2022-07-01",
+      "2022-12-31"
+     ],
+     [
+      "2022-12-31",
+      "2023-01-01",
+      "2023-06-30"
+     ],
+     [
+      "2023-06-30",
+      "2023-07-01",
+      "2023-12-31"
+     ],
+     [
+      "2023-12-31",
+      "2024-01-01",
+      "2024-06-30"
+     ]
+    ],
+    "purge_bars": 13,
+    "min_names_per_ic": 100,
+    "min_pairs": 8,
+    "life_bar_t": 1.0,
+    "secondary_horizons": [
+     1,
+     3,
+     39
+    ],
+    "features": [
+     "r1",
+     "r3",
+     "r13",
+     "rv13",
+     "rng13",
+     "vz",
+     "gap",
+     "slot",
+     "m13",
+     "sec13",
+     "rel13"
+    ],
+    "b1_state_lag_sessions": 1,
+    "vz_trailing_sessions": 60,
+    "vz_min_present": 48,
+    "b3_slow_sessions": 60,
+    "b3_fast_lag_slots": 39,
+    "k5_regimes": [
+     "BEAR",
+     "BULL_CALM",
+     "BULL_VOLATILE",
+     "CHOPPY"
+    ],
+    "b3_labels": [
+     "S+F+",
+     "S+F-",
+     "S-F+",
+     "S-F-"
+    ]
+   },
+   "accepted_i1_bundle": {
+    "dir": "doc/research/data/2026-08-29-g2v3-i1/i1-dev-20260829T113813Z-666484a7",
+    "report_file": "report.json",
+    "audit_file": "g2v3_stage_i1_audit.json.gz",
+    "run_id": "i1-dev-20260829T113813Z-666484a7",
+    "source_commit": "666484a7ab37dc9f88dd5692f8d9e90f3aab9332",
+    "run_status": "DEV_RUN",
+    "stage": "GOAL-2v3 Stage I-1",
+    "report_sha256": "666d9c6a9a2286af4215399aebbd07a2fda8efafc6b5440d8d39ea6b9e1e1542",
+    "audit_sha256": "d124d8f2a8766edf7d4a6f767206444467f05fa3bb8dec1818a76b01b2cd3082",
+    "consumed_bar_aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+    "consumed_bar_count": 1508,
+    "gate_run_id": "i0-gate-20260829-f3d5bf7b",
+    "stage_i2_trigger_fired": true,
+    "n_observations": 10487004,
+    "n_oof_observations": 7097590,
+    "s0_block_t": 4.1861,
+    "s0_n_blocks": 622
+   },
+   "i1_harness_sha256": "13c31d1266e6753bbf2890862fd8afe66081d7c351746177360d770a22775e20",
+   "expected_i1_block_t": {
+    "B0": 3.5042,
+    "B1": 3.1837,
+    "B2": 3.5915,
+    "B3": 3.2394
+   },
+   "expected_i1_n_blocks": {
+    "B0": 622,
+    "B1": 511,
+    "B2": 622,
+    "B3": 619
+   },
+   "determinism_decimals": 4,
+   "surviving_bases": [
+    "B0",
+    "B1",
+    "B2",
+    "B3"
+   ],
+   "meta_folds": [
+    {
+     "name": "M1",
+     "meta_fold": 1,
+     "train_base_folds": [
+      0
+     ],
+     "train_start": "2022-01-01",
+     "train_end": "2022-06-30",
+     "oof_base_fold": 1,
+     "oof_start": "2022-07-01",
+     "oof_end": "2022-12-31"
+    },
+    {
+     "name": "M2",
+     "meta_fold": 2,
+     "train_base_folds": [
+      0,
+      1
+     ],
+     "train_start": "2022-01-01",
+     "train_end": "2022-12-31",
+     "oof_base_fold": 2,
+     "oof_start": "2023-01-01",
+     "oof_end": "2023-06-30"
+    },
+    {
+     "name": "M3",
+     "meta_fold": 3,
+     "train_base_folds": [
+      0,
+      1,
+      2
+     ],
+     "train_start": "2022-01-01",
+     "train_end": "2023-06-30",
+     "oof_base_fold": 3,
+     "oof_start": "2023-07-01",
+     "oof_end": "2023-12-31"
+    },
+    {
+     "name": "M4",
+     "meta_fold": 4,
+     "train_base_folds": [
+      0,
+      1,
+      2,
+      3
+     ],
+     "train_start": "2022-01-01",
+     "train_end": "2023-12-31",
+     "oof_base_fold": 4,
+     "oof_start": "2024-01-01",
+     "oof_end": "2024-06-30"
+    }
+   ],
+   "meta_oof_period": [
+    "2022-07-01",
+    "2024-06-30"
+   ],
+   "meta_purge_bars": 13,
+   "meta_seed_base": 20260829,
+   "meta_seed_formula": "20260829 + 1000*meta_fold (meta_fold = the M-number 1..4)",
+   "meta_xgb_params": {
+    "objective": "reg:squarederror",
+    "max_depth": 2,
+    "n_estimators": 200,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 1.0,
+    "min_child_weight": 50,
+    "tree_method": "hist",
+    "random_state": 20260829,
+    "n_jobs": 8
+   },
+   "meta_row_cap": 4000000,
+   "meta_features": [
+    "p_B0",
+    "p_B1",
+    "p_B2",
+    "p_B3",
+    "n_abstain",
+    "regime_BEAR",
+    "regime_BULL_CALM",
+    "regime_BULL_VOLATILE",
+    "regime_CHOPPY",
+    "b3_slow_sign",
+    "slot"
+   ],
+   "meta_label_horizon": 13,
+   "secondary_horizons": [
+    1,
+    3
+   ],
+   "p1_life_bar_t": 1.0,
+   "p1_bear_min_n_eff_adj": 30.0,
+   "series": [
+    "M_xgb",
+    "M0",
+    "B0",
+    "B1",
+    "B2",
+    "B3",
+    "s0"
+   ],
+   "outcome_register": {
+    "PASS": {
+     "condition": "P1 \u2227 P2 \u2227 P3",
+     "consequence": "graduate: write the confirmatory prereg against the SEALED window 2024-07-01..2026-06-30 (its own PR; the window stays untouched until that prereg is merged)"
+    },
+    "FAIL-A": {
+     "condition": "P1 \u2227 P2 \u2227 \u00acP3",
+     "consequence": "stacking works but nothing in this line beats \u2212r13 at h=13; record as a failed attempt; line PAUSES for an operator decision (candidates for that decision, not for this run: promote s\u2080 itself to a confirmatory prereg, or close the line)"
+    },
+    "FAIL-B": {
+     "condition": "\u00ac(P1 \u2227 P2)",
+     "consequence": "record as a failed attempt; line pauses for an operator decision"
+    },
+    "REFUSED": {
+     "condition": "any fail-closed guard (\u00a71 binding, determinism, dirty tree, store manifest)",
+     "consequence": "no result; defect fixed, new attempt"
+    }
+   },
+   "interpretations": [
+    "\"Surviving bases\" = every base whose I-1 `passes_life_bar` is true; all four survived, so all four enter the stack.",
+    "Base abstain rows (I-1 interpretation 8) become NaN meta-features, never imputed; `n_abstain` carries the count; the common-sample comparison excludes rows where *any* series lacks a prediction.",
+    "Sector code for the slow state = the B2 post-fold mapping of the fold in which the row is OOF (the mapping the base actually used).",
+    "M0's per-row z-scoring uses the cross-section of names present at that session\u00d7slot; a row with fewer than `MIN_NAMES_PER_IC` names in its cross-section has no M0 value (and is therefore excluded from the common sample for M0's diagnostic line only).",
+    "Determinism guard tolerance: block-t equal to 4 decimals and n_blocks equal; any drift beyond that refuses the run (XGBoost `hist` with fixed seeds and single-process fitting is deterministic on one machine; a cross-machine rerun is a new attempt).",
+    "Secondary horizons h=1, h=3 are reported for M_xgb exactly as in I-1 \u2014 diagnostic only, never gating.",
+    "[harness 7] `meta_fold` in the seed formula 20260829 + 1000\u00b7meta_fold is the M-number (M1 -> 1 ... M4 -> 4): seeds 20261829, 20262829, 20263829, 20264829; META_XGB_PARAMS.random_state stays 20260829 for every meta-fit (the seed formula governs the row-cap subsample, as in I-1).",
+    "[harness 8] The determinism guard additionally requires: the s0 reference to reproduce the I-1 bundle (block-t 4.1861, n_blocks 622 \u2014 no fit is involved, so a mismatch there is a row-set defect, not fit non-determinism, and still REFUSES); the bars consumed by the re-fit to aggregate to the I-1 bundle's consumed-bar manifest (checked after the store is read, before any fit); and the imported I-1 harness to be byte-identical to the blob at the bundle's source commit (I1_HARNESS_SHA256).",
+    "[harness 9] Regime one-hot: a row whose prior-close K5 regime is undefined (I-1 code -1; only possible before 200 SPY sessions of history, never inside the development window) gets all four indicators 0; `b3_slow_sign` NaN (fewer than 61 daily closes strictly before D) is passed to XGBoost as missing. Both counts are reported.",
+    "[harness 10] Meta-training rows = every base-OOF row of the training halves (the h=13 label always exists by the A1 existence rule; meta-features may be NaN); no row is dropped for abstains. The 13-bar purge is applied literally through the I-1 machinery (`apply_purge`) and is inert on the A1 grid.",
+    "[harness 11] M0: for each base, z = (p - mean) / sd over that base's FINITE predictions among the rows present at the session\u00d7slot; a base with fewer than 2 finite values or zero spread contributes nothing to that cross-section; M0 = the plain sum of the available z's (unweighted, not divided by their count). The MIN_NAMES_PER_IC cross-section minimum counts the rows present, and a row with no available z has no M0.",
+    "[harness 12] P1 (life bar AND the BEAR n_eff_adj >= 30 re-check) is evaluated on the common sample \u2014 the identical row set P2/P3 use (\u00a74 'all series ... on the identical meta-OOF row set'); M_xgb on its full meta-OOF rows is reported beside it, never gating. A series whose block-t is unestablished (the fail-closed AR(1) estimator) fails the corresponding P; a BEAR n_eff_adj of 'unestablished' fails P1.",
+    "[harness 13] The sector code of \u00a71.2 is carried in the audit as the per-fold list of post-fold B2 OOF states from the re-fit (the mapping B2 actually used); it enters the stack only through p_B2 (\u00a73).",
+    "[harness 14] The excluded fraction is reported over the meta-OOF rows where M_xgb has a prediction (every meta-OOF row: XGBoost scores NaN features natively), attributed per base by its abstain count; the M0-only extra exclusion is reported separately."
+   ]
+  },
+  "consumed_bar_manifest": {
+   "count": 1508,
+   "aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "aggregate_method": "sha256 of the UTF-8 text formed by joining, with '\\n' and no trailing newline, the lines '<ticker> <sha256>' for tickers in sorted() order",
+   "per_file": "audit consumed_sha256 (hashed from the store at run time)",
+   "i1_bundle_aggregate_sha256": "4addcbe25f164a57afc0ea9fb0fd4e8e368a17fc292e2fe62b80fff5219d3883",
+   "matches_i1_bundle": true
+  },
+  "determinism_guard": {
+   "status": "PASS",
+   "tolerance": "block-t equal to 4 decimals and n_blocks equal",
+   "per_series": {
+    "B0": {
+     "expected_block_t": 3.5042,
+     "observed_block_t": 3.5042,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    },
+    "B1": {
+     "expected_block_t": 3.1837,
+     "observed_block_t": 3.1837,
+     "expected_n_blocks": 511,
+     "observed_n_blocks": 511,
+     "match": true
+    },
+    "B2": {
+     "expected_block_t": 3.5915,
+     "observed_block_t": 3.5915,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    },
+    "B3": {
+     "expected_block_t": 3.2394,
+     "observed_block_t": 3.2394,
+     "expected_n_blocks": 619,
+     "observed_n_blocks": 619,
+     "match": true
+    },
+    "s0": {
+     "expected_block_t": 4.1861,
+     "observed_block_t": 4.1861,
+     "expected_n_blocks": 622,
+     "observed_n_blocks": 622,
+     "match": true
+    }
+   }
+  }
+ }
+}

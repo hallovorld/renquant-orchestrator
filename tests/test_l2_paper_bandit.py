@@ -104,3 +104,121 @@ def test_winner_gains_weight_but_floor_binds():
     assert final[l2.CHAMPION] == pytest.approx(0.5)          # floor binds
     others = {a: w for a, w in final.items() if a != l2.CHAMPION}
     assert max(others, key=others.get) == "profile_blend_mom"  # winner leads
+
+
+
+# ── the MoE mixture book (derived view) ──────────────────────────────────────
+
+def _marks(*vals: float, start="2026-08-01") -> dict[str, float]:
+    import datetime as _dt
+    d0 = _dt.date.fromisoformat(start)
+    return {(d0 + _dt.timedelta(days=i)).isoformat(): v for i, v in enumerate(vals)}
+
+
+def test_mixture_first_day_uses_the_equal_start_weights_then_previous_row():
+    champ = _marks(100, 101, 102.01)          # +1%, +1%
+    other = _marks(100, 102, 102)             # +2%, 0%
+    arm_marks = {a: (champ if a == l2.CHAMPION else other) for a in l2.ARMS}
+    rows = l2.replay(arm_marks)
+    mrows = l2.mixture_view(arm_marks, rows)
+    assert [m["asof"] for m in mrows] == [r["asof"] for r in rows]
+    start = l2.apply_champion_floor({a: 1.0 for a in l2.ARMS})
+    assert mrows[0]["weights_effective"] == {a: round(w, 6) for a, w in start.items()}
+    # day 1: 0.5*1% + 0.5*2% (three "other" arms share the other half)
+    assert mrows[0]["mixture_return"] == pytest.approx(0.5 * 0.01 + 0.5 * 0.02, abs=1e-6)
+    assert mrows[1]["weights_effective"] == rows[0]["weights"]   # rule 2: previous row
+    assert mrows[1]["mixture_return"] == pytest.approx(
+        sum(rows[0]["weights"][a] * (0.01 if a == l2.CHAMPION else 0.0) for a in l2.ARMS), abs=1e-6)
+
+
+def test_mixture_compounds_and_tracks_champion_and_best_fixed_arm():
+    champ = _marks(100, 101, 102.01)
+    other = _marks(100, 102, 104.04)
+    arm_marks = {a: (champ if a == l2.CHAMPION else other) for a in l2.ARMS}
+    mrows = l2.mixture_view(arm_marks, l2.replay(arm_marks))
+    expected = 1.0
+    for m in mrows:
+        expected *= 1.0 + m["mixture_return"]
+    assert mrows[-1]["mixture_value"] == pytest.approx(expected, abs=1e-5)
+    assert mrows[-1]["champion_value"] == pytest.approx(1.0201, abs=1e-6)
+    assert mrows[-1]["best_fixed_arm"] != l2.CHAMPION
+    assert mrows[-1]["best_fixed_arm_value"] == pytest.approx(1.0404, abs=1e-6)   # consecutive marks: held every step
+    assert mrows[-1]["mixture_minus_champion"] == pytest.approx(
+        mrows[-1]["mixture_value"] - mrows[-1]["champion_value"], abs=1e-6)
+
+
+def test_arm_without_a_mark_contributes_zero_that_day_and_its_catch_up_is_excluded():
+    """codex #1114 r1: paper_returns books the whole gap return on the re-mark
+    date; the mixture never held the arm over the gap, so that catch-up must
+    not be booked either (no synthetic P&L)."""
+    champ = _marks(100, 101, 102.01, 103.0301)
+    other = {"2026-08-01": 100.0, "2026-08-03": 103.0, "2026-08-04": 103.0}   # no 08-02 mark
+    arm_marks = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+    mrows = l2.mixture_view(arm_marks, l2.replay(arm_marks))
+    day1, day2, day3 = mrows[0], mrows[1], mrows[2]
+    others = [a for a in l2.ARMS if a != l2.CHAMPION]
+    assert all(day1["arm_returns"][a] is None for a in others)
+    assert day1["mixture_return"] == pytest.approx(day1["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # 08-03: the others re-mark with a +3% two-day catch-up — EXCLUDED, only the champion is held
+    assert all(day2["arm_returns"][a] == pytest.approx(0.03, abs=1e-6) for a in others)
+    assert day2["gap_excluded"] == sorted(others) and day2["held"] == [l2.CHAMPION]
+    assert day2["mixture_return"] == pytest.approx(day2["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # 08-04: consecutive marks again — held (return 0 here), no exclusion
+    assert day3["gap_excluded"] == [] and set(day3["held"]) == set(l2.ARMS)
+
+
+def test_gap_catch_up_magnitude_never_enters_the_mixture():
+    """The synthetic-P&L concern (codex #1114 r1): whatever the missing arm
+    earned across its gap, the mixture on the re-mark date books only the
+    arms it HELD. Hedge weights may legitimately differ AFTER that date
+    (the bandit observed a clipped return) — that is the allocation working,
+    not a booking error."""
+    champ = _marks(100, 101, 102.01, 103.0301)
+    def run(catch_up: float):
+        other = {"2026-08-01": 100.0, "2026-08-03": 100.0 * (1 + catch_up), "2026-08-04": 100.0 * (1 + catch_up)}
+        am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+        return l2.mixture_view(am, l2.replay(am))
+    small, big = run(0.0), run(0.50)
+    assert small[1]["gap_excluded"] == big[1]["gap_excluded"] and small[1]["gap_excluded"]
+    assert small[1]["mixture_return"] == pytest.approx(big[1]["mixture_return"], abs=1e-9)
+    assert small[1]["mixture_value"] == pytest.approx(big[1]["mixture_value"], abs=1e-9)
+    assert big[1]["mixture_return"] == pytest.approx(big[1]["weights_effective"][l2.CHAMPION] * 0.01, abs=1e-6)
+    # codex #1114 r2: the comparators live under the SAME rule — a gap catch-up
+    # changes NEITHER side of the stated regret comparison
+    for k in ("best_fixed_arm_value", "champion_value", "mixture_minus_champion", "arm_values_held"):
+        assert small[1][k] == big[1][k], k
+    assert small[1]["best_fixed_arm"] == big[1]["best_fixed_arm"]
+
+
+def test_regret_comparison_is_under_one_set_of_admissible_observations():
+    """Neither side of mixture-vs-fixed-arm can move on a return the mixture
+    was defined unable to hold: with the gap arm's catch-up varied, every
+    comparator on every date is identical."""
+    champ = _marks(100, 101, 102.01, 103.0301, 104.060401)
+    def run(catch_up: float):
+        other = {"2026-08-01": 100.0, "2026-08-04": 100.0 * (1 + catch_up), "2026-08-05": 100.0 * (1 + catch_up) * 1.01}
+        am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+        return l2.mixture_view(am, l2.replay(am))
+    a, b = run(-0.30), run(0.80)
+    assert len(a) == len(b) == 4
+    for ra, rb in zip(a, b):
+        for k in ("mixture_value", "champion_value", "best_fixed_arm_value", "mixture_minus_champion", "arm_values_held"):
+            assert ra[k] == rb[k], (ra["asof"], k)
+    # the held step after the gap (08-05, +1%) IS booked for the re-marked arms in both
+    assert all(a[-1]["arm_values_held"][x] == pytest.approx(1.01, abs=1e-6) for x in l2.ARMS if x != l2.CHAMPION)
+
+
+def test_an_intermediate_mark_between_calendar_dates_is_not_a_priced_step():
+    """A shadow lane marking on a day the champion does not: paper_returns()
+    books that arm's prev→intermediate leg on a non-calendar date (never seen
+    by the mixture) and only the intermediate→d leg on d. Holding it on d
+    would silently drop a leg, so the step is not priced: excluded."""
+    champ = {"2026-08-01": 100.0, "2026-08-03": 102.01}            # champion skips 08-02
+    other = {"2026-08-01": 100.0, "2026-08-02": 110.0, "2026-08-03": 99.0}   # marks 08-02 too
+    am = {a: (champ if a == l2.CHAMPION else dict(other)) for a in l2.ARMS}
+    mrows = l2.mixture_view(am, l2.replay(am))
+    assert len(mrows) == 1 and mrows[0]["asof"] == "2026-08-03"
+    others = [a for a in l2.ARMS if a != l2.CHAMPION]
+    assert mrows[0]["held"] == [l2.CHAMPION] and mrows[0]["gap_excluded"] == sorted(others)
+    assert mrows[0]["mixture_return"] == pytest.approx(mrows[0]["weights_effective"][l2.CHAMPION] * 0.0201, abs=1e-6)
+    assert all(mrows[0]["arm_values_held"][a] == 1.0 for a in others)

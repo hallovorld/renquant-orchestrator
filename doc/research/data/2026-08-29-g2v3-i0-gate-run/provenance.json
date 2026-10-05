@@ -1,0 +1,110 @@
+{
+ "run_id": "i0-gate-20260829-f3d5bf7b",
+ "stage": "GOAL-2v3 Stage I-0 ESS census -- the preregistered GATE run",
+ "frozen_source_commit": "f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779",
+ "clean_tree": true,
+ "clean_tree_note": "Fresh worktree checkout of f3d5bf7b; `git status --porcelain` showed only the untracked, uncommitted vendor bar store scripts/experiments/g2v3_bars/ (G2V3_BAR_STORE) and the two output files the census writes.",
+ "invocation": {
+  "cwd": "<worktree root at f3d5bf7b>",
+  "env": {
+   "G2V3_BAR_STORE": "/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars"
+  },
+  "argv": [
+   "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+   "scripts/experiments/g2v3_stage_i0_census.py",
+   "--gate-run"
+  ],
+  "command": "G2V3_BAR_STORE=/private/tmp/claude-502/-Users-renhao-git-github-renquant-orchestrator/428feb92-8ee7-4b4f-afed-1e4fa82ef367/scratchpad/wt-gate/scripts/experiments/g2v3_bars caffeinate -i /Users/renhao/git/github/RenQuant/.venv/bin/python scripts/experiments/g2v3_stage_i0_census.py --gate-run",
+  "gate_run_flag": "--gate-run"
+ },
+ "timestamps_utc": {
+  "start": "2026-08-29T10:04:12Z",
+  "end": "2026-08-29T10:06:40Z",
+  "derivation": "DERIVED FROM FILE TIMESTAMPS, not logged by the script: start = birth time of the launcher's stdout capture file (tasks/bl41zwhpk.output); end = mtime of the report.json the census wrote. The census does not emit its own clock; treat these as +/- a few seconds."
+ },
+ "seed_list": {
+  "path": "doc/research/data/2026-08-27-g2v3-i0/g2v3_seed.txt",
+  "sha256": "cd6f3ed7ab1f353b21154ecb0cba4b27811927854f5a8666e62bfd86c7d9a3cc",
+  "count": 2144
+ },
+ "frozen_parameters": {
+  "h": 13,
+  "gate_bar": "BEAR n_eff_adj >= 30 @ h=13",
+  "kill_rule": "BEAR n_eff_adj < 30 at h=13 => route dead",
+  "window": {
+   "start": "2020-08-01",
+   "end": "2024-06-30"
+  },
+  "bar_grid": "39 canonical RTH 10-min slots (09:30..15:50 ET); slot = (minutes since 09:30)//10; missing = NaN; position is never treated as time",
+  "bar_times_used": "t = 13..25 (0-indexed); t = 26..38 dropped (close-truncated labels) -- the drop IS the >= h gap",
+  "block": "mean of the 13 bar-time ICs of one session; one block per session by construction",
+  "s0_definition": "s0(t) = -(close[t]/close[t-13] - 1)  (frozen parameter-free reversal proxy)",
+  "label_definition": "fwd(t) = close[t+13]/close[t] - 1",
+  "ic_estimator": "cross-sectional Spearman rank correlation per bar-time",
+  "drift": {
+   "layer1_name_day_abs_rel_diff_max": 0.01,
+   "layer2_breach_rate_over_eligible_days_max": 0.05,
+   "order": "layer 1 (name-days excluded from all downstream use), then layer 2 (name excluded entirely)",
+   "reference": "|IEX last-bar close / official daily close - 1|"
+  },
+  "eligibility": {
+   "min_history_sessions": 60,
+   "min_trailing_60_coverage": 0.8,
+   "evaluated_on": "coverage matrix BEFORE drift exclusions; re-evaluated each session; no forward knowledge"
+  },
+  "min_names_per_bar_time": 100,
+  "min_episode_internal_pairs_for_rho1": 8,
+  "rho1_fail_closed": "FAIL_CLOSED(<8 pairs) -> n_eff_adj unestablished (does not satisfy the bar)",
+  "ess_formula": "n_eff_adj = n_blocks * (1 - rho1_used) / (1 + rho1_used), rho1_used = max(rho1_raw, 0)",
+  "regime_formula": {
+   "name": "K5 SPY daily regime",
+   "trend": "SPY close > SMA200",
+   "volhi": "20d pct-change std > rolling-252 median (min_periods=60)",
+   "map": {
+    "BULL_CALM": "trend & ~volhi",
+    "BULL_VOLATILE": "trend & volhi",
+    "CHOPPY": "~trend & ~volhi",
+    "BEAR": "~trend & volhi"
+   },
+   "spy_source": "/Users/renhao/git/github/RenQuant/data/ohlcv/SPY/1d.parquet (read-only daily bars)"
+  }
+ },
+ "code": {
+  "census_script": {
+   "path": "scripts/experiments/g2v3_stage_i0_census.py",
+   "commit": "f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779",
+   "sha256": "8e6ddd6e361edcf8f6fdc0d8b02f53ee8af5418943fa081c84459f3b2386eada"
+  },
+  "design_doc": {
+   "path": "doc/design/2026-08-27-goal2v3-intraday-granularity.md",
+   "commit": "f3d5bf7bd75ffa9c0fb59f8c3bfa98fa509e8779",
+   "sha256": "21678a53c593ead945193566bed4ea30c1e6f364dbfde5da8d5c49539b3808f6",
+   "note": "contains Amendment A1 (drift 0.01/0.05, canonical grid) with the operator acknowledgement of 2026-08-28"
+  }
+ },
+ "input_manifest": {
+  "source": "audit.bar_store_sha256 (per-file sha256 of every consumed bar parquet, recorded by the census at run time)",
+  "count": 2124,
+  "seed_names_with_no_bars": 20,
+  "aggregate_sha256": "a878f1caeaee863cc06c2f9b3ab0d6eba4389d656a4b4dabd731a1844cdfd4d9",
+  "aggregate_method": "sha256 of the UTF-8 text formed by joining, with '\\n' and no trailing newline, the lines '<ticker> <sha256>' for tickers in sorted() order",
+  "bar_store_verified_against_audit": true,
+  "bar_store_verification_note": "2026-08-29 packaging pass: every *.parquet in G2V3_BAR_STORE re-hashed; 2124 files, 0 missing from the audit, 0 hash mismatches, 20 .empty markers = the 20 seed names without bars."
+ },
+ "outputs": {
+  "report": {
+   "path": "g2v3_stage_i0_report.json",
+   "sha256": "da41a706f31b3f39b9ccc9631b93a76a6cb994c8877f112ce49989916634cf44"
+  },
+  "audit": {
+   "path": "g2v3_stage_i0_audit.json.gz",
+   "sha256": "dd5127d7326919b777acd0a6bf819dcc158c9cd02a44cd76ef7ca71fa844f3a9"
+  }
+ },
+ "report_run_status": "GATE_RUN",
+ "gate_verdict": "PASS",
+ "gate_bar": "BEAR n_eff_adj >= 30 @ h=13",
+ "bear_n_eff_adj": 191.0,
+ "development_artifacts": "doc/research/data/2026-08-27-g2v3-i0/ (run_status DEVELOPMENT_ONLY; untouched, restored to their main content)",
+ "provenance_written": "2026-08-29 packaging pass (PR #1083 review r1); this file is the LAST file written in the bundle and is not an input to the run"
+}

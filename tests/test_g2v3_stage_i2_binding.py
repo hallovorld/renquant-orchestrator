@@ -1,0 +1,771 @@
+"""The Stage I-2 --dev-run entry point must FAIL CLOSED: I-1 binding, determinism guard, tree / bundle / store
+preflight, CLI exit 2 — and every report's provenance must rebuild from disk (`validate_i2_provenance`).
+
+Prereg §1 binding: "verified on disk before any bar is read; --dev-run refuses otherwise (exit 2), refuses a dirty
+tree, refuses an existing output bundle". §1.1: "fails closed unless every re-fit reproduces the I-1 overall block-t
+to 4 decimals ... A mismatch is a determinism defect, not a result."
+
+Negative binding cases run on tmp_path copies of the committed I-1 bundle (mutated one field at a time, the bound
+hash re-pointed at the mutated file so the FIELD check is what fires); the positive case is the exact committed
+bundle in this repository. The determinism guard is exercised in the real run flow on a synthetic store with the
+meta fit forbidden. Nothing here runs --dev-run on the development bar store; every DEV_RUN configuration below is
+refused before a single parquet is opened.
+"""
+from __future__ import annotations
+
+import copy
+import dataclasses
+import datetime as dt
+import gzip
+import importlib.util
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+
+import pandas as pd
+import pytest
+
+REPO = pathlib.Path(__file__).resolve().parents[1]
+SCRIPT = REPO / "scripts/experiments/g2v3_stage_i2_stack.py"
+
+
+def _load():
+    spec = importlib.util.spec_from_file_location("g2v3_stage_i2_stack_binding", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+M = _load()
+I1 = M.I1
+B = M.ACCEPTED_I1_BUNDLE
+SILENT = dict(log=lambda *a, **k: None)
+FIXED_NOW = dt.datetime(2026, 8, 29, 14, 0, 0, tzinfo=dt.timezone.utc)
+
+
+def _forbid_parquet_reads(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError(f"parquet read before the preflight refused: {a[:1]}")
+    monkeypatch.setattr(pd, "read_parquet", boom)
+
+
+def _forbid_meta_fit(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("a meta-learner was fitted although the run must have been refused before it")
+    monkeypatch.setattr(M, "fit_meta", boom)
+
+
+# --------------------------------------------------------------------------- #
+# the frozen binding == the committed bundle, and the positive case
+# --------------------------------------------------------------------------- #
+def test_bound_constants_are_the_committed_i1_bundle_field_for_field():
+    bundle = REPO / B["dir"]
+    assert M.sha256_file(bundle / B["report_file"]) == B["report_sha256"]
+    assert M.sha256_file(bundle / B["audit_file"]) == B["audit_sha256"]
+    rep = json.loads((bundle / B["report_file"]).read_text(encoding="utf-8"))
+    assert rep["run_status"] == "DEV_RUN" and rep["run_id"] == B["run_id"] and rep["stage"] == B["stage"]
+    assert rep["provenance"]["source"]["commit"] == B["source_commit"] and rep["provenance"]["source"]["clean_tree"] is True
+    assert rep["provenance"]["consumed_bar_manifest"]["aggregate_sha256"] == B["consumed_bar_aggregate_sha256"]
+    assert rep["provenance"]["consumed_bar_manifest"]["count"] == B["consumed_bar_count"] == 1508
+    assert rep["provenance"]["gate_bundle"]["run_id"] == B["gate_run_id"] == M.ACCEPTED_GATE_BUNDLE["run_id"]
+    assert rep["stage_i2_trigger"]["fired"] is True
+    for bb in ("B0", "B1", "B2", "B3"):
+        assert rep["bases"][bb]["overall"]["block_t"] == M.EXPECTED_I1_BLOCK_T[bb]
+        assert rep["bases"][bb]["overall"]["n_blocks"] == M.EXPECTED_I1_N_BLOCKS[bb]
+        assert rep["bases"][bb]["passes_life_bar"] is True
+    assert rep["s0_reference"]["overall"]["block_t"] == B["s0_block_t"]
+    consumed = json.load(gzip.open(bundle / B["audit_file"]))["consumed_sha256"]
+    assert M.manifest_aggregate(consumed) == B["consumed_bar_aggregate_sha256"] and len(consumed) == 1508
+    # the I-1 harness this module imports is the blob at the bundle's commit
+    assert M.sha256_file(REPO / M.I1_HARNESS_PATH) == M.I1_HARNESS_SHA256
+    blob = subprocess.run(["git", "-C", str(REPO), "show", f"{B['source_commit']}:{M.I1_HARNESS_PATH}"],
+                          capture_output=True, check=True).stdout
+    assert M.hashlib.sha256(blob).hexdigest() == M.I1_HARNESS_SHA256
+
+
+def test_committed_bundle_is_bound():
+    b = M.load_i1_binding(REPO)
+    assert b.run_id == B["run_id"] and b.source_commit == B["source_commit"]
+    assert b.report_sha256 == B["report_sha256"] and b.audit_sha256 == B["audit_sha256"]
+    assert b.consumed_bar_aggregate_sha256 == B["consumed_bar_aggregate_sha256"] and b.consumed_bar_count == 1508
+    assert b.harness_sha256 == M.I1_HARNESS_SHA256 and b.surviving_bases == ("B0", "B1", "B2", "B3")
+    assert b.block_t == M.EXPECTED_I1_BLOCK_T and b.n_blocks == M.EXPECTED_I1_N_BLOCKS
+    rec = b.as_record()
+    assert rec["expected_block_t"] == M.EXPECTED_I1_BLOCK_T and rec["surviving_bases"] == ["B0", "B1", "B2", "B3"]
+
+
+# --------------------------------------------------------------------------- #
+# negative binding cases on a faithful copy (no git) — file checks, one field at a time
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def fake(tmp_path):
+    root = tmp_path / "repo"
+    dst = root / B["dir"]
+    shutil.copytree(REPO / B["dir"], dst)
+    h = root / M.I1_HARNESS_PATH
+    h.parent.mkdir(parents=True)
+    shutil.copyfile(REPO / M.I1_HARNESS_PATH, h)
+    return root
+
+
+def _refused(root, match):
+    with pytest.raises(M.I1NotBound, match=match):
+        M._verify_i1_bundle_files(root)
+
+
+def _report(root):
+    return json.loads((root / B["dir"] / B["report_file"]).read_text(encoding="utf-8"))
+
+
+def _rewrite_report(root, monkeypatch, rep):
+    """Write a mutated report and re-point the bound hash at it, so the FIELD check is what refuses."""
+    p = root / B["dir"] / B["report_file"]
+    p.write_text(json.dumps(rep, indent=1), encoding="utf-8")
+    monkeypatch.setattr(M, "ACCEPTED_I1_BUNDLE", dict(B, report_sha256=M.sha256_file(p)))
+
+
+def test_faithful_copy_passes_the_file_checks(fake):
+    b = M._verify_i1_bundle_files(fake)
+    assert b.run_id == B["run_id"] and b.bundle_dir == fake / B["dir"]
+
+
+def test_missing_bundle_report_or_audit_is_refused(fake):
+    (fake / B["dir"] / B["audit_file"]).unlink()
+    _refused(fake, "g2v3_stage_i1_audit.json.gz missing")
+    (fake / B["dir"] / B["report_file"]).unlink()
+    _refused(fake, "report.json missing")
+    shutil.rmtree(fake / B["dir"])
+    _refused(fake, "bundle directory missing")
+
+
+def test_tampered_report_or_audit_is_refused_by_hash(fake):
+    p = fake / B["dir"] / B["report_file"]
+    p.write_text(p.read_text(encoding="utf-8").replace("3.5042", "3.5043"), encoding="utf-8")
+    _refused(fake, r"report.json sha256 on disk .* != bound .* \(tampered\)")
+    shutil.copyfile(REPO / B["dir"] / B["report_file"], p)
+    a = fake / B["dir"] / B["audit_file"]
+    a.write_bytes(a.read_bytes() + b"\n")
+    _refused(fake, r"g2v3_stage_i1_audit.json.gz sha256 on disk .* \(tampered\)")
+
+
+@pytest.mark.parametrize("status", ["SMOKE", "DEVELOPMENT_ONLY", "GATE_RUN", None])
+def test_non_dev_run_status_is_refused(fake, monkeypatch, status):
+    rep = _report(fake)
+    rep["run_status"] = status
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, f"report run_status {status!r} != 'DEV_RUN'")
+
+
+def test_wrong_run_id_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["run_id"] = "i1-dev-20260829T000000Z-deadbeef"
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "report run_id = 'i1-dev-20260829T000000Z-deadbeef', this harness is bound to 'i1-dev-20260829T113813Z-666484a7'")
+
+
+def test_wrong_source_commit_or_dirty_i1_tree_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["provenance"]["source"]["commit"] = "0" * 40
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "provenance.source.commit")
+    rep = _report(REPO)
+    rep["provenance"]["source"]["clean_tree"] = False
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "provenance.source.clean_tree = False")
+
+
+def test_i1_bound_to_a_different_gate_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["provenance"]["gate_bundle"]["run_id"] = "i0-gate-20260827-00000000"
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "provenance.gate_bundle.run_id")
+
+
+def test_trigger_not_fired_or_a_base_not_surviving_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["stage_i2_trigger"]["fired"] = False
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "stage_i2_trigger.fired = False")
+    rep = _report(REPO)
+    rep["bases"]["B3"]["passes_life_bar"] = False
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, r"surviving bases \('B0', 'B1', 'B2'\) != bound \('B0', 'B1', 'B2', 'B3'\) \(interpretation 1\)")
+
+
+def test_block_t_or_n_blocks_disagreeing_with_the_constants_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["bases"]["B2"]["overall"]["block_t"] = 3.5916
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, r"bases.B2.overall block_t/n_blocks = 3.5916/622, bound 3.5915/622")
+    rep = _report(REPO)
+    rep["bases"]["B1"]["overall"]["n_blocks"] = 510
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, r"bases.B1.overall block_t/n_blocks = 3.1837/510, bound 3.1837/511")
+    rep = _report(REPO)
+    rep["s0_reference"]["overall"]["block_t"] = 4.19
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "s0_reference.overall.block_t = 4.19")
+
+
+def test_consumed_bar_manifest_disagreeing_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["provenance"]["consumed_bar_manifest"]["aggregate_sha256"] = "f" * 64
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "provenance.consumed_bar_manifest.aggregate_sha256")
+    # the audit's consumed map itself (rebuilt aggregate) — report restored intact, audit re-pointed
+    shutil.copyfile(REPO / B["dir"] / B["report_file"], fake / B["dir"] / B["report_file"])
+    a = fake / B["dir"] / B["audit_file"]
+    audit = json.load(gzip.open(REPO / B["dir"] / B["audit_file"]))
+    audit["consumed_sha256"].pop(sorted(audit["consumed_sha256"])[0])
+    with gzip.open(a, "wt") as fh:
+        json.dump(audit, fh)
+    monkeypatch.setattr(M, "ACCEPTED_I1_BUNDLE", dict(B, audit_sha256=M.sha256_file(a)))
+    _refused(fake, r"consumed-bar aggregate recomputed from the audit = .* over 1507 files, bound .* over 1508")
+
+
+def test_i1_frozen_block_disagreeing_with_the_imported_i1_constants_is_refused(fake, monkeypatch):
+    rep = _report(fake)
+    rep["frozen"]["xgb_params"]["max_depth"] = 4
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "frozen.xgb_params")
+    rep = _report(REPO)
+    rep["frozen"]["folds"][0][0] = "2021-12-30"
+    _rewrite_report(fake, monkeypatch, rep)
+    _refused(fake, "frozen.folds")
+
+
+def test_i1_harness_changed_or_missing_is_refused(fake):
+    h = fake / M.I1_HARNESS_PATH
+    h.write_text(h.read_text(encoding="utf-8") + "\n# drift\n", encoding="utf-8")
+    _refused(fake, r"g2v3_stage_i1_bases.py on disk hashes to .*, bound 13c31d126.*would not be the I-1 code")
+    h.unlink()
+    _refused(fake, "g2v3_stage_i1_bases.py missing from the checkout")
+
+
+def test_faithful_copy_outside_the_reviewed_repository_is_not_a_binding(fake):
+    subprocess.run(["git", "-C", str(fake), "init", "-q"], check=True)
+    with pytest.raises(M.I1NotBound, match="I-1 source commit 666484a7 is not resolvable"):
+        M.load_i1_binding(fake)
+
+
+def test_harness_blob_at_the_commit_must_hash_to_the_constant(monkeypatch):
+    real_git = I1._git
+
+    def fake_git(root, *args):
+        r = real_git(root, *args)
+        if args[0] == "show":
+            return subprocess.CompletedProcess(args, 0, stdout=b"# not the harness\n", stderr=b"")
+        return r
+    monkeypatch.setattr(I1, "_git", fake_git)
+    with pytest.raises(M.I1NotBound, match=r"at 666484a7 hashes to .*, bound 13c31d126"):
+        M.load_i1_binding(REPO)
+
+
+# --------------------------------------------------------------------------- #
+# determinism guard in the real run flow: refused BEFORE any meta fit, nothing written
+# --------------------------------------------------------------------------- #
+@pytest.fixture(scope="module")
+def small_syn(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("i2det")
+    syn = I1._synthetic_store(tmp / "syn", n_names=24, n_sessions=30, planted=True)
+    cfg = M._smoke_config(M.smoke_base_config(syn, tmp / "out0"), tmp / "out0")
+    rep = M.run_stage_i2(cfg, **SILENT)
+    observed_t = {bb: rep["base_refit"]["bases"][bb]["overall"]["block_t"] for bb in M.BASE_CODES}
+    observed_n = {bb: rep["base_refit"]["bases"][bb]["overall"]["n_blocks"] for bb in M.BASE_CODES}
+    s0 = (rep["base_refit"]["s0_reference"]["overall"]["block_t"], rep["base_refit"]["s0_reference"]["overall"]["n_blocks"])
+    return dict(tmp=tmp, syn=syn, t=observed_t, n=observed_n, s0=s0, report=rep)
+
+
+def test_determinism_guard_off_by_1e4_refuses_before_any_meta_fit(small_syn, monkeypatch):
+    _forbid_meta_fit(monkeypatch)
+    off = dict(small_syn["t"], B0=round(small_syn["t"]["B0"] + 1e-4, 4))
+    out = small_syn["tmp"] / "out_refused"
+    cfg = M._smoke_config(M.smoke_base_config(small_syn["syn"], out), out, expected_block_t=off,
+                          expected_n_blocks=small_syn["n"], expected_s0=small_syn["s0"])
+    with pytest.raises(M.DeterminismRefused, match=r"B0: block_t .* @ 4 dp.* no meta-learner was fitted"):
+        M.run_stage_i2(cfg, **SILENT)
+    assert not out.exists()                                            # nothing written
+    off_n = dict(small_syn["n"], B3=small_syn["n"]["B3"] + 1)
+    cfg = M._smoke_config(M.smoke_base_config(small_syn["syn"], out), out, expected_block_t=small_syn["t"],
+                          expected_n_blocks=off_n, expected_s0=small_syn["s0"])
+    with pytest.raises(M.DeterminismRefused, match="B3: .*n_blocks"):
+        M.run_stage_i2(cfg, **SILENT)
+    assert not out.exists()
+
+
+def test_determinism_guard_exact_proceeds_to_the_meta_fit(small_syn):
+    out = small_syn["tmp"] / "out_ok"
+    cfg = M._smoke_config(M.smoke_base_config(small_syn["syn"], out), out, expected_block_t=small_syn["t"],
+                          expected_n_blocks=small_syn["n"], expected_s0=small_syn["s0"])
+    rep = M.run_stage_i2(cfg, **SILENT)
+    g = rep["base_refit"]["determinism_guard"]
+    assert g["status"] == "PASS" and set(g["per_series"]) == {"B0", "B1", "B2", "B3", "s0"}
+    assert all(v["match"] for v in g["per_series"].values())
+    assert rep["provenance"]["determinism_guard"] == g
+    assert rep["series"]["M_xgb"]["overall"]["block_t"] is not None
+    # the re-fit is deterministic run to run on this machine (interpretation 5)
+    assert {bb: rep["base_refit"]["bases"][bb]["overall"]["block_t"] for bb in M.BASE_CODES} == small_syn["t"]
+    assert (rep["series"]["M_xgb"]["overall"]["block_t"]
+            == small_syn["report"]["series"]["M_xgb"]["overall"]["block_t"])
+
+
+def test_consumed_bars_differing_from_the_i1_bundle_refuse_before_any_base_fit(small_syn, monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("a base was fitted although the consumed-bar check must refuse first")
+    monkeypatch.setattr(I1, "run_bases", boom)
+    _forbid_meta_fit(monkeypatch)
+    out = small_syn["tmp"] / "out_bars"
+    cfg = M._smoke_config(M.smoke_base_config(small_syn["syn"], out), out, expected_consumed_aggregate="a" * 64)
+    with pytest.raises(M.DeterminismRefused, match="the bars consumed by this run aggregate to .* the I-1 bundle consumed aaaaaaaaaaaa"):
+        M.run_stage_i2(cfg, **SILENT)
+    assert not out.exists()
+
+
+# --------------------------------------------------------------------------- #
+# DEV_RUN preflight on a real tmp git repository: dirty tree, existing bundle, then the store check
+# --------------------------------------------------------------------------- #
+def _git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def dev_cfg(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+    auth = I1.load_gate_authorization(REPO)
+    i1 = M.load_i1_binding(REPO)
+    syn = I1._synthetic_store(tmp_path / "syn", n_names=3, n_sessions=2)
+    etf_map = {"tech": "XLK", "healthcare": "XLV", "bond": "TLT", "telecom": "XLC", "real_estate": "XLRE"}
+    monkeypatch.setattr(M, "REPO", repo)
+    monkeypatch.setattr(M, "_now_utc", lambda: FIXED_NOW)
+    out_root = repo / "doc/research/data/2026-08-29-g2v3-i2"
+    base = I1.RunConfig(bar_store=syn["bar_store"], census_audit=I1.GATE_AUDIT, spy_daily=syn["spy_daily"],
+                        sector_map={}, sector_etf_map=etf_map, out_dir=out_root, run_status="DEV_RUN", gate=auth,
+                        strategy_config=syn["strategy_config"])
+    cfg = M.I2Config(base=base, out_dir=out_root, run_status="DEV_RUN", i1=i1,
+                     expected_block_t=dict(M.EXPECTED_I1_BLOCK_T), expected_n_blocks=dict(M.EXPECTED_I1_N_BLOCKS),
+                     expected_s0=(B["s0_block_t"], B["s0_n_blocks"]),
+                     expected_consumed_aggregate=B["consumed_bar_aggregate_sha256"])
+    return dict(cfg=cfg, repo=repo, out_root=out_root, sha=_git(repo, "rev-parse", "HEAD"))
+
+
+def test_dev_run_without_an_i1_binding_or_with_foreign_targets_is_refused(dev_cfg, monkeypatch):
+    _forbid_parquet_reads(monkeypatch)
+    with pytest.raises(M.I1NotBound, match="DEV_RUN without an I1Binding"):
+        M.run_stage_i2(dataclasses.replace(dev_cfg["cfg"], i1=None), **SILENT)
+    with pytest.raises(M.DevRunRefused, match="determinism targets are not the frozen constants"):
+        M.run_stage_i2(dataclasses.replace(dev_cfg["cfg"], expected_block_t=dict(M.EXPECTED_I1_BLOCK_T, B0=3.5)), **SILENT)
+    with pytest.raises(M.DevRunRefused, match="determinism targets are not the frozen constants"):
+        M.run_stage_i2(dataclasses.replace(dev_cfg["cfg"], expected_s0=None), **SILENT)
+    with pytest.raises(M.GateNotAuthorized, match="DEV_RUN without a GateAuthorization"):
+        M.run_stage_i2(dataclasses.replace(dev_cfg["cfg"], base=dataclasses.replace(dev_cfg["cfg"].base, gate=None)),
+                       **SILENT)
+    assert not dev_cfg["out_root"].exists()
+
+
+def test_dirty_tree_is_refused_before_anything_is_read_or_written(dev_cfg, monkeypatch):
+    _forbid_parquet_reads(monkeypatch)
+    (dev_cfg["repo"] / "stray.txt").write_text("x")
+    with pytest.raises(M.DevRunRefused, match=r"source tree is not clean: 1 entries .*stray.txt"):
+        M.run_stage_i2(dev_cfg["cfg"], **SILENT)
+    assert not dev_cfg["out_root"].exists()
+
+
+def test_existing_bundle_is_refused_no_overwrite(dev_cfg, monkeypatch):
+    _forbid_parquet_reads(monkeypatch)
+    run_id = f"i2-dev-20260829T140000Z-{dev_cfg['sha'][:8]}"
+    bundle = dev_cfg["out_root"] / run_id
+    bundle.mkdir(parents=True)
+    (bundle / "report.json").write_text("{}")
+    with pytest.raises(M.DevRunRefused, match=f"output bundle .*{run_id} already exists; refusing to overwrite"):
+        M.run_stage_i2(dev_cfg["cfg"], **SILENT)
+    assert (bundle / "report.json").read_text() == "{}"
+
+
+def test_clean_and_fresh_proceeds_to_the_store_check(dev_cfg, monkeypatch):
+    _forbid_parquet_reads(monkeypatch)
+    src = I1.source_state(dev_cfg["repo"], ignore=[dev_cfg["cfg"].base.bar_store, dev_cfg["out_root"]])
+    run_id, bundle = M.dev_run_identity(dev_cfg["cfg"], src, FIXED_NOW)
+    assert run_id == f"i2-dev-20260829T140000Z-{dev_cfg['sha'][:8]}" and M._RUN_ID.match(run_id)
+    assert bundle == dev_cfg["out_root"] / run_id and not bundle.exists()
+    with pytest.raises(M.StoreNotAudited, match=r"of the \d+ audited files this run needs are missing"):
+        M.run_stage_i2(dev_cfg["cfg"], **SILENT)
+    assert not dev_cfg["out_root"].exists()
+    with pytest.raises(M.DevRunRefused, match="cannot establish the source commit"):
+        M.dev_run_identity(dev_cfg["cfg"], dict(commit=None, clean_tree=None, error="no git"), FIXED_NOW)
+
+
+def test_cli_dev_run_exits_2_without_the_gate_or_the_i1_bundle_or_on_a_dirty_tree(tmp_path, dev_cfg, monkeypatch, capsys):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setattr(M, "REPO", empty)                       # no gate bundle => refused FIRST, exit 2
+    assert M.main(["--dev-run"]) == 2
+    assert "REFUSED --dev-run (fail closed): Stage I-0 gate bundle" in capsys.readouterr().err
+    monkeypatch.setattr(I1, "load_gate_authorization", lambda root: dev_cfg["cfg"].base.gate)
+    assert M.main(["--dev-run"]) == 2                            # gate fine, I-1 bundle missing => exit 2
+    assert "REFUSED --dev-run (fail closed): Stage I-1 bundle" in capsys.readouterr().err
+    monkeypatch.setattr(M, "REPO", dev_cfg["repo"])
+    monkeypatch.setattr(M, "load_i1_binding", lambda root: dev_cfg["cfg"].i1)
+    monkeypatch.setattr(M, "dev_run_config", lambda auth, i1: dev_cfg["cfg"])
+    (dev_cfg["repo"] / "stray.txt").write_text("x")
+    assert M.main(["--dev-run"]) == 2
+    assert "REFUSED --dev-run (fail closed): source tree is not clean" in capsys.readouterr().err
+    assert not dev_cfg["out_root"].exists()
+
+
+# --------------------------------------------------------------------------- #
+# provenance: a smoke with the real gate authorization + I-1 binding attached validates clean; then each claim
+# is falsified one at a time
+# --------------------------------------------------------------------------- #
+PROVENANCE_KEYS = {"run_id", "run_status", "outputs", "source", "invocation", "timestamps_utc", "gate_bundle",
+                   "i1_bundle", "inputs", "store_manifest_check", "frozen_parameters", "consumed_bar_manifest",
+                   "determinism_guard"}
+
+
+@pytest.fixture(scope="module")
+def prov_run(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("i2prov")
+    syn = I1._synthetic_store(tmp / "syn", n_names=24, n_sessions=30, planted=True)
+    auth = I1.load_gate_authorization(REPO)
+    i1 = M.load_i1_binding(REPO)
+    cfg = M._smoke_config(M.smoke_base_config(syn, tmp / "out", gate=auth), tmp / "out", i1=i1)
+    report = M.run_stage_i2(cfg, **SILENT)
+    audit = json.load(gzip.open(tmp / "out" / "g2v3_stage_i2_audit.json.gz"))
+    return dict(tmp=tmp, report=report, audit=audit)
+
+
+def _fresh(prov_run):
+    return copy.deepcopy(prov_run["report"]), copy.deepcopy(prov_run["audit"])
+
+
+def test_provenance_is_complete_and_validates_clean(prov_run):
+    rep, aud = prov_run["report"], prov_run["audit"]
+    prov = rep["provenance"]
+    assert PROVENANCE_KEYS <= set(prov)
+    assert prov["gate_bundle"]["run_id"] == M.ACCEPTED_GATE_BUNDLE["run_id"]
+    assert prov["i1_bundle"]["run_id"] == B["run_id"] and prov["i1_bundle"]["harness_sha256"] == M.I1_HARNESS_SHA256
+    assert prov["frozen_parameters"]["interpretations"] == M.INTERPRETATIONS
+    assert prov["consumed_bar_manifest"]["aggregate_sha256"] == M.manifest_aggregate(aud["consumed_sha256"])
+    assert M.validate_i2_provenance(rep, aud, REPO) == []
+    on_disk = json.load(open(prov_run["tmp"] / "out" / "report.json"))
+    assert M.validate_i2_provenance(on_disk, aud, REPO) == []
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r, a: r["provenance"]["i1_bundle"].update(report_sha256="0" * 64), "i1_bundle.report_sha256"),
+    (lambda r, a: r["provenance"]["i1_bundle"].update(harness_sha256="0" * 64), "i1_bundle.harness_sha256"),
+    (lambda r, a: r["provenance"]["i1_bundle"].update(expected_block_t={"B0": 1.0}), "i1_bundle.expected_block_t"),
+    (lambda r, a: r["provenance"]["gate_bundle"].update(audit_sha256="0" * 64), "gate_bundle.audit_sha256"),
+    (lambda r, a: a["consumed_sha256"].pop(sorted(a["consumed_sha256"])[0]), "consumed_bar_manifest.count"),
+    (lambda r, a: a["consumed_sha256"].update({sorted(a["consumed_sha256"])[0]: "f" * 64}), "aggregate rebuilt"),
+    (lambda r, a: r["provenance"]["frozen_parameters"].update(meta_xgb_params=dict(M.META_XGB_PARAMS, max_depth=3)),
+     "frozen_parameters.meta_xgb_params"),
+    (lambda r, a: r["provenance"]["frozen_parameters"]["interpretations"].pop(), "byte-identical"),
+    (lambda r, a: r["interpretations"].__setitem__(0, "edited"), "report.interpretations != INTERPRETATIONS"),
+    (lambda r, a: r["prereg_interpretations"].pop(), "prereg_interpretations != the prereg's six"),
+    (lambda r, a: r["outcome"].update(verdict="REFUSED"), "not a §4.4 result row"),
+    (lambda r, a: r["outcome"].update(consequence="edited"), "outcome row text != OUTCOME_REGISTER"),
+    (lambda r, a: r["pass_bar"].update(stage_i2_pass=not r["pass_bar"]["stage_i2_pass"]), "stage_i2_pass != P1"),
+    (lambda r, a: (r["pass_bar"].update(stage_i2_pass=True),
+                   [r["pass_bar"][k].update(passes=True) for k in ("P1", "P2", "P3")]),
+     "outcome.verdict != the register row"),
+    (lambda r, a: r["outcome"].update(binding=True), "outcome.binding"),
+    (lambda r, a: r["provenance"].update(run_id="i1-smoke-20260829T140000Z-deadbeef"), "does not match i2-"),
+    (lambda r, a: r["provenance"]["timestamps_utc"].update(end="2020-01-01T00:00:00Z"), "precedes start"),
+    (lambda r, a: r["provenance"]["source"].update(commit="abc"), "not a 40-hex sha"),
+    (lambda r, a: r["provenance"]["invocation"].update(env={}), "must record G2V3_BAR_STORE"),
+    (lambda r, a: r["provenance"]["inputs"]["spy_daily"].update(sha256="0" * 64), "inputs.spy_daily.sha256"),
+    (lambda r, a: r["provenance"]["inputs"].update(sector_map_sha256="0" * 64), "sector_map_sha256"),
+    (lambda r, a: r["provenance"]["determinism_guard"].update(status="X"), "provenance.determinism_guard != report"),
+    (lambda r, a: r["provenance"]["store_manifest_check"].update(expected_absent_from_audit=[]), "expected_absent_from_audit"),
+    (lambda r, a: r["provenance"].pop("consumed_bar_manifest"), "consumed_bar_manifest missing"),
+    (lambda r, a: r["provenance"].pop("determinism_guard"), "determinism_guard missing"),
+])
+def test_each_provenance_claim_is_falsifiable(prov_run, mutate, expect):
+    rep, aud = _fresh(prov_run)
+    mutate(rep, aud)
+    problems = M.validate_i2_provenance(rep, aud, REPO)
+    assert any(expect in p for p in problems), (expect, problems)
+
+
+def test_dev_run_claims_are_held_to_the_frozen_folds_guard_and_bundles(prov_run):
+    """Relabelling the smoke as DEV_RUN must surface every DEV_RUN-only requirement."""
+    rep, aud = _fresh(prov_run)
+    rep["run_status"] = rep["provenance"]["run_status"] = "DEV_RUN"
+    rep["run_id"] = rep["provenance"]["run_id"] = rep["run_id"].replace("i2-smoke-", "i2-dev-")
+    rep["outcome"]["binding"] = True
+    problems = M.validate_i2_provenance(rep, aud, REPO)
+    joined = "\n".join(problems)
+    assert "DEV_RUN frozen_parameters.meta_folds" in joined          # the smoke used the tiny folds
+    assert "DEV_RUN frozen_parameters.i1.folds" in joined
+    assert "DEV_RUN determinism_guard.status = 'NOT_APPLIED', not PASS" in joined
+    assert "DEV_RUN consumed-bar aggregate != the I-1 bundle's" in joined
+    assert "DEV_RUN store_manifest_check.strict is not True" in joined
+    assert "DEV_RUN census audit is not the gate bundle's audit" in joined
+    assert "DEV_RUN outputs.bundle_dir" in joined
+
+
+# --------------------------------------------------------------------------- #
+# path identity is REPO-RELATIVE: the committed bundles validate from a checkout at ANY absolute path
+# (codex r1 on #1091: the recorded absolute prefix is the run's scratchpad worktree, not the reviewer's checkout)
+# --------------------------------------------------------------------------- #
+I2_BUNDLE_DIR = "doc/research/data/2026-08-29-g2v3-i2/i2-dev-20260829T132528Z-5269e593"
+GATE_AUDIT_REL = f"{M.ACCEPTED_GATE_BUNDLE['dir']}/{M.ACCEPTED_GATE_BUNDLE['audit_file']}"
+_CHECKOUT_PATHS = [M.ACCEPTED_GATE_BUNDLE["dir"], B["dir"], I2_BUNDLE_DIR, M.I1_HARNESS_PATH]
+
+
+def _checkout_elsewhere(dst: pathlib.Path) -> pathlib.Path:
+    """A git checkout of this repository's HEAD at another absolute path, holding the gate / I-1 / I-2 bundles and
+    the I-1 harness exactly as COMMITTED (a shared clone: no object copy, nothing written to the source repo)."""
+    subprocess.run(["git", "clone", "-q", "--shared", "--no-checkout", str(REPO), str(dst)], check=True)
+    subprocess.run(["git", "-C", str(dst), "checkout", "-q", "HEAD", "--", *_CHECKOUT_PATHS], check=True)
+    assert dst.resolve() != REPO.resolve()
+    return dst
+
+
+def _bundle(root: pathlib.Path, rel: str, audit_name: str):
+    d = root / rel
+    return json.load(open(d / "report.json")), json.load(gzip.open(d / audit_name))
+
+
+def _recorded_inputs_absent_here(rep, *, every_input: bool = False) -> list:
+    """The validators' EXACT verdict for recorded inputs this machine does not hold: one "missing on disk" line
+    per absent input, nothing else. An input OUTSIDE the run's repo root (the umbrella's SPY parquet, the pinned
+    strategy config) can only be checked where it was recorded, so the portable validators read it there; the
+    frozen I-1 harness reads EVERY input at its recorded absolute path (`every_input`). Empty where those files
+    live (the operator's machine — the docs' `-> []` holds under exactly that condition); from a checkout without
+    them (CI) the same tests pin that nothing BUT these lines is reported."""
+    prov = rep["provenance"]
+    root = prov["source"]["repo_root"]
+    return sorted(f"inputs.{key}.path missing on disk: {entry['path']}"
+                  for key, entry in prov["inputs"].items()
+                  if isinstance(entry, dict) and "path" in entry
+                  and (every_input or M.repo_relative(entry["path"], root) is None)
+                  and not pathlib.Path(entry["path"]).is_file())
+
+
+@pytest.fixture(scope="module")
+def elsewhere(tmp_path_factory):
+    return _checkout_elsewhere(tmp_path_factory.mktemp("elsewhere") / "checkout")
+
+
+def test_repo_relative_is_pure_path_arithmetic():
+    assert M.repo_relative("/a/b/repo/doc/x.json", "/a/b/repo") == "doc/x.json"
+    assert M.repo_relative("/a/b/repo/doc/x.json", "/a/b/other") is None
+    assert M.repo_relative("/a/b/repo-2/doc/x.json", "/a/b/repo") is None       # prefix, not a parent
+    assert M.repo_relative(None, "/a/b/repo") is None and M.repo_relative("/a/b/repo/x", None) is None
+
+
+def test_committed_i2_bundle_validates_from_a_checkout_at_another_path(elsewhere):
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    recorded = rep["provenance"]["inputs"]["census_audit"]["path"]
+    assert not recorded.startswith(str(elsewhere)) and not pathlib.Path(recorded).is_relative_to(elsewhere)
+    outside_only = _recorded_inputs_absent_here(rep)      # [] where the umbrella inputs live; exactly their lines on CI
+    assert sorted(M.validate_i2_provenance(rep, aud, elsewhere)) == outside_only
+    assert sorted(M.validate_i2_provenance(rep, aud, REPO)) == outside_only
+
+
+def test_committed_i1_bundle_validates_from_a_checkout_at_another_path_via_the_portable_entry_point(elsewhere):
+    """The I-1 harness is frozen by I1_HARNESS_SHA256, so its validator keeps comparing the recorded ABSOLUTE
+    census-audit path with the reviewer's GATE_AUDIT; `M.validate_i1_provenance` substitutes the repo-relative
+    rule for exactly that verdict. When the I-1 harness is ever re-bound with the rule inside, the gate line
+    disappears and this wrapper can go."""
+    rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
+    raw = I1.validate_i1_provenance(rep, aud, elsewhere)
+    gate_line = [p for p in raw if p.startswith("DEV_RUN census audit is not the gate bundle's audit")]
+    assert len(gate_line) == 1, raw
+    # the frozen harness reads every input at its RECORDED absolute path (the run's scratchpad worktree, the
+    # umbrella): away from the run's own machine it also reports each absent one — and nothing else
+    assert sorted(set(raw) - set(gate_line)) == _recorded_inputs_absent_here(rep, every_input=True), raw
+    outside_only = _recorded_inputs_absent_here(rep)
+    assert sorted(M.validate_i1_provenance(rep, aud, elsewhere)) == outside_only
+    assert sorted(M.validate_i1_provenance(rep, aud, REPO)) == outside_only
+
+
+def _census(rep):
+    return rep["provenance"]["inputs"]["census_audit"]
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: _census(r).update(path=r["provenance"]["source"]["repo_root"] + "/" + M.ACCEPTED_GATE_BUNDLE["dir"]
+                                 + "/report.json"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(path="/elsewhere/" + GATE_AUDIT_REL), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: r["provenance"]["source"].update(repo_root="/elsewhere"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(sha256="0" * 64), "inputs.census_audit.sha256"),
+    (lambda r: _census(r).update(path_relative="doc/other.json.gz"), "inputs.census_audit.path_relative"),
+    (lambda r: r["provenance"]["gate_bundle"].update(dir="/elsewhere/" + M.ACCEPTED_GATE_BUNDLE["dir"]), "gate_bundle.dir"),
+    (lambda r: r["provenance"]["i1_bundle"].update(dir=r["provenance"]["source"]["repo_root"] + "/doc/other"), "i1_bundle.dir"),
+    (lambda r: (r["provenance"]["source"].pop("repo_root"), r["provenance"]["invocation"].pop("cwd")),
+     "neither source.repo_root nor invocation.cwd"),
+])
+def test_i2_path_identity_tampers_are_caught_from_another_checkout(elsewhere, mutate, expect):
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    mutate(rep)
+    problems = M.validate_i2_provenance(rep, aud, elsewhere)
+    assert any(expect in p for p in problems), (expect, problems)
+
+
+@pytest.mark.parametrize("mutate,expect", [
+    (lambda r: _census(r).update(path="/elsewhere/" + GATE_AUDIT_REL), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(path=r["provenance"]["source"]["repo_root"] + "/" + M.ACCEPTED_GATE_BUNDLE["dir"]
+                                 + "/report.json"), "DEV_RUN census audit is not the gate bundle's audit"),
+    (lambda r: _census(r).update(sha256="0" * 64), "inputs.census_audit.sha256"),
+    (lambda r: r["provenance"]["gate_bundle"].update(dir="/elsewhere/" + M.ACCEPTED_GATE_BUNDLE["dir"]), "gate_bundle.dir"),
+])
+def test_i1_path_identity_tampers_are_caught_from_another_checkout(elsewhere, mutate, expect):
+    rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
+    mutate(rep)
+    problems = M.validate_i1_provenance(rep, aud, elsewhere)
+    assert any(expect in p for p in problems), (expect, problems)
+
+
+def test_tampered_gate_audit_in_the_other_checkout_fails_both_validators(tmp_path):
+    other = _checkout_elsewhere(tmp_path / "checkout")
+    rep2, aud2 = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    rep1, aud1 = _bundle(other, B["dir"], B["audit_file"])
+    (other / GATE_AUDIT_REL).write_bytes(b"not the audit")
+    for problems in (M.validate_i2_provenance(rep2, aud2, other), M.validate_i1_provenance(rep1, aud1, other)):
+        joined = "\n".join(problems)
+        assert "inputs.census_audit.sha256 != file on disk" in joined, problems
+        assert "gate_bundle.audit_sha256 != sha256 of" in joined, problems
+    (other / GATE_AUDIT_REL).unlink()
+    assert any("inputs.census_audit.path missing on disk" in p for p in M.validate_i2_provenance(rep2, aud2, other))
+    assert any("inputs.census_audit.path missing on disk" in p for p in M.validate_i1_provenance(rep1, aud1, other))
+
+
+def test_future_runs_record_path_relative(prov_run):
+    """The harness now records `path_relative` (None for inputs outside the repo) and the validator checks it."""
+    inp = prov_run["report"]["provenance"]["inputs"]
+    for key in ("census_audit", "spy_daily", "strategy_config"):
+        assert "path_relative" in inp[key]
+        assert inp[key]["path_relative"] == M.repo_relative(inp[key]["path"], prov_run["report"]["provenance"]["source"]["repo_root"])
+
+
+# --------------------------------------------------------------------------- #
+# codex r2 on #1092: no lexical traversal, no symlink escape — a repo-relative read is CONFINED to repo_root
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("path", ["/a/repo/../outside/file", "/a/repo/sub/../../outside", "/a/repo/./x/../..",
+                                  "/abs/../a/repo/x", "a/repo/x", "/a/repo/x/", "/a/repo//x", "/a/repo", "/a/repo2/x"])
+def test_repo_relative_rejects_traversal_and_malformed_forms(path):
+    assert M.repo_relative(path, "/a/repo") is None
+    assert M.repo_relative("/a/repo/doc/x", "/a/../a/repo") is None
+    assert M.repo_relative("/a/repo/doc/x", "a/repo") is None
+
+
+def test_repo_relative_result_never_carries_dot_segments():
+    assert M.repo_relative("/a/repo/doc/x.json", "/a/repo") == "doc/x.json"
+    assert M.path_form_problems("x", "/a/repo/doc/x.json") == []
+    assert M.path_form_problems("x", "/a/repo/../x") and M.path_form_problems("x", "rel/x") and M.path_form_problems("x", "/a/./x")
+
+
+def _traversal_forms(run_root, target):
+    return [f"{run_root}/../{target}", f"{run_root}/sub/../../{target}", f"{run_root}/./x/../../{target}",
+            f"/abs/../{run_root.lstrip('/')}/{target}", f"{run_root}/./{target}", f"{run_root}/{target}/"]
+
+
+@pytest.mark.parametrize("key", ["spy_daily", "strategy_config", "census_audit"])
+def test_codex_r2_repro_traversal_to_an_outside_file_with_a_matching_sha_is_a_problem(elsewhere, key):
+    """The exact r2 reproduction: the committed bundle, `inputs.<key>` re-pointed at <recorded repo_root>/../outside/x,
+    the outside file real and the record's sha256 that file's hash — must NOT validate. The census audit is a byte
+    copy of the checkout's (the recorded sha stands); the umbrella inputs are not on every machine, so their
+    outside file is synthetic and the record's sha256 re-pointed at it (the r2 repro's own move) — the refusal
+    is lexical, before any byte is read."""
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    entry = rep["provenance"]["inputs"][key]
+    outside = elsewhere.parent / "outside" / f"{key}.bin"           # where `repo_root / '../outside/…'` would read
+    outside.parent.mkdir(exist_ok=True)
+    if key == "census_audit":
+        outside.write_bytes((elsewhere / GATE_AUDIT_REL).read_bytes())
+    else:
+        outside.write_bytes(f"outside {key}\n".encode())
+        entry["sha256"] = M.sha256_file(outside)
+    assert M.sha256_file(outside) == entry["sha256"]
+    run_root = rep["provenance"]["source"]["repo_root"]
+    for form in _traversal_forms(run_root, f"outside/{key}.bin"):
+        r = copy.deepcopy(rep)
+        r["provenance"]["inputs"][key].update(path=form, path_relative=None)
+        problems = M.validate_i2_provenance(r, aud, elsewhere)
+        assert any(f"inputs.{key}.path" in p and "free of" in p for p in problems), (form, problems)
+    r = copy.deepcopy(rep)
+    r["provenance"]["inputs"][key].update(path_relative="../outside/" + f"{key}.bin")
+    problems = M.validate_i2_provenance(r, aud, elsewhere)
+    assert any(f"inputs.{key}.path_relative" in p and "free of" in p for p in problems), problems
+
+
+def test_codex_r2_repro_on_the_portable_i1_validator(elsewhere):
+    rep, aud = _bundle(elsewhere, B["dir"], B["audit_file"])
+    run_root = rep["provenance"]["source"]["repo_root"]
+    outside = elsewhere.parent / "outside" / "i1_census.bin"
+    outside.parent.mkdir(exist_ok=True)
+    outside.write_bytes((elsewhere / GATE_AUDIT_REL).read_bytes())
+    for form in _traversal_forms(run_root, "outside/i1_census.bin"):
+        r = copy.deepcopy(rep)
+        r["provenance"]["inputs"]["census_audit"]["path"] = form
+        problems = M.validate_i1_provenance(r, aud, elsewhere)
+        assert any("inputs.census_audit.path" in p and "free of" in p for p in problems), (form, problems)
+
+
+def test_malformed_source_repo_root_is_a_problem(elsewhere):
+    rep, aud = _bundle(elsewhere, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    rep["provenance"]["source"]["repo_root"] = rep["provenance"]["source"]["repo_root"] + "/../wt-i2run"
+    problems = M.validate_i2_provenance(rep, aud, elsewhere)
+    assert any(p.startswith("source.repo_root") and "free of" in p for p in problems), problems
+
+
+def test_symlink_escaping_repo_root_is_a_problem(tmp_path):
+    """A well-formed repo-relative path whose FILE is a symlink to an outside copy with the right bytes: refused."""
+    other = _checkout_elsewhere(tmp_path / "checkout")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    rep2, aud2 = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    rep1, aud1 = _bundle(other, B["dir"], B["audit_file"])
+    # census audit: replace the checkout's file with a symlink to an identical outside copy
+    audit_copy = outside / "audit.gz"
+    audit_copy.write_bytes((other / GATE_AUDIT_REL).read_bytes())
+    (other / GATE_AUDIT_REL).unlink()
+    (other / GATE_AUDIT_REL).symlink_to(audit_copy)
+    for problems in (M.validate_i2_provenance(rep2, aud2, other), M.validate_i1_provenance(rep1, aud1, other)):
+        assert any("inputs.census_audit.path resolves outside repo_root" in p for p in problems), problems
+    # spy_daily / strategy_config: a repo-local link name whose target is the real outside file
+    run_root = rep2["provenance"]["source"]["repo_root"]
+    for key in ("spy_daily", "strategy_config"):
+        link = other / "doc" / f"{key}.link"
+        link.symlink_to(pathlib.Path(rep2["provenance"]["inputs"][key]["path"]))
+        r = copy.deepcopy(rep2)
+        r["provenance"]["inputs"][key].update(path=f"{run_root}/doc/{key}.link", path_relative=f"doc/{key}.link")
+        problems = M.validate_i2_provenance(r, aud2, other)
+        assert any(f"inputs.{key}.path resolves outside repo_root" in p for p in problems), (key, problems)
+
+
+def test_refused_strategy_config_is_not_parsed_for_the_sector_map_rebuild(tmp_path):
+    """After `inputs.strategy_config.path` is refused (symlink leaving the checkout), the sector-map rebuild must not
+    open it either: the outside file carries a DIFFERENT sector_map, so any read would add a sector_map_sha256 line
+    (the positive control below shows it does, from a confined path)."""
+    other = _checkout_elsewhere(tmp_path / "checkout")
+    rep, aud = _bundle(other, I2_BUNDLE_DIR, "g2v3_stage_i2_audit.json.gz")
+    sc = rep["provenance"]["inputs"]["strategy_config"]
+    run_root = rep["provenance"]["source"]["repo_root"]
+    cfg = {"sector_map": {"ZZZZ": "Tampered"}, "sector_etf_map": {}}      # not the recorded maps; no umbrella file needed
+    outside = tmp_path / "outside" / "strategy_config.json"
+    outside.parent.mkdir()
+    outside.write_text(json.dumps(cfg), encoding="utf-8")
+    # positive control: the same bytes at a confined repo-local path ARE parsed, and the rebuilt sector_map disagrees
+    inside = other / "doc" / "cfg_inside.json"
+    inside.write_bytes(outside.read_bytes())
+    r = copy.deepcopy(rep)
+    r["provenance"]["inputs"]["strategy_config"].update(path=run_root + "/doc/cfg_inside.json",
+                                                        path_relative="doc/cfg_inside.json", sha256=M.sha256_file(inside))
+    assert any(p.startswith("inputs.sector_map_sha256 !=") for p in M.validate_i2_provenance(r, aud, other))
+    # the refused record: the refusal line, and no sign that the file behind the link was ever opened
+    (other / "doc" / "cfg_link.json").symlink_to(outside)
+    sc.update(path=run_root + "/doc/cfg_link.json", path_relative="doc/cfg_link.json", sha256=M.sha256_file(outside))
+    problems = M.validate_i2_provenance(rep, aud, other)
+    assert any(p.startswith("inputs.strategy_config.path resolves outside repo_root") for p in problems), problems
+    assert not any("sector_map_sha256" in p or "sector_etf_map_sha256" in p or "strategy config unreadable" in p
+                   or "strategy_config.sha256" in p for p in problems), problems
+

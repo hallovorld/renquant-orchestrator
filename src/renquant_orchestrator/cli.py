@@ -465,6 +465,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     run_job.add_argument("job_args", nargs=argparse.REMAINDER)
 
+    a4t1 = sub.add_parser(
+        "a4t1-promote",
+        help="RFC#210 A4-T1 candidate exception: identify -> validate against "
+             "the committed authorization record -> atomic consume -> stamp; "
+             "exit 0 iff PROMOTED (the only path that consumes the exception)",
+    )
+    a4t1.add_argument("--prod", required=True, help="active production artifact")
+    a4t1.add_argument("--staging", required=True, help="staged candidate artifact")
+    a4t1.add_argument("--as-of", default=None, help="YYYY-MM-DD (default: today)")
+
     wf_triage = sub.add_parser(
         "wf-promote-triage",
         help="classify weekly WF promote log failures as JSON",
@@ -1273,6 +1283,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_scheduled_job(args.job_id, args.job_args)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "a4t1-promote":
+        from .a4t1_governance import main as a4t1_main
+
+        forwarded = ["--prod", args.prod, "--staging", args.staging]
+        if args.as_of:
+            forwarded += ["--as-of", args.as_of]
+        return a4t1_main(forwarded)
+
     if args.command == "wf-promote-triage":
         from .wf_promote_triage import triage_log_dir
 

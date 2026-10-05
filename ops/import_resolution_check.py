@@ -29,6 +29,36 @@ Three of this repo's own incidents were exactly that question:
 * `renquant_common.validate_live_run_bundle` accepts a bundle after discarding 13
   of its 18 fields (#624), so *which* validator that name resolves to matters.
 
+**Which tree the check measures (2026-08-30).** The pins are package-relative
+paths, so a symbol resolving from a SIBLING checkout and the same symbol
+resolving from the PINNED runtime (`.subrepo_runtime/repos/<repo>/src`) pin
+identically — the pin cannot tell them apart, which is why the check must
+establish the daily's resolution ITSELF and then ASSERT it. Two defects were
+measured on the operator machine before this version:
+
+* `run_surface_drift_check.py` imported this module and called `verify()`
+  directly; only `main()` established the daily's package roots, so the scan
+  ran with the launchd plist's PYTHONPATH (orchestrator only) and reported
+  `renquant_backtesting.BacktestPipeline`, `renquant_execution.get_broker`
+  and `renquant_execution.BrokerExecutionPipeline` "unresolvable
+  (ModuleNotFoundError)" every day (three false alarms, 2026-08-30 07:00).
+* `_ensure_daily_resolution()` APPENDED the runtime roots, i.e. AFTER
+  site-packages — and the umbrella venv carries editable `.pth` entries for
+  four packages (`renquant_common`, `renquant_artifacts`, `renquant_base_data`,
+  `renquant_model`) pointing at `/Users/renhao/git/github/<repo>/src`. So even
+  the CLI path resolved those four from the mutable sibling checkouts while
+  the runtime sat at sys.path index 9+ (site-packages at index 4) and the pin
+  read OK: the pin was being verified against unpinned trees.
+
+Now `verify()` / `emit()` establish the resolution themselves (idempotent),
+insert the chosen root's package paths where PYTHONPATH entries live — after
+anything the caller exported, BEFORE the stdlib and site-packages, exactly the
+precedence the daily's `current.env` PYTHONPATH gives them — and, for every
+`renquant_*` symbol, assert that the file the object was defined in AND the
+imported module's `__file__` lie under the chosen root. A symbol resolving from
+anywhere else is reported as `resolved_from_unpinned_path`, a drift issue in its
+own right.
+
 Usage:
 
     import_resolution_check.py                # verify against the committed pins
@@ -74,6 +104,11 @@ _DAILY_REPOS: tuple[str, ...] = (
     "renquant-strategy-104", "renquant-backtesting",
 )
 
+#: Only modules whose top-level package carries this prefix are subject to the
+#: "resolves under the chosen root" assertion. The pin mechanism itself is
+#: exercised on stdlib symbols in tests; the stdlib is not a daily repo.
+RUNTIME_PACKAGE_PREFIX = "renquant_"
+
 
 def _runtime_root_from_current_env(umbrella: Path) -> Path | None:
     """RENQUANT_SUBREPO_ROOT, resolved the way the daily resolves it.
@@ -102,8 +137,47 @@ def _runtime_root_from_current_env(umbrella: Path) -> Path | None:
     return None
 
 
-def _ensure_daily_resolution() -> None:
-    """Append the daily's package roots exactly once, root chosen ONCE.
+def _under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def _pythonpath_insertion_index() -> int:
+    """The sys.path index PYTHONPATH entries occupy: before the first entry that
+    belongs to the interpreter itself (stdlib, lib-dynload, site-packages).
+
+    Everything the caller exported sits before that index and keeps
+    precedence; everything the interpreter contributes — INCLUDING editable
+    `.pth` entries, which `site` appends after site-packages — sits at or
+    after it. Inserting there is what mirrors `export PYTHONPATH=<runtime>`.
+    """
+    prefixes = []
+    for p in (sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix):
+        try:
+            prefixes.append(Path(p).resolve())
+        except OSError:
+            continue
+    for i, entry in enumerate(sys.path):
+        try:
+            e = Path(entry or os.getcwd()).resolve()
+        except OSError:
+            continue
+        if any(e == pre or pre in e.parents for pre in prefixes):
+            return i
+    return len(sys.path)
+
+
+#: Set once per process by _ensure_daily_resolution(): {"root": Path,
+#: "runtime_materialized": bool, "preloaded": {top-level renquant_* names
+#: that were already in sys.modules before the roots were inserted}}.
+_RESOLUTION: dict[str, Any] = {}
+
+
+def _ensure_daily_resolution() -> dict[str, Any]:
+    """Insert the daily's package roots exactly once, root chosen ONCE.
 
     The root choice is made a single time (runtime when materialized, else
     the siblings) — exactly like `renquant_subrepo_root` followed by
@@ -111,20 +185,44 @@ def _ensure_daily_resolution() -> None:
     paths [codex on orch#773 round 2: a per-repo runtime→sibling fallback
     would MASK a missing or incomplete pinned checkout with a sibling
     import; a repo absent from the chosen root must stay loudly
-    unresolvable]. APPEND, not prepend: anything the caller already exported
-    keeps precedence.
+    unresolvable]. Inserted at the PYTHONPATH position, not appended:
+    anything the caller already exported keeps precedence, and the
+    interpreter's own editable `.pth` siblings do NOT (2026-08-30 — appended
+    roots lost to those `.pth` entries for four of the eight packages).
+    Idempotent: a second call re-inserts nothing and returns the same record.
     """
+    if _RESOLUTION:
+        return _RESOLUTION
     runtime = _runtime_root_from_current_env(_UMBRELLA)
     root = runtime if runtime is not None else (
         Path(__file__).resolve().parent.parent.parent)
+    preloaded = sorted(
+        name for name in sys.modules
+        if name.startswith(RUNTIME_PACKAGE_PREFIX) and "." not in name)
+    at = _pythonpath_insertion_index()
     for repo in _DAILY_REPOS:
         base = root / repo
         for candidate in (base / "src", base):
             if candidate.is_dir():
                 p = str(candidate)
                 if p not in sys.path:
-                    sys.path.append(p)
+                    sys.path.insert(at, p)
+                    at += 1
                 break
+    _RESOLUTION.update({
+        "root": root,
+        "runtime_materialized": runtime is not None,
+        "preloaded": preloaded,
+    })
+    return _RESOLUTION
+
+
+def resolution_summary() -> str:
+    """One human line naming WHICH tree the verdict is about."""
+    r = _ensure_daily_resolution()
+    kind = "pinned runtime" if r["runtime_materialized"] else (
+        "sibling FALLBACK root (no pinned runtime materialized)")
+    return f"resolved against the {kind} {r['root']}"
 
 
 #: The symbols to pin, as (module, attribute). Kept as data next to the resolver so
@@ -166,6 +264,12 @@ def _package_relative(path: str | None) -> str | None:
     return "/".join(parts[-3:])
 
 
+#: Fields of a resolve() record that name ABSOLUTE paths. They are what the
+#: root assertion reads; emit() strips them so the committed pin stays
+#: checkout-independent.
+_ABSOLUTE_FIELDS: tuple[str, ...] = ("abs_source_file", "abs_module_file")
+
+
 def resolve(module_name: str, attr: str) -> dict[str, Any]:
     """Where does `module_name.attr` actually come from? Never raises."""
     out: dict[str, Any] = {"module": module_name, "attr": attr}
@@ -183,14 +287,48 @@ def resolve(module_name: str, attr: str) -> dict[str, Any]:
     # documented name onto a different implementation than the one a reader finds.
     out["defined_in"] = getattr(obj, "__module__", None)
     try:
-        out["source_file"] = _package_relative(inspect.getsourcefile(obj))
+        abs_source = inspect.getsourcefile(obj)
     except Exception:  # noqa: BLE001
-        out["source_file"] = None
+        abs_source = None
+    out["source_file"] = _package_relative(abs_source)
+    out["abs_source_file"] = str(Path(abs_source).resolve()) if abs_source else None
+    mod_file = getattr(mod, "__file__", None)
+    out["abs_module_file"] = str(Path(mod_file).resolve()) if mod_file else None
     out["kind"] = type(obj).__name__
     return out
 
 
+def _unpinned_path_problem(key: str, got: dict[str, Any]) -> str | None:
+    """`resolved_from_unpinned_path` when a renquant_* symbol's code or its
+    import module lies outside the chosen root. None otherwise, and None for
+    modules outside the runtime scope (stdlib test stand-ins)."""
+    if not str(got.get("module", "")).startswith(RUNTIME_PACKAGE_PREFIX):
+        return None
+    r = _ensure_daily_resolution()
+    root: Path = r["root"]
+    outside = [got[f] for f in _ABSOLUTE_FIELDS
+               if got.get(f) and not _under(Path(got[f]), root)]
+    if not outside:
+        return None
+    top = str(got.get("module", "")).split(".")[0]
+    cached = (f" — {top} was already imported before the pinned resolution was "
+              f"established (a cached module; establish the resolution first)"
+              if top in r["preloaded"] else "")
+    kind = "pinned runtime" if r["runtime_materialized"] else "sibling fallback root"
+    return (f"{key}: resolved_from_unpinned_path — {', '.join(sorted(set(outside)))} "
+            f"is not under the {kind} {root}; an editable .pth / sibling checkout / "
+            f"caller PYTHONPATH is shadowing the pin, so this process is not "
+            f"measuring the tree the daily runs{cached}")
+
+
 def emit() -> dict[str, Any]:
+    _ensure_daily_resolution()
+    symbols: dict[str, Any] = {}
+    for m, a in PINNED_SYMBOLS:
+        rec = resolve(m, a)
+        for f in _ABSOLUTE_FIELDS:
+            rec.pop(f, None)
+        symbols[f"{m}.{a}"] = rec
     return {
         "schema_version": 1,
         "_comment": (
@@ -200,14 +338,18 @@ def emit() -> dict[str, Any]:
             "resolves to a different implementation than the one this repo was "
             "reviewed against."
         ),
-        "symbols": {
-            f"{m}.{a}": resolve(m, a) for m, a in PINNED_SYMBOLS
-        },
+        "symbols": symbols,
     }
 
 
 def verify(pins: dict[str, Any]) -> list[str]:
-    """Compare live resolution against the pins. Returns problem lines."""
+    """Compare live resolution against the pins. Returns problem lines.
+
+    Establishes the daily's resolution itself first (idempotent), so a caller
+    that imports this module and calls verify() directly — the drift scan —
+    measures the same tree as the CLI.
+    """
+    _ensure_daily_resolution()
     problems: list[str] = []
     pinned = pins.get("symbols") or {}
     if not pinned:
@@ -243,6 +385,9 @@ def verify(pins: dict[str, Any]) -> list[str]:
                     f"{key}: {field} drifted — reviewed against {want.get(field)!r}, "
                     f"now resolves to {got.get(field)!r}. Which copy runs has "
                     f"CHANGED; confirm the new one is intended before re-pinning")
+        unpinned = _unpinned_path_problem(key, got)
+        if unpinned:
+            problems.append(unpinned)
     return problems
 
 
@@ -272,9 +417,10 @@ def main(argv: list[str] | None = None) -> int:
     problems = verify(pins)
     if problems:
         print("\n".join(problems))
-        print(f"\nimport-resolution: {len(problems)} problem(s)")
+        print(f"\nimport-resolution: {len(problems)} problem(s) ({resolution_summary()})")
         return 1
-    print(f"import-resolution OK — {len(PINNED_SYMBOLS)} symbols resolve as reviewed")
+    print(f"import-resolution OK — {len(PINNED_SYMBOLS)} symbols resolve as reviewed "
+          f"({resolution_summary()})")
     return 0
 
 

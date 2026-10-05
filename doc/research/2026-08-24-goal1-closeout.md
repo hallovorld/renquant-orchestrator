@@ -86,11 +86,28 @@ free slots) at the smallest structural change.
    *Rollback*: single-key revert PR + pin advance — no state migration; if
    the book holds >8 names at revert time, positions age out through normal
    exits (the cap gates ENTRIES only).
-   *Monitoring gates (first 10 sessions post-deploy)*: median deployment
-   (expect movement toward ~32%), realized integer price-tilt (expect ≤
-   today's 1.28×), wash-sale block-session rate (expect no rise vs the
-   trailing baseline); any gate failing → revert PR, findings appended to
-   this doc.
+   *Monitoring gates (first 10 completed sessions post-deploy):*
+
+   **Eligibility.** G1 uses sessions where at least one buy order was placed
+   (model-lapse and holiday sessions excluded). G3 uses ALL sessions where
+   the pipeline ran and at least one name passed the buy-admission gate
+   pre-wash (i.e., a buy intent existed) — sessions blocked by wash-sale ARE
+   eligible for G3, since that is exactly what it measures. If fewer than 5
+   eligible sessions accumulate in either window, that gate is INCONCLUSIVE
+   and the window extends until 5 are collected.
+
+   Pre-deploy baseline: the 10 sessions immediately before the pin advance
+   that activates cap 10 (all under cap 8), with gate-specific eligibility.
+
+   | gate | metric | source | formula | breach rule |
+   |---|---|---|---|---|
+   | G1 deployment | `invested_fraction` | `daily_trading_health.build_cash_deployment_signal` via account snapshot (`portfolio_value`, `cash` from broker read API) [VERIFIED — `daily_trading_health.py:333-341`] | `1 - cash / portfolio_value` at session close | 10-session median < 25% (halfway between today's ~17% and the grid's 32.6%) |
+   | G2 price tilt | DEFERRED | not computable from current schema — `candidate_scores` records (`ticker`, `panel_score`, `selected`, `blocked_by`) but no close price; `decision_ledger` records (`gate`, `verdict`, `reason`, `inputs_json`) but no price field [VERIFIED — DDL in `renquant_common/decision_ledger.py:23-29`, `l3_candidate_dataset.py:105` column list] | **prerequisite**: pipeline adds `close` (prior-close price) to `candidate_scores` rows for all admitted names, then: `median(fill_price of new buys) / median(close of all cap-admitted names)` per session | deferred until prerequisite lands; the AC1 grid measured cap-10 integer tilt at 1.20x (better than today's 1.28x), so the expected direction is favorable |
+   | G3 wash block | `wash_block_rate` | `decision_ledger` — `gate = 'wash_sale_mass_block'`, `verdict = 'block'`, one row per `(run_id, scope=ticker)` [VERIFIED — DDL `PRIMARY KEY (run_id, scope, gate)`] | sessions where every name with buy intent received `verdict = 'block'` from `wash_sale_mass_block` / total eligible sessions (sessions with at least one buy-intent name) | 10-session block rate > baseline block rate + 0.20 (i.e., if baseline has 2/10 = 20% blocked, breach at > 40%; the +0.20 absolute-rate margin allows for one extra blocked session per 5 eligible) |
+
+   A breach on ANY gate → revert PR filed within 24h of detection, findings
+   appended to this doc. The revert is a single-key change
+   (`max_concurrent_positions: 10 → 8`) + pin advance; no state migration.
 2. **Fractional, separately, under its own contract**: (a) umbrella
    broker-adapter PR implementing the renquant-execution#19 contract on the
    ACTIVE adapter (`live/alpaca_broker.py`); (b) software-stops stage-3

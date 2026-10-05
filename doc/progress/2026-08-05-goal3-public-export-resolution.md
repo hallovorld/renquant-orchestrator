@@ -49,6 +49,7 @@ VERIFIED-AT repo revision 0cee0e0a2483aede7198254f4df86f88aa4a4b3d
 VERIFIED-AT repo revision 7477978c2ff4dc9747be220f82ab63fe84917751
 VERIFIED-AT repo revision 69bf71169cab883ccc44175d02c62f9fdff7360b
 VERIFIED-AT repo revision 9c476b48a0916c3e560920a61ca525ee358795c2
+VERIFIED-AT repo revision 82e1d6bfea8cc4b8e64157a3f7e307e62935718a
 ```
 
 ### 2026-08-09: the guard fired again — re-derived at 69bf71169cab

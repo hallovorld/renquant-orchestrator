@@ -26,10 +26,10 @@ ACK_FP = "e3ecdd6587cdaf4e"
 
 
 #: The exact line the live detector emits — reachability included. Re-read
-#: 2026-08-29 (ack renewal): 36->46 scanned / 20->30 canonical-only since the
-#: 2026-08-05 line; the 10 new artifacts are canonical-only (one stamp each).
-LIVE_TEXT = ("gate-stamp parity: 46 artifact(s) scanned — 16 carry BOTH copies "
-             "(0 of them SERVED by a pinned config), 30 canonical-only, "
+#: 2026-08-31 (ack renewal): 36->48 scanned / 20->32 canonical-only since the
+#: 2026-08-05 line; the 12 new artifacts are canonical-only (one stamp each).
+LIVE_TEXT = ("gate-stamp parity: 48 artifact(s) scanned — 16 carry BOTH copies "
+             "(0 of them SERVED by a pinned config), 32 canonical-only, "
              "0 legacy-only, 0 no stamp, 0 malformed, 0 unreadable")
 
 
@@ -103,21 +103,21 @@ class TestTheAckCoversASituationNotAMagnitude:
         """A legacy-only stamp means a reader can get a verdict the canonical
         copy never gave."""
         s = self._classify(ledger, LIVE_TEXT.replace(
-            "30 canonical-only, 0 legacy-only", "29 canonical-only, 1 legacy-only"))
+            "32 canonical-only, 0 legacy-only", "31 canonical-only, 1 legacy-only"))
         assert s == CHANGED, s
 
     def test_MORE_both_copy_artifacts_breaks_the_ack(self, ledger):
         s = self._classify(ledger, LIVE_TEXT.replace(
-            "46 artifact(s) scanned — 16 carry", "50 artifact(s) scanned — 20 carry"))
+            "48 artifact(s) scanned — 16 carry", "52 artifact(s) scanned — 20 carry"))
         assert s == CHANGED, s
 
     def test_it_EXPIRES_on_its_own(self, ledger):
         """'No config points at it' is a fact about today's configs. The
         binding date is acked_at + ACK_MAX_AGE_DAYS (14) — the 2026-08-05 ack
         wrote 2026-09-05 and actually expired 2026-08-19; the renewal states
-        the effective bound (2026-09-12) as its expires_at."""
-        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 11)) == ACKED
-        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 12)) == EXPIRED
+        the effective bound (2026-09-14) as its expires_at."""
+        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 13)) == ACKED
+        assert self._classify(ledger, LIVE_TEXT, day=dt.date(2026, 9, 14)) == EXPIRED
 
 
 class TestWhatWasDELIBERATELYNotAcked:

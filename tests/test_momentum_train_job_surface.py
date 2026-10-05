@@ -91,12 +91,14 @@ def test_the_pending_install_state_is_fully_retired_for_this_job():
     is INSTALLED and verified loaded, so the merged-but-dark declaration must
     be GONE from both reviewed surfaces — a lingering pending marker over an
     installed job would teach the drift scan to trust a stale state. The
-    inverse rot (uninstalled job with no marker) stays caught by the drift
-    test's exact-equality set against launchctl."""
+    inverse rot (uninstalled job with no marker) stays caught by the daily
+    drift scan and by the opt-in operator-disk exact-equality test
+    (RENQUANT_DRIFT_DISK_TESTS=1; the default suite is hermetic since
+    2026-08-30)."""
     e = _entry()
     assert "_pending_install_comment" not in e
     assert "_install_precondition_comment" not in e
-    from test_run_surface_drift_check import TestManifestGeneration as T
+    from test_run_surface_drift_check import TestOperatorDiskSurface as T
     assert LABEL not in T.PENDING_INSTALL
     # No pending-install label may dangle: each must BE a manifested job.
     jobs = json.loads(MANIFEST.read_text())["jobs"]

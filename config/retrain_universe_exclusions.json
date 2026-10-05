@@ -1,0 +1,23 @@
+{
+  "kind": "retrain_universe_exclusions",
+  "schema_version": 1,
+  "description": "REVIEWED exclusions from the alpha158 panel training universe (renquant_orchestrator.retrain_alpha158_fund). A name listed here is removed from the universe BEFORE the OHLCV refresh, the freshness guard AND the panel build (the guard hands base-data's panel build a filtered inventory). Every entry needs a reason from {delisted, merged, symbol_change, data_outage_confirmed}, an ISO effective_date, an http(s) evidence_url and the PR that added it; the retrainer refuses to run on a missing or schema-invalid registry. A stale name that is NOT listed here vetoes the retrain — that veto is the reminder to add a reviewed entry (with evidence) or to fix ingestion. Remove an entry once the versioned inventory (base-data) itself prunes the name.",
+  "exclusions": [
+    {
+      "ticker": "IAC",
+      "reason": "data_outage_confirmed",
+      "effective_date": "2026-05-12",
+      "evidence_url": "https://github.com/hallovorld/RenQuant/blob/main/doc/progress/2026-07-17-retrain-exclude-iac.md",
+      "added_by_pr": "hallovorld/renquant-orchestrator#1096",
+      "notes": "Vendor returns 'possibly delisted; no price data found' for IAC since 2026-05-12 while 293/294 siblings update daily (retrain failures 2026-07-09 and 2026-07-17; data/ohlcv/IAC/1d.parquet last row 2026-05-12). No corporate-action record was located, so the reason is the confirmed multi-month outage, not an asserted delisting. Bridged since July by weekly_wf_promote.sh RETRAIN_EXCLUDE_TICKERS=IAC (orch doc/progress/2026-07-09-retrain-delisted-ticker-resilience.md)."
+    },
+    {
+      "ticker": "AVB",
+      "reason": "merged",
+      "effective_date": "2026-08-17",
+      "evidence_url": "https://www.sec.gov/Archives/edgar/data/0000915912/000110465926097833/tm2623381d1_8k.htm",
+      "added_by_pr": "hallovorld/renquant-orchestrator#1096",
+      "notes": "AvalonBay Communities: Equity Residential merger closed 2026-08-17 (SEC 8-K / Form 25). Last bar 2026-08-24; the 2026-08-30 weekly promote failed 'PANEL-FREEZE 1/293 stale ... Worst: AVB(-4s)' (logs/daily_retrain_alpha158_fund/2026-08-30.log). Not in the served watchlist."
+    }
+  ]
+}

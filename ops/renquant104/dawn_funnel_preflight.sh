@@ -25,6 +25,32 @@ SUBREPO_ROOT="$(renquant_subrepo_root "$REPO_DIR" "$(dirname "$REPO_DIR")")"
 export RENQUANT_SUBREPO_ROOT="$SUBREPO_ROOT"
 export PYTHONPATH="$(renquant_subrepo_pythonpath "$SUBREPO_ROOT" renquant-orchestrator renquant-common renquant-base-data renquant-artifacts renquant-model renquant-pipeline renquant-execution renquant-strategy-104 renquant-backtesting):${PYTHONPATH:-}"
 
+# BOOT CATCH-UP (same shape as the rq105 wrappers, orch#1087). The plist
+# carries RunAtLoad=true, so launchd also invokes this wrapper at every
+# bootstrap — a 06:05 slot missed across a boot (2026-08-28: host up at
+# 10:38, no dawn_pin_identity_2026-08-28.json, no probe) is caught up here.
+# The shared guard applies to EVERY invocation: run iff today is an NYSE
+# session AND 06:05 <= local time < that session's ACTUAL local close
+# (ops/catchup_cutoff.py under THIS wrapper's pinned PYTHONPATH) AND today's
+# probe log is missing; otherwise one stamped line in
+# catchup_guard_dawn-preflight_<date>.log and exit 0. The cutoff is the
+# session close: the probe previews the 13:55 post-close decision, and a
+# preview after the close previews nothing. It sits BEFORE the pin check on
+# purpose: a load-time skip must not re-run the pin check and overwrite the
+# day's receipt with a later timestamp.
+export RQ_ROOT="$REPO_DIR"
+export CATCHUP_CUTOFF_HELPER="$OPS_DIR/../catchup_cutoff.py"
+. "$OPS_DIR/../catchup_guard.sh"
+launchd_catchup_guard dawn-preflight "$(date +%F)" "$(date +%H%M)" 0605 session \
+  "$LOG_DIR/catchup_guard_dawn-preflight_$(date +%F).log" \
+  "$LOG"
+GUARD_RC=$?
+case $GUARD_RC in
+  0) ;;
+  1) exit 0 ;;
+  *) echo "FATAL: catch-up guard error rc=$GUARD_RC"; exit 1 ;;
+esac
+
 # ONE runtime root for everything below: the pin check, the strategy config, and
 # the bridge (via the exported RENQUANT_SUBREPO_ROOT) must all bind the SAME
 # resolved root. renquant_subrepo_root honors RENQUANT_SUBREPO_ROOT / an assembly
@@ -59,15 +85,45 @@ cd "$REPO_DIR"
 # divergence at the PIN level. This verifies the SAME resolved SUBREPO_ROOT the
 # bridge imports from matches subrepos.lock.json and emits a receipt, but NEVER
 # checks out / mutates / deploys (a monitor must not deploy) — it reuses
-# subrepo_assemble's own pin predicates.
+# subrepo_assemble's own pin predicate.
+#
+# TWO VERDICTS, not one (2026-08-30). The pin predicate the 13:55 order path
+# actually applies is `_is_pinned` alone — subrepo_assemble._ensure_repo
+# returns as soon as HEAD equals the lock commit and consults `_is_dirty` only
+# on the un-pinned path — so the daily printed "Subrepo checkouts aligned to
+# pins." on 08-26/27/28 while this monitor ABORTED every session 08-19..08-27
+# (7 receipts, all pinned=true dirty=true, renquant-model only) with "pins
+# not aligned" over ONE dirty tracked file, renquant-model's auto-generated
+# README.md; the 08-28 slot was then dropped by the boot. Dark for 8 sessions
+# for a cosmetic reason, under a message naming a pin mismatch that did not
+# exist.
+#   rc 0  OK, or TREE_DIRTY in docs/README/generated paths only: the check
+#         prints a WARN naming the files; the probe CONTINUES (the order path
+#         would run this exact tree).
+#   rc 1  PIN_MISMATCH (HEAD != lock, repo missing, lock unreadable): ABORT —
+#         the probe would preview a runtime DIFFERENT from the order path.
+#   rc 2  TREE_DIRTY_BLOCKING (a dirty file under src/ or any non-docs path):
+#         ABORT — unreviewed code in the pinned runtime is a containment
+#         condition, and it must be LOUD, not previewed.
+# Either abort is notified: a fail-closed monitor that fails silently is dark.
 PIN_RECEIPT="$LOG_DIR/dawn_pin_identity_$(date +%F).json"
-if ! "$PYTHON" "$OPS_DIR/dawn_pin_identity_check.py" \
+"$PYTHON" "$OPS_DIR/dawn_pin_identity_check.py" \
       --repo-dir "$REPO_DIR" \
       --runtime-root "$SUBREPO_ROOT" \
       --lock "$REPO_DIR/subrepos.lock.json" \
       --entrypoint dawn_funnel_preflight \
-      --receipt-out "$PIN_RECEIPT"; then
-  echo "ABORT: dawn preflight runtime pins not aligned to subrepos.lock.json (receipt: $PIN_RECEIPT) — the monitor would preview a runtime DIFFERENT from the 13:55 order path; refusing to probe."
+      --receipt-out "$PIN_RECEIPT"
+PIN_RC=$?
+case $PIN_RC in
+  0) ;;
+  1) PIN_ABORT="PIN_MISMATCH: dawn preflight runtime pins DIFFER from subrepos.lock.json (receipt: $PIN_RECEIPT) — the monitor would preview a runtime DIFFERENT from the 13:55 order path; refusing to probe." ;;
+  2) PIN_ABORT="TREE_DIRTY_BLOCKING: dawn preflight runtime has a dirty file in a code/config path (receipt: $PIN_RECEIPT) — the monitor would preview UNREVIEWED code; refusing to probe (containment protocol: record it or restore the tree)." ;;
+  *) PIN_ABORT="pin identity check failed rc=$PIN_RC (receipt: $PIN_RECEIPT) — refusing to probe." ;;
+esac
+if [ "$PIN_RC" -ne 0 ]; then
+  echo "ABORT: $PIN_ABORT"
+  . "$REPO_DIR/scripts/notify.sh" 2>/dev/null || true
+  rq_notify "rq104 dawn preflight ABORT ($(date +%F))" "$PIN_ABORT" || true
   exit 1
 fi
 

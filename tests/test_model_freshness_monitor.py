@@ -899,10 +899,13 @@ def test_non_exact_60_lookahead_is_not_silently_widened(tmp_path: Path) -> None:
 
 
 def test_axis_without_inherent_lag_ignores_lookahead_days(tmp_path: Path) -> None:
-    # A binding field OTHER than label_observation_cutoff has no inherent
-    # horizon lag at all -- lookahead_days (present or absent) must not affect
-    # it, and its absence must NOT fail closed (only label_observation_cutoff
-    # needs a stamped horizon).
+    # orch#906 UPDATE: effective_train_cutoff_date / data_cutoff_date are now
+    # CONDITIONALLY lagged — a VALIDATED stamped lookahead_days widens them
+    # (test_stamped_horizon_widens_train_cutoff_axis below); this test pins the
+    # other half of the contract: an UNSTAMPED horizon applies no widening and
+    # must NOT fail closed (an unstamped horizon is a legitimate recipe on
+    # these axes — e.g. the momentum ledger's skip is an embargo, not a
+    # horizon; only label_observation_cutoff requires a stamped horizon).
     art = _write_json(
         tmp_path / "train_cutoff.json",
         {"effective_train_cutoff_date": "2026-06-20"},  # 10d raw age, no lookahead_days at all
@@ -1058,3 +1061,114 @@ def test_integration_no_receipt_shadow_fails_closed(tmp_path: Path, capsys) -> N
     assert payload["shadow_panel"]["tier"] == mod.TIER_ESCALATE
     assert payload["worst_tier"] == mod.TIER_ESCALATE
     assert rc == 2
+
+
+# --------------------------------------------------------------------------- #
+# orch#906: metadata-nested stamps + conditionally lagged train/data axes.
+# The panel producer stamps ``metadata.data_cutoff_date`` /
+# ``metadata.feature_cutoff_date`` (renquant-model panel_trainer); the monitor
+# resolves each axis top-level-then-metadata (the SAME read order the RFC#210
+# license and the axis-agreement probe use) and widens the conditionally
+# lagged axes ONLY by the artifact's own validated stamped lookahead_days.
+# --------------------------------------------------------------------------- #
+def test_metadata_nested_data_cutoff_binds(tmp_path: Path) -> None:
+    # Pre-#906 the monitor read only the top level and reported UNKNOWN for
+    # exactly this artifact shape (the daily "freshness UNKNOWN" alert).
+    art = _write_json(
+        tmp_path / "panel.json",
+        {
+            "kind": "xgb",
+            "trained_date": "2026-06-30",
+            "lookahead_days": 60,
+            "metadata": {"data_cutoff_date": "2026-04-07",
+                         "feature_cutoff_date": "2026-06-27"},
+        },
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "metadata.data_cutoff_date"
+    assert fresh.binding_cutoff == "2026-04-07"
+    assert fresh.age_days == 84
+    assert fresh.tier == mod.TIER_HEALTHY  # widened by the stamped 60-BD horizon
+    assert fresh.feature_cutoff_date == "2026-06-27"
+    assert "feature_cutoff_date=2026-06-27" in fresh.detail
+    assert "provenance" in fresh.detail  # echoed, never tiered
+
+
+def test_top_level_wins_over_metadata_for_the_same_field(tmp_path: Path) -> None:
+    art = _write_json(
+        tmp_path / "a.json",
+        {"data_cutoff_date": "2026-06-20",
+         "metadata": {"data_cutoff_date": "2026-05-01"}},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "data_cutoff_date"
+    assert fresh.binding_cutoff == "2026-06-20"
+
+
+def test_axis_priority_is_field_major_across_levels(tmp_path: Path) -> None:
+    # A HIGHER-priority axis stamped under metadata outranks a LOWER-priority
+    # top-level field — nesting never reorders the axis precedence.
+    art = _write_json(
+        tmp_path / "a.json",
+        {"cutoff_date": "2026-06-29",
+         "metadata": {"data_cutoff_date": "2026-06-20"}},
+    )
+    fresh = mod.read_artifact_freshness("x", art, AS_OF)
+    assert fresh.binding_field == "metadata.data_cutoff_date"
+    assert fresh.binding_cutoff == "2026-06-20"
+
+
+def test_stamped_horizon_widens_train_cutoff_axis(tmp_path: Path) -> None:
+    # orch#906: a staging panel artifact stamps top-level
+    # effective_train_cutoff_date (its last label-complete row) plus
+    # lookahead_days=60. At the expected 60-BD frontier it is genuinely fresh
+    # and must read HEALTHY — not born-BREACH off the raw 84d age.
+    art = _write_json(
+        tmp_path / "a.json",
+        {"effective_train_cutoff_date": "2026-04-07", "lookahead_days": 60},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "effective_train_cutoff_date"
+    assert fresh.age_days == 84
+    assert fresh.tier == mod.TIER_HEALTHY
+    assert "thresholds +" in fresh.detail  # widening is surfaced
+
+
+def test_invalid_stamp_on_conditional_axis_applies_no_widening(tmp_path: Path) -> None:
+    # Unlike the strict label-observation axis, an invalid lookahead_days on a
+    # conditionally lagged axis applies NO widening (conservative raw-age
+    # tiering) — never a guessed default, never a borrowed allowance.
+    art = _write_json(
+        tmp_path / "a.json",
+        {"metadata": {"data_cutoff_date": "2026-04-07"}, "lookahead_days": 45},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.lookahead_days_stamped is None
+    assert fresh.age_days == 84
+    assert fresh.tier == mod.TIER_BREACH  # raw 84d > 28d; no borrowed widening
+
+
+def test_feature_cutoff_date_never_binds(tmp_path: Path) -> None:
+    # The feature frontier is data-pipeline-health provenance (#423 r3): an
+    # artifact carrying ONLY it has no freshness axis -> fail closed.
+    art = _write_json(
+        tmp_path / "a.json",
+        {"trained_date": "2026-06-30",
+         "metadata": {"feature_cutoff_date": "2026-06-27"}},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field is None
+    assert fresh.tier == mod.TIER_UNKNOWN
+    assert fresh.feature_cutoff_date == "2026-06-27"  # echoed as provenance
+
+
+def test_frozen_metadata_cutoff_still_breaches_despite_widening(tmp_path: Path) -> None:
+    # The widening accounts for the EXPECTED horizon; it never launders a
+    # genuinely frozen panel.
+    art = _write_json(
+        tmp_path / "a.json",
+        {"lookahead_days": 60, "metadata": {"data_cutoff_date": "2025-05-01"}},
+    )
+    fresh = mod.read_artifact_freshness("prod-panel", art, AS_OF)
+    assert fresh.binding_field == "metadata.data_cutoff_date"
+    assert fresh.tier == mod.TIER_BREACH

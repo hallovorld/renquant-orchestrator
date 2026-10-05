@@ -4,20 +4,39 @@ STATUS:   delivered — AC2 + AC4; GOAL-1's four ACs all discharged.
 WHAT:     doc/research/2026-08-24-goal1-closeout.md. AC2's finding is
           structural, not statistical: counterfactual cap entries have no
           realized outcomes, and even the fwd-return proxy covers 50/467
-          names with n_eff(h=20)=1. AC4 recommends cap 8→10 + fractional IN
-          THE SAME change, with ticket-size/concentration/wash-sale costs and
-          the S-FRAC readiness state (execution support present, floor
-          counters live, enablement contract steps listed) all named.
-WHY/DIR:  the model finds 20–27 buyable names per session against 0–2 free
+          names with n_eff(h=20)=1. AC4 (r2) recommends cap 8->10 NOW,
+          fractional SEPARATELY under its own contract — the r1 coupling
+          was wrong (destroys attribution + the readiness claim was
+          incorrect: zero is_fractionable implementations on the active
+          tree [VERIFIED 2026-08-24]).
+WHY/DIR:  the model finds 20-27 buyable names per session against 0-2 free
           slots; this is the only lever that changes how much model output
           reaches capital, and the decision is the operator's by hard gate.
 EVIDENCE:
-  artifact:      the closeout doc.
+  artifact:      the closeout doc (r2).
   prod or exp:   exp — read-only measurements.
-  existing data: 467/50/10/n_eff=1 proxy measurement [VERIFIED today];
-                 floor_eligible counters observed in the latest full run;
-                 fractionable support located in renquant-execution.
-  best-known?:   yes — recommending 15 would buy +12pp deployment with the
-                 worst tilt regime; 10 captures the bulk at minimum change.
+  existing data: 467/50/10/n_eff=1 proxy measurement [VERIFIED 2026-08-24];
+                 AC1 v3 grid: cap-10 integer tilt 1.20x < today's 1.28x,
+                 median deployment 17.3%->32.6% [VERIFIED — grid output].
+  best-known?:   yes — cap 10 captures the bulk of unmet admissible demand
+                 at minimum structural change; 15 buys +12pp with worst
+                 tilt regime (1.40x).
+  r2 staged plan: (1) cap only now, authority = LONG row 2b (orch#1049);
+                  monitoring gates (first 10 sessions, gate-specific
+                  eligibility, min 5 each window):
+                  G1 invested_fraction median >= 25% (source:
+                  daily_trading_health.build_cash_deployment_signal),
+                  G2 DEFERRED — price tilt not computable from current
+                  schema (candidate_scores lacks close price; decision_ledger
+                  lacks price); prerequisite = pipeline adds close to
+                  candidate_scores; AC1 grid measured 1.20x (favorable),
+                  G3 wash_block_rate post <= baseline + 0.20 absolute
+                  (source: decision_ledger gate='wash_sale_mass_block');
+                  any G1/G3 breach -> revert PR within 24h. Full formulas,
+                  source fields, and eligibility rules in the research doc.
+                  (2) fractional separately: umbrella broker-adapter PR
+                  implementing is_fractionable on the ACTIVE adapter,
+                  software-stops stage-3 arming, then one-bit flip under
+                  its own ledger row.
   scope:        documentation. NO config change (AC3).
 REVIEW:    codex (haorensjtu-dev).

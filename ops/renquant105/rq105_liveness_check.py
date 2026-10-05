@@ -95,6 +95,32 @@ Checked (session days only):
                            materially AHEAD of now (beyond a small clock-skew tolerance) is
                            rejected as corrupt/clock-issue, not treated as "very fresh"; the same
                            rejection applies to a file_mtime basis reading a future mtime.
+
+  SERVING CHAIN (orch#1085, 2026-08-29) — everything above proves the TICK side is alive; the
+  chain that turns ticks into a served opinion had NO coverage. On 2026-08-28 the host booted
+  at 10:38 local, launchd dropped the 06:15 export and 06:25 scheduler calendar slots (a
+  StartCalendarInterval missed across a BOOT is never backfilled), no
+  data/rq105/batch_scores_2026-08-28.{json,meta.json} was written, run_shadow_serving.sh
+  exited "SKIP upstream" on its first line, shadow_realtime_serving.jsonl gained no row —
+  and this check printed "rq105 liveness OK 2026-08-28". The comparison that would have
+  failed (meta.session_date == today) was never made. Now, per session day:
+    batch_scores_export   data/rq105/batch_scores_<date>.json + .meta.json exist AND
+                          meta.session_date == <date>            -> else FAIL export_missing
+    shadow_serving        logs/rq105/shadow_serving_<date>.log exists, its first line is not
+                          the wrapper's "SKIP upstream" stamp, AND
+                          logs/renquant105_pilot/shadow_realtime_serving.jsonl carries a row
+                          with session_date == <date>            -> else FAIL serving_noop
+    session_scheduler     the operator arming file (run_session_scheduler.sh gate 2) decides
+                          what "alive" means: ABSENT or "armed": false -> the scheduler is
+                          EXPECTED dark; reported as scheduler=DISARMED in the OK line, never
+                          silently. ARMED -> logs/renquant105_pilot/intraday_decisions_shadow
+                          .jsonl must carry a session_date == <date> row -> else FAIL
+                          scheduler_dark. Present-but-invalid arming file (the validator
+                          refuses it, so the wrapper runs dark while an operator may believe
+                          it is armed) -> FAIL arming_invalid.
+  Paths are the wrapper literals (run_shadow_serving.sh --shadow-log/--scheduler-log,
+  run_session_scheduler.sh ARMING_FILE, export_batch_scores.py OUT_DIR); tests bind each
+  literal to its wrapper text and to the producing module's own resolver so they cannot drift.
 """
 from __future__ import annotations
 
@@ -649,8 +675,251 @@ def _data_output_fresh(
     return True, "", row
 
 
-def main() -> int:
-    today = dt.date.today()
+# ---------------------------------------------------------------------------
+# Serving chain (orch#1085): export bundle -> shadow serving -> scheduler.
+# ---------------------------------------------------------------------------
+# Stable failure-class tokens. Each alert line starts with one so the page
+# reads as a diagnosis, and tests assert on the token, not on prose.
+FAIL_EXPORT_MISSING = "export_missing"
+FAIL_SERVING_NOOP = "serving_noop"
+FAIL_SCHEDULER_DARK = "scheduler_dark"
+FAIL_ARMING_INVALID = "arming_invalid"
+
+SCHEDULER_ARMED = "ARMED"
+SCHEDULER_DISARMED = "DISARMED"
+
+# The wrapper's own stamp for "the export never happened" — the exact text
+# run_shadow_serving.sh writes as the ONLY line of shadow_serving_<date>.log
+# when the bundle is absent (measured 2026-08-28: that file was one line).
+_SERVING_SKIP_UPSTREAM_MARKER = "SKIP upstream"
+
+# The two serving-chain JSONL files accumulate across sessions (6-7 MB each
+# measured 2026-08-29) and are append-only in session order, so today's rows
+# — if any — are at the tail. 1 MiB covers several sessions of either file
+# (scheduler ticks ~15 KB x 32/session; serving rows ~1 KB x ~320/session);
+# it is a bound on the read, not an assumption that the file is small.
+_SERVING_TAIL_BYTES = 1 << 20
+
+# Scheduler record kinds that prove the scheduler RAN for a session — both are
+# written by intraday_session_scheduler (ShadowTickWriter / _init_manifest)
+# and nothing else writes this file (rq105_entry_loop_shadow only READS it via
+# --scheduler-log; its own records go to the intents log).
+_SCHEDULER_RECORD_KINDS = ("intraday_decision_shadow_tick", "intraday_session_manifest")
+
+
+def _batch_bundle_paths(data_root: Path, today_iso: str) -> tuple[Path, Path]:
+    """export_batch_scores.py writes OUT_DIR/batch_scores_<date>.json + .meta.json
+    with OUT_DIR = <RQ>/data/rq105; run_shadow_serving.sh reads the same two
+    literals ($SCORES / $META). Bound to both by tests."""
+    d = data_root / "data" / "rq105"
+    return d / f"batch_scores_{today_iso}.json", d / f"batch_scores_{today_iso}.meta.json"
+
+
+def _serving_jsonl_path(data_root: Path) -> Path:
+    """The literal run_shadow_serving.sh passes as --shadow-log; equals
+    shadow_realtime_serving.default_shadow_log_path(data_root) (test-bound)."""
+    return data_root / "logs" / "renquant105_pilot" / "shadow_realtime_serving.jsonl"
+
+
+def _scheduler_jsonl_path(data_root: Path) -> Path:
+    """The literal run_shadow_serving.sh passes as --scheduler-log; equals
+    intraday_session_scheduler.default_shadow_log_path(data_root) (test-bound)."""
+    return data_root / "logs" / "renquant105_pilot" / "intraday_decisions_shadow.jsonl"
+
+
+def _arming_file_path(data_root: Path) -> Path:
+    """run_session_scheduler.sh: ARMING_FILE="$RQ_ROOT/data/rq105/intraday_decisioning.armed.json"
+    (gate 2, #1067). Operator-owned; this check only READS it."""
+    return data_root / "data" / "rq105" / "intraday_decisioning.armed.json"
+
+
+def _tail_rows(path: Path, max_bytes: int = _SERVING_TAIL_BYTES) -> list[dict]:
+    """Parsed JSON-object rows from the last ``max_bytes`` of ``path``, oldest
+    first. A leading partial line (chopped by the window) and unparseable
+    lines are dropped — this is a presence scan for today's rows, never a
+    schema validator (the collectors' own schema checks live above)."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            read_size = min(size, max_bytes)
+            fh.seek(-read_size, os.SEEK_END)
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    lines = tail.splitlines()
+    if read_size < size and lines:
+        lines = lines[1:]  # first line of a mid-file window is a fragment
+    rows: list[dict] = []
+    for ln in lines:
+        if not ln.strip():
+            continue
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _first_line(path: Path) -> str:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                if ln.strip():
+                    return ln.rstrip("\n")
+    except OSError:
+        return ""
+    return ""
+
+
+def check_batch_scores_export(data_root: Path, logs_dir: str, today_iso: str) -> tuple[bool, str]:
+    """(ok, reason). FAIL export_missing unless BOTH bundle files exist and the
+    meta's session_date is today. The wrapper log's presence is reported in the
+    reason as a diagnosis aid only (absent = launchd never fired the 06:15 job,
+    the 08-28 boot-missed-slot shape; present = the job ran and did not export)."""
+    scores, meta = _batch_bundle_paths(data_root, today_iso)
+    wrapper_log = os.path.join(logs_dir, f"batch_scores_export_{today_iso}.log")
+    fired = "wrapper log present" if os.path.exists(wrapper_log) else (
+        "wrapper log ABSENT — launchd never fired the 06:15 export today "
+        "(boot after the slot? StartCalendarInterval is not backfilled across a boot)")
+    absent = [str(p) for p in (scores, meta) if not os.path.exists(p)]
+    if absent:
+        return False, f"batch-score bundle missing for {today_iso}: {', '.join(absent)} [{fired}]"
+    try:
+        with open(meta, encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return False, f"batch-score meta unreadable ({meta}: {exc}) [{fired}]"
+    session_date = payload.get("session_date") if isinstance(payload, dict) else None
+    if session_date != today_iso:
+        return False, (
+            f"batch-score meta session_date={session_date!r} != {today_iso!r} "
+            f"({meta}) — a stale bundle is not today's export [{fired}]")
+    return True, f"bundle present, meta.session_date={today_iso}"
+
+
+def check_shadow_serving(data_root: Path, logs_dir: str, today_iso: str) -> tuple[bool, str]:
+    """(ok, reason). FAIL serving_noop unless the dated serving log exists, does
+    not open with the wrapper's "SKIP upstream" stamp, AND the serving JSONL
+    carries a session_date == today row. The row is the load-bearing half: any
+    early exit of run_shadow_serving.sh (upstream skip, producer refusal rc=4,
+    producer failure rc=5, pin-verification refusal) writes a log and no rows."""
+    log = Path(logs_dir) / f"shadow_serving_{today_iso}.log"
+    if not log.exists():
+        return False, f"shadow_serving_{today_iso}.log missing ({log}) — the 13:45 serving job never fired"
+    first = _first_line(log)
+    if _SERVING_SKIP_UPSTREAM_MARKER in first:
+        return False, (
+            f"shadow serving skipped upstream for {today_iso}: {first[:200]!r} "
+            f"(no frozen batch-score export — the serving chain no-op'd)")
+    jsonl = _serving_jsonl_path(data_root)
+    if not jsonl.exists():
+        return False, f"serving output {jsonl} missing — no session_date={today_iso} row"
+    rows = _tail_rows(jsonl)
+    n_today = sum(1 for r in rows if r.get("session_date") == today_iso)
+    if n_today == 0:
+        last = next((r.get("session_date") for r in reversed(rows) if r.get("session_date")), None)
+        return False, (
+            f"serving output {jsonl} has no session_date={today_iso} row "
+            f"(last session_date in tail={last!r}); serving log first line: {first[:200]!r}")
+    return True, f"serving log present; {n_today} session_date={today_iso} rows in tail"
+
+
+def _arming_state(data_root: Path) -> tuple[str, str]:
+    """(state, detail) with state in {ARMED, DISARMED, <FAIL_ARMING_INVALID>}.
+
+    DISARMED covers exactly the two documented disarm paths of
+    renquant_orchestrator.rq105_arming — file absent, or an explicit
+    ``"armed": false`` — both of which mean "the scheduler is expected dark".
+    Anything else present goes through the wrapper's OWN validator
+    (``evaluate_arming_file``, the same function run_session_scheduler.sh's
+    gate 2 calls): armed -> ARMED; refused -> arming_invalid, because a
+    malformed authorization runs the scheduler dark while an operator may
+    believe it is armed — the silent-no-op shape this check exists to name."""
+    arming = _arming_file_path(data_root)
+    if not arming.exists():
+        return SCHEDULER_DISARMED, f"arming file absent ({arming})"
+    try:
+        payload = json.loads(arming.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return FAIL_ARMING_INVALID, f"arming file unreadable ({arming}: {exc})"
+    if isinstance(payload, dict) and payload.get("armed") is False:
+        return SCHEDULER_DISARMED, f"arming file present with \"armed\": false ({arming})"
+    _orch_src_on_path()
+    try:
+        from renquant_orchestrator.rq105_arming import evaluate_arming_file  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 — cannot validate: do not assume dark is fine
+        return FAIL_ARMING_INVALID, (
+            f"arming file present but the validator is unimportable ({exc}) — "
+            f"cannot establish the armed state, refusing to assume the scheduler is expected dark")
+    armed, detail = evaluate_arming_file(arming)
+    if armed:
+        return SCHEDULER_ARMED, detail
+    return FAIL_ARMING_INVALID, (
+        f"arming file present but REFUSED by the validator ({detail}) — the scheduler "
+        f"runs dark while the file looks like an authorization ({arming})")
+
+
+def check_session_scheduler(data_root: Path, logs_dir: str, today_iso: str) -> dict:
+    """``{"status": "ok"|"fail", "code": None|token, "scheduler": ARMED|DISARMED|None,
+    "reason": str}``. DISARMED is status ok — expected dark, but the caller MUST
+    surface ``scheduler`` in its OK line (never silently). ARMED requires a
+    session_date == today record from the scheduler's own writer."""
+    state, detail = _arming_state(data_root)
+    if state == SCHEDULER_DISARMED:
+        return {"status": "ok", "code": None, "scheduler": SCHEDULER_DISARMED, "reason": detail}
+    if state == FAIL_ARMING_INVALID:
+        return {"status": "fail", "code": FAIL_ARMING_INVALID, "scheduler": None, "reason": detail}
+    wrapper_log = os.path.join(logs_dir, f"session_scheduler_{today_iso}.log")
+    fired = "wrapper log present" if os.path.exists(wrapper_log) else (
+        "wrapper log ABSENT — launchd never fired the 06:25 scheduler today "
+        "(boot after the slot? StartCalendarInterval is not backfilled across a boot)")
+    jsonl = _scheduler_jsonl_path(data_root)
+    rows = [r for r in _tail_rows(jsonl) if r.get("kind") in _SCHEDULER_RECORD_KINDS]
+    today_rows = [r for r in rows if r.get("session_date") == today_iso]
+    if not today_rows:
+        last = next((r.get("session_date") for r in reversed(rows) if r.get("session_date")), None)
+        return {
+            "status": "fail", "code": FAIL_SCHEDULER_DARK, "scheduler": SCHEDULER_ARMED,
+            "reason": (
+                f"scheduler ARMED ({detail}) but {jsonl} has no session_date={today_iso} "
+                f"record (last session_date in tail={last!r}) [{fired}]"),
+        }
+    n_ticks = sum(1 for r in today_rows if r.get("kind") == _SCHEDULER_RECORD_KINDS[0])
+    return {
+        "status": "ok", "code": None, "scheduler": SCHEDULER_ARMED,
+        "reason": f"{detail}; {n_ticks} tick record(s) for {today_iso} in tail",
+    }
+
+
+def check_serving_chain(data_root: Path, logs_dir: str, as_of: dt.date) -> dict[str, dict]:
+    """STABLE PUBLIC interface for the serving-chain liveness verdicts (the
+    sibling of ``check_collector_data_outputs``). Returns one entry per
+    surface: ``{"status": "ok"|"fail", "code": None|<FAIL_* token>,
+    "reason": str, "scheduler": ARMED|DISARMED|None}``."""
+    today_iso = as_of.isoformat()
+    ok, reason = check_batch_scores_export(data_root, logs_dir, today_iso)
+    out: dict[str, dict] = {
+        "batch_scores_export": {
+            "status": "ok" if ok else "fail",
+            "code": None if ok else FAIL_EXPORT_MISSING,
+            "reason": reason, "scheduler": None,
+        },
+    }
+    ok, reason = check_shadow_serving(data_root, logs_dir, today_iso)
+    out["shadow_serving"] = {
+        "status": "ok" if ok else "fail",
+        "code": None if ok else FAIL_SERVING_NOOP,
+        "reason": reason, "scheduler": None,
+    }
+    out["session_scheduler"] = check_session_scheduler(data_root, logs_dir, today_iso)
+    return out
+
+
+def main(today: dt.date | None = None) -> int:
+    today = today or dt.date.today()
     today_iso = today.isoformat()
 
     if not _is_session_day(today):
@@ -675,12 +944,24 @@ def main() -> int:
         if result["status"] != "ok":
             missing.append(f"{name}: {result['reason']}")
 
+    # Serving chain (orch#1085). Same alert path, same exit code: a no-op'd
+    # serving chain is rq105 DOWN exactly as a dead collector is.
+    scheduler_note = ""
+    for name, result in check_serving_chain(data_root, LOGS, today).items():
+        if result["status"] != "ok":
+            missing.append(f"{result['code']}: {name}: {result['reason']}")
+        elif result.get("scheduler"):
+            scheduler_note = f" [scheduler {result['scheduler']}: {result['reason']}]"
+
     if missing:
-        _alert(f"🚨 rq105 DOWN — {len(missing)} collector issue(s) {today_iso}",
-               "\n".join(missing))
-        print("\n".join(missing))
+        body = "\n".join(missing) + (f"\nscheduler:{scheduler_note}" if scheduler_note else "")
+        _alert(f"🚨 rq105 DOWN — {len(missing)} issue(s) {today_iso}", body)
+        print(body)
         return 1
-    print(f"rq105 liveness OK {today_iso}")
+    # The scheduler's state is ALWAYS in the OK line: a disarmed scheduler is
+    # expected dark, but "expected" is a claim the operator must be able to
+    # see, not something this check keeps to itself.
+    print(f"rq105 liveness OK {today_iso}{scheduler_note}")
     return 0
 
 
