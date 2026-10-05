@@ -1,0 +1,17 @@
+{
+  "_comment": "Recorded incidents for the scorer-identity monitor (src/renquant_orchestrator/scorer_identity_monitor.py). Each entry explains EXACTLY one run-over-run boundary: lane key + both run ids (exact) + both stamped digests (prefix-bound, >= 16 hex). It exists for transitions that no promotion receipt, rollback marker, or link-intact ledger append can ever legitimize — a human diagnosed them and the durable record is the memory/progress doc named in `evidence`. Adding an entry is a reviewed change to this repository; an entry never generalizes (no wildcard fields are accepted by the loader).",
+  "schema_version": 1,
+  "incidents": [
+    {
+      "lane": "shadow:/Users/renhao/git/github/RenQuant/backtesting/renquant_104/artifacts/momentum/momentum_artifact_ledger.jsonl",
+      "prev_run_id": "2026-08-31-live-ba1899f8",
+      "curr_run_id": "2026-08-31-live-5a0c9139",
+      "prev_sha": "sha256:a1149c5666703b4525f352806acd5abf48d92d54d5f4c012d7448ebfe098f086",
+      "curr_sha": "sha256:9aa2d8c9571bad950ed9dc50e4437504503be233a5be581b5df39bea65a047e6",
+      "reason": "2026-08-31 07:17:50 PDT live-tree `git pull` reset the git-tracked momentum ledger to its committed 1-row (2026-08-02) revision, wiping the 08-08/15/22/29 refit rows (5-row file a1149c -> 1-row file 9aa2d8c; mtime 07:17:50 vs reflog 07:17:54). A truncation is a same-path replacement, not an append, so the ledger self-legitimization can never explain it. The four lost rows carry input digests and are NOT reconstructed; the Saturday refit appends from the surviving tail row.",
+      "evidence": "RenQuant#638 (untrack the live-mutated momentum ledgers; progress doc doc/progress/2026-09-03-untrack-live-momentum-ledgers.md); operator-session memory never-touch-production-inputs-on-live-tree (2026-09-03 addendum); logs/rq104/scorer_identity_2026-09-04.log lines 2-6",
+      "recorded_by": "claude (operator session 428feb92, 2026-09-04)",
+      "recorded_at": "2026-09-04"
+    }
+  ]
+}
