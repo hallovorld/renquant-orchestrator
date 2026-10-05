@@ -108,24 +108,51 @@ def test_the_wrapper_stays_observe_only():
         assert forbidden not in body, forbidden
 
 
-def test_exactly_one_python_command_runs_and_it_is_the_monitor():
-    """The tightest statement of observe-only: this wrapper runs the monitor and
-    nothing else. A banned-substring list can only catch mutations someone thought
-    to name; an allowlist of invocations catches the ones they did not."""
+def test_every_python_command_is_a_NAMED_observe_only_monitor():
+    """The tightest statement of observe-only: this wrapper runs the monitors it
+    declares and nothing else. A banned-substring list can only catch mutations
+    someone thought to name; an allowlist of invocations catches the ones they
+    did not.
+
+    The allowlist is EXHAUSTIVE and ORDERED, so it stays an allowlist as the job
+    grows. Widening it means adding a named entry here in review — which is the
+    point; what it must never become is "at least one is a monitor", because that
+    would let an unnamed third call ride along unnoticed.
+    """
     # A variable ASSIGNMENT that names the interpreter (`PYTHON=...`,
     # `export PYTHONPATH=...`) is not an invocation. Filtering on the substring
     # alone counted three "runs" where the shell executes one.
     runs = [l for l in _invocations(WRAPPER)
-            if l.startswith(('"$PYTHON"', "$PYTHON"))]
-    # TWO invocations by design since the #638 evidence-ordering fix: a read-only
-    # import PROBE that must run before any evidence is committed, then the monitor.
-    # Naming both explicitly keeps this an allowlist -- loosening it to "at least one
-    # is the monitor" would let a third, mutating call slip in unnoticed.
-    assert len(runs) == 2, runs
-    probe, run = runs
-    assert probe.startswith('"$PYTHON" -c "import renquant_orchestrator.model_freshness_monitor"'), probe
-    assert "renquant_orchestrator.model_freshness_monitor" in run
-    assert "--notify" in run
+            if l.lstrip().startswith(('"$PYTHON"', "$PYTHON"))
+            or ' "$PYTHON" -c ' in l]      # the step-2b probe sits inside an `if`
+    expected = [
+        # step 1: read-only import PROBE, before any evidence is committed (#638)
+        ("-c", "renquant_orchestrator.model_freshness_monitor"),
+        # step 2: the freshness monitor itself — this job's exit code
+        ("-m", "renquant_orchestrator.model_freshness_monitor"),
+        # step 2b: the serving-window countdown, probed the same way because a
+        # checkout that predates it must SKIP the step, not fail the job
+        ("-c", "renquant_orchestrator.serving_window_monitor"),
+        ("-m", "renquant_orchestrator.serving_window_monitor"),
+    ]
+    assert len(runs) == len(expected), runs
+    for line, (flag, module) in zip(runs, expected):
+        assert f'"$PYTHON" {flag} ' in line, (line, flag)
+        assert module in line, (line, module)
+    assert "--notify" in runs[1] and "--notify" in runs[3]
+
+
+def test_the_window_step_cannot_take_the_freshness_job_down():
+    """A module absent from the running checkout is the ordinary state between a
+    merge and the next `-run` sync. Step 2b must therefore be probed and skipped,
+    never promoted to a prerequisite — and its exit code must not become this
+    job's, because the run-health classifier reads that code as the FRESHNESS
+    verdict."""
+    body = WRAPPER.read_text()
+    assert 'if "$PYTHON" -c "import renquant_orchestrator.serving_window_monitor"' in body
+    assert "SKIPPED" in body
+    # the published exit code is still the freshness monitor's
+    assert 'exit "$RC"' in body and 'exit "$WINDOW_RC"' not in body
 
 
 def test_the_observe_only_check_is_not_vacuous():
