@@ -505,6 +505,25 @@ def has_head_approval_from_agent(pr: dict, agent: str) -> bool:
     )
 
 
+def has_head_review_from_agent(pr: dict, agent: str) -> bool:
+    """This agent already recorded an effective review (either verdict) on
+    the current head.
+
+    A head reviewed once is reviewed: re-dispatching the reviewer at it only
+    duplicates the review and spends the reviewer's quota. The contract
+    findings the queue carries are the AUTHOR's to fix (the fix workflow
+    picks them up); nothing the reviewer re-states changes them. 2026-10-05:
+    codex approved renquant-strategy-104#107 twenty-two times on one head
+    because its production-path finding kept the PR 'not clean', and the
+    queue only skipped a head after a CHANGES_REQUESTED.
+    """
+    return any(
+        r.get("state") in ("APPROVED", "CHANGES_REQUESTED")
+        and _marker_present(r.get("body"), action="reviewed", agent=agent)
+        for r in _effective_reviews_at_head(pr)
+    )
+
+
 def has_head_changes_requested_from_agent(pr: dict, agent: str) -> bool:
     """This agent's effective review on the current head requests changes.
 
@@ -683,9 +702,11 @@ def build_queue(
                 continue
             if peer_approved and not findings:
                 continue  # already has a clean approval — nothing to add
-            if has_head_changes_requested_from_agent(pr, agent):
-                # This agent already recorded findings against this exact
-                # head; re-reviewing it would only duplicate the review.
+            if has_head_review_from_agent(pr, agent):
+                # This agent already reviewed this exact head (approved or
+                # requested changes); re-reviewing it would only duplicate
+                # the review and burn reviewer quota. Contract findings on
+                # an approved head are the author's to fix (fix workflow).
                 # The author's fix push (a new head) re-opens review.
                 continue
             notes = list(findings)
