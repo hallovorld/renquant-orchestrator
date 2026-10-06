@@ -698,6 +698,26 @@ def test_a_buy_gated_day_with_the_exporters_sidecar_is_OK_and_named(tmp_path, mo
     assert "scheduler DISARMED" in out
 
 
+def test_a_sell_only_zero_candidate_day_with_the_exporters_sidecar_is_OK_and_named(tmp_path, monkeypatch, capsys):
+    """2026-10-06: the exporter's second designed reason (SKIP_REASON_NO_CANDIDATES
+    — a completed, contract-clean run that admitted no candidate, the sell-only
+    fallback shape since 09-29). Same chain as buy_gated: OK, named, no page."""
+    calls = _fake_send(monkeypatch)
+    r = Root(tmp_path, monkeypatch)
+    r.designed_skip(reason="no_candidates")  # exporter.SKIP_REASON_NO_CANDIDATES
+    r.serving_skipped_upstream()
+    with open(r.pilot / "shadow_realtime_serving.jsonl", "w") as fh:
+        fh.write(json.dumps({"record_kind": "shadow_realtime_score", "session_date": "2026-08-27",
+                             "ticker": "AAPL"}) + "\n")
+    rc = liveness.main(INCIDENT_DAY)
+    assert rc == 0
+    assert calls == [], "a designed skip must not page"
+    out = capsys.readouterr().out
+    assert "rq105 liveness OK" in out
+    assert "SKIPPED by design" in out and "zero candidates" in out
+    assert "no_candidates" in liveness._DESIGNED_SKIP_REASONS
+
+
 def test_a_sidecar_for_another_day_does_not_exempt(tmp_path, monkeypatch):
     calls = _fake_send(monkeypatch)
     r = Root(tmp_path, monkeypatch)

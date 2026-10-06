@@ -779,7 +779,7 @@ def _first_line(path: Path) -> str:
 #: rule, e.g. EMA50GateTask on 2026-09-15 / 2026-07-29 — rq105 is downstream of
 #: 104's buy admission, so no class-A vector exists for that day). Bound to the
 #: exporter's `skipped_sidecar_path` / `SKIP_REASON_BUY_GATED` by tests.
-_DESIGNED_SKIP_REASONS = frozenset({"buy_gated"})
+_DESIGNED_SKIP_REASONS = frozenset({"buy_gated", "no_candidates"})  # exporter SKIP_REASON_*
 
 
 def _designed_export_skip(data_root: Path, today_iso: str) -> tuple[bool, str]:
@@ -810,7 +810,8 @@ def _designed_export_skip(data_root: Path, today_iso: str) -> tuple[bool, str]:
     return True, (
         f"export SKIPPED by design for {today_iso}: prior session "
         f"{payload.get('source_run_date')!r} run {payload.get('source_run_id')!r} was "
-        f"buy-gated (buy_blocked={flags.get('buy_blocked')!r} skip_buys={flags.get('skip_buys')!r}) "
+        f"{'buy-gated' if reason == 'buy_gated' else 'completed with zero candidates (sell-only fallback / empty funnel)'} "
+        f"(buy_blocked={flags.get('buy_blocked')!r} skip_buys={flags.get('skip_buys')!r}) "
         f"— no class-A vector exists for that day by construction ({sidecar.name})")
 
 

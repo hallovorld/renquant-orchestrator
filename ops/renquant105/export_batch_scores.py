@@ -116,6 +116,20 @@ BUY_GATED_GAP = "full_buy_run(pipeline_flags)"
 #: without it the whole downstream chain (export_missing, serving_noop, the
 #: pairing collector) paged 🚨 rq105 DOWN on every buy-gated day.
 SKIP_REASON_BUY_GATED = "buy_gated"
+#: 2026-10-06: the SELL-ONLY shape. When 104's preflight fails hard (P-WF-GATE /
+#: P-REGIME-IC — the served artifact aged past the RFC#210 bar on 2026-09-29)
+#: the daily falls back to a sell-only run: contract-clean, provenance present,
+#: ``pipeline_flags`` still ``buy_blocked=False skip_buys=False`` (the flags
+#: describe the regime rule, not the fallback) and ZERO ``role='candidate'``
+#: rows — so ``_select_source_run`` finds nothing and the buy-gated branch
+#: above never sees the run. Measured 2026-10-06 on runs.alpaca.db: 2026-10-02
+#: 35 completed live runs / 0 candidate rows, 2026-10-05 36 / 0, 2026-10-06
+#: 35 / 0 — paged ``export FAILED rc=1`` → serving SKIPPED → 🚨 rq105 DOWN every
+#: session since 09-29. A completed, contract-clean run that admitted no
+#: candidate is the same fact as a gated one: no class-A vector exists by
+#: construction. Nothing is broken in 105; 104's own zero-candidate sentinel
+#: owns that alarm.
+SKIP_REASON_NO_CANDIDATES = "no_candidates"
 
 
 def skipped_sidecar_path(out_dir: str, today: str) -> str:
@@ -262,6 +276,49 @@ def _select_source_run(con: sqlite3.Connection, expected_run_date: str):
     except (TypeError, ValueError):
         run_bundle = {}
     return run_id, run_date, run_bundle
+
+
+def _completed_runs_without_candidates(con: sqlite3.Connection, expected_run_date: str):
+    """The sell-only / empty-funnel shape (see SKIP_REASON_NO_CANDIDATES).
+
+    Returns ``(n_runs, latest_run_id, latest_run_bundle)`` when EVERY one of
+    the completed live runs on ``expected_run_date`` (same ``pipeline_runs``
+    predicate as ``_select_source_run``) is contract-clean
+    (``panel_contract.ok is True``) and NOT ONE of them persisted a
+    ``role='candidate'`` row with a non-null ``panel_score`` — the positive
+    evidence that the funnel ran and admitted nothing. ``None`` otherwise:
+    no completed run at all (the daily never fired — a real failure), or a
+    run that is not contract-clean (a real defect), or a run that DID
+    persist candidate rows but fewer than MIN_ROWS (not this shape). Each
+    branch fails closed to the caller's exit 1.
+    """
+    rows = con.execute(
+        "select run_id, run_bundle_json from pipeline_runs "
+        "where run_type = 'live' and run_date = ? "
+        "  and strategy is not null and strategy != '' "
+        "order by created_at desc",
+        (expected_run_date,),
+    ).fetchall()
+    if not rows:
+        return None
+    n_cand = con.execute(
+        "select count(*) from candidate_scores cs "
+        "join pipeline_runs pr on pr.run_id = cs.run_id "
+        "where pr.run_type = 'live' and pr.run_date = ? "
+        "  and cs.role = 'candidate' and cs.panel_score is not null",
+        (expected_run_date,),
+    ).fetchone()[0]
+    if n_cand:
+        return None
+    bundles = []
+    for _run_id, raw in rows:
+        try:
+            bundles.append(json.loads(raw) if raw else {})
+        except (TypeError, ValueError):
+            return None
+    if any((b.get("panel_contract") or {}).get("ok") is not True for b in bundles):
+        return None
+    return len(rows), rows[0][0], bundles[0]
 
 
 # panel + global_calibration are the two "primary runtime artifacts"
@@ -411,6 +468,35 @@ def main(
 
     selected = _select_source_run(con, expected_run_date)
     if not selected:
+        empty = _completed_runs_without_candidates(con, expected_run_date)
+        if empty is not None:
+            n_runs, run_id, run_bundle = empty
+            flags = run_bundle.get("pipeline_flags") or {}
+            print(
+                f"{n_runs} completed, contract-clean live run(s) on "
+                f"{expected_run_date} (latest {run_id}) persisted ZERO "
+                f"role='candidate' rows — 104 admitted no buy candidate that "
+                "session (sell-only fallback or an empty funnel), so no "
+                "class-A frozen vector exists for it by construction; SKIPPED "
+                f"by design (exit {EXIT_SOURCE_BUY_GATED}), nothing to repair "
+                "in rq105 (104's zero-candidate sentinel owns that alarm)",
+                file=sys.stderr,
+            )
+            os.makedirs(out_dir, exist_ok=True)
+            _atomic_write_json(skipped_sidecar_path(out_dir, today), {
+                "session_date": today,
+                "reason": SKIP_REASON_NO_CANDIDATES,
+                "source_run_id": run_id,
+                "source_run_date": expected_run_date,
+                "n_completed_runs": n_runs,
+                "pipeline_flags": {
+                    "buy_blocked": flags.get("buy_blocked"),
+                    "skip_buys": flags.get("skip_buys"),
+                },
+                "exit_code": EXIT_SOURCE_BUY_GATED,
+                "written_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            })
+            return EXIT_SOURCE_BUY_GATED
         print(
             f"no qualifying completed live run for the expected prior "
             f"session {expected_run_date} (immediately preceding NYSE "
