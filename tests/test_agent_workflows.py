@@ -18,6 +18,7 @@ from renquant_orchestrator.agent_workflows import (
     fetch_open_prs,
     has_head_approval_from_agent,
     has_head_changes_requested_from_agent,
+    has_head_review_from_agent,
     has_unaddressed_findings,
     is_approved,
     merge_audit_comment,
@@ -1628,3 +1629,28 @@ def test_an_unbound_marker_does_not_block_a_bound_REVIEW_from_attesting():
     status = merge_audit_status(pr)
     assert status["status"] == "review_attested"
     assert status["audited"] is True
+
+
+def test_review_queue_never_rereviews_a_head_it_already_approved():
+    """2026-10-05: codex approved strategy-104#107 22x on one head — the PR
+    carries a production-path contract finding (not 'clean'), and the queue
+    only skipped heads after a CHANGES_REQUESTED. An approved head is done
+    for the reviewer; the finding belongs to the author's fix queue."""
+    pr = _pr(12, author="claude",
+             files=[{"path": "configs/strategy_config.json"},
+                    {"path": "doc/progress/2026-10-05-pr-12.md"}],
+             reviews=[{"state": "APPROVED", "author": {"login": "rev"},
+                       "submittedAt": "2026-10-05T10:53:00Z",
+                       "body": "reviewed by codex"}])
+    assert contract_findings(pr), "fixture must carry a contract finding"
+    assert has_head_review_from_agent(pr, "codex") is True
+    assert build_queue("codex", "review", [pr]) == []
+    # the finding is the author's: it sits in the fix queue, not the review queue
+    assert [w.number for w in build_queue("claude", "fix", [pr])] == [12]
+    # a new head re-opens review
+    pr["headRefOid"] = "sha12-v2"
+    assert [w.number for w in build_queue("codex", "review", [pr])] == [12]
+    # and an approved head with NO findings was already skipped before this fix
+    clean = _pr(13, author="claude", reviews=[{"state": "APPROVED", "author": {"login": "rev"},
+                                              "submittedAt": "2026-10-05T10:53:00Z"}])
+    assert build_queue("codex", "review", [clean]) == []
