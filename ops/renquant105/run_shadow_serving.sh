@@ -53,7 +53,7 @@ if [ ! -f "$SCORES" ] || [ ! -f "$META" ]; then
     # (rq105_liveness_check._SERVING_SKIP_UPSTREAM_MARKER) and then reads the
     # same sidecar to decide "by design" — keep the marker verbatim.
     rq_notify "rq105 shadow serving SKIPPED — upstream export skipped by design ($TS)" \
-      "the prior session's run was buy-gated; no class-A vector exists for $TS by construction (see $SKIPPED_SIDECAR)" || true
+      "the prior session's run admitted no buy candidate (buy-gated or sell-only); no class-A vector exists for $TS by construction (see $SKIPPED_SIDECAR)" || true
     skip_log "SKIP upstream (by design): no frozen batch-score export — exporter sidecar present ($SKIPPED_SIDECAR)"
     exit "$EXIT_UPSTREAM_SKIPPED_BY_DESIGN"
   fi

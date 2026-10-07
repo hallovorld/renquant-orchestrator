@@ -1054,3 +1054,61 @@ def test_a_buy_gated_run_with_OTHER_health_gaps_is_still_a_failure(tmp_path, cap
     rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
     assert rc == 1
     assert "health evidence" in capsys.readouterr().err
+
+
+# ──────── 2026-10-06: a completed run with ZERO candidates is a designed skip ────────
+
+def test_a_sell_only_run_with_zero_candidate_rows_is_a_designed_skip_not_a_failure(tmp_path, capsys):
+    """2026-09-29 onward: 104's preflight fails hard (served artifact past the
+    RFC#210 age bar) and the daily falls back to sell-only — contract-clean,
+    provenance present, pipeline_flags buy_blocked=False/skip_buys=False (the
+    flags describe the regime rule, not the fallback) and zero role='candidate'
+    rows. `_select_source_run` finds nothing, so the buy-gated branch never
+    sees it, and the 06:15 export paged FAILED rc=1 every session (35 runs/day,
+    0 rows, 2026-10-02..06 measured). No class-A vector exists by construction."""
+    db = _make_db(tmp_path)
+    for i, created in enumerate(["2026-07-01T10:05:00", "2026-07-01T13:55:00"]):
+        _insert_run(db, f"r{i}", created_at=created, scores={})  # completed, no candidates
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == exporter.EXIT_SOURCE_BUY_GATED == 3
+    err = capsys.readouterr().err
+    assert "ZERO role='candidate' rows" in err and "SKIPPED by design" in err
+    out = tmp_path / "out"
+    assert not (out / "batch_scores_2026-07-02.json").exists()
+    sidecar = json.loads((out / "batch_scores_2026-07-02.skipped.json").read_text())
+    assert sidecar["reason"] == exporter.SKIP_REASON_NO_CANDIDATES == "no_candidates"
+    assert sidecar["source_run_id"] == "r1"  # the latest by created_at
+    assert sidecar["source_run_date"] == "2026-07-01"
+    assert sidecar["n_completed_runs"] == 2
+    assert sidecar["pipeline_flags"] == {"buy_blocked": False, "skip_buys": False}
+
+
+def test_zero_candidates_is_NOT_a_designed_skip_when_the_run_is_not_contract_clean(tmp_path, capsys):
+    """The skip is for 'the funnel ran and admitted nothing'. A run that never
+    loaded a clean panel contract admitted nothing for a DIFFERENT reason —
+    that stays a failure, otherwise every broken day would read as designed."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "r1", run_bundle=dict(_GOOD_BUNDLE, panel_contract={"ok": False}), scores={})
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert "no qualifying completed live run" in capsys.readouterr().err
+    assert not (tmp_path / "out" / "batch_scores_2026-07-02.skipped.json").exists()
+
+
+def test_no_completed_run_at_all_is_still_a_failure(tmp_path, capsys):
+    """The daily never fired (or never reached record_pipeline_run): nothing
+    to export AND something to repair — exit 1, no sidecar."""
+    db = _make_db(tmp_path)
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out" / "batch_scores_2026-07-02.skipped.json").exists()
+
+
+def test_a_thin_roster_below_min_rows_is_NOT_the_zero_candidate_shape(tmp_path, capsys):
+    """One candidate row below MIN_ROWS(=2 here) means the funnel DID admit
+    names and persistence is thin — not 'admitted nothing'. Stays exit 1."""
+    db = _make_db(tmp_path)
+    _insert_run(db, "r1", scores={"AAA": 0.1})
+    rc = exporter.main(db_path=db, out_dir=str(tmp_path / "out"), today="2026-07-02")
+    assert rc == 1
+    assert not (tmp_path / "out" / "batch_scores_2026-07-02.skipped.json").exists()
