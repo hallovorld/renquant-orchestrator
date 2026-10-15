@@ -70,7 +70,7 @@ if [ $RC -eq 3 ]; then
   # 2026-09-15). No class-A vector exists for such a day by construction —
   # a status report, not a failure; the title must not say FAILED.
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
-  rq_notify "rq105 batch scores export SKIPPED — prior session buy-gated by design ($TS)" \
+  rq_notify "rq105 batch scores export SKIPPED by design — prior session admitted no buy candidate ($TS)" \
     "see logs/rq105/batch_scores_export_$TS.log" || true
 elif [ $RC -ne 0 ]; then
   . "$RQ_ROOT/scripts/notify.sh" 2>/dev/null || true
