@@ -772,3 +772,43 @@ def test_alpaca_source_is_readonly_data_only():
     assert src.name == "alpaca-iex"
     assert not hasattr(src, "submit_order")
     assert not hasattr(src, "place_order")
+
+
+def test_alpaca_client_session_enforces_request_timeout(monkeypatch):
+    """alpaca-py sets no request timeout; a half-open socket hung the collector
+    (2026-11-05). The source must default every session request to timeout_sec."""
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
+    src = AlpacaQuoteSource(timeout_sec=7.5)
+    seen = {}
+
+    class _Sess:
+        def request(self, method, url, **opts):
+            seen.update(opts)
+            return "resp"
+
+    class _Client:
+        _session = _Sess()
+
+    client = _Client()
+    src._apply_request_timeout(client)
+    assert client._session.request("GET", "http://x") == "resp"
+    assert seen["timeout"] == 7.5
+    client._session.request("GET", "http://x", timeout=3)
+    assert seen["timeout"] == 3  # an explicit per-call timeout wins
+
+
+def test_alpaca_client_real_session_gets_timeout(monkeypatch):
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
+    src = AlpacaQuoteSource(timeout_sec=9.0)
+    client = src._get_client()
+    assert client._session.request.__name__ == "_request_with_timeout"
+
+
+def test_alpaca_client_without_session_fails_closed():
+    import pytest as _pytest
+
+    src = AlpacaQuoteSource()
+    with _pytest.raises(RuntimeError, match="cannot enforce the request timeout"):
+        src._apply_request_timeout(object())
