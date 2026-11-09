@@ -1,0 +1,46 @@
+name: fast-path-eligibility
+
+# Small-change fast path (doc/progress/2026-10-17-small-change-fast-path-proposal.md).
+# Publishes the commit status `fast-path/eligible` = success ONLY when the PR carries label
+# `fast-path` AND scripts/fast_path_eligibility.py approves the changed files at THIS head.
+# It waives nothing by itself: the operator's ruleset decides what a green `fast-path/eligible`
+# allows.  Any error leaves the status failing (fail closed).  The script is read from the BASE
+# branch so a PR cannot loosen the rules that judge it.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  eligibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - name: Decide and publish status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set +e
+          gh api "repos/$REPO/pulls/$PR/files" --paginate > files.json
+          since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          merged=$(gh api "search/issues?q=repo:$REPO+is:pr+is:merged+label:fast-path+merged:%3E$since" -q .total_count)
+          merged=${merged:-99}
+          verdict=$(python3 scripts/fast_path_eligibility.py --files files.json --labels "$LABELS" --merged-24h "$merged")
+          rc=$?
+          echo "$verdict"
+          state=failure; desc="not eligible: $(echo "$verdict" | head -c 100)"
+          if [ $rc -eq 0 ]; then state=success; desc="fast-path eligible at $HEAD"; fi
+          gh api "repos/$REPO/statuses/$HEAD" -f state="$state" -f context="fast-path/eligible" \
+            -f description="${desc:0:140}"
+          exit 0
