@@ -15,6 +15,13 @@
       ],
       "program_args_sha256": "36dc7754cb95d101609fcf33131889c7d5ab310bf9e307b078b487bb129a8281"
     },
+    "com.renquant.battery-guard": {
+      "program_args": [
+        "/Users/renhao/git/github/RenQuant/.venv/bin/python",
+        "/Users/renhao/git/github/renquant-orchestrator-run/ops/battery_guard.py"
+      ],
+      "program_args_sha256": "c4628aa8b59dcc5c5397687fa43a32eaebd11816475e46b7474f29711824b4b0"
+    },
     "com.renquant.conditional-retrain104": {
       "program_args": [
         "/Users/renhao/git/github/RenQuant/scripts/conditional_retrain_104.sh"
