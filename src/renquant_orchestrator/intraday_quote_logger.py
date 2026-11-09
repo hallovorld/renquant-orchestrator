@@ -220,8 +220,31 @@ class AlpacaQuoteSource:
                     "AlpacaQuoteSource: ALPACA_API_KEY + ALPACA_SECRET_KEY must be "
                     "set (source .env before running)"
                 )
-            self._client = StockHistoricalDataClient(api_key=key, secret_key=secret)
+            client = StockHistoricalDataClient(api_key=key, secret_key=secret)
+            self._apply_request_timeout(client)
+            self._client = client
         return self._client
+
+    def _apply_request_timeout(self, client: Any) -> None:
+        """alpaca-py's REST session sets NO request timeout, so a half-open socket
+        (the ``RemoteDisconnected`` storms seen 2026-11-05) blocks ``requests``
+        forever: the collector stays alive but writes nothing until the watchdog
+        kills it ~15 min later. Default every request through the session to
+        ``timeout_sec`` (an explicit per-call ``timeout`` still wins)."""
+        session = getattr(client, "_session", None)
+        request = getattr(session, "request", None)
+        if request is None:
+            raise RuntimeError(
+                "AlpacaQuoteSource: alpaca-py client has no _session.request — "
+                "cannot enforce the request timeout (library layout changed)"
+            )
+        timeout_sec = self._timeout_sec
+
+        def _request_with_timeout(*args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("timeout", timeout_sec)
+            return request(*args, **kwargs)
+
+        session.request = _request_with_timeout
 
     def get_quotes(self, tickers: Sequence[str]) -> Mapping[str, Quote]:
         if not tickers:
