@@ -235,8 +235,8 @@ rq105_watchdog() {  # expects COLLECTOR_PID in the environment
       _wd_alerted=1
       _stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       echo "[$_stamp] rq105 SILENT STALL — $FEED_PATH frozen ${_age}s (>= ${WATCHDOG_STALE_SECONDS}s) while collector PID $COLLECTOR_PID is STILL ALIVE (hang)" >> "$CRASH_LOG"
-      rq105_alert "🚨 rq105 DOWN — tick feed frozen (collector hung)" \
-        "intraday_ticks.jsonl not written for ${_age}s during the session ($TS) while the collector process is still alive — likely hung. crash log: logs/rq105/quote_logger_crash_$TS.log"
+      rq105_alert "🚨 rq105 DOWN — tick feed frozen (stalled or source failing)" \
+        "intraday_ticks.jsonl not written for ${_age}s during the session ($TS) while the collector process is still alive — hung, or the quote source is failing every batch (e.g. RemoteDisconnected; check the quote_logger log tail). The watchdog restarts it. crash log: logs/rq105/quote_logger_crash_$TS.log"
       if [ "$WATCHDOG_KILL" != "0" ]; then
         # Kill the hung (observe-only) collector so its non-zero exit lets
         # KeepAlive auto-restart it — a hang is otherwise invisible to KeepAlive.
