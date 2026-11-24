@@ -11,6 +11,11 @@ WHY/DIR:  Operator, 2026-11-14: "从今天开始，每周重训的模型强行�
           operator's written, dated, scoped decision (same shape as rows 2e/2g/2h and the fast-path policy #1133).
 EVIDENCE: see §0. This is a policy proposal; the numbers are the risk the operator is accepting, not a claim
           that the forced model is good.
+          artifact:      doc/progress/2026-11-14-weekly-forced-promote-proposal.md (policy text only; no model artifact is created or changed)
+          prod or exp:   prod-affecting policy proposal; nothing is in force until the operator ratifies it (no prod artifact touched)
+          existing data: logs/weekly_wf_promote/2026-11-14.log (quality_floor REJECT, placebo 0.0347 vs ceiling 0.0188) and daily_104 logs 2026-11-09..13 (sell-only); see §0 table for [VERIFIED]/[FROM] provenance
+          best-known?:   n/a — no model is ranked or promoted by this PR; the candidate is the weekly retrain, which §0 shows has no evidence of beating the benchmark
+          scope:         "this is the weekly-forced-promote policy proposal, prod-affecting once ratified, vs existing gate (row 1: REJECTED weekly candidates do not ship)"
 NEXT:     operator edits/approves and merges as `haorensjtu-dev`, adds the LONG row in §6 in the SAME merge or a
           follow-up reviewed PR; only then do the implementation PRs in §5 begin. Agents do NOT implement before
           that row exists.
